@@ -139,7 +139,7 @@ Requests must also match `server.allowed_cidrs`.
 
 ## Reverse Proxy
 
-Use a reverse proxy for TLS or public access. Bind this service to localhost unless you have a reason not to.
+Use a reverse proxy for TLS in Local Net. Not production grade software. Bind this service to localhost unless you have a reason not to.
 
 Nginx example:
 
