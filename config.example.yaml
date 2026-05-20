@@ -1,0 +1,30 @@
+server:
+  bind: "0.0.0.0:8080"
+  allowed_cidrs:
+    - "127.0.0.0/8"
+    - "::1/128"
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+
+auth:
+  bearer_keys: []
+
+models:
+  config_dir: "./kcpps"
+
+kobold:
+  backend_url: "http://127.0.0.1:5001"
+  binary_path: "./bin/koboldcpp"
+  data_dir: "./data"
+  multiuser: 1
+  quiet: true
+  skip_launcher: true
+  no_model: true
+  hide_window: true
+  extra_args: []
+
+updates:
+  enabled: true
+  check_interval: "168h"
+  binary_url: "https://koboldai.org/cpplinuxrocm"
