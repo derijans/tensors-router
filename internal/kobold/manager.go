@@ -30,6 +30,7 @@ type ProcessConfig struct {
 	SkipLauncher bool
 	NoModel      bool
 	HideWindow   bool
+	Logging      bool
 }
 
 type Manager struct {
@@ -117,19 +118,25 @@ func (manager *Manager) Start(ctx context.Context) error {
 		return err
 	}
 
-	logPath := filepath.Join(manager.config.DataDir, "koboldcpp.log")
-	logFile, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
-	if err != nil {
-		return err
+	var logFile *os.File
+	processOutput := io.Writer(io.Discard)
+	if manager.config.Logging {
+		logPath := filepath.Join(manager.config.DataDir, "koboldcpp.log")
+		var err error
+		logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			return err
+		}
+		processOutput = logFile
 	}
 
 	cmd := exec.Command(manager.config.BinaryPath, manager.LaunchArguments()...)
 	prepareCommand(cmd, manager.config)
-	cmd.Stdout = logFile
-	cmd.Stderr = logFile
+	cmd.Stdout = processOutput
+	cmd.Stderr = processOutput
 
 	if err := cmd.Start(); err != nil {
-		_ = logFile.Close()
+		_ = closeLogFile(logFile)
 		return err
 	}
 
@@ -140,7 +147,7 @@ func (manager *Manager) Start(ctx context.Context) error {
 
 	go func() {
 		waitDone <- cmd.Wait()
-		_ = logFile.Close()
+		_ = closeLogFile(logFile)
 	}()
 
 	if err := manager.waitHealthy(ctx, 90*time.Second); err != nil {
@@ -166,7 +173,7 @@ func (manager *Manager) Stop(ctx context.Context) error {
 
 	if cmd == nil || cmd.Process == nil {
 		if logFile != nil {
-			return logFile.Close()
+			return closeLogFile(logFile)
 		}
 		return nil
 	}
@@ -187,6 +194,13 @@ func (manager *Manager) Stop(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func closeLogFile(logFile *os.File) error {
+	if logFile == nil {
+		return nil
+	}
+	return logFile.Close()
 }
 
 func (manager *Manager) Restart(ctx context.Context) error {

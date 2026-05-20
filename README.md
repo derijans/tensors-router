@@ -58,6 +58,9 @@ kobold:
   binary_path: "./bin/koboldcpp"
   data_dir: "./data"
   no_model: true
+
+logging:
+  enabled: true
 ```
 
 ## Download KoboldCpp
@@ -136,6 +139,10 @@ auth:
 ```
 
 Requests must also match `server.allowed_cidrs`.
+
+## Logging
+
+Set `logging.enabled: false` to suppress router event logs and discard KoboldCpp stdout/stderr instead of writing `koboldcpp.log`.
 
 ## Reverse Proxy
 

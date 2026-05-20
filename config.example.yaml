@@ -24,6 +24,9 @@ kobold:
   hide_window: true
   extra_args: []
 
+logging:
+  enabled: true
+
 updates:
   enabled: true
   check_interval: "168h"

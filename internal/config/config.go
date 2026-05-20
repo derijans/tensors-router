@@ -15,6 +15,7 @@ type Config struct {
 	Auth    AuthConfig
 	Models  ModelsConfig
 	Kobold  KoboldConfig
+	Logging LoggingConfig
 	Updates UpdatesConfig
 }
 
@@ -41,6 +42,10 @@ type KoboldConfig struct {
 	SkipLauncher bool
 	NoModel      bool
 	HideWindow   bool
+}
+
+type LoggingConfig struct {
+	Enabled bool
 }
 
 type UpdatesConfig struct {
@@ -77,6 +82,9 @@ func Defaults() Config {
 			SkipLauncher: true,
 			NoModel:      true,
 			HideWindow:   true,
+		},
+		Logging: LoggingConfig{
+			Enabled: true,
 		},
 		Updates: UpdatesConfig{
 			Enabled:       true,
@@ -371,6 +379,16 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 				return err
 			}
 			cfg.Kobold.HideWindow = parsed
+			return nil
+		}
+	case "logging":
+		switch key {
+		case "enabled":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return err
+			}
+			cfg.Logging.Enabled = parsed
 			return nil
 		}
 	case "updates":

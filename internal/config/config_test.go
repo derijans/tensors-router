@@ -36,6 +36,9 @@ kobold:
   hide_window: false
   extra_args: ["--flashattention", "--quiet"]
 
+logging:
+  enabled: false
+
 updates:
   enabled: false
   check_interval: "24h"
@@ -65,6 +68,9 @@ updates:
 	if cfg.Kobold.Quiet || cfg.Kobold.SkipLauncher || cfg.Kobold.NoModel || cfg.Kobold.HideWindow {
 		t.Fatalf("unexpected kobold bool settings %#v", cfg.Kobold)
 	}
+	if cfg.Logging.Enabled {
+		t.Fatalf("logging should be disabled")
+	}
 	if cfg.Updates.Enabled {
 		t.Fatalf("updates should be disabled")
 	}
@@ -83,6 +89,9 @@ func TestLoadDefaultConfigWhenDefaultFileMissing(t *testing.T) {
 	}
 	if !cfg.Kobold.Quiet || !cfg.Kobold.SkipLauncher || !cfg.Kobold.NoModel || !cfg.Kobold.HideWindow {
 		t.Fatalf("default kobold bool settings should be enabled")
+	}
+	if !cfg.Logging.Enabled {
+		t.Fatalf("default logging should be enabled")
 	}
 }
 

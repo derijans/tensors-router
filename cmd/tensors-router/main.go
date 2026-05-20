@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -59,6 +60,10 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
+	serveLogger := log.Default()
+	if !cfg.Logging.Enabled {
+		serveLogger = log.New(io.Discard, "", 0)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -80,6 +85,7 @@ func runServe(args []string) error {
 		SkipLauncher: cfg.Kobold.SkipLauncher,
 		NoModel:      cfg.Kobold.NoModel,
 		HideWindow:   cfg.Kobold.HideWindow,
+		Logging:      cfg.Logging.Enabled,
 	})
 	if err != nil {
 		return err
@@ -92,7 +98,7 @@ func runServe(args []string) error {
 		shutdownContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
 		if err := processManager.Stop(shutdownContext); err != nil {
-			log.Printf("kobold stop failed: %v", err)
+			serveLogger.Printf("kobold stop failed: %v", err)
 		}
 	}()
 
@@ -104,6 +110,7 @@ func runServe(args []string) error {
 	router := proxy.NewService(proxy.ServiceConfig{
 		Backend: processManager,
 		Catalog: modelCatalog,
+		Logger:  serveLogger,
 	})
 
 	server := &http.Server{
@@ -114,7 +121,7 @@ func runServe(args []string) error {
 
 	errs := make(chan error, 1)
 	go func() {
-		log.Printf("listening on %s", cfg.Server.Bind)
+		serveLogger.Printf("listening on %s", cfg.Server.Bind)
 		errs <- server.ListenAndServe()
 	}()
 
