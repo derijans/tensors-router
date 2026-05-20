@@ -103,7 +103,7 @@ jobs:
     name: Publish release assets
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/')
+    if: github.event_name == 'release' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/') || (github.event_name == 'push' && github.ref_name == github.event.repository.default_branch)
     permissions:
       contents: write
 
@@ -118,10 +118,18 @@ jobs:
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG_NAME: ${{ github.event.release.tag_name || github.ref_name }}
+          RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
         run: |
+          if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+            TAG_NAME="$RELEASE_TAG_NAME"
+          elif [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG_NAME="$GITHUB_REF_NAME"
+          else
+            TAG_NAME="latest"
+          fi
+
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
             gh release upload "$TAG_NAME" release/* --clobber
           else
-            gh release create "$TAG_NAME" release/* --generate-notes --title "$TAG_NAME"
+            gh release create "$TAG_NAME" release/* --generate-notes --title "$TAG_NAME" --target "$GITHUB_SHA"
           fi
