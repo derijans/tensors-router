@@ -108,6 +108,9 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download build artifacts
         uses: actions/download-artifact@v4
         with:
@@ -118,6 +121,7 @@ jobs:
       - name: Upload release assets
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
         run: |
           if [ "$GITHUB_EVENT_NAME" = "release" ]; then
