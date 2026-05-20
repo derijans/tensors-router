@@ -90,7 +90,6 @@ func (manager *Manager) LaunchArguments() []string {
 		"--admin",
 		"--adminpassword", manager.adminPassword,
 		"--admindir", manager.config.ConfigDir,
-		"--routermode",
 		"--multiuser", strconv.Itoa(manager.config.Multiuser),
 	}
 	if manager.config.NoModel {
@@ -102,8 +101,19 @@ func (manager *Manager) LaunchArguments() []string {
 	if manager.config.Quiet {
 		args = append(args, "--quiet")
 	}
-	args = append(args, manager.config.ExtraArgs...)
+	args = append(args, launchExtraArgs(manager.config.ExtraArgs)...)
 	return args
+}
+
+func launchExtraArgs(args []string) []string {
+	filtered := make([]string, 0, len(args))
+	for _, arg := range args {
+		if arg == "--routermode" {
+			continue
+		}
+		filtered = append(filtered, arg)
+	}
+	return filtered
 }
 
 func (manager *Manager) Start(ctx context.Context) error {

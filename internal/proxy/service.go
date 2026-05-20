@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -44,6 +45,34 @@ type Service struct {
 
 	activeConfigMu       sync.Mutex
 	activeConfigFilename string
+
+	backendRetryAttempts int
+	backendRetryDelay    time.Duration
+	backendRetryMaxDelay time.Duration
+}
+
+const (
+	defaultBackendRetryAttempts = 300
+	defaultBackendRetryDelay    = 1 * time.Second
+	defaultBackendRetryMaxDelay = 2 * time.Second
+	backendErrorBodyLimit       = 4096
+	modelOperationTimeout       = 15 * time.Minute
+)
+
+type backendRetryResult struct {
+	retry  bool
+	status int
+	err    error
+	body   string
+}
+
+type replayReadCloser struct {
+	io.Reader
+	closer io.Closer
+}
+
+func (body replayReadCloser) Close() error {
+	return body.closer.Close()
 }
 
 func NewService(config ServiceConfig) *Service {
@@ -58,6 +87,9 @@ func NewService(config ServiceConfig) *Service {
 		client: &http.Client{
 			Timeout: 0,
 		},
+		backendRetryAttempts: defaultBackendRetryAttempts,
+		backendRetryDelay:    defaultBackendRetryDelay,
+		backendRetryMaxDelay: defaultBackendRetryMaxDelay,
 	}
 }
 
@@ -138,9 +170,14 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 
 func (service *Service) forwardWithFallback(ctx context.Context, original *http.Request, body []byte, modelID string, configFilename string, hasModel bool) (*http.Response, error) {
 	loadedFresh := false
+	modelContext := ctx
+	cancelModelContext := func() {}
 	if hasModel {
+		modelContext, cancelModelContext = context.WithTimeout(context.WithoutCancel(ctx), modelOperationTimeout)
+		defer cancelModelContext()
+
 		var err error
-		loadedFresh, err = service.ensureModelConfig(ctx, modelID, configFilename)
+		loadedFresh, err = service.ensureModelConfig(modelContext, modelID, configFilename)
 		if err != nil {
 			return nil, err
 		}
@@ -150,32 +187,258 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 	if !hasModel {
 		return response, err
 	}
-	if err == nil && response.StatusCode < 500 {
+	retryResult := service.backendRetryResult(response, err, original.URL.Path)
+	if !retryResult.retry {
 		return response, nil
 	}
-	if err != nil {
-		service.logger.Printf("backend request failed path=%s model=%q config=%q error=%v", original.URL.Path, modelID, configFilename, err)
-	} else {
-		service.logger.Printf("backend returned retryable status path=%s model=%q config=%q status=%d", original.URL.Path, modelID, configFilename, response.StatusCode)
-	}
-	if response != nil {
-		_, _ = io.Copy(io.Discard, response.Body)
-		_ = response.Body.Close()
-	}
 
-	if !loadedFresh {
-		if reloadErr := service.forceModelConfig(ctx, modelID, configFilename); reloadErr != nil {
+	lastStatus := retryResult.status
+	lastErr := retryResult.err
+	lastBody := retryResult.body
+	service.logRetryableBackendResult(original.URL.Path, modelID, configFilename, 0, lastStatus, lastErr, lastBody)
+
+	if !loadedFresh && !isBackendWaitingResponse(lastStatus, lastBody) {
+		if reloadErr := service.forceModelConfig(modelContext, modelID, configFilename); reloadErr != nil {
 			return nil, reloadErr
 		}
+	} else if !loadedFresh {
+		service.logger.Printf("backend unavailable while config already active; retrying without reload model=%q config=%q", modelID, configFilename)
 	} else {
 		service.logger.Printf("backend retry after fresh config load model=%q config=%q", modelID, configFilename)
 	}
 
-	response, err = service.forward(ctx, original, body)
-	if err != nil {
-		service.logger.Printf("backend retry failed path=%s model=%q config=%q error=%v", original.URL.Path, modelID, configFilename, err)
+	retryDelay := service.backendRetryDelay
+	for attempt := 1; attempt <= service.backendRetryAttempts; attempt++ {
+		if attempt > 1 {
+			if err := waitForRetry(ctx, retryDelay); err != nil {
+				return nil, err
+			}
+			retryDelay = nextRetryDelay(retryDelay, service.backendRetryMaxDelay)
+		}
+
+		response, err = service.forward(ctx, original, body)
+		retryResult = service.backendRetryResult(response, err, original.URL.Path)
+		if !retryResult.retry {
+			return response, nil
+		}
+
+		lastStatus = retryResult.status
+		lastErr = retryResult.err
+		lastBody = retryResult.body
+		service.logRetryableBackendResult(original.URL.Path, modelID, configFilename, attempt, lastStatus, lastErr, lastBody)
 	}
-	return response, err
+
+	service.logger.Printf("backend retry exhausted path=%s model=%q config=%q attempts=%d status=%d error=%v body=%q", original.URL.Path, modelID, configFilename, service.backendRetryAttempts, lastStatus, lastErr, lastBody)
+	return nil, backendRetryExhaustedError(lastStatus, lastErr, lastBody)
+}
+
+func (service *Service) backendRetryResult(response *http.Response, err error, path string) backendRetryResult {
+	if err != nil {
+		return backendRetryResult{retry: true, err: err}
+	}
+	if response == nil {
+		return backendRetryResult{retry: true}
+	}
+	if response.StatusCode >= 500 {
+		return backendRetryResult{
+			retry:  true,
+			status: response.StatusCode,
+			body:   drainResponseBodyPreview(response),
+		}
+	}
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
+		return service.successRetryResult(response, path)
+	}
+	return backendRetryResult{status: response.StatusCode}
+}
+
+func (service *Service) successRetryResult(response *http.Response, path string) backendRetryResult {
+	if response.Body == nil {
+		return backendRetryResult{retry: true, status: response.StatusCode}
+	}
+	if isEventStream(response.Header) {
+		buffer := make([]byte, 1)
+		read, err := response.Body.Read(buffer)
+		if read > 0 {
+			response.Body = replayReadCloser{
+				Reader: io.MultiReader(bytes.NewReader(buffer[:read]), response.Body),
+				closer: response.Body,
+			}
+			return backendRetryResult{status: response.StatusCode}
+		}
+		_ = response.Body.Close()
+		if err == io.EOF {
+			return backendRetryResult{retry: true, status: response.StatusCode}
+		}
+		return backendRetryResult{retry: true, status: response.StatusCode, err: err}
+	}
+
+	body, err := io.ReadAll(response.Body)
+	_ = response.Body.Close()
+	if err != nil {
+		return backendRetryResult{retry: true, status: response.StatusCode, err: err}
+	}
+	if len(bytes.TrimSpace(body)) == 0 {
+		return backendRetryResult{retry: true, status: response.StatusCode}
+	}
+	if isCorePath(path) && isJSONResponse(response.Header) && coreResponseHasEmptyText(body) {
+		return backendRetryResult{retry: true, status: response.StatusCode, body: strings.TrimSpace(string(body))}
+	}
+	response.Body = io.NopCloser(bytes.NewReader(body))
+	response.ContentLength = int64(len(body))
+	return backendRetryResult{status: response.StatusCode}
+}
+
+func coreResponseHasEmptyText(body []byte) bool {
+	var parsed struct {
+		Choices []json.RawMessage `json:"choices"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return false
+	}
+	if parsed.Choices == nil {
+		return false
+	}
+	if len(parsed.Choices) == 0 {
+		return true
+	}
+
+	foundOutput := false
+	for _, choice := range parsed.Choices {
+		output, ok := choiceOutputText(choice)
+		if !ok {
+			continue
+		}
+		foundOutput = true
+		if strings.TrimSpace(output) != "" {
+			return false
+		}
+	}
+	return foundOutput
+}
+
+func choiceOutputText(choice json.RawMessage) (string, bool) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(choice, &fields); err != nil {
+		return "", false
+	}
+	if text, ok := jsonStringField(fields, "text"); ok {
+		return text, true
+	}
+	message, ok := fields["message"]
+	if ok {
+		if text, ok := messageContentText(message); ok {
+			return text, true
+		}
+	}
+	delta, ok := fields["delta"]
+	if ok {
+		if text, ok := messageContentText(delta); ok {
+			return text, true
+		}
+	}
+	return "", false
+}
+
+func messageContentText(message json.RawMessage) (string, bool) {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(message, &fields); err != nil {
+		return "", false
+	}
+	return jsonStringField(fields, "content")
+}
+
+func jsonStringField(fields map[string]json.RawMessage, key string) (string, bool) {
+	value, ok := fields[key]
+	if !ok {
+		return "", false
+	}
+	var text string
+	if err := json.Unmarshal(value, &text); err != nil {
+		return "", false
+	}
+	return text, true
+}
+
+func isKoboldUnavailableResponse(status int, body string) bool {
+	return status == http.StatusBadGateway && strings.Contains(body, "KoboldCpp is not available.")
+}
+
+func isBackendWaitingResponse(status int, body string) bool {
+	if isKoboldUnavailableResponse(status, body) {
+		return true
+	}
+	if status < 200 || status >= 300 {
+		return false
+	}
+	return strings.TrimSpace(body) == "" || coreResponseHasEmptyText([]byte(body))
+}
+
+func (service *Service) logRetryableBackendResult(path string, modelID string, configFilename string, attempt int, status int, err error, body string) {
+	if err != nil {
+		if attempt == 0 {
+			service.logger.Printf("backend request failed path=%s model=%q config=%q error=%v", path, modelID, configFilename, err)
+			return
+		}
+		service.logger.Printf("backend retry failed path=%s model=%q config=%q attempt=%d error=%v", path, modelID, configFilename, attempt, err)
+		return
+	}
+	if attempt == 0 {
+		service.logger.Printf("backend returned retryable status path=%s model=%q config=%q status=%d body=%q", path, modelID, configFilename, status, body)
+		return
+	}
+	service.logger.Printf("backend retry returned retryable status path=%s model=%q config=%q attempt=%d status=%d body=%q", path, modelID, configFilename, attempt, status, body)
+}
+
+func drainResponseBodyPreview(response *http.Response) string {
+	if response == nil || response.Body == nil {
+		return ""
+	}
+	body, _ := io.ReadAll(io.LimitReader(response.Body, backendErrorBodyLimit+1))
+	_, _ = io.Copy(io.Discard, response.Body)
+	_ = response.Body.Close()
+	if len(body) > backendErrorBodyLimit {
+		body = body[:backendErrorBodyLimit]
+	}
+	return strings.TrimSpace(string(body))
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+func nextRetryDelay(delay time.Duration, maxDelay time.Duration) time.Duration {
+	if delay <= 0 {
+		return delay
+	}
+	next := delay * 2
+	if maxDelay > 0 && next > maxDelay {
+		return maxDelay
+	}
+	return next
+}
+
+func backendRetryExhaustedError(status int, err error, body string) error {
+	if err != nil {
+		return fmt.Errorf("backend unavailable after retries: %w", err)
+	}
+	if status > 0 && body != "" {
+		return fmt.Errorf("backend unavailable after retries: status %d: %s", status, body)
+	}
+	if status > 0 {
+		return fmt.Errorf("backend unavailable after retries: status %d", status)
+	}
+	return fmt.Errorf("backend unavailable after retries")
 }
 
 func (service *Service) ensureModelConfig(ctx context.Context, modelID string, configFilename string) (bool, error) {
@@ -189,6 +452,10 @@ func (service *Service) ensureModelConfig(ctx context.Context, modelID string, c
 	if err := service.reloadModelConfigLocked(ctx, modelID, configFilename); err != nil {
 		return false, err
 	}
+	if err := service.waitForBackendModelsEndpoint(ctx, modelID, configFilename); err != nil {
+		service.activeConfigFilename = ""
+		return false, err
+	}
 	return true, nil
 }
 
@@ -196,7 +463,14 @@ func (service *Service) forceModelConfig(ctx context.Context, modelID string, co
 	service.activeConfigMu.Lock()
 	defer service.activeConfigMu.Unlock()
 
-	return service.reloadModelConfigLocked(ctx, modelID, configFilename)
+	if err := service.reloadModelConfigLocked(ctx, modelID, configFilename); err != nil {
+		return err
+	}
+	if err := service.waitForBackendModelsEndpoint(ctx, modelID, configFilename); err != nil {
+		service.activeConfigFilename = ""
+		return err
+	}
+	return nil
 }
 
 func (service *Service) reloadModelConfigLocked(ctx context.Context, modelID string, configFilename string) error {
@@ -226,6 +500,56 @@ func (service *Service) reloadModelConfigLocked(ctx context.Context, modelID str
 	service.activeConfigFilename = configFilename
 	service.logger.Printf("config switch reload succeeded model=%q config=%q", modelID, configFilename)
 	return nil
+}
+
+func (service *Service) waitForBackendModelsEndpoint(ctx context.Context, modelID string, configFilename string) error {
+	retryDelay := service.backendRetryDelay
+	var lastStatus int
+	var lastBody string
+	var lastErr error
+
+	for attempt := 1; attempt <= service.backendRetryAttempts; attempt++ {
+		status, body, err := service.probeBackendModelsEndpoint(ctx)
+		if err == nil && status >= 200 && status < 300 {
+			if attempt > 1 {
+				service.logger.Printf("backend model endpoint ready model=%q config=%q attempt=%d", modelID, configFilename, attempt)
+			}
+			return nil
+		}
+
+		lastStatus = status
+		lastBody = body
+		lastErr = err
+		if attempt == 1 || attempt%30 == 0 {
+			service.logger.Printf("waiting for backend model endpoint model=%q config=%q attempt=%d status=%d error=%v body=%q", modelID, configFilename, attempt, status, err, body)
+		}
+
+		if attempt < service.backendRetryAttempts {
+			if err := waitForRetry(ctx, retryDelay); err != nil {
+				return err
+			}
+			retryDelay = nextRetryDelay(retryDelay, service.backendRetryMaxDelay)
+		}
+	}
+
+	return fmt.Errorf("backend model endpoint unavailable after retries: status %d error=%v body=%q", lastStatus, lastErr, lastBody)
+}
+
+func (service *Service) probeBackendModelsEndpoint(ctx context.Context) (int, string, error) {
+	target := service.backend.URL()
+	target.Path = joinPath(target.Path, "/v1/models")
+	target.RawQuery = ""
+
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
+	if err != nil {
+		return 0, "", err
+	}
+
+	response, err := service.client.Do(request)
+	if err != nil {
+		return 0, "", err
+	}
+	return response.StatusCode, drainResponseBodyPreview(response), nil
 }
 
 func (service *Service) forward(ctx context.Context, original *http.Request, body []byte) (*http.Response, error) {

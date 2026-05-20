@@ -15,7 +15,7 @@ func TestLaunchArguments(t *testing.T) {
 		ConfigDir:    "./kcpps",
 		DataDir:      "./data",
 		Multiuser:    3,
-		ExtraArgs:    []string{"--quiet"},
+		ExtraArgs:    []string{"--quiet", "--routermode"},
 		Quiet:        true,
 		SkipLauncher: true,
 		NoModel:      true,
@@ -30,7 +30,7 @@ func TestLaunchArguments(t *testing.T) {
 	expectSequence(t, args, "--admindir", "./kcpps")
 	expectSequence(t, args, "--multiuser", "3")
 	expectPresent(t, args, "--admin")
-	expectPresent(t, args, "--routermode")
+	expectAbsent(t, args, "--routermode")
 	expectPresent(t, args, "--nomodel")
 	expectPresent(t, args, "--skiplauncher")
 	expectPresent(t, args, "--quiet")
@@ -98,4 +98,13 @@ func expectPresent(t *testing.T, args []string, key string) {
 		}
 	}
 	t.Fatalf("expected %s in %#v", key, args)
+}
+
+func expectAbsent(t *testing.T, args []string, key string) {
+	t.Helper()
+	for _, arg := range args {
+		if arg == key {
+			t.Fatalf("did not expect %s in %#v", key, args)
+		}
+	}
 }
