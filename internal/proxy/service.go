@@ -28,7 +28,11 @@ type Backend interface {
 
 type ModelCatalog interface {
 	List() ([]catalog.Model, error)
+	ListLLM() ([]catalog.Model, error)
+	ListImages(activeConfigFilename string) ([]catalog.Model, error)
 	Resolve(id string) (catalog.Model, bool, error)
+	ResolveImage(id string, activeConfigFilename string) (catalog.Model, bool, error)
+	ResolveActiveImage(activeConfigFilename string) (catalog.Model, bool, error)
 }
 
 type ServiceConfig struct {
@@ -43,8 +47,12 @@ type Service struct {
 	client  *http.Client
 	logger  *log.Logger
 
-	activeConfigMu       sync.Mutex
-	activeConfigFilename string
+	activeConfigMu            sync.Mutex
+	activeConfigChanged       chan struct{}
+	activeConfigFilename      string
+	activeConfigUsers         int
+	activeConfigSwitching     bool
+	activeConfigSwitchWaiters int
 
 	backendRetryAttempts int
 	backendRetryDelay    time.Duration
@@ -55,8 +63,15 @@ const (
 	defaultBackendRetryAttempts = 300
 	defaultBackendRetryDelay    = 1 * time.Second
 	defaultBackendRetryMaxDelay = 2 * time.Second
-	backendErrorBodyLimit       = 4096
+	backendErrorBodyLimit       = 1024
 	modelOperationTimeout       = 15 * time.Minute
+)
+
+type backendReadiness string
+
+const (
+	readinessText  backendReadiness = "/v1/models"
+	readinessImage backendReadiness = "/sdapi/v1/sd-models"
 )
 
 type backendRetryResult struct {
@@ -75,6 +90,27 @@ func (body replayReadCloser) Close() error {
 	return body.closer.Close()
 }
 
+type releaseReadCloser struct {
+	io.ReadCloser
+	once    sync.Once
+	release func()
+}
+
+func (body *releaseReadCloser) Close() error {
+	err := body.ReadCloser.Close()
+	body.once.Do(body.release)
+	return err
+}
+
+type imageModelObject struct {
+	Title     string `json:"title"`
+	ModelName string `json:"model_name"`
+	Hash      string `json:"hash"`
+	SHA256    string `json:"sha256"`
+	Filename  string `json:"filename"`
+	Config    string `json:"config"`
+}
+
 func NewService(config ServiceConfig) *Service {
 	logger := config.Logger
 	if logger == nil {
@@ -87,6 +123,7 @@ func NewService(config ServiceConfig) *Service {
 		client: &http.Client{
 			Timeout: 0,
 		},
+		activeConfigChanged:  make(chan struct{}),
 		backendRetryAttempts: defaultBackendRetryAttempts,
 		backendRetryDelay:    defaultBackendRetryDelay,
 		backendRetryMaxDelay: defaultBackendRetryMaxDelay,
@@ -99,8 +136,28 @@ func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.Method == http.MethodGet && r.URL.Path == "/sdapi/v1/sd-models" {
+		service.handleImageModels(w)
+		return
+	}
+
+	if r.URL.Path == "/sdapi/v1/options" {
+		service.handleImageOptions(w, r)
+		return
+	}
+
+	if r.Method == http.MethodPost && r.URL.Path == "/sdapi/v1/refresh-checkpoints" {
+		openai.WriteJSON(w, http.StatusOK, map[string]any{})
+		return
+	}
+
 	if r.Method == http.MethodPost && isCorePath(r.URL.Path) {
 		service.handleModelRequest(w, r, true)
+		return
+	}
+
+	if isImagePath(r.URL.Path) {
+		service.handleImageRequest(w, r)
 		return
 	}
 
@@ -113,12 +170,184 @@ func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (service *Service) handleModels(w http.ResponseWriter) {
-	models, err := service.catalog.List()
+	models, err := service.catalog.ListLLM()
 	if err != nil {
 		openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, openai.ModelsResponseFromCatalog(models))
+}
+
+func (service *Service) handleImageModels(w http.ResponseWriter) {
+	models, err := service.catalog.ListImages(service.currentConfigFilename())
+	if err != nil {
+		openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+		return
+	}
+
+	response := make([]imageModelObject, 0, len(models))
+	for _, model := range models {
+		response = append(response, imageModelObject{
+			Title:     model.ImageID,
+			ModelName: model.ImageID,
+			Hash:      "",
+			SHA256:    "",
+			Filename:  model.ImageModelPath,
+			Config:    model.Filename,
+		})
+	}
+	openai.WriteJSON(w, http.StatusOK, response)
+}
+
+func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		model, ok, err := service.catalog.ResolveActiveImage(service.currentConfigFilename())
+		if err != nil {
+			openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+			return
+		}
+		checkpoint := ""
+		if ok {
+			checkpoint = model.ImageID
+		}
+		openai.WriteJSON(w, http.StatusOK, map[string]any{
+			"sd_model_checkpoint": checkpoint,
+		})
+	case http.MethodPost:
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			service.logger.Printf("request body read failed path=%s remote=%s error=%v", r.URL.Path, r.RemoteAddr, err)
+			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "request body could not be read")
+			return
+		}
+		defer r.Body.Close()
+
+		modelID, hasModel, err := imageModelFromRequest(body, r)
+		if err != nil {
+			service.logger.Printf("image model parse failed path=%s remote=%s error=%v", r.URL.Path, r.RemoteAddr, err)
+			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
+		if hasModel {
+			model, ok, err := service.catalog.ResolveImage(modelID, service.currentConfigFilename())
+			if err != nil {
+				service.logger.Printf("image model catalog check failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
+				openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+				return
+			}
+			if !ok {
+				service.logger.Printf("unknown image model requested path=%s remote=%s model=%q", r.URL.Path, r.RemoteAddr, modelID)
+				openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("image model %q was not found", modelID))
+				return
+			}
+			modelContext, cancelModelContext := context.WithTimeout(context.WithoutCancel(r.Context()), modelOperationTimeout)
+			defer cancelModelContext()
+			release, _, err := service.acquireModelConfig(modelContext, model.ImageID, model.Filename, readinessImage, false)
+			if err != nil {
+				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+				return
+			}
+			release()
+		}
+		openai.WriteJSON(w, http.StatusOK, map[string]any{})
+	default:
+		openai.WriteError(w, http.StatusMethodNotAllowed, "invalid_request_error", "method not allowed")
+	}
+}
+
+func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		service.logger.Printf("request body read failed path=%s remote=%s error=%v", r.URL.Path, r.RemoteAddr, err)
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "request body could not be read")
+		return
+	}
+	defer r.Body.Close()
+
+	modelID, hasModel, err := imageModelFromRequest(body, r)
+	if err != nil {
+		service.logger.Printf("image model parse failed path=%s remote=%s error=%v", r.URL.Path, r.RemoteAddr, err)
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+
+	var model catalog.Model
+	if hasModel {
+		model, err = service.resolveImageModel(r, modelID)
+		if err != nil {
+			writeImageModelError(service, w, r, modelID, err)
+			return
+		}
+	} else {
+		model, err = service.activeImageModel(r)
+		if err != nil {
+			writeImageModelError(service, w, r, modelID, err)
+			return
+		}
+		modelID = model.ImageID
+		hasModel = true
+	}
+
+	response, err := service.forwardWithFallback(r.Context(), r, body, model.ImageID, model.Filename, hasModel, readinessImage)
+	if err != nil {
+		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		return
+	}
+
+	if err := writeProxyResponse(w, response, model.ImageID, hasModel); err != nil {
+		return
+	}
+}
+
+type imageModelLookupError struct {
+	status  int
+	message string
+}
+
+func (err imageModelLookupError) Error() string {
+	return err.message
+}
+
+func (service *Service) resolveImageModel(r *http.Request, modelID string) (catalog.Model, error) {
+	model, ok, err := service.catalog.ResolveImage(modelID, service.currentConfigFilename())
+	if err != nil {
+		service.logger.Printf("image model catalog check failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
+		return catalog.Model{}, err
+	}
+	if !ok {
+		service.logger.Printf("unknown image model requested path=%s remote=%s model=%q", r.URL.Path, r.RemoteAddr, modelID)
+		return catalog.Model{}, imageModelLookupError{
+			status:  http.StatusNotFound,
+			message: fmt.Sprintf("image model %q was not found", modelID),
+		}
+	}
+	return model, nil
+}
+
+func (service *Service) activeImageModel(r *http.Request) (catalog.Model, error) {
+	model, ok, err := service.catalog.ResolveActiveImage(service.currentConfigFilename())
+	if err != nil {
+		service.logger.Printf("active image model catalog check failed path=%s error=%v", r.URL.Path, err)
+		return catalog.Model{}, err
+	}
+	if !ok {
+		service.logger.Printf("image model missing path=%s remote=%s", r.URL.Path, r.RemoteAddr)
+		return catalog.Model{}, imageModelLookupError{
+			status:  http.StatusBadRequest,
+			message: "image model is required",
+		}
+	}
+	return model, nil
+}
+
+func writeImageModelError(service *Service, w http.ResponseWriter, r *http.Request, modelID string, err error) {
+	if lookupErr, ok := err.(imageModelLookupError); ok {
+		openai.WriteError(w, lookupErr.status, "invalid_request_error", lookupErr.message)
+		return
+	}
+	service.logger.Printf("image model lookup failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
+	openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
 }
 
 func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Request, requireModel bool) {
@@ -154,10 +383,15 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 			openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", modelID))
 			return
 		}
+		if !model.HasLLM {
+			service.logger.Printf("non-llm model requested path=%s remote=%s model=%q", r.URL.Path, r.RemoteAddr, modelID)
+			openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", modelID))
+			return
+		}
 		configFilename = model.Filename
 	}
 
-	response, err := service.forwardWithFallback(r.Context(), r, body, modelID, configFilename, hasModel)
+	response, err := service.forwardWithFallback(r.Context(), r, body, modelID, configFilename, hasModel, readinessText)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
@@ -168,16 +402,17 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 	}
 }
 
-func (service *Service) forwardWithFallback(ctx context.Context, original *http.Request, body []byte, modelID string, configFilename string, hasModel bool) (*http.Response, error) {
+func (service *Service) forwardWithFallback(ctx context.Context, original *http.Request, body []byte, modelID string, configFilename string, hasModel bool, readiness backendReadiness) (*http.Response, error) {
 	loadedFresh := false
 	modelContext := ctx
 	cancelModelContext := func() {}
+	releaseModel := func() {}
 	if hasModel {
 		modelContext, cancelModelContext = context.WithTimeout(context.WithoutCancel(ctx), modelOperationTimeout)
 		defer cancelModelContext()
 
 		var err error
-		loadedFresh, err = service.ensureModelConfig(modelContext, modelID, configFilename)
+		releaseModel, loadedFresh, err = service.acquireModelConfig(modelContext, modelID, configFilename, readiness, false)
 		if err != nil {
 			return nil, err
 		}
@@ -189,7 +424,7 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 	}
 	retryResult := service.backendRetryResult(response, err, original.URL.Path)
 	if !retryResult.retry {
-		return response, nil
+		return responseWithRelease(response, releaseModel), nil
 	}
 
 	lastStatus := retryResult.status
@@ -198,7 +433,10 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 	service.logRetryableBackendResult(original.URL.Path, modelID, configFilename, 0, lastStatus, lastErr, lastBody)
 
 	if !loadedFresh && !isBackendWaitingResponse(lastStatus, lastBody) {
-		if reloadErr := service.forceModelConfig(modelContext, modelID, configFilename); reloadErr != nil {
+		releaseModel()
+		var reloadErr error
+		releaseModel, loadedFresh, reloadErr = service.acquireModelConfig(modelContext, modelID, configFilename, readiness, true)
+		if reloadErr != nil {
 			return nil, reloadErr
 		}
 	} else if !loadedFresh {
@@ -211,6 +449,7 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 	for attempt := 1; attempt <= service.backendRetryAttempts; attempt++ {
 		if attempt > 1 {
 			if err := waitForRetry(ctx, retryDelay); err != nil {
+				releaseModel()
 				return nil, err
 			}
 			retryDelay = nextRetryDelay(retryDelay, service.backendRetryMaxDelay)
@@ -219,7 +458,7 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 		response, err = service.forward(ctx, original, body)
 		retryResult = service.backendRetryResult(response, err, original.URL.Path)
 		if !retryResult.retry {
-			return response, nil
+			return responseWithRelease(response, releaseModel), nil
 		}
 
 		lastStatus = retryResult.status
@@ -229,6 +468,7 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 	}
 
 	service.logger.Printf("backend retry exhausted path=%s model=%q config=%q attempts=%d status=%d error=%v body=%q", original.URL.Path, modelID, configFilename, service.backendRetryAttempts, lastStatus, lastErr, lastBody)
+	releaseModel()
 	return nil, backendRetryExhaustedError(lastStatus, lastErr, lastBody)
 }
 
@@ -253,6 +493,9 @@ func (service *Service) backendRetryResult(response *http.Response, err error, p
 }
 
 func (service *Service) successRetryResult(response *http.Response, path string) backendRetryResult {
+	if !isCorePath(path) {
+		return backendRetryResult{status: response.StatusCode}
+	}
 	if response.Body == nil {
 		return backendRetryResult{retry: true, status: response.StatusCode}
 	}
@@ -375,6 +618,9 @@ func isBackendWaitingResponse(status int, body string) bool {
 }
 
 func (service *Service) logRetryableBackendResult(path string, modelID string, configFilename string, attempt int, status int, err error, body string) {
+	if attempt > 0 && attempt != 1 && attempt%30 != 0 {
+		return
+	}
 	if err != nil {
 		if attempt == 0 {
 			service.logger.Printf("backend request failed path=%s model=%q config=%q error=%v", path, modelID, configFilename, err)
@@ -441,42 +687,133 @@ func backendRetryExhaustedError(status int, err error, body string) error {
 	return fmt.Errorf("backend unavailable after retries")
 }
 
-func (service *Service) ensureModelConfig(ctx context.Context, modelID string, configFilename string) (bool, error) {
-	service.activeConfigMu.Lock()
-	defer service.activeConfigMu.Unlock()
+func (service *Service) acquireModelConfig(ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (func(), bool, error) {
+	waitingSwitch := false
+	for {
+		service.activeConfigMu.Lock()
+		if !force && service.activeConfigFilename == configFilename && !service.activeConfigSwitching && (service.activeConfigSwitchWaiters == 0 || waitingSwitch) {
+			if waitingSwitch {
+				service.activeConfigSwitchWaiters--
+				service.notifyActiveConfigLocked()
+			}
+			service.activeConfigUsers++
+			release := service.releaseActiveConfigOnce()
+			service.activeConfigMu.Unlock()
+			return release, false, nil
+		}
 
-	if service.activeConfigFilename == configFilename {
-		return false, nil
-	}
+		if !waitingSwitch && service.activeConfigSwitchWaiters > 0 {
+			changed := service.activeConfigChanged
+			service.activeConfigMu.Unlock()
+			if err := waitForActiveConfigChange(ctx, changed); err != nil {
+				return nil, false, err
+			}
+			continue
+		}
+		if !waitingSwitch {
+			service.activeConfigSwitchWaiters++
+			waitingSwitch = true
+		}
+		if service.activeConfigSwitching || service.activeConfigUsers > 0 {
+			changed := service.activeConfigChanged
+			service.activeConfigMu.Unlock()
+			if err := waitForActiveConfigChange(ctx, changed); err != nil {
+				service.cancelConfigSwitchWaiter()
+				return nil, false, err
+			}
+			continue
+		}
 
-	if err := service.reloadModelConfigLocked(ctx, modelID, configFilename); err != nil {
-		return false, err
+		service.activeConfigSwitchWaiters--
+		service.activeConfigSwitching = true
+		service.activeConfigMu.Unlock()
+
+		err := service.reloadModelConfig(ctx, modelID, configFilename)
+		if err == nil {
+			err = service.waitForBackendEndpoint(ctx, readiness, modelID, configFilename)
+		}
+
+		service.activeConfigMu.Lock()
+		service.activeConfigSwitching = false
+		if err != nil {
+			service.activeConfigFilename = ""
+			service.notifyActiveConfigLocked()
+			service.activeConfigMu.Unlock()
+			return nil, false, err
+		}
+		service.activeConfigFilename = configFilename
+		service.activeConfigUsers++
+		release := service.releaseActiveConfigOnce()
+		service.notifyActiveConfigLocked()
+		service.activeConfigMu.Unlock()
+		return release, true, nil
 	}
-	if err := service.waitForBackendModelsEndpoint(ctx, modelID, configFilename); err != nil {
-		service.activeConfigFilename = ""
-		return false, err
-	}
-	return true, nil
 }
 
-func (service *Service) forceModelConfig(ctx context.Context, modelID string, configFilename string) error {
+func (service *Service) cancelConfigSwitchWaiter() {
 	service.activeConfigMu.Lock()
-	defer service.activeConfigMu.Unlock()
-
-	if err := service.reloadModelConfigLocked(ctx, modelID, configFilename); err != nil {
-		return err
+	if service.activeConfigSwitchWaiters > 0 {
+		service.activeConfigSwitchWaiters--
+		service.notifyActiveConfigLocked()
 	}
-	if err := service.waitForBackendModelsEndpoint(ctx, modelID, configFilename); err != nil {
-		service.activeConfigFilename = ""
-		return err
-	}
-	return nil
+	service.activeConfigMu.Unlock()
 }
 
-func (service *Service) reloadModelConfigLocked(ctx context.Context, modelID string, configFilename string) error {
+func (service *Service) releaseActiveConfigOnce() func() {
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			service.activeConfigMu.Lock()
+			if service.activeConfigUsers > 0 {
+				service.activeConfigUsers--
+				if service.activeConfigUsers == 0 {
+					service.notifyActiveConfigLocked()
+				}
+			}
+			service.activeConfigMu.Unlock()
+		})
+	}
+}
+
+func (service *Service) notifyActiveConfigLocked() {
+	close(service.activeConfigChanged)
+	service.activeConfigChanged = make(chan struct{})
+}
+
+func waitForActiveConfigChange(ctx context.Context, changed <-chan struct{}) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-changed:
+		return nil
+	}
+}
+
+func (service *Service) currentConfigFilename() string {
+	service.activeConfigMu.Lock()
+	defer service.activeConfigMu.Unlock()
+	return service.activeConfigFilename
+}
+
+func responseWithRelease(response *http.Response, release func()) *http.Response {
+	if response == nil {
+		release()
+		return response
+	}
+	if response.Body == nil {
+		release()
+		return response
+	}
+	response.Body = &releaseReadCloser{
+		ReadCloser: response.Body,
+		release:    release,
+	}
+	return response
+}
+
+func (service *Service) reloadModelConfig(ctx context.Context, modelID string, configFilename string) error {
 	service.logger.Printf("config switch reload attempt model=%q config=%q", modelID, configFilename)
 	if reloadErr := service.backend.ReloadConfig(ctx, configFilename); reloadErr != nil {
-		service.activeConfigFilename = ""
 		service.logger.Printf("config switch reload failed model=%q config=%q error=%v", modelID, configFilename, reloadErr)
 		if service.backend.Healthy(ctx) {
 			return reloadErr
@@ -497,19 +834,18 @@ func (service *Service) reloadModelConfigLocked(ctx context.Context, modelID str
 		}
 	}
 
-	service.activeConfigFilename = configFilename
 	service.logger.Printf("config switch reload succeeded model=%q config=%q", modelID, configFilename)
 	return nil
 }
 
-func (service *Service) waitForBackendModelsEndpoint(ctx context.Context, modelID string, configFilename string) error {
+func (service *Service) waitForBackendEndpoint(ctx context.Context, readiness backendReadiness, modelID string, configFilename string) error {
 	retryDelay := service.backendRetryDelay
 	var lastStatus int
 	var lastBody string
 	var lastErr error
 
 	for attempt := 1; attempt <= service.backendRetryAttempts; attempt++ {
-		status, body, err := service.probeBackendModelsEndpoint(ctx)
+		status, body, err := service.probeBackendEndpoint(ctx, string(readiness))
 		if err == nil && status >= 200 && status < 300 {
 			if attempt > 1 {
 				service.logger.Printf("backend model endpoint ready model=%q config=%q attempt=%d", modelID, configFilename, attempt)
@@ -535,9 +871,9 @@ func (service *Service) waitForBackendModelsEndpoint(ctx context.Context, modelI
 	return fmt.Errorf("backend model endpoint unavailable after retries: status %d error=%v body=%q", lastStatus, lastErr, lastBody)
 }
 
-func (service *Service) probeBackendModelsEndpoint(ctx context.Context) (int, string, error) {
+func (service *Service) probeBackendEndpoint(ctx context.Context, path string) (int, string, error) {
 	target := service.backend.URL()
-	target.Path = joinPath(target.Path, "/v1/models")
+	target.Path = joinPath(target.Path, path)
 	target.RawQuery = ""
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, target.String(), nil)
@@ -577,6 +913,69 @@ func modelFromRequest(body []byte, r *http.Request) (string, bool, error) {
 		return "", false, nil
 	}
 	return openai.ModelFromJSON(body)
+}
+
+func imageModelFromRequest(body []byte, r *http.Request) (string, bool, error) {
+	if len(body) > 0 && requestBodyLooksJSON(body, r) {
+		modelID, ok, err := imageModelFromJSON(body)
+		if err != nil || ok {
+			return modelID, ok, err
+		}
+	}
+	if modelID := strings.TrimSpace(r.URL.Query().Get("model")); modelID != "" {
+		return modelID, true, nil
+	}
+	if modelID := strings.TrimSpace(r.URL.Query().Get("sd_model_checkpoint")); modelID != "" {
+		return modelID, true, nil
+	}
+	if modelID := strings.TrimSpace(r.Header.Get("X-Tensors-Model")); modelID != "" {
+		return modelID, true, nil
+	}
+	return "", false, nil
+}
+
+func requestBodyLooksJSON(body []byte, r *http.Request) bool {
+	contentType := strings.ToLower(r.Header.Get("Content-Type"))
+	if strings.Contains(contentType, "application/json") {
+		return true
+	}
+	trimmed := bytes.TrimSpace(body)
+	return len(trimmed) > 0 && trimmed[0] == '{'
+}
+
+func imageModelFromJSON(body []byte) (string, bool, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(body, &raw); err != nil {
+		return "", false, err
+	}
+	if modelID, ok, err := jsonStringSelector(raw, "model"); err != nil || ok {
+		return modelID, ok, err
+	}
+	if modelID, ok, err := jsonStringSelector(raw, "sd_model_checkpoint"); err != nil || ok {
+		return modelID, ok, err
+	}
+	overrideSettings, ok := raw["override_settings"]
+	if !ok {
+		return "", false, nil
+	}
+	var overrideRaw map[string]json.RawMessage
+	if err := json.Unmarshal(overrideSettings, &overrideRaw); err != nil {
+		return "", false, fmt.Errorf("override_settings must be an object")
+	}
+	return jsonStringSelector(overrideRaw, "sd_model_checkpoint")
+}
+
+func jsonStringSelector(raw map[string]json.RawMessage, key string) (string, bool, error) {
+	value, ok := raw[key]
+	if !ok {
+		return "", false, nil
+	}
+	var text string
+	if err := json.Unmarshal(value, &text); err != nil {
+		return "", true, fmt.Errorf("%s must be a string", key)
+	}
+	text = strings.TrimSpace(text)
+	return text, text != "", nil
 }
 
 func writeProxyResponse(w http.ResponseWriter, response *http.Response, virtualModelID string, rewriteModel bool) error {
@@ -807,6 +1206,24 @@ func isJSONResponse(header http.Header) bool {
 
 func isEventStream(header http.Header) bool {
 	return strings.Contains(strings.ToLower(header.Get("Content-Type")), "text/event-stream")
+}
+
+func isImagePath(path string) bool {
+	if strings.HasPrefix(path, "/v1/images/") {
+		return true
+	}
+	if strings.HasPrefix(path, "/sdapi/v1/") {
+		return true
+	}
+	switch path {
+	case "/prompt", "/queue", "/history", "/view", "/object_info", "/system_stats", "/interrupt":
+		return true
+	default:
+		return strings.HasPrefix(path, "/history/") ||
+			strings.HasPrefix(path, "/view/") ||
+			strings.HasPrefix(path, "/object_info/") ||
+			strings.HasPrefix(path, "/upload/image")
+	}
 }
 
 func isCorePath(path string) bool {

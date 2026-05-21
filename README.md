@@ -2,7 +2,7 @@
 
 Router for KoboldCpp `.kcpps` configs.
 
-It runs a KoboldCpp process, exposes `.kcpps` filenames as `/v1/models`, reloads the matching config through KoboldCpp admin mode, then forwards the request to KoboldCpp.
+It runs a KoboldCpp process, exposes LLM `.kcpps` filenames as `/v1/models`, exposes image-capable configs through image model endpoints, reloads the matching config through KoboldCpp admin mode, then forwards the request to KoboldCpp.
 
 ## Build
 
@@ -35,7 +35,7 @@ Filename mapping:
 
 ```text
 kcpps/hermes-8k.kcpps -> model id hermes-8k
-kcpps/sdxl.kcpps -> model id sdxl
+kcpps/sdxl.kcpps with sdmodel C:\models\juggernautXL.safetensors -> image model id sdxl-juggernautXL
 ```
 
 Main config fields:
@@ -77,7 +77,7 @@ Set `updates.binary_url` for the KoboldCpp build you want.
 ./tensors-router serve --config config.yaml
 ```
 
-List models:
+List LLM models:
 
 ```bash
 curl http://127.0.0.1:8080/v1/models
@@ -107,26 +107,38 @@ Examples:
 
 loads `embed.kcpps` before forwarding to `/v1/embeddings`.
 
+Non-image KoboldCpp paths outside `/v1` are not proxied.
+
+Image requests:
+
+```bash
+curl http://127.0.0.1:8080/sdapi/v1/sd-models
+```
+
+returns image model ids. Image-only configs are always listed. Combined LLM+image configs are listed only when that `.kcpps` is currently loaded.
+
 ```json
-{"model":"sdxl","prompt":"cat"}
+{"model":"sdxl-juggernautXL","prompt":"cat"}
 ```
 
 loads `sdxl.kcpps` before forwarding to `/v1/images/generations`.
 
-Non-`/v1` KoboldCpp paths are not proxied.
+Image selection can come from JSON `model`, JSON `sd_model_checkpoint`, JSON `override_settings.sd_model_checkpoint`, query `model`, query `sd_model_checkpoint`, or `X-Tensors-Model`.
+
+Stable Diffusion routes under `/sdapi/v1/...` and common ComfyUI-style image routes such as `/prompt`, `/queue`, `/history`, `/view`, and `/object_info` are proxied to KoboldCpp.
 
 ## Config Types
 
-The router does not validate `.kcpps` contents. It only maps filename to config reload.
+The router only reads enough `.kcpps` JSON to detect `sdmodel` and text model fields. KoboldCpp still receives the whole config, so Flux, SD3, WAN, Qwen Image, VAE, LoRA, CLIP/T5, GPU, and other KoboldCpp image settings stay in the `.kcpps`.
 
 Usable config types depend on the KoboldCpp endpoint being called:
 
-- Text config: use with `/v1/chat/completions` or `/v1/completions`.
+- Text config: use with `/v1/chat/completions` or `/v1/completions`; listed on `/v1/models`.
 - Embeddings config: use with `/v1/embeddings` and include `model`.
-- Stable Diffusion config: use with `/v1/images/...` and include `model`.
-- Multimodal config: use one `.kcpps` containing the text model plus its multimodal settings.
+- Image-only config: use with `/v1/images/...`, `/sdapi/v1/...`, or supported ComfyUI-style image routes; listed on `/sdapi/v1/sd-models` as `<kcpps name>-<sdmodel filename stem>`.
+- Combined LLM+image config: use one `.kcpps` containing the text model plus `sdmodel`; its image id is available only while the combined config is loaded, and selecting it does not reload or unload the active LLM.
 
-Only one KoboldCpp config is active at a time.
+Only one KoboldCpp config is active at a time. LLM and image requests share one model gate: requests using the active config can run together, while a config switch waits for in-flight requests to finish.
 
 ## Auth
 
