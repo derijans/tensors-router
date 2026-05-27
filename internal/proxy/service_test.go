@@ -234,6 +234,101 @@ func TestCoreRequestWaitsForBackendModelsEndpointAfterReload(t *testing.T) {
 	}
 }
 
+func TestCoreRequestWaitsForBackendModelsEndpointUntilNotInactive(t *testing.T) {
+	var probes atomic.Int32
+	var chats atomic.Int32
+	service, backend := newTestServiceWithRawBackend(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
+			if probes.Add(1) < 3 {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"inactive"}]}`))
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"koboldcpp/backend"}]}`))
+			return
+		}
+
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		chats.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"koboldcpp/backend","choices":[{"message":{"content":"ready"}}]}`))
+	}), "a")
+	service.backendRetryAttempts = 4
+	service.backendRetryDelay = 0
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"a","messages":[]}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if backend.reloads.Load() != 1 {
+		t.Fatalf("expected one reload, got %d", backend.reloads.Load())
+	}
+	if probes.Load() != 3 {
+		t.Fatalf("expected three readiness probes, got %d", probes.Load())
+	}
+	if chats.Load() != 1 {
+		t.Fatalf("expected one chat request, got %d", chats.Load())
+	}
+}
+
+func TestFallbackWaitsAfterInactiveCoreResponse(t *testing.T) {
+	var probes atomic.Int32
+	var posts atomic.Int32
+	service, backend := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	service.client = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			switch {
+			case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
+				if probes.Add(1) == 1 {
+					return testHTTPResponse(http.StatusOK, "application/json", `{"object":"list","data":[]}`), nil
+				}
+				if probes.Load() < 4 {
+					return testHTTPResponse(http.StatusOK, "application/json", `{"object":"list","data":[{"id":"inactive"}]}`), nil
+				}
+				return testHTTPResponse(http.StatusOK, "application/json", `{"object":"list","data":[{"id":"koboldcpp/backend"}]}`), nil
+			case r.Method == http.MethodPost && r.URL.Path == "/v1/chat/completions":
+				if posts.Add(1) == 1 {
+					return testHTTPResponse(http.StatusOK, "application/json", `{"id":"chatcmpl-test","object":"chat.completion","model":"inactive","choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[]},"finish_reason":"error","logprobs":null}]}`), nil
+				}
+				return testHTTPResponse(http.StatusOK, "application/json", `{"model":"koboldcpp/backend","choices":[{"message":{"content":"ready"}}]}`), nil
+			default:
+				t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+				return nil, nil
+			}
+		}),
+	}
+	service.backendRetryAttempts = 5
+	service.backendRetryDelay = 0
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"a","messages":[]}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if backend.reloads.Load() != 1 {
+		t.Fatalf("expected one reload, got %d", backend.reloads.Load())
+	}
+	if probes.Load() != 4 {
+		t.Fatalf("expected four readiness probes, got %d", probes.Load())
+	}
+	if posts.Load() != 2 {
+		t.Fatalf("expected two chat forwards, got %d", posts.Load())
+	}
+	if !strings.Contains(recorder.Body.String(), `"model":"a"`) {
+		t.Fatalf("response model was not rewritten: %s", recorder.Body.String())
+	}
+}
+
 func TestFreshLoadBackendTransportFailureRecoversThroughRestart(t *testing.T) {
 	var posts atomic.Int32
 	connectionRefused := errors.New("dial tcp 127.0.0.1:5001: connect: connection refused")

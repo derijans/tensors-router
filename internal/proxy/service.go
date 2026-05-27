@@ -75,10 +75,11 @@ const (
 )
 
 type backendRetryResult struct {
-	retry  bool
-	status int
-	err    error
-	body   string
+	retry    bool
+	inactive bool
+	status   int
+	err      error
+	body     string
 }
 
 type replayReadCloser struct {
@@ -481,14 +482,23 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 	}
 
 	retryDelay := service.backendRetryDelay
+	skipRetryDelay := false
+	if retryResult.inactive {
+		if err := service.waitForInactiveBackend(modelContext, readiness, modelID, configFilename, original.URL.Path); err != nil {
+			releaseModel()
+			return nil, err
+		}
+		skipRetryDelay = true
+	}
 	for attempt := 1; attempt <= service.backendRetryAttempts; attempt++ {
-		if attempt > 1 {
+		if attempt > 1 && !skipRetryDelay {
 			if err := waitForRetry(ctx, retryDelay); err != nil {
 				releaseModel()
 				return nil, err
 			}
 			retryDelay = nextRetryDelay(retryDelay, service.backendRetryMaxDelay)
 		}
+		skipRetryDelay = false
 
 		response, err = service.forward(ctx, original, body)
 		retryResult = service.backendRetryResult(response, err, original.URL.Path)
@@ -508,6 +518,13 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 				return nil, recoveryErr
 			}
 			recoveredBackend = true
+		}
+		if retryResult.inactive {
+			if err := service.waitForInactiveBackend(modelContext, readiness, modelID, configFilename, original.URL.Path); err != nil {
+				releaseModel()
+				return nil, err
+			}
+			skipRetryDelay = true
 		}
 	}
 
@@ -535,6 +552,11 @@ func (service *Service) recoverBackendForModel(ctx context.Context, releaseModel
 	}
 	service.logger.Printf("backend transport recovery succeeded path=%s model=%q config=%q reloaded=%t", path, modelID, configFilename, loadedFresh)
 	return release, loadedFresh, nil
+}
+
+func (service *Service) waitForInactiveBackend(ctx context.Context, readiness backendReadiness, modelID string, configFilename string, path string) error {
+	service.logger.Printf("backend inactive response path=%s model=%q config=%q", path, modelID, configFilename)
+	return service.waitForBackendEndpoint(ctx, readiness, modelID, configFilename)
 }
 
 func (service *Service) backendRetryResult(response *http.Response, err error, path string) backendRetryResult {
@@ -589,12 +611,39 @@ func (service *Service) successRetryResult(response *http.Response, path string)
 	if len(bytes.TrimSpace(body)) == 0 {
 		return backendRetryResult{retry: true, status: response.StatusCode}
 	}
-	if isCorePath(path) && isJSONResponse(response.Header) && coreResponseHasEmptyText(body) {
-		return backendRetryResult{retry: true, status: response.StatusCode, body: strings.TrimSpace(string(body))}
+	if isCorePath(path) && isJSONResponse(response.Header) {
+		inactive := coreResponseIsInactive(body)
+		if inactive || coreResponseHasEmptyText(body) {
+			return backendRetryResult{retry: true, inactive: inactive, status: response.StatusCode, body: strings.TrimSpace(string(body))}
+		}
 	}
 	response.Body = io.NopCloser(bytes.NewReader(body))
 	response.ContentLength = int64(len(body))
 	return backendRetryResult{status: response.StatusCode}
+}
+
+func coreResponseIsInactive(body []byte) bool {
+	var parsed struct {
+		Model   string `json:"model"`
+		Choices []struct {
+			FinishReason string `json:"finish_reason"`
+		} `json:"choices"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return false
+	}
+	if strings.EqualFold(strings.TrimSpace(parsed.Model), "inactive") {
+		return true
+	}
+	if !coreResponseHasEmptyText(body) {
+		return false
+	}
+	for _, choice := range parsed.Choices {
+		if strings.EqualFold(strings.TrimSpace(choice.FinishReason), "error") {
+			return true
+		}
+	}
+	return false
 }
 
 func coreResponseHasEmptyText(body []byte) bool {
@@ -679,7 +728,7 @@ func isBackendWaitingResponse(status int, body string) bool {
 	if status < 200 || status >= 300 {
 		return false
 	}
-	return strings.TrimSpace(body) == "" || coreResponseHasEmptyText([]byte(body))
+	return strings.TrimSpace(body) == "" || coreResponseIsInactive([]byte(body)) || coreResponseHasEmptyText([]byte(body))
 }
 
 func (service *Service) logRetryableBackendResult(path string, modelID string, configFilename string, attempt int, status int, err error, body string) {
@@ -911,7 +960,7 @@ func (service *Service) waitForBackendEndpoint(ctx context.Context, readiness ba
 
 	for attempt := 1; attempt <= service.backendRetryAttempts; attempt++ {
 		status, body, err := service.probeBackendEndpoint(ctx, string(readiness))
-		if err == nil && status >= 200 && status < 300 {
+		if err == nil && backendEndpointReady(readiness, status, body) {
 			if attempt > 1 {
 				service.logger.Printf("backend model endpoint ready model=%q config=%q attempt=%d", modelID, configFilename, attempt)
 			}
@@ -934,6 +983,51 @@ func (service *Service) waitForBackendEndpoint(ctx context.Context, readiness ba
 	}
 
 	return fmt.Errorf("backend model endpoint unavailable after retries: status %d error=%v body=%q", lastStatus, lastErr, lastBody)
+}
+
+func backendEndpointReady(readiness backendReadiness, status int, body string) bool {
+	if status < 200 || status >= 300 {
+		return false
+	}
+	if readiness != readinessText {
+		return true
+	}
+	return backendTextEndpointReady(body)
+}
+
+func backendTextEndpointReady(body string) bool {
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" {
+		return false
+	}
+	var parsed struct {
+		Model string `json:"model"`
+		ID    string `json:"id"`
+		Data  []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &parsed); err != nil {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(parsed.Model), "inactive") || strings.EqualFold(strings.TrimSpace(parsed.ID), "inactive") {
+		return false
+	}
+	if parsed.Data == nil {
+		return true
+	}
+	hasID := false
+	for _, model := range parsed.Data {
+		id := strings.TrimSpace(model.ID)
+		if id == "" {
+			continue
+		}
+		hasID = true
+		if !strings.EqualFold(id, "inactive") {
+			return true
+		}
+	}
+	return !hasID
 }
 
 func (service *Service) probeBackendEndpoint(ctx context.Context, path string) (int, string, error) {
