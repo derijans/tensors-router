@@ -130,6 +130,33 @@ func NewService(config ServiceConfig) *Service {
 	}
 }
 
+func (service *Service) PreloadModel(ctx context.Context, modelID string) error {
+	modelID = strings.TrimSpace(modelID)
+	if modelID == "" {
+		return nil
+	}
+	model, ok, err := service.catalog.Resolve(modelID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("startup model %q was not found", modelID)
+	}
+	if !model.HasLLM {
+		return fmt.Errorf("startup model %q is not an LLM model", modelID)
+	}
+
+	modelContext, cancelModelContext := context.WithTimeout(ctx, modelOperationTimeout)
+	defer cancelModelContext()
+
+	release, _, err := service.acquireModelConfig(modelContext, model.ID, model.Filename, readinessText, false)
+	if err != nil {
+		return err
+	}
+	release()
+	return nil
+}
+
 func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
 		service.handleModels(w)
@@ -422,6 +449,7 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 	if !hasModel {
 		return response, err
 	}
+	recoveredBackend := false
 	retryResult := service.backendRetryResult(response, err, original.URL.Path)
 	if !retryResult.retry {
 		return responseWithRelease(response, releaseModel), nil
@@ -432,7 +460,14 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 	lastBody := retryResult.body
 	service.logRetryableBackendResult(original.URL.Path, modelID, configFilename, 0, lastStatus, lastErr, lastBody)
 
-	if !loadedFresh && !isBackendWaitingResponse(lastStatus, lastBody) {
+	if service.shouldRecoverBackend(ctx, retryResult) {
+		var recoveryErr error
+		releaseModel, loadedFresh, recoveryErr = service.recoverBackendForModel(modelContext, releaseModel, modelID, configFilename, readiness, original.URL.Path, retryResult.err)
+		if recoveryErr != nil {
+			return nil, recoveryErr
+		}
+		recoveredBackend = true
+	} else if !loadedFresh && !isBackendWaitingResponse(lastStatus, lastBody) {
 		releaseModel()
 		var reloadErr error
 		releaseModel, loadedFresh, reloadErr = service.acquireModelConfig(modelContext, modelID, configFilename, readiness, true)
@@ -465,11 +500,41 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 		lastErr = retryResult.err
 		lastBody = retryResult.body
 		service.logRetryableBackendResult(original.URL.Path, modelID, configFilename, attempt, lastStatus, lastErr, lastBody)
+
+		if !recoveredBackend && service.shouldRecoverBackend(ctx, retryResult) {
+			var recoveryErr error
+			releaseModel, loadedFresh, recoveryErr = service.recoverBackendForModel(modelContext, releaseModel, modelID, configFilename, readiness, original.URL.Path, retryResult.err)
+			if recoveryErr != nil {
+				return nil, recoveryErr
+			}
+			recoveredBackend = true
+		}
 	}
 
 	service.logger.Printf("backend retry exhausted path=%s model=%q config=%q attempts=%d status=%d error=%v body=%q", original.URL.Path, modelID, configFilename, service.backendRetryAttempts, lastStatus, lastErr, lastBody)
 	releaseModel()
 	return nil, backendRetryExhaustedError(lastStatus, lastErr, lastBody)
+}
+
+func (service *Service) shouldRecoverBackend(ctx context.Context, retryResult backendRetryResult) bool {
+	if retryResult.err == nil {
+		return false
+	}
+	if ctx.Err() != nil {
+		return false
+	}
+	return !service.backend.Healthy(ctx)
+}
+
+func (service *Service) recoverBackendForModel(ctx context.Context, releaseModel func(), modelID string, configFilename string, readiness backendReadiness, path string, cause error) (func(), bool, error) {
+	service.logger.Printf("backend transport recovery attempt path=%s model=%q config=%q error=%v", path, modelID, configFilename, cause)
+	releaseModel()
+	release, loadedFresh, err := service.acquireModelConfig(ctx, modelID, configFilename, readiness, true)
+	if err != nil {
+		return nil, false, err
+	}
+	service.logger.Printf("backend transport recovery succeeded path=%s model=%q config=%q reloaded=%t", path, modelID, configFilename, loadedFresh)
+	return release, loadedFresh, nil
 }
 
 func (service *Service) backendRetryResult(response *http.Response, err error, path string) backendRetryResult {

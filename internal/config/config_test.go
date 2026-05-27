@@ -24,6 +24,7 @@ auth:
 
 models:
   config_dir: "./models"
+  startup_model: "alpha"
 
 kobold:
   backend_url: "http://127.0.0.1:6000"
@@ -65,6 +66,9 @@ updates:
 	if cfg.Kobold.Multiuser != 2 {
 		t.Fatalf("unexpected multiuser %d", cfg.Kobold.Multiuser)
 	}
+	if cfg.Models.StartupModel != "alpha" {
+		t.Fatalf("unexpected startup model %q", cfg.Models.StartupModel)
+	}
 	if cfg.Kobold.Quiet || cfg.Kobold.SkipLauncher || cfg.Kobold.NoModel || cfg.Kobold.HideWindow {
 		t.Fatalf("unexpected kobold bool settings %#v", cfg.Kobold)
 	}
@@ -86,6 +90,9 @@ func TestLoadDefaultConfigWhenDefaultFileMissing(t *testing.T) {
 	}
 	if cfg.Kobold.BinaryPath != "./bin/koboldcpp" {
 		t.Fatalf("unexpected binary path %q", cfg.Kobold.BinaryPath)
+	}
+	if cfg.Models.StartupModel != "" {
+		t.Fatalf("unexpected startup model %q", cfg.Models.StartupModel)
 	}
 	if !cfg.Kobold.Quiet || !cfg.Kobold.SkipLauncher || !cfg.Kobold.NoModel || !cfg.Kobold.HideWindow {
 		t.Fatalf("default kobold bool settings should be enabled")

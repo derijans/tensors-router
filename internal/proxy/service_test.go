@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"log"
 	"net/http"
@@ -26,6 +27,9 @@ type fakeBackend struct {
 	healthy    bool
 	lastReload string
 	onReload   func(string)
+	onRestart  func()
+	reloadErr  func(string) error
+	restartErr func() error
 }
 
 func (backend *fakeBackend) URL() *url.URL {
@@ -39,16 +43,43 @@ func (backend *fakeBackend) ReloadConfig(ctx context.Context, filename string) e
 	if backend.onReload != nil {
 		backend.onReload(filename)
 	}
+	if backend.reloadErr != nil {
+		return backend.reloadErr(filename)
+	}
 	return nil
 }
 
 func (backend *fakeBackend) Restart(ctx context.Context) error {
 	backend.restarts.Add(1)
+	if backend.onRestart != nil {
+		backend.onRestart()
+	}
+	if backend.restartErr != nil {
+		return backend.restartErr()
+	}
 	return nil
 }
 
 func (backend *fakeBackend) Healthy(ctx context.Context) bool {
 	return backend.healthy
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (roundTrip roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return roundTrip(request)
+}
+
+func testHTTPResponse(status int, contentType string, body string) *http.Response {
+	header := http.Header{}
+	if contentType != "" {
+		header.Set("Content-Type", contentType)
+	}
+	return &http.Response{
+		StatusCode: status,
+		Header:     header,
+		Body:       io.NopCloser(strings.NewReader(body)),
+	}
 }
 
 func TestModelsEndpoint(t *testing.T) {
@@ -200,6 +231,229 @@ func TestCoreRequestWaitsForBackendModelsEndpointAfterReload(t *testing.T) {
 	}
 	if chats.Load() != 1 {
 		t.Fatalf("expected one chat request, got %d", chats.Load())
+	}
+}
+
+func TestFreshLoadBackendTransportFailureRecoversThroughRestart(t *testing.T) {
+	var posts atomic.Int32
+	connectionRefused := errors.New("dial tcp 127.0.0.1:5001: connect: connection refused")
+	service, backend := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	backend.reloadErr = func(filename string) error {
+		if !backend.healthy {
+			return connectionRefused
+		}
+		return nil
+	}
+	backend.onRestart = func() {
+		backend.healthy = true
+	}
+	service.client = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			switch {
+			case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
+				return testHTTPResponse(http.StatusOK, "application/json", `{"object":"list","data":[]}`), nil
+			case r.Method == http.MethodPost && r.URL.Path == "/v1/chat/completions":
+				if posts.Add(1) == 1 {
+					backend.healthy = false
+					return nil, connectionRefused
+				}
+				return testHTTPResponse(http.StatusOK, "application/json", `{"model":"koboldcpp/backend","choices":[{"message":{"content":"ready"}}]}`), nil
+			default:
+				t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+				return nil, nil
+			}
+		}),
+	}
+	service.backendRetryAttempts = 2
+	service.backendRetryDelay = 0
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"a","messages":[]}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if backend.restarts.Load() != 1 {
+		t.Fatalf("expected one restart, got %d", backend.restarts.Load())
+	}
+	if backend.reloads.Load() != 3 {
+		t.Fatalf("expected initial reload, failed recovery reload, and retry reload, got %d", backend.reloads.Load())
+	}
+	if posts.Load() != 2 {
+		t.Fatalf("expected two chat forwards, got %d", posts.Load())
+	}
+	if !strings.Contains(recorder.Body.String(), `"model":"a"`) {
+		t.Fatalf("response model was not rewritten: %s", recorder.Body.String())
+	}
+}
+
+func TestActiveConfigBackendTransportFailureRecoversThroughRestart(t *testing.T) {
+	var posts atomic.Int32
+	connectionRefused := errors.New("dial tcp 127.0.0.1:5001: connect: connection refused")
+	service, backend := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	backend.reloadErr = func(filename string) error {
+		if !backend.healthy {
+			return connectionRefused
+		}
+		return nil
+	}
+	backend.onRestart = func() {
+		backend.healthy = true
+	}
+	service.client = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			switch {
+			case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
+				return testHTTPResponse(http.StatusOK, "application/json", `{"object":"list","data":[]}`), nil
+			case r.Method == http.MethodPost && r.URL.Path == "/v1/chat/completions":
+				switch posts.Add(1) {
+				case 1, 3:
+					return testHTTPResponse(http.StatusOK, "application/json", `{"model":"koboldcpp/backend","choices":[{"message":{"content":"ready"}}]}`), nil
+				default:
+					return nil, connectionRefused
+				}
+			default:
+				t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+				return nil, nil
+			}
+		}),
+	}
+	service.backendRetryAttempts = 2
+	service.backendRetryDelay = 0
+
+	firstRecorder := httptest.NewRecorder()
+	firstRequest := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"a","messages":[]}`))
+	firstRequest.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(firstRecorder, firstRequest)
+	if firstRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected first status %d body %s", firstRecorder.Code, firstRecorder.Body.String())
+	}
+
+	backend.healthy = false
+
+	secondRecorder := httptest.NewRecorder()
+	secondRequest := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"a","messages":[]}`))
+	secondRequest.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(secondRecorder, secondRequest)
+
+	if secondRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected second status %d body %s", secondRecorder.Code, secondRecorder.Body.String())
+	}
+	if backend.restarts.Load() != 1 {
+		t.Fatalf("expected one restart, got %d", backend.restarts.Load())
+	}
+	if backend.reloads.Load() != 3 {
+		t.Fatalf("expected initial reload, failed recovery reload, and retry reload, got %d", backend.reloads.Load())
+	}
+	if posts.Load() != 3 {
+		t.Fatalf("expected three chat forwards, got %d", posts.Load())
+	}
+}
+
+func TestBackendTransportRecoveryIsBounded(t *testing.T) {
+	var posts atomic.Int32
+	connectionRefused := errors.New("dial tcp 127.0.0.1:5001: connect: connection refused")
+	service, backend := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	backend.reloadErr = func(filename string) error {
+		if !backend.healthy {
+			return connectionRefused
+		}
+		return nil
+	}
+	service.client = &http.Client{
+		Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+			switch {
+			case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
+				return testHTTPResponse(http.StatusOK, "application/json", `{"object":"list","data":[]}`), nil
+			case r.Method == http.MethodPost && r.URL.Path == "/v1/chat/completions":
+				posts.Add(1)
+				backend.healthy = false
+				return nil, connectionRefused
+			default:
+				t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+				return nil, nil
+			}
+		}),
+	}
+	service.backendRetryAttempts = 2
+	service.backendRetryDelay = 0
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"a","messages":[]}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if backend.restarts.Load() != 1 {
+		t.Fatalf("expected one restart, got %d", backend.restarts.Load())
+	}
+	if posts.Load() != 1 {
+		t.Fatalf("expected one chat forward before failed recovery, got %d", posts.Load())
+	}
+}
+
+func TestPreloadModelLoadsAndReusesConfig(t *testing.T) {
+	service, backend := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"koboldcpp/backend","choices":[{"message":{"content":"ready"}}]}`))
+	}))
+
+	if err := service.PreloadModel(context.Background(), "a"); err != nil {
+		t.Fatal(err)
+	}
+	if backend.reloads.Load() != 1 {
+		t.Fatalf("expected one preload reload, got %d", backend.reloads.Load())
+	}
+	if service.currentConfigFilename() != "a.kcpps" {
+		t.Fatalf("unexpected active config %q", service.currentConfigFilename())
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"a","messages":[]}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if backend.reloads.Load() != 1 {
+		t.Fatalf("expected preloaded config to be reused, got %d reloads", backend.reloads.Load())
+	}
+}
+
+func TestPreloadModelRejectsInvalidModel(t *testing.T) {
+	service, backend := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	err := service.PreloadModel(context.Background(), "missing")
+	if err == nil {
+		t.Fatalf("expected missing model error")
+	}
+	if !strings.Contains(err.Error(), "was not found") {
+		t.Fatalf("unexpected error %v", err)
+	}
+	if backend.reloads.Load() != 0 {
+		t.Fatalf("expected no reload, got %d", backend.reloads.Load())
+	}
+}
+
+func TestPreloadModelRejectsImageOnlyModel(t *testing.T) {
+	service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), map[string]string{
+		"image": `{"nomodel":true,"sdmodel":"C:\\models\\dream.safetensors"}`,
+	})
+
+	err := service.PreloadModel(context.Background(), "image")
+	if err == nil {
+		t.Fatalf("expected image-only model error")
+	}
+	if !strings.Contains(err.Error(), "is not an LLM model") {
+		t.Fatalf("unexpected error %v", err)
+	}
+	if backend.reloads.Load() != 0 {
+		t.Fatalf("expected no reload, got %d", backend.reloads.Load())
 	}
 }
 

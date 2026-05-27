@@ -52,6 +52,7 @@ auth:
 
 models:
   config_dir: "./kcpps"
+  startup_model: ""
 
 kobold:
   backend_url: "http://127.0.0.1:5001"
@@ -94,6 +95,8 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 ## Routing Behavior
 
 The router reloads the whole `.kcpps` file. It does not patch selected fields.
+
+Set `models.startup_model` to preload one LLM config before the router starts listening. Leave it empty to keep lazy loading.
 
 Requests to `/v1/chat/completions` and `/v1/completions` require a `model` field. The model id must match a `.kcpps` filename stem.
 

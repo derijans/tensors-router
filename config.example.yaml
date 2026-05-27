@@ -12,6 +12,7 @@ auth:
 
 models:
   config_dir: "./kcpps"
+  startup_model: ""
 
 kobold:
   backend_url: "http://127.0.0.1:5001"

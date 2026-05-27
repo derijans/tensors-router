@@ -29,7 +29,8 @@ type AuthConfig struct {
 }
 
 type ModelsConfig struct {
-	ConfigDir string
+	ConfigDir    string
+	StartupModel string
 }
 
 type KoboldConfig struct {
@@ -330,8 +331,12 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			return nil
 		}
 	case "models":
-		if key == "config_dir" {
+		switch key {
+		case "config_dir":
 			cfg.Models.ConfigDir = value
+			return nil
+		case "startup_model":
+			cfg.Models.StartupModel = value
 			return nil
 		}
 	case "kobold":

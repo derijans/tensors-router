@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -112,6 +113,14 @@ func runServe(args []string) error {
 		Catalog: modelCatalog,
 		Logger:  serveLogger,
 	})
+	startupModel := strings.TrimSpace(cfg.Models.StartupModel)
+	if startupModel != "" {
+		serveLogger.Printf("startup model preload attempt model=%q", startupModel)
+		if err := router.PreloadModel(ctx, startupModel); err != nil {
+			return err
+		}
+		serveLogger.Printf("startup model preload succeeded model=%q", startupModel)
+	}
 
 	server := &http.Server{
 		Addr:              cfg.Server.Bind,
