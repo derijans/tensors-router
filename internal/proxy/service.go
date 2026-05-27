@@ -189,7 +189,7 @@ func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if strings.HasPrefix(r.URL.Path, "/v1/") {
+	if isOpenAIPath(r.URL.Path) {
 		service.handleModelRequest(w, r, false)
 		return
 	}
@@ -1387,6 +1387,10 @@ func isImagePath(path string) bool {
 
 func isCorePath(path string) bool {
 	return path == "/v1/chat/completions" || path == "/v1/completions"
+}
+
+func isOpenAIPath(path string) bool {
+	return path == "/v1" || strings.HasPrefix(path, "/v1/")
 }
 
 func joinPath(base string, requestPath string) string {

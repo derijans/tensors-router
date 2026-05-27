@@ -100,6 +100,27 @@ func TestModelsEndpoint(t *testing.T) {
 	}
 }
 
+func TestOpenAIBaseEndpointIsForwarded(t *testing.T) {
+	service, _ := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1", nil)
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"ok":true`) {
+		t.Fatalf("base endpoint was not forwarded: %s", recorder.Body.String())
+	}
+}
+
 func TestUnknownCoreModelReturnsOpenAIError(t *testing.T) {
 	service, _ := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
