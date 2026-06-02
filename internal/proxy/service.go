@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"html"
 	"io"
 	"log"
 	"net/http"
@@ -1227,14 +1228,10 @@ func writeEventStreamResponse(w http.ResponseWriter, response *http.Response, vi
 	scanner := bufio.NewScanner(response.Body)
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
-		line := scanner.Text()
-		if strings.HasPrefix(line, "data: ") {
-			line = "data: " + rewriteEventDataModel(strings.TrimPrefix(line, "data: "), virtualModelID)
-		}
-		if _, err := io.WriteString(w, line+"\n"); err != nil {
+		if err := writeEventStreamLine(w, scanner.Text(), virtualModelID); err != nil {
 			return err
 		}
-		if line == "" && flusher != nil {
+		if scanner.Text() == "" && flusher != nil {
 			flusher.Flush()
 		}
 	}
@@ -1248,19 +1245,65 @@ func writeEventStreamResponse(w http.ResponseWriter, response *http.Response, vi
 }
 
 func rewriteJSONModel(body []byte, virtualModelID string) []byte {
-	rewritten, ok := rewriteTopLevelStringField(body, "model", virtualModelID)
+	rewritten, ok := rewriteJSONModelWithEncoder(body, virtualModelID)
+	if ok {
+		return rewritten
+	}
+	rewritten, ok = rewriteTopLevelStringField(body, "model", virtualModelID)
 	if !ok {
 		return body
 	}
 	return rewritten
 }
 
-func rewriteEventDataModel(data string, virtualModelID string) string {
-	if data == "[DONE]" {
-		return data
+func writeEventStreamLine(w io.Writer, line string, virtualModelID string) error {
+	switch {
+	case line == "":
+		_, err := io.WriteString(w, "\n")
+		return err
+	case strings.HasPrefix(line, "data: "):
+		return writeEventDataLine(w, strings.TrimPrefix(line, "data: "), virtualModelID)
+	case strings.HasPrefix(line, "data:"):
+		return writeEventDataLine(w, strings.TrimPrefix(line, "data:"), virtualModelID)
+	default:
+		_, err := io.WriteString(w, html.EscapeString(line)+"\n")
+		return err
 	}
-	rewritten := rewriteJSONModel([]byte(data), virtualModelID)
-	return string(rewritten)
+}
+
+func writeEventDataLine(w io.Writer, data string, virtualModelID string) error {
+	rewritten, ok := rewriteEventDataModel(data, virtualModelID)
+	if !ok {
+		return nil
+	}
+	_, err := io.WriteString(w, "data: "+string(rewritten)+"\n")
+	return err
+}
+
+func rewriteEventDataModel(data string, virtualModelID string) ([]byte, bool) {
+	if strings.TrimSpace(data) == "[DONE]" {
+		return []byte("[DONE]"), true
+	}
+	rewritten, ok := rewriteJSONModelWithEncoder([]byte(data), virtualModelID)
+	return rewritten, ok
+}
+
+func rewriteJSONModelWithEncoder(body []byte, virtualModelID string) ([]byte, bool) {
+	var value map[string]any
+	if err := json.Unmarshal(body, &value); err != nil {
+		return nil, false
+	}
+	if _, ok := value["model"]; !ok {
+		return body, true
+	}
+	value["model"] = virtualModelID
+	var buffer bytes.Buffer
+	encoder := json.NewEncoder(&buffer)
+	encoder.SetEscapeHTML(true)
+	if err := encoder.Encode(value); err != nil {
+		return nil, false
+	}
+	return bytes.TrimRight(buffer.Bytes(), "\n"), true
 }
 
 func rewriteTopLevelStringField(body []byte, fieldName string, fieldValue string) ([]byte, bool) {
