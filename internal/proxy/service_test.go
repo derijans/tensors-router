@@ -945,7 +945,7 @@ func TestStreamingResponseRewritesModel(t *testing.T) {
 
 func TestStreamingResponseEscapesRewrittenModel(t *testing.T) {
 	recorder := httptest.NewRecorder()
-	response := testHTTPResponse(http.StatusOK, "text/event-stream", "data: {\"model\":\"backend\",\"choices\":[]}\n\n")
+	response := testHTTPResponse(http.StatusOK, "text/event-stream", "data: {\"model\":\"backend\",\"choices\":[{\"delta\":{\"content\":\"<script>alert(1)</script>\"}}]}\n\n")
 	if err := writeProxyResponse(recorder, response, `bad<script>`, true); err != nil {
 		t.Fatal(err)
 	}
@@ -958,6 +958,9 @@ func TestStreamingResponseEscapesRewrittenModel(t *testing.T) {
 	}
 	if !strings.Contains(recorder.Body.String(), `bad\u003cscript\u003e`) {
 		t.Fatalf("stream did not escape model id: %s", recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `\u003cscript\u003ealert(1)\u003c/script\u003e`) {
+		t.Fatalf("stream did not escape reflected content: %s", recorder.Body.String())
 	}
 }
 
@@ -973,6 +976,50 @@ func TestStreamingResponseDropsInvalidDataLine(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), "<script>") {
 		t.Fatalf("invalid event data was reflected: %s", recorder.Body.String())
+	}
+}
+
+func TestModelRequestRejectsUnsupportedBackendContentType(t *testing.T) {
+	service, _ := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte(`<script>alert(1)</script>`))
+	}))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"a","messages":[{"role":"user","content":"<script>alert(1)</script>"}]}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadGateway {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "<script>") {
+		t.Fatalf("unsupported backend response reflected body: %s", recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "invalid json") {
+		t.Fatalf("missing safe backend error: %s", recorder.Body.String())
+	}
+}
+
+func TestModelRequestEscapesValidJSONBackendContent(t *testing.T) {
+	service, _ := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"backend","choices":[{"message":{"content":"<script>alert(1)</script>"}}]}`))
+	}))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"a","messages":[{"role":"user","content":"<script>alert(1)</script>"}]}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "<script>") {
+		t.Fatalf("json response reflected raw script: %s", recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `\u003cscript\u003ealert(1)\u003c/script\u003e`) {
+		t.Fatalf("json response did not escape reflected content: %s", recorder.Body.String())
 	}
 }
 

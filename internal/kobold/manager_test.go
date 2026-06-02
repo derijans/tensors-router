@@ -3,10 +3,8 @@ package kobold
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"os/exec"
 	"runtime"
 	"testing"
@@ -90,10 +88,7 @@ func TestStartStopsUnhealthyManagedProcessBeforeReplacement(t *testing.T) {
 		t.Skip("process interrupt behavior differs on Windows")
 	}
 
-	cmd := exec.Command(os.Args[0], "-test.run=TestKoboldManagedProcessHelper")
-	cmd.Env = append(os.Environ(), "KOBOLD_MANAGER_HELPER=1")
-	cmd.Stdout = io.Discard
-	cmd.Stderr = io.Discard
+	cmd := exec.Command("sleep", "60")
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
 	}
@@ -129,15 +124,6 @@ func TestStartStopsUnhealthyManagedProcessBeforeReplacement(t *testing.T) {
 	case <-waitDone:
 	case <-time.After(3 * time.Second):
 		t.Fatalf("managed process was not stopped")
-	}
-}
-
-func TestKoboldManagedProcessHelper(t *testing.T) {
-	if os.Getenv("KOBOLD_MANAGER_HELPER") != "1" {
-		return
-	}
-	for {
-		time.Sleep(time.Second)
 	}
 }
 

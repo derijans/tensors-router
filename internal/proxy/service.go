@@ -460,9 +460,20 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if err := writeProxyResponse(w, response, modelID, hasModel); err != nil {
+	if err := writeModelProxyResponse(w, response, modelID, hasModel); err != nil {
 		return
 	}
+}
+
+func writeModelProxyResponse(w http.ResponseWriter, response *http.Response, virtualModelID string, rewriteModel bool) error {
+	if !rewriteModel {
+		return writeProxyResponse(w, response, virtualModelID, false)
+	}
+	defer response.Body.Close()
+	if isEventStream(response.Header) {
+		return writeEventStreamResponse(w, response, virtualModelID)
+	}
+	return writeJSONResponseWithVirtualModel(w, response, virtualModelID)
 }
 
 func (service *Service) forwardWithFallback(ctx context.Context, original *http.Request, body []byte, modelID string, configFilename string, hasModel bool, readiness backendReadiness) (*http.Response, error) {
@@ -1211,9 +1222,15 @@ func writeJSONResponseWithVirtualModel(w http.ResponseWriter, response *http.Res
 	if err != nil {
 		return err
 	}
+	if !json.Valid(body) {
+		openai.WriteError(w, http.StatusBadGateway, "backend_error", "backend returned invalid json")
+		return nil
+	}
 
 	body = rewriteJSONModel(body, virtualModelID)
+	body = htmlEscapeJSON(body)
 	copyResponseHeaders(w.Header(), response.Header)
+	w.Header().Set("Content-Type", "application/json")
 	w.Header().Del("Content-Length")
 	w.WriteHeader(response.StatusCode)
 	_, err = w.Write(body)
@@ -1289,7 +1306,7 @@ func rewriteEventDataModel(data string, virtualModelID string) ([]byte, bool) {
 	if !json.Valid(body) {
 		return nil, false
 	}
-	return rewriteJSONModel(body, virtualModelID), true
+	return htmlEscapeJSON(rewriteJSONModel(body, virtualModelID)), true
 }
 
 func htmlEscapedJSONStringLiteral(value string) ([]byte, bool) {
@@ -1300,6 +1317,16 @@ func htmlEscapedJSONStringLiteral(value string) ([]byte, bool) {
 		return nil, false
 	}
 	return bytes.TrimSuffix(buffer.Bytes(), []byte("\n")), true
+}
+
+func htmlEscapeJSON(body []byte) []byte {
+	if !bytes.ContainsAny(body, "<>&") {
+		return body
+	}
+	var buffer bytes.Buffer
+	buffer.Grow(len(body))
+	json.HTMLEscape(&buffer, body)
+	return buffer.Bytes()
 }
 
 func rewriteTopLevelStringField(body []byte, quotedFieldName []byte, quotedFieldValue []byte) ([]byte, bool) {

@@ -216,6 +216,10 @@ func stopManagedProcess(ctx context.Context, cmd *exec.Cmd, waitDone <-chan erro
 	select {
 	case <-ctx.Done():
 		_ = killCommand(cmd)
+		select {
+		case <-waitDone:
+		case <-time.After(5 * time.Second):
+		}
 		return ctx.Err()
 	case <-time.After(10 * time.Second):
 		_ = killCommand(cmd)

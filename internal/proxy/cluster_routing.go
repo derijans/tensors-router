@@ -45,7 +45,7 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 	}
 	response = responseWithRelease(response, release)
 
-	if err := writeProxyResponse(w, response, publicID, true); err != nil {
+	if err := writeModelProxyResponse(w, response, publicID, true); err != nil {
 		return
 	}
 }
