@@ -3,6 +3,7 @@ package kobold
 import (
 	"os"
 	"os/exec"
+	"strconv"
 	"syscall"
 )
 
@@ -27,6 +28,9 @@ func terminateCommand(cmd *exec.Cmd) error {
 
 func killCommand(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
+		return nil
+	}
+	if err := exec.Command("taskkill", "/PID", strconv.Itoa(cmd.Process.Pid), "/T", "/F").Run(); err == nil {
 		return nil
 	}
 	return cmd.Process.Kill()

@@ -5,6 +5,7 @@ bin/
 
 data/
 data-*/
+router-store/
 *.log
 
 kcpps/

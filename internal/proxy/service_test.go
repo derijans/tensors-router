@@ -18,12 +18,14 @@ import (
 	"time"
 
 	"tensors-router/internal/catalog"
+	"tensors-router/internal/cluster"
 )
 
 type fakeBackend struct {
 	url        *url.URL
 	reloads    atomic.Int32
 	restarts   atomic.Int32
+	unloads    atomic.Int32
 	healthy    bool
 	lastReload string
 	onReload   func(string)
@@ -57,6 +59,11 @@ func (backend *fakeBackend) Restart(ctx context.Context) error {
 	if backend.restartErr != nil {
 		return backend.restartErr()
 	}
+	return nil
+}
+
+func (backend *fakeBackend) Unload(ctx context.Context) error {
+	backend.unloads.Add(1)
 	return nil
 }
 
@@ -1169,6 +1176,100 @@ func TestImageConfigSwitchWaitsForStreamingLLMRequest(t *testing.T) {
 	}
 }
 
+func TestClusterModelsEndpointHidesNodeIdentityAndIndexesConflicts(t *testing.T) {
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master", nil)
+	if err := registry.UpdateLocal([]cluster.Model{testClusterModel("same", "master", "master-hash", "config-hash", cluster.SourceMaster)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.UpdateNode(cluster.Snapshot{
+		NodeID:  "slave-a",
+		NodeURL: "http://slave-a",
+		Models:  []cluster.Model{testClusterModel("same", "slave-a", "slave-hash", "config-hash", cluster.SourceSlave)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service, _ := newTestServiceWithRegistry(t, registry, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), "secret")
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"id":"same"`) || !strings.Contains(recorder.Body.String(), `"id":"same-2"`) {
+		t.Fatalf("missing public models: %s", recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "slave-a") {
+		t.Fatalf("node identity leaked: %s", recorder.Body.String())
+	}
+}
+
+func TestClusterRemoteRequestRewritesModelBothWays(t *testing.T) {
+	var sawAuthorization bool
+	var sawLocalModel bool
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/chat/completions" {
+			t.Fatalf("unexpected remote path %s", r.URL.Path)
+		}
+		sawAuthorization = r.Header.Get("Authorization") == "Bearer secret"
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sawLocalModel = strings.Contains(string(body), `"model":"same"`)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"backend","choices":[{"message":{"content":"ok"}}]}`))
+	}))
+	defer remote.Close()
+
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master", nil)
+	if err := registry.UpdateLocal([]cluster.Model{testClusterModel("same", "master", "master-hash", "config-hash", cluster.SourceMaster)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.UpdateNode(cluster.Snapshot{
+		NodeID:  "slave-a",
+		NodeURL: remote.URL,
+		Models:  []cluster.Model{testClusterModel("same", "slave-a", "slave-hash", "config-hash", cluster.SourceSlave)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service, _ := newTestServiceWithRegistry(t, registry, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), "secret")
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"same-2","messages":[]}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !sawAuthorization {
+		t.Fatalf("cluster authorization was not forwarded")
+	}
+	if !sawLocalModel {
+		t.Fatalf("remote did not receive local model id")
+	}
+	if !strings.Contains(recorder.Body.String(), `"model":"same-2"`) {
+		t.Fatalf("response model was not rewritten: %s", recorder.Body.String())
+	}
+}
+
+func TestRouterUnloadCallsBackendUnload(t *testing.T) {
+	service, backend := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/router/v1/unload", nil)
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if backend.unloads.Load() != 1 {
+		t.Fatalf("expected one unload, got %d", backend.unloads.Load())
+	}
+}
+
 func newTestService(t *testing.T, backendHandler http.Handler) (*Service, *fakeBackend) {
 	return newTestServiceWithLogger(t, backendHandler, log.New(io.Discard, "", 0))
 }
@@ -1185,6 +1286,26 @@ func newTestServiceWithModelsAndLogger(t *testing.T, backendHandler http.Handler
 	t.Helper()
 
 	return newTestServiceWithBackendSetup(t, backendHandler, logger, true, modelIDs...)
+}
+
+func newTestServiceWithRegistry(t *testing.T, registry *cluster.Registry, backendHandler http.Handler, token string) (*Service, *fakeBackend) {
+	t.Helper()
+
+	server := httptest.NewServer(backendHandler)
+	t.Cleanup(server.Close)
+	backendURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := &fakeBackend{url: backendURL, healthy: true}
+	service := NewService(ServiceConfig{
+		Backend:      backend,
+		Catalog:      catalog.New(t.TempDir()),
+		Registry:     registry,
+		ClusterToken: token,
+		Logger:       log.New(io.Discard, "", 0),
+	})
+	return service, backend
 }
 
 func newTestServiceWithRawBackend(t *testing.T, backendHandler http.Handler, modelIDs ...string) (*Service, *fakeBackend) {
@@ -1224,6 +1345,22 @@ func newTestServiceWithConfigContents(t *testing.T, backendHandler http.Handler,
 		Logger:  log.New(io.Discard, "", 0),
 	})
 	return service, backend
+}
+
+func testClusterModel(id string, nodeID string, modelHash string, configHash string, source string) cluster.Model {
+	return cluster.Model{
+		PublicID:   id,
+		LocalID:    id,
+		Filename:   id + ".kcpps",
+		Created:    1,
+		HasLLM:     true,
+		ModelHash:  modelHash,
+		ConfigHash: configHash,
+		Source:     source,
+		NodeID:     nodeID,
+		NodeURL:    "http://" + nodeID,
+		Available:  true,
+	}
 }
 
 func newTestServiceWithBackendSetup(t *testing.T, backendHandler http.Handler, logger *log.Logger, addModelsEndpoint bool, modelIDs ...string) (*Service, *fakeBackend) {

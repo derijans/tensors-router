@@ -6,10 +6,13 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 )
 
 type Catalog struct {
-	dir string
+	scanMu    sync.Mutex
+	dir       string
+	hashStore *HashStore
 }
 
 type Model struct {
@@ -19,26 +22,43 @@ type Model struct {
 	Created        int64
 	HasLLM         bool
 	HasImage       bool
+	HasEmbeddings  bool
+	HasMultimodal  bool
 	ImageID        string
 	ImageModelName string
 	ImageModelPath string
-}
-
-type configMetadata struct {
-	Model      any    `json:"model"`
-	ModelParam string `json:"model_param"`
-	NoModel    bool   `json:"nomodel"`
-	SDModel    string `json:"sdmodel"`
+	ModelHash      string
+	ConfigHash     string
+	Capabilities   Capabilities
 }
 
 func New(dir string) *Catalog {
 	return &Catalog{dir: dir}
 }
 
+func NewWithStore(dir string, storeDir string) (*Catalog, error) {
+	hashStore, err := NewHashStore(storeDir)
+	if err != nil {
+		return nil, err
+	}
+	return &Catalog{dir: dir, hashStore: hashStore}, nil
+}
+
 func (catalog *Catalog) List() ([]Model, error) {
+	catalog.scanMu.Lock()
+	defer catalog.scanMu.Unlock()
+
+	if catalog.hashStore != nil {
+		catalog.hashStore.StartScan()
+	}
 	entries, err := os.ReadDir(catalog.dir)
 	if err != nil {
 		if os.IsNotExist(err) {
+			if catalog.hashStore != nil {
+				if saveErr := catalog.hashStore.Save(); saveErr != nil {
+					return nil, saveErr
+				}
+			}
 			return []Model{}, nil
 		}
 		return nil, err
@@ -67,6 +87,11 @@ func (catalog *Catalog) List() ([]Model, error) {
 	sort.Slice(models, func(left, right int) bool {
 		return models[left].ID < models[right].ID
 	})
+	if catalog.hashStore != nil {
+		if err := catalog.hashStore.Save(); err != nil {
+			return nil, err
+		}
+	}
 	return models, nil
 }
 
@@ -159,19 +184,30 @@ func (catalog *Catalog) withMetadata(model Model) Model {
 	model.HasLLM = true
 	content, err := os.ReadFile(model.Path)
 	if err != nil {
+		model.Capabilities = capabilitiesFromMetadata(configMetadata{}, model.HasLLM, false, false, false)
 		return model
 	}
 	var metadata configMetadata
 	if err := json.Unmarshal(content, &metadata); err != nil {
+		model.Capabilities = capabilitiesFromMetadata(configMetadata{}, model.HasLLM, false, false, false)
 		return model
 	}
 
 	model.HasImage = strings.TrimSpace(metadata.SDModel) != ""
+	model.HasEmbeddings = strings.TrimSpace(metadata.EmbeddingsModel) != ""
+	model.HasMultimodal = modelHasValue(metadata.MMProj)
+	model.HasLLM = hasLLMModel(metadata)
 	if model.HasImage {
 		model.ImageModelPath = strings.TrimSpace(metadata.SDModel)
 		model.ImageModelName = filenameStem(model.ImageModelPath)
 		model.ImageID = model.ID + "-" + model.ImageModelName
-		model.HasLLM = hasLLMModel(metadata)
+	}
+	model.Capabilities = capabilitiesFromMetadata(metadata, model.HasLLM, model.HasImage, model.HasEmbeddings, model.HasMultimodal)
+	model.ConfigHash = ConfigHash(content)
+	if catalog.hashStore != nil {
+		model.ModelHash = catalog.hashStore.ModelHash(content)
+	} else {
+		model.ModelHash = ModelReferenceHash(content, nil)
 	}
 	return model
 }
@@ -213,4 +249,31 @@ func filenameStem(value string) string {
 		return value
 	}
 	return strings.TrimSuffix(value, extension)
+}
+
+func stringValues(value any) []string {
+	switch typed := value.(type) {
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if trimmed == "" {
+			return nil
+		}
+		return []string{trimmed}
+	case []any:
+		values := make([]string, 0, len(typed))
+		for _, item := range typed {
+			values = append(values, stringValues(item)...)
+		}
+		return values
+	default:
+		return nil
+	}
+}
+
+func firstStringValue(value any) string {
+	values := stringValues(value)
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }

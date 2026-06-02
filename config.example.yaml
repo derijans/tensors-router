@@ -32,3 +32,14 @@ updates:
   enabled: true
   check_interval: "168h"
   binary_url: "https://koboldai.org/cpplinuxrocm"
+
+cluster:
+  role: "standalone"
+  node_id: "local"
+  public_url: ""
+  master_url: ""
+  slave_urls: []
+  token: ""
+  store_dir: "./router-store"
+  sync_interval: "60s"
+  health_interval: "15s"

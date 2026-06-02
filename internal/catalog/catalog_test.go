@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -132,4 +133,150 @@ func writeCatalogFile(t *testing.T, dir string, filename string, content string)
 	if err := os.WriteFile(filepath.Join(dir, filename), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestCapabilitiesIncludeImageEmbeddingsMultimodalAndContext(t *testing.T) {
+	dir := t.TempDir()
+	writeCatalogFile(t, dir, "rich.kcpps", `{
+		"model_param":"C:/models/text.gguf",
+		"contextsize":8192,
+		"sdmodel":"C:/models/dream.safetensors",
+		"sdupscaler":"C:/models/upscale.pth",
+		"sdvae":"C:/models/vae.safetensors",
+		"sdvaeauto":true,
+		"sdt5xxl":"C:/models/t5.safetensors",
+		"sdclip1":"C:/models/clip-l.safetensors",
+		"sdclip2":"C:/models/clip-g.safetensors",
+		"sdlora":["C:/models/style.safetensors"],
+		"sdquant":2,
+		"sdtiledvae":768,
+		"sdflashattention":true,
+		"sdoffloadcpu":true,
+		"sdvaecpu":true,
+		"sdclipgpu":true,
+		"embeddingsmodel":"C:/models/embed.gguf",
+		"embeddingsmaxctx":2048,
+		"embeddingsgpu":true,
+		"mmproj":"C:/models/mmproj.gguf",
+		"visionmaxres":1024,
+		"visionmintokens":32,
+		"visionmaxtokens":512
+	}`)
+
+	models, err := New(dir).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := models[0]
+	if !model.HasLLM || !model.HasImage || !model.HasEmbeddings || !model.HasMultimodal {
+		t.Fatalf("unexpected capability booleans %#v", model)
+	}
+	if model.Capabilities.Context != 8192 {
+		t.Fatalf("unexpected context %d", model.Capabilities.Context)
+	}
+	if model.Capabilities.Image == nil || model.Capabilities.Image.Upscaler == "" || model.Capabilities.Image.VAE == "" {
+		t.Fatalf("missing image details %#v", model.Capabilities.Image)
+	}
+	if model.Capabilities.Embeddings == nil || model.Capabilities.Embeddings.MaxCtx != 2048 || !model.Capabilities.Embeddings.GPU {
+		t.Fatalf("missing embedding details %#v", model.Capabilities.Embeddings)
+	}
+	if model.Capabilities.Multimodal == nil || model.Capabilities.Multimodal.VisionMaxRes != 1024 {
+		t.Fatalf("missing multimodal details %#v", model.Capabilities.Multimodal)
+	}
+}
+
+func TestConfigHashIgnoresPathsButKeepsRuntimeValues(t *testing.T) {
+	first := configHashJSON(t, map[string]any{
+		"model_param": "C:/models/a.gguf",
+		"admindir":    "C:/router/a",
+		"contextsize": 4096,
+		"quantkv":     "f16",
+	})
+	second := configHashJSON(t, map[string]any{
+		"model_param": "/mnt/models/a.gguf",
+		"admindir":    "/router/b",
+		"contextsize": 4096,
+		"quantkv":     "f16",
+	})
+	changedContext := configHashJSON(t, map[string]any{
+		"model_param": "/mnt/models/a.gguf",
+		"admindir":    "/router/b",
+		"contextsize": 8192,
+		"quantkv":     "f16",
+	})
+
+	if ConfigHash(first) != ConfigHash(second) {
+		t.Fatalf("path-only changes should not change config hash")
+	}
+	if ConfigHash(first) == ConfigHash(changedContext) {
+		t.Fatalf("runtime changes should change config hash")
+	}
+}
+
+func TestHashStoreCachesFileHashesAndDropsMissingFiles(t *testing.T) {
+	dir := t.TempDir()
+	storeDir := t.TempDir()
+	modelPath := filepath.Join(dir, "model.gguf")
+	if err := os.WriteFile(modelPath, []byte("weights"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	content := configHashJSON(t, map[string]any{"model_param": modelPath})
+	writeCatalogFile(t, dir, "model.kcpps", string(content))
+
+	models, err := NewWithStore(dir, storeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	listed, err := models.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if listed[0].ModelHash == "" {
+		t.Fatalf("expected model hash")
+	}
+	cachePath := filepath.Join(storeDir, "hash-cache.json")
+	cache, err := os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cacheHasPath(t, cache, modelPath) {
+		t.Fatalf("cache missing model path: %s", string(cache))
+	}
+
+	if err := os.Remove(modelPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := models.List(); err != nil {
+		t.Fatal(err)
+	}
+	cache, err = os.ReadFile(cachePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cacheHasPath(t, cache, modelPath) {
+		t.Fatalf("cache kept missing model path: %s", string(cache))
+	}
+}
+
+func configHashJSON(t *testing.T, value map[string]any) []byte {
+	t.Helper()
+	content, err := json.Marshal(value)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return content
+}
+
+func cacheHasPath(t *testing.T, content []byte, path string) bool {
+	t.Helper()
+	var cache hashCache
+	if err := json.Unmarshal(content, &cache); err != nil {
+		t.Fatal(err)
+	}
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, ok := cache.Files[absolute]
+	return ok
 }

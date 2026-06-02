@@ -42,6 +42,7 @@ type Manager struct {
 	cmd           *exec.Cmd
 	logFile       *os.File
 	waitDone      chan error
+	forceNoModel  bool
 }
 
 type reloadResponse struct {
@@ -92,7 +93,7 @@ func (manager *Manager) LaunchArguments() []string {
 		"--admindir", manager.config.ConfigDir,
 		"--multiuser", strconv.Itoa(manager.config.Multiuser),
 	}
-	if manager.config.NoModel {
+	if manager.config.NoModel || manager.forceNoModel {
 		args = append(args, "--nomodel")
 	}
 	if manager.config.SkipLauncher {
@@ -120,8 +121,17 @@ func (manager *Manager) Start(ctx context.Context) error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 
+	return manager.startLocked(ctx)
+}
+
+func (manager *Manager) startLocked(ctx context.Context) error {
 	if manager.cmd != nil && manager.cmd.Process != nil && manager.Healthy(ctx) {
 		return nil
+	}
+	if manager.cmd != nil {
+		if err := manager.stopLocked(ctx); err != nil {
+			return err
+		}
 	}
 
 	if err := os.MkdirAll(manager.config.DataDir, 0o755); err != nil {
@@ -173,13 +183,18 @@ func (manager *Manager) Start(ctx context.Context) error {
 
 func (manager *Manager) Stop(ctx context.Context) error {
 	manager.mu.Lock()
+	defer manager.mu.Unlock()
+
+	return manager.stopLocked(ctx)
+}
+
+func (manager *Manager) stopLocked(ctx context.Context) error {
 	cmd := manager.cmd
 	manager.cmd = nil
 	logFile := manager.logFile
 	manager.logFile = nil
 	waitDone := manager.waitDone
 	manager.waitDone = nil
-	manager.mu.Unlock()
 
 	if cmd == nil || cmd.Process == nil {
 		if logFile != nil {
@@ -188,7 +203,15 @@ func (manager *Manager) Stop(ctx context.Context) error {
 		return nil
 	}
 
+	return stopManagedProcess(ctx, cmd, waitDone)
+}
+
+func stopManagedProcess(ctx context.Context, cmd *exec.Cmd, waitDone <-chan error) error {
 	_ = terminateCommand(cmd)
+	if waitDone == nil {
+		_ = killCommand(cmd)
+		return nil
+	}
 
 	select {
 	case <-ctx.Done():
@@ -221,6 +244,19 @@ func (manager *Manager) Restart(ctx context.Context) error {
 		return err
 	}
 	return nil
+}
+
+func (manager *Manager) Unload(ctx context.Context) error {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+
+	if err := manager.stopLocked(ctx); err != nil {
+		return err
+	}
+	manager.forceNoModel = true
+	err := manager.startLocked(ctx)
+	manager.forceNoModel = false
+	return err
 }
 
 func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error {

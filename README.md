@@ -62,6 +62,17 @@ kobold:
 
 logging:
   enabled: true
+
+cluster:
+  role: "standalone"
+  node_id: "local"
+  public_url: ""
+  master_url: ""
+  slave_urls: []
+  token: ""
+  store_dir: "./router-store"
+  sync_interval: "60s"
+  health_interval: "15s"
 ```
 
 ## Download KoboldCpp
@@ -142,6 +153,34 @@ Usable config types depend on the KoboldCpp endpoint being called:
 - Combined LLM+image config: use one `.kcpps` containing the text model plus `sdmodel`; its image id is available only while the combined config is loaded, and selecting it does not reload or unload the active LLM.
 
 Only one KoboldCpp config is active at a time. LLM and image requests share one model gate: requests using the active config can run together, while a config switch waits for in-flight requests to finish.
+
+## Router Registry
+
+Rich model list:
+
+```bash
+curl http://127.0.0.1:8080/router/v1/models
+```
+
+This returns local and clustered model records with capabilities, hashes, source, node id, and availability. The OpenAI `/v1/models` endpoint stays user-facing and does not expose node ids.
+
+Load or unload a model explicitly:
+
+```bash
+curl http://127.0.0.1:8080/router/v1/load \
+  -H "Content-Type: application/json" \
+  -d '{"model":"hermes-8k"}'
+
+curl -X POST http://127.0.0.1:8080/router/v1/unload
+```
+
+Unload restarts KoboldCpp in no-model mode and clears the router active config.
+
+## Cluster Routing
+
+Set one router to `cluster.role: "master"` and slave routers to `cluster.role: "slave"`. Use the same `cluster.token` on all nodes. Slaves register with `cluster.master_url`; masters also query configured `cluster.slave_urls` at startup and on the health interval.
+
+The master hashes referenced model files and path-normalized `.kcpps` configs into `cluster.store_dir`. If master and slaves have the same public model id with identical hashes, clients see one normal model id. If a slave has the same id with different hashes, the master exposes an indexed id such as `model-2`. Requested models are rewritten to the selected slave local id while forwarding, then responses are rewritten back to the public id.
 
 ## Auth
 

@@ -17,6 +17,7 @@ type Config struct {
 	Kobold  KoboldConfig
 	Logging LoggingConfig
 	Updates UpdatesConfig
+	Cluster ClusterConfig
 }
 
 type ServerConfig struct {
@@ -55,6 +56,18 @@ type UpdatesConfig struct {
 	BinaryURL     string
 }
 
+type ClusterConfig struct {
+	Role           string
+	NodeID         string
+	PublicURL      string
+	MasterURL      string
+	SlaveURLs      []string
+	Token          string
+	StoreDir       string
+	SyncInterval   time.Duration
+	HealthInterval time.Duration
+}
+
 func Defaults() Config {
 	return Config{
 		Server: ServerConfig{
@@ -91,6 +104,14 @@ func Defaults() Config {
 			Enabled:       true,
 			CheckInterval: 168 * time.Hour,
 			BinaryURL:     "https://koboldai.org/cpplinuxrocm",
+		},
+		Cluster: ClusterConfig{
+			Role:           "standalone",
+			NodeID:         "local",
+			SlaveURLs:      []string{},
+			StoreDir:       "./router-store",
+			SyncInterval:   60 * time.Second,
+			HealthInterval: 15 * time.Second,
 		},
 	}
 }
@@ -143,6 +164,49 @@ func validate(cfg Config) error {
 	}
 	if cfg.Updates.Enabled && cfg.Updates.BinaryURL == "" {
 		return fmt.Errorf("updates.binary_url is required when updates.enabled is true")
+	}
+	switch cfg.Cluster.Role {
+	case "standalone", "master", "slave":
+	default:
+		return fmt.Errorf("cluster.role must be standalone, master, or slave")
+	}
+	if strings.TrimSpace(cfg.Cluster.NodeID) == "" {
+		return fmt.Errorf("cluster.node_id is required")
+	}
+	if cfg.Cluster.StoreDir == "" {
+		return fmt.Errorf("cluster.store_dir is required")
+	}
+	if cfg.Cluster.SyncInterval <= 0 {
+		return fmt.Errorf("cluster.sync_interval must be positive")
+	}
+	if cfg.Cluster.HealthInterval <= 0 {
+		return fmt.Errorf("cluster.health_interval must be positive")
+	}
+	if cfg.Cluster.Role != "standalone" && strings.TrimSpace(cfg.Cluster.Token) == "" {
+		return fmt.Errorf("cluster.token is required when cluster.role is not standalone")
+	}
+	if cfg.Cluster.Role == "slave" {
+		if strings.TrimSpace(cfg.Cluster.MasterURL) == "" {
+			return fmt.Errorf("cluster.master_url is required when cluster.role is slave")
+		}
+		if strings.TrimSpace(cfg.Cluster.PublicURL) == "" {
+			return fmt.Errorf("cluster.public_url is required when cluster.role is slave")
+		}
+	}
+	if cfg.Cluster.PublicURL != "" {
+		if _, err := url.ParseRequestURI(cfg.Cluster.PublicURL); err != nil {
+			return fmt.Errorf("cluster.public_url is invalid: %w", err)
+		}
+	}
+	if cfg.Cluster.MasterURL != "" {
+		if _, err := url.ParseRequestURI(cfg.Cluster.MasterURL); err != nil {
+			return fmt.Errorf("cluster.master_url is invalid: %w", err)
+		}
+	}
+	for _, slaveURL := range cfg.Cluster.SlaveURLs {
+		if _, err := url.ParseRequestURI(slaveURL); err != nil {
+			return fmt.Errorf("cluster.slave_urls contains invalid URL: %w", err)
+		}
 	}
 	return nil
 }
@@ -416,6 +480,41 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			cfg.Updates.BinaryURL = value
 			return nil
 		}
+	case "cluster":
+		switch key {
+		case "role":
+			cfg.Cluster.Role = value
+			return nil
+		case "node_id":
+			cfg.Cluster.NodeID = value
+			return nil
+		case "public_url":
+			cfg.Cluster.PublicURL = value
+			return nil
+		case "master_url":
+			cfg.Cluster.MasterURL = value
+			return nil
+		case "token":
+			cfg.Cluster.Token = value
+			return nil
+		case "store_dir":
+			cfg.Cluster.StoreDir = value
+			return nil
+		case "sync_interval":
+			parsed, err := time.ParseDuration(value)
+			if err != nil {
+				return err
+			}
+			cfg.Cluster.SyncInterval = parsed
+			return nil
+		case "health_interval":
+			parsed, err := time.ParseDuration(value)
+			if err != nil {
+				return err
+			}
+			cfg.Cluster.HealthInterval = parsed
+			return nil
+		}
 	}
 	return fmt.Errorf("unknown key %s.%s", section, key)
 }
@@ -440,6 +539,11 @@ func setListValue(cfg *Config, section string, key string, values []string) erro
 			cfg.Kobold.ExtraArgs = values
 			return nil
 		}
+	case "cluster":
+		if key == "slave_urls" {
+			cfg.Cluster.SlaveURLs = values
+			return nil
+		}
 	}
 	return fmt.Errorf("unknown key %s.%s", section, key)
 }
@@ -459,6 +563,11 @@ func appendListValue(cfg *Config, section string, key string, value string) erro
 	case "kobold":
 		if key == "extra_args" {
 			cfg.Kobold.ExtraArgs = append(cfg.Kobold.ExtraArgs, value)
+			return nil
+		}
+	case "cluster":
+		if key == "slave_urls" {
+			cfg.Cluster.SlaveURLs = append(cfg.Cluster.SlaveURLs, value)
 			return nil
 		}
 	}

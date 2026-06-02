@@ -44,6 +44,18 @@ updates:
   enabled: false
   check_interval: "24h"
   binary_url: "https://example.test/koboldcpp"
+
+cluster:
+  role: "master"
+  node_id: "master-a"
+  public_url: "http://127.0.0.1:8080"
+  master_url: ""
+  slave_urls:
+    - "http://127.0.0.1:8081"
+  token: "cluster-secret"
+  store_dir: "./store"
+  sync_interval: "30s"
+  health_interval: "5s"
 `)
 	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatal(err)
@@ -81,6 +93,18 @@ updates:
 	if cfg.Updates.CheckInterval != 24*time.Hour {
 		t.Fatalf("unexpected check interval %s", cfg.Updates.CheckInterval)
 	}
+	if cfg.Cluster.Role != "master" || cfg.Cluster.NodeID != "master-a" {
+		t.Fatalf("unexpected cluster identity %#v", cfg.Cluster)
+	}
+	if !reflect.DeepEqual(cfg.Cluster.SlaveURLs, []string{"http://127.0.0.1:8081"}) {
+		t.Fatalf("unexpected slave urls %#v", cfg.Cluster.SlaveURLs)
+	}
+	if cfg.Cluster.Token != "cluster-secret" || cfg.Cluster.StoreDir != "./store" {
+		t.Fatalf("unexpected cluster config %#v", cfg.Cluster)
+	}
+	if cfg.Cluster.SyncInterval != 30*time.Second || cfg.Cluster.HealthInterval != 5*time.Second {
+		t.Fatalf("unexpected cluster intervals %#v", cfg.Cluster)
+	}
 }
 
 func TestLoadDefaultConfigWhenDefaultFileMissing(t *testing.T) {
@@ -100,6 +124,9 @@ func TestLoadDefaultConfigWhenDefaultFileMissing(t *testing.T) {
 	if !cfg.Logging.Enabled {
 		t.Fatalf("default logging should be enabled")
 	}
+	if cfg.Cluster.Role != "standalone" || cfg.Cluster.NodeID != "local" {
+		t.Fatalf("unexpected default cluster %#v", cfg.Cluster)
+	}
 }
 
 func TestLoadRejectsUnknownKey(t *testing.T) {
@@ -111,5 +138,22 @@ func TestLoadRejectsUnknownKey(t *testing.T) {
 
 	if _, err := Load(path); err == nil {
 		t.Fatalf("expected unknown key error")
+	}
+}
+
+func TestLoadRejectsSlaveClusterWithoutRequiredFields(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+cluster:
+  role: "slave"
+  node_id: "slave-a"
+  token: "secret"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(path); err == nil {
+		t.Fatalf("expected missing slave fields error")
 	}
 }

@@ -3,9 +3,14 @@ package kobold
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
+	"runtime"
 	"testing"
+	"time"
 )
 
 func TestLaunchArguments(t *testing.T) {
@@ -80,6 +85,62 @@ func TestReloadConfigUsesAdminEndpoint(t *testing.T) {
 	}
 }
 
+func TestStartStopsUnhealthyManagedProcessBeforeReplacement(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("process interrupt behavior differs on Windows")
+	}
+
+	cmd := exec.Command(os.Args[0], "-test.run=TestKoboldManagedProcessHelper")
+	cmd.Env = append(os.Environ(), "KOBOLD_MANAGER_HELPER=1")
+	cmd.Stdout = io.Discard
+	cmd.Stderr = io.Discard
+	if err := cmd.Start(); err != nil {
+		t.Fatal(err)
+	}
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- cmd.Wait()
+	}()
+
+	manager, err := NewManager(ProcessConfig{
+		BackendURL: "http://127.0.0.1:1",
+		BinaryPath: filepathThatShouldNotExist(t),
+		ConfigDir:  t.TempDir(),
+		DataDir:    t.TempDir(),
+		Multiuser:  1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.client.Timeout = 50 * time.Millisecond
+	manager.cmd = cmd
+	manager.waitDone = waitDone
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := manager.Start(ctx); err == nil {
+		t.Fatalf("expected replacement start to fail")
+	}
+	if manager.cmd != nil {
+		t.Fatalf("expected stale command to be cleared")
+	}
+
+	select {
+	case <-waitDone:
+	case <-time.After(3 * time.Second):
+		t.Fatalf("managed process was not stopped")
+	}
+}
+
+func TestKoboldManagedProcessHelper(t *testing.T) {
+	if os.Getenv("KOBOLD_MANAGER_HELPER") != "1" {
+		return
+	}
+	for {
+		time.Sleep(time.Second)
+	}
+}
+
 func expectSequence(t *testing.T, args []string, key string, value string) {
 	t.Helper()
 	for index := 0; index < len(args)-1; index++ {
@@ -88,6 +149,11 @@ func expectSequence(t *testing.T, args []string, key string, value string) {
 		}
 	}
 	t.Fatalf("expected %s %s in %#v", key, value, args)
+}
+
+func filepathThatShouldNotExist(t *testing.T) string {
+	t.Helper()
+	return t.TempDir() + "/missing-koboldcpp"
 }
 
 func expectPresent(t *testing.T, args []string, key string) {

@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"tensors-router/internal/catalog"
+	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
 )
 
@@ -23,6 +24,7 @@ type Backend interface {
 	URL() *url.URL
 	ReloadConfig(ctx context.Context, filename string) error
 	Restart(ctx context.Context) error
+	Unload(ctx context.Context) error
 	Healthy(ctx context.Context) bool
 }
 
@@ -36,16 +38,22 @@ type ModelCatalog interface {
 }
 
 type ServiceConfig struct {
-	Backend Backend
-	Catalog ModelCatalog
-	Logger  *log.Logger
+	Backend       Backend
+	Catalog       ModelCatalog
+	Registry      *cluster.Registry
+	ClusterToken  string
+	ClusterClient *cluster.Client
+	Logger        *log.Logger
 }
 
 type Service struct {
-	backend Backend
-	catalog ModelCatalog
-	client  *http.Client
-	logger  *log.Logger
+	backend       Backend
+	catalog       ModelCatalog
+	registry      *cluster.Registry
+	clusterToken  string
+	clusterClient *cluster.Client
+	client        *http.Client
+	logger        *log.Logger
 
 	activeConfigMu            sync.Mutex
 	activeConfigChanged       chan struct{}
@@ -117,10 +125,12 @@ func NewService(config ServiceConfig) *Service {
 	if logger == nil {
 		logger = log.Default()
 	}
-	return &Service{
-		backend: config.Backend,
-		catalog: config.Catalog,
-		logger:  logger,
+	service := &Service{
+		backend:      config.Backend,
+		catalog:      config.Catalog,
+		registry:     config.Registry,
+		clusterToken: config.ClusterToken,
+		logger:       logger,
 		client: &http.Client{
 			Timeout: 0,
 		},
@@ -129,6 +139,13 @@ func NewService(config ServiceConfig) *Service {
 		backendRetryDelay:    defaultBackendRetryDelay,
 		backendRetryMaxDelay: defaultBackendRetryMaxDelay,
 	}
+	if service.clusterClient == nil {
+		service.clusterClient = cluster.NewClient(config.ClusterToken)
+	}
+	if config.ClusterClient != nil {
+		service.clusterClient = config.ClusterClient
+	}
+	return service
 }
 
 func (service *Service) PreloadModel(ctx context.Context, modelID string) error {
@@ -159,6 +176,11 @@ func (service *Service) PreloadModel(ctx context.Context, modelID string) error 
 }
 
 func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/router/v1/") {
+		service.handleRouterEndpoint(w, r)
+		return
+	}
+
 	if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
 		service.handleModels(w)
 		return
@@ -198,6 +220,11 @@ func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (service *Service) handleModels(w http.ResponseWriter) {
+	if service.registry != nil {
+		openai.WriteJSON(w, http.StatusOK, openai.ModelsResponseFromCatalog(cluster.PublicCatalogModels(service.registry.Models())))
+		return
+	}
+
 	models, err := service.catalog.ListLLM()
 	if err != nil {
 		openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
@@ -398,6 +425,12 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "model is required")
 		return
 	}
+
+	if hasModel && service.registry != nil && service.registry.HasModel(modelID) {
+		service.handleRegistryModelRequest(w, r, body, modelID)
+		return
+	}
+
 	configFilename := ""
 	if hasModel {
 		model, ok, err := service.catalog.Resolve(modelID)
@@ -411,7 +444,7 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 			openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", modelID))
 			return
 		}
-		if !model.HasLLM {
+		if !modelSupportsOpenAIPath(model, r.URL.Path) {
 			service.logger.Printf("non-llm model requested path=%s remote=%s model=%q", r.URL.Path, r.RemoteAddr, modelID)
 			openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", modelID))
 			return

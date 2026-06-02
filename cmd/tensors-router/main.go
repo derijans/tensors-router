@@ -16,6 +16,7 @@ import (
 
 	"tensors-router/internal/auth"
 	"tensors-router/internal/catalog"
+	routercluster "tensors-router/internal/cluster"
 	"tensors-router/internal/config"
 	"tensors-router/internal/kobold"
 	"tensors-router/internal/proxy"
@@ -74,7 +75,36 @@ func runServe(args []string) error {
 		return err
 	}
 
-	modelCatalog := catalog.New(cfg.Models.ConfigDir)
+	modelCatalog, err := catalog.NewWithStore(cfg.Models.ConfigDir, cfg.Cluster.StoreDir)
+	if err != nil {
+		return err
+	}
+	localModels, err := modelCatalog.List()
+	if err != nil {
+		return err
+	}
+	clusterStore, err := routercluster.NewStore(cfg.Cluster.StoreDir)
+	if err != nil {
+		return err
+	}
+	registry := routercluster.NewRegistry(cfg.Cluster.Role, cfg.Cluster.NodeID, cfg.Cluster.PublicURL, clusterStore)
+	localSource := routercluster.SourceLocal
+	if cfg.Cluster.Role == routercluster.RoleMaster {
+		localSource = routercluster.SourceMaster
+	}
+	if err := registry.UpdateLocal(routercluster.LocalModels(localModels, cfg.Cluster.NodeID, cfg.Cluster.PublicURL, localSource)); err != nil {
+		return err
+	}
+	clusterClient := routercluster.NewClient(cfg.Cluster.Token)
+	syncConfig := routercluster.SyncConfig{
+		Role:           cfg.Cluster.Role,
+		MasterURL:      cfg.Cluster.MasterURL,
+		SlaveURLs:      cfg.Cluster.SlaveURLs,
+		SyncInterval:   cfg.Cluster.SyncInterval,
+		HealthInterval: cfg.Cluster.HealthInterval,
+	}
+	routercluster.SyncConfiguredSlaves(ctx, syncConfig, registry, clusterClient, serveLogger)
+
 	processManager, err := kobold.NewManager(kobold.ProcessConfig{
 		BackendURL:   cfg.Kobold.BackendURL,
 		BinaryPath:   cfg.Kobold.BinaryPath,
@@ -103,16 +133,24 @@ func runServe(args []string) error {
 		}
 	}()
 
-	guard, err := auth.NewGuard(cfg.Server.AllowedCIDRs, cfg.Auth.BearerKeys)
+	bearerKeys := append([]string{}, cfg.Auth.BearerKeys...)
+	if len(cfg.Auth.BearerKeys) > 0 && strings.TrimSpace(cfg.Cluster.Token) != "" {
+		bearerKeys = append(bearerKeys, cfg.Cluster.Token)
+	}
+	guard, err := auth.NewGuard(cfg.Server.AllowedCIDRs, bearerKeys)
 	if err != nil {
 		return err
 	}
 
 	router := proxy.NewService(proxy.ServiceConfig{
-		Backend: processManager,
-		Catalog: modelCatalog,
-		Logger:  serveLogger,
+		Backend:       processManager,
+		Catalog:       modelCatalog,
+		Registry:      registry,
+		ClusterToken:  cfg.Cluster.Token,
+		ClusterClient: clusterClient,
+		Logger:        serveLogger,
 	})
+	routercluster.StartSync(ctx, syncConfig, registry, clusterClient, serveLogger)
 	startupModel := strings.TrimSpace(cfg.Models.StartupModel)
 	if startupModel != "" {
 		serveLogger.Printf("startup model preload attempt model=%q", startupModel)
