@@ -93,8 +93,10 @@ func TestStartStopsUnhealthyManagedProcessBeforeReplacement(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitDone := make(chan error, 1)
+	processExited := make(chan struct{})
 	go func() {
 		waitDone <- cmd.Wait()
+		close(processExited)
 	}()
 
 	manager, err := NewManager(ProcessConfig{
@@ -121,7 +123,7 @@ func TestStartStopsUnhealthyManagedProcessBeforeReplacement(t *testing.T) {
 	}
 
 	select {
-	case <-waitDone:
+	case <-processExited:
 	case <-time.After(3 * time.Second):
 		t.Fatalf("managed process was not stopped")
 	}
