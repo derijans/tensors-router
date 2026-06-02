@@ -11,7 +11,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -120,6 +119,8 @@ type imageModelObject struct {
 	Filename  string `json:"filename"`
 	Config    string `json:"config"`
 }
+
+var quotedModelFieldName = []byte(`"model"`)
 
 func NewService(config ServiceConfig) *Service {
 	logger := config.Logger
@@ -1245,11 +1246,11 @@ func writeEventStreamResponse(w http.ResponseWriter, response *http.Response, vi
 }
 
 func rewriteJSONModel(body []byte, virtualModelID string) []byte {
-	rewritten, ok := rewriteJSONModelWithEncoder(body, virtualModelID)
-	if ok {
-		return rewritten
+	quotedModelID, ok := htmlEscapedJSONStringLiteral(virtualModelID)
+	if !ok {
+		return body
 	}
-	rewritten, ok = rewriteTopLevelStringField(body, "model", virtualModelID)
+	rewritten, ok := rewriteTopLevelStringField(body, quotedModelFieldName, quotedModelID)
 	if !ok {
 		return body
 	}
@@ -1284,31 +1285,24 @@ func rewriteEventDataModel(data string, virtualModelID string) ([]byte, bool) {
 	if strings.TrimSpace(data) == "[DONE]" {
 		return []byte("[DONE]"), true
 	}
-	rewritten, ok := rewriteJSONModelWithEncoder([]byte(data), virtualModelID)
-	return rewritten, ok
-}
-
-func rewriteJSONModelWithEncoder(body []byte, virtualModelID string) ([]byte, bool) {
-	var value map[string]any
-	if err := json.Unmarshal(body, &value); err != nil {
+	body := []byte(data)
+	if !json.Valid(body) {
 		return nil, false
 	}
-	if _, ok := value["model"]; !ok {
-		return body, true
-	}
-	value["model"] = virtualModelID
+	return rewriteJSONModel(body, virtualModelID), true
+}
+
+func htmlEscapedJSONStringLiteral(value string) ([]byte, bool) {
 	var buffer bytes.Buffer
 	encoder := json.NewEncoder(&buffer)
 	encoder.SetEscapeHTML(true)
 	if err := encoder.Encode(value); err != nil {
 		return nil, false
 	}
-	return bytes.TrimRight(buffer.Bytes(), "\n"), true
+	return bytes.TrimSuffix(buffer.Bytes(), []byte("\n")), true
 }
 
-func rewriteTopLevelStringField(body []byte, fieldName string, fieldValue string) ([]byte, bool) {
-	quotedFieldName := []byte(strconv.Quote(fieldName))
-	quotedFieldValue := []byte(strconv.Quote(fieldValue))
+func rewriteTopLevelStringField(body []byte, quotedFieldName []byte, quotedFieldValue []byte) ([]byte, bool) {
 	depth := 0
 	inString := false
 	escaped := false
@@ -1370,7 +1364,7 @@ func rewriteTopLevelStringField(body []byte, fieldName string, fieldValue string
 		}
 	}
 
-	return body, false
+	return body, true
 }
 
 func findJSONStringEnd(body []byte, start int) int {
