@@ -1,9 +1,14 @@
 package update
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -176,6 +181,62 @@ func TestDownloadSplitModeWritesLlamaAndSDCPPBinaries(t *testing.T) {
 	}
 }
 
+func TestDownloadSplitModeExtractsArchivedBinaries(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Backend.Mode = "llama_sdcpp"
+	cfg.Llama.BinaryPath = filepath.Join(filepath.Dir(cfg.Kobold.BinaryPath), "llama-server")
+	cfg.Llama.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "llama")
+	cfg.SDCPP.BinaryPath = filepath.Join(filepath.Dir(cfg.Kobold.BinaryPath), "sd-server")
+	cfg.SDCPP.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "sdcpp")
+
+	llamaArchive := tarGzPayload(t, "llama-b9495/bin/llama-server", "llama")
+	sdcppArchive := zipPayload(t, "sd-master/bin/sd-server", "sdcpp")
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/llama.tar.gz":
+			_, _ = w.Write(llamaArchive)
+		case "/sdcpp.zip":
+			_, _ = w.Write(sdcppArchive)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	cfg.Updates.LlamaBinaryURL = server.URL + "/llama.tar.gz"
+	cfg.Updates.LlamaSHA256 = sha256BytesHex(llamaArchive)
+	cfg.Updates.SDCPPBinaryURL = server.URL + "/sdcpp.zip"
+	cfg.Updates.SDCPPSHA256 = sha256BytesHex(sdcppArchive)
+
+	manager := NewManager(cfg)
+	manager.client = server.Client()
+	if err := manager.Download(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	llamaContent, err := os.ReadFile(cfg.Llama.BinaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(llamaContent) != "llama" {
+		t.Fatalf("unexpected llama binary %q", string(llamaContent))
+	}
+	sdcppContent, err := os.ReadFile(cfg.SDCPP.BinaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(sdcppContent) != "sdcpp" {
+		t.Fatalf("unexpected sdcpp binary %q", string(sdcppContent))
+	}
+
+	if manager.readMetadata(manager.targets()[0]).BinarySHA256 != sha256Hex("llama") {
+		t.Fatalf("llama metadata did not record extracted binary hash")
+	}
+	if manager.readMetadata(manager.targets()[1]).BinarySHA256 != sha256Hex("sdcpp") {
+		t.Fatalf("sdcpp metadata did not record extracted binary hash")
+	}
+}
+
 func TestDownloadRejectsHTTPURL(t *testing.T) {
 	cfg := testConfig(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -223,4 +284,50 @@ func testConfig(t *testing.T) config.Config {
 func sha256Hex(value string) string {
 	hash := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(hash[:])
+}
+
+func sha256BytesHex(value []byte) string {
+	hash := sha256.Sum256(value)
+	return hex.EncodeToString(hash[:])
+}
+
+func tarGzPayload(t *testing.T, name string, content string) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	if err := tarWriter.WriteHeader(&tar.Header{
+		Name: name,
+		Mode: 0o755,
+		Size: int64(len(content)),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(tarWriter, content); err != nil {
+		t.Fatal(err)
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
+}
+
+func zipPayload(t *testing.T, name string, content string) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	zipWriter := zip.NewWriter(&buffer)
+	writer, err := zipWriter.Create(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(writer, content); err != nil {
+		t.Fatal(err)
+	}
+	if err := zipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
 }

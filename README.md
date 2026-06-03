@@ -85,10 +85,10 @@ updates:
   check_interval: "168h"
   binary_url: "https://koboldai.org/cpplinuxrocm"
   binary_sha256: ""
-  llama_binary_url: ""
-  llama_binary_sha256: ""
-  sdcpp_binary_url: ""
-  sdcpp_binary_sha256: ""
+  llama_binary_url: "https://github.com/ggml-org/llama.cpp/releases/download/b9495/llama-b9495-bin-ubuntu-rocm-7.2-x64.tar.gz"
+  llama_binary_sha256: "49275ee2df07cd227dbf573470955222d1f0c43cf4a3da52a9f2ee98924ac9e0"
+  sdcpp_binary_url: "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-672-1f9ee88/sd-master-1f9ee88-bin-Linux-Ubuntu-24.04-x86_64-rocm-7.2.1.zip"
+  sdcpp_binary_sha256: "4e680acbba39a994147cc05c35fc355f164340376a90c04790ad6f48caaa05c7"
 
 cluster:
   role: "standalone"
@@ -110,7 +110,7 @@ cluster:
 
 In `kobold` mode this downloads `kobold.binary_path` from `updates.binary_url` and verifies it against `updates.binary_sha256`.
 
-In `llama_sdcpp` mode this downloads both `llama.binary_path` and `sdcpp.binary_path` from `updates.llama_binary_url` and `updates.sdcpp_binary_url`, then verifies them against `updates.llama_binary_sha256` and `updates.sdcpp_binary_sha256`. URLs must use HTTPS. Set these fields to the platform-specific `llama-server` and `sd-server` builds you want before running `download` or enabling automatic updates.
+In `llama_sdcpp` mode this downloads both `llama.binary_path` and `sdcpp.binary_path` from `updates.llama_binary_url` and `updates.sdcpp_binary_url`, then verifies them against `updates.llama_binary_sha256` and `updates.sdcpp_binary_sha256`. URLs must use HTTPS. Direct binaries, `.zip`, `.tar.gz`, and `.tgz` downloads are supported; archives are unpacked and the matching `llama-server` or `sd-server` executable is installed. The example config pins Linux x64 ROCm archives for llama.cpp b9495 and stable-diffusion.cpp master-672-1f9ee88.
 
 ## Run
 
