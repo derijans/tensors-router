@@ -3,6 +3,7 @@ package cluster
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 type identityGroup struct {
@@ -40,6 +41,7 @@ func assignPublicIDs(models []Model) {
 		if publicID, ok := publicIDByRoute[modelRouteKey(models[index])]; ok {
 			models[index].PublicID = publicID
 		}
+		models[index].PublicImageID = publicImageID(models[index])
 	}
 }
 
@@ -96,11 +98,30 @@ func routeKey(route Route) string {
 
 func routeFromModel(model Model, remote bool) Route {
 	return Route{
-		PublicID: model.PublicID,
-		LocalID:  model.LocalID,
-		Filename: model.Filename,
-		NodeID:   model.NodeID,
-		NodeURL:  model.NodeURL,
-		Remote:   remote,
+		PublicID:      model.PublicID,
+		LocalID:       model.LocalID,
+		PublicImageID: model.PublicImageID,
+		LocalImageID:  model.ImageID,
+		Filename:      model.Filename,
+		NodeID:        model.NodeID,
+		NodeURL:       model.NodeURL,
+		Remote:        remote,
 	}
+}
+
+func publicImageID(model Model) string {
+	if strings.TrimSpace(model.ImageID) == "" {
+		return ""
+	}
+	if strings.TrimSpace(model.PublicID) == "" {
+		return model.ImageID
+	}
+	prefix := model.LocalID + "-"
+	if strings.HasPrefix(model.ImageID, prefix) {
+		return model.PublicID + "-" + strings.TrimPrefix(model.ImageID, prefix)
+	}
+	if model.PublicID == model.LocalID {
+		return model.ImageID
+	}
+	return model.PublicID + "-" + model.ImageID
 }

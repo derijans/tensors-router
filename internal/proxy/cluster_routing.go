@@ -3,6 +3,7 @@ package proxy
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -50,6 +51,82 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 	}
 }
 
+func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *http.Request, body []byte, publicImageID string) bool {
+	activeConfigFilename := service.currentConfigFilename()
+	if !service.registry.HasImageModel(publicImageID, activeConfigFilename) {
+		return false
+	}
+
+	route, release, ok := service.registry.AcquireImage(publicImageID, service.backend.Healthy(r.Context()), activeConfigFilename)
+	if !ok {
+		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("image model %q has no available replicas", publicImageID))
+		return true
+	}
+
+	request := rewriteImageRequest(r, publicImageID, route.LocalImageID)
+	requestBody := rewriteImageRequestBody(body, publicImageID, route.LocalImageID, r)
+	var response *http.Response
+	var err error
+	if route.Remote {
+		response, err = service.forwardRemote(r.Context(), request, requestBody, route)
+	} else {
+		response, err = service.forwardWithFallback(r.Context(), request, requestBody, route.PublicImageID, route.Filename, true, readinessImage)
+	}
+	if err != nil {
+		release()
+		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		return true
+	}
+	response = responseWithRelease(response, release)
+
+	if err := writeProxyResponse(w, response, publicImageID, true); err != nil {
+		return true
+	}
+	return true
+}
+
+func (service *Service) handleRegistryImageOptions(w http.ResponseWriter, r *http.Request, body []byte, publicImageID string) bool {
+	activeConfigFilename := service.currentConfigFilename()
+	if !service.registry.HasImageModel(publicImageID, activeConfigFilename) {
+		return false
+	}
+
+	route, release, ok := service.registry.AcquireImage(publicImageID, service.backend.Healthy(r.Context()), activeConfigFilename)
+	if !ok {
+		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("image model %q has no available replicas", publicImageID))
+		return true
+	}
+
+	request := rewriteImageRequest(r, publicImageID, route.LocalImageID)
+	requestBody := rewriteImageRequestBody(body, publicImageID, route.LocalImageID, r)
+	if route.Remote {
+		response, err := service.forwardRemote(r.Context(), request, requestBody, route)
+		if err != nil {
+			release()
+			openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+			return true
+		}
+		response = responseWithRelease(response, release)
+		if err := writeProxyResponse(w, response, publicImageID, true); err != nil {
+			return true
+		}
+		return true
+	}
+
+	modelContext, cancelModelContext := context.WithTimeout(context.WithoutCancel(r.Context()), modelOperationTimeout)
+	defer cancelModelContext()
+	releaseModel, _, err := service.acquireModelConfig(modelContext, route.PublicImageID, route.Filename, readinessImage, false)
+	if err != nil {
+		release()
+		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		return true
+	}
+	releaseModel()
+	release()
+	openai.WriteJSON(w, http.StatusOK, map[string]any{})
+	return true
+}
+
 func (service *Service) forwardRemote(ctx context.Context, original *http.Request, body []byte, route cluster.Route) (*http.Response, error) {
 	target, err := url.Parse(route.NodeURL)
 	if err != nil {
@@ -74,6 +151,114 @@ func rewriteRequestModel(body []byte, modelID string) []byte {
 	}
 	rewritten := rewriteJSONModel(body, modelID)
 	return rewritten
+}
+
+func rewriteImageRequest(original *http.Request, publicImageID string, localImageID string) *http.Request {
+	if strings.TrimSpace(publicImageID) == "" || strings.TrimSpace(localImageID) == "" || publicImageID == localImageID {
+		return original
+	}
+
+	rewritten := original.Clone(original.Context())
+	targetURL := *original.URL
+	values := targetURL.Query()
+	queryChanged := rewriteQuerySelector(values, "model", publicImageID, localImageID)
+	queryChanged = rewriteQuerySelector(values, "sd_model_checkpoint", publicImageID, localImageID) || queryChanged
+	if queryChanged {
+		targetURL.RawQuery = values.Encode()
+	}
+	rewritten.URL = &targetURL
+	rewritten.Header = original.Header.Clone()
+	if strings.TrimSpace(rewritten.Header.Get("X-Tensors-Model")) == publicImageID {
+		rewritten.Header.Set("X-Tensors-Model", localImageID)
+	}
+	return rewritten
+}
+
+func rewriteImageRequestBody(body []byte, publicImageID string, localImageID string, r *http.Request) []byte {
+	if strings.TrimSpace(publicImageID) == "" || strings.TrimSpace(localImageID) == "" || publicImageID == localImageID {
+		return body
+	}
+	if len(body) == 0 || !requestBodyLooksJSON(body, r) {
+		return body
+	}
+
+	var value map[string]any
+	if err := json.Unmarshal(body, &value); err != nil {
+		return body
+	}
+	changed := rewriteMapSelector(value, "model", publicImageID, localImageID)
+	changed = rewriteMapSelector(value, "sd_model_checkpoint", publicImageID, localImageID) || changed
+	if overrideSettings, ok := value["override_settings"].(map[string]any); ok {
+		changed = rewriteMapSelector(overrideSettings, "sd_model_checkpoint", publicImageID, localImageID) || changed
+	}
+	if !changed {
+		return body
+	}
+	rewritten, err := json.Marshal(value)
+	if err != nil {
+		return body
+	}
+	return rewritten
+}
+
+func rewriteQuerySelector(values url.Values, key string, publicImageID string, localImageID string) bool {
+	changed := false
+	for index, value := range values[key] {
+		if strings.TrimSpace(value) == publicImageID {
+			values[key][index] = localImageID
+			changed = true
+		}
+	}
+	return changed
+}
+
+func rewriteMapSelector(value map[string]any, key string, publicImageID string, localImageID string) bool {
+	text, ok := value[key].(string)
+	if !ok || strings.TrimSpace(text) != publicImageID {
+		return false
+	}
+	value[key] = localImageID
+	return true
+}
+
+func clusterImageModelObjects(models []cluster.Model, activeConfigFilename string) []imageModelObject {
+	seen := map[string]struct{}{}
+	response := make([]imageModelObject, 0, len(models))
+	for _, model := range models {
+		if !clusterImageModelVisible(model, activeConfigFilename) {
+			continue
+		}
+		if _, ok := seen[model.PublicImageID]; ok {
+			continue
+		}
+		seen[model.PublicImageID] = struct{}{}
+		filename := ""
+		if model.Capabilities.Image != nil {
+			filename = model.Capabilities.Image.Model
+		}
+		response = append(response, imageModelObject{
+			Title:     model.PublicImageID,
+			ModelName: model.PublicImageID,
+			Hash:      "",
+			SHA256:    "",
+			Filename:  filename,
+			Config:    model.Filename,
+		})
+	}
+	return response
+}
+
+func clusterImageModelVisible(model cluster.Model, activeConfigFilename string) bool {
+	if !model.HasImage || model.PublicImageID == "" {
+		return false
+	}
+	if !model.HasLLM {
+		return true
+	}
+	if model.Source != cluster.SourceMaster && model.Source != cluster.SourceLocal {
+		return false
+	}
+	return model.Filename == activeConfigFilename
 }
 
 func modelSupportsOpenAIPath(model catalog.Model, path string) bool {

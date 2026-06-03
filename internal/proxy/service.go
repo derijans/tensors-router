@@ -236,6 +236,11 @@ func (service *Service) handleModels(w http.ResponseWriter) {
 }
 
 func (service *Service) handleImageModels(w http.ResponseWriter) {
+	if service.registry != nil {
+		openai.WriteJSON(w, http.StatusOK, clusterImageModelObjects(service.registry.Models(), service.currentConfigFilename()))
+		return
+	}
+
 	models, err := service.catalog.ListImages(service.currentConfigFilename())
 	if err != nil {
 		openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
@@ -287,6 +292,9 @@ func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		if hasModel {
+			if service.registry != nil && service.handleRegistryImageOptions(w, r, body, modelID) {
+				return
+			}
 			model, ok, err := service.catalog.ResolveImage(modelID, service.currentConfigFilename())
 			if err != nil {
 				service.logger.Printf("image model catalog check failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
@@ -331,6 +339,9 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 
 	var model catalog.Model
 	if hasModel {
+		if service.registry != nil && service.handleRegistryImageRequest(w, r, body, modelID) {
+			return
+		}
 		model, err = service.resolveImageModel(r, modelID)
 		if err != nil {
 			writeImageModelError(service, w, r, modelID, err)
@@ -1035,10 +1046,62 @@ func backendEndpointReady(readiness backendReadiness, status int, body string) b
 	if status < 200 || status >= 300 {
 		return false
 	}
+	if readiness == readinessImage {
+		return backendImageEndpointReady(body)
+	}
 	if readiness != readinessText {
 		return true
 	}
 	return backendTextEndpointReady(body)
+}
+
+func backendImageEndpointReady(body string) bool {
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" {
+		return false
+	}
+	var parsedList []map[string]any
+	if err := json.Unmarshal([]byte(trimmed), &parsedList); err == nil {
+		return imageReadinessListHasModel(parsedList)
+	}
+	var parsedObject struct {
+		Model     string           `json:"model"`
+		ID        string           `json:"id"`
+		Title     string           `json:"title"`
+		ModelName string           `json:"model_name"`
+		Data      []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(trimmed), &parsedObject); err != nil {
+		return true
+	}
+	if parsedObject.Data != nil {
+		return imageReadinessListHasModel(parsedObject.Data)
+	}
+	return imageReadinessModelNameReady(parsedObject.Model) ||
+		imageReadinessModelNameReady(parsedObject.ID) ||
+		imageReadinessModelNameReady(parsedObject.Title) ||
+		imageReadinessModelNameReady(parsedObject.ModelName)
+}
+
+func imageReadinessListHasModel(models []map[string]any) bool {
+	for _, model := range models {
+		for _, key := range []string{"model_name", "title", "model", "id"} {
+			if imageReadinessValueReady(model[key]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func imageReadinessValueReady(value any) bool {
+	text, ok := value.(string)
+	return ok && imageReadinessModelNameReady(text)
+}
+
+func imageReadinessModelNameReady(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	return trimmed != "" && !strings.EqualFold(trimmed, "inactive")
 }
 
 func backendTextEndpointReady(body string) bool {
@@ -1111,7 +1174,7 @@ func (service *Service) forward(ctx context.Context, original *http.Request, bod
 
 func modelFromRequest(body []byte, r *http.Request) (string, bool, error) {
 	contentType := strings.ToLower(r.Header.Get("Content-Type"))
-	if !strings.Contains(contentType, "application/json") && !strings.HasSuffix(r.URL.Path, "/chat/completions") && !strings.HasSuffix(r.URL.Path, "/completions") {
+	if !strings.Contains(contentType, "application/json") && !strings.HasSuffix(r.URL.Path, "/chat/completions") && !strings.HasSuffix(r.URL.Path, "/completions") && r.URL.Path != "/v1/embeddings" {
 		return "", false, nil
 	}
 	if len(body) == 0 {

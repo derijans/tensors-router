@@ -18,6 +18,7 @@ type Model struct {
 	PublicID      string               `json:"public_id"`
 	LocalID       string               `json:"local_id"`
 	ImageID       string               `json:"image_id,omitempty"`
+	PublicImageID string               `json:"public_image_id,omitempty"`
 	Filename      string               `json:"filename"`
 	Created       int64                `json:"created"`
 	HasLLM        bool                 `json:"has_llm"`
@@ -30,22 +31,24 @@ type Model struct {
 	Source        string               `json:"source"`
 	NodeID        string               `json:"node_id"`
 	NodeURL       string               `json:"node_url,omitempty"`
-	Available    bool                 `json:"available"`
+	Available     bool                 `json:"available"`
 }
 
 type Snapshot struct {
-	NodeID string  `json:"node_id"`
+	NodeID  string  `json:"node_id"`
 	NodeURL string  `json:"node_url"`
-	Models []Model `json:"models"`
+	Models  []Model `json:"models"`
 }
 
 type Route struct {
-	PublicID string
-	LocalID  string
-	Filename string
-	NodeID   string
-	NodeURL  string
-	Remote   bool
+	PublicID      string
+	LocalID       string
+	PublicImageID string
+	LocalImageID  string
+	Filename      string
+	NodeID        string
+	NodeURL       string
+	Remote        bool
 }
 
 func LocalModels(models []catalog.Model, nodeID string, nodeURL string, source string) []Model {
@@ -55,6 +58,7 @@ func LocalModels(models []catalog.Model, nodeID string, nodeURL string, source s
 			PublicID:      model.ID,
 			LocalID:       model.ID,
 			ImageID:       model.ImageID,
+			PublicImageID: model.ImageID,
 			Filename:      model.Filename,
 			Created:       model.Created,
 			HasLLM:        model.HasLLM,
@@ -67,7 +71,7 @@ func LocalModels(models []catalog.Model, nodeID string, nodeURL string, source s
 			Source:        source,
 			NodeID:        nodeID,
 			NodeURL:       nodeURL,
-			Available:    true,
+			Available:     true,
 		})
 	}
 	return records

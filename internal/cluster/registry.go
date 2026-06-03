@@ -109,6 +109,11 @@ func (registry *Registry) HasModel(publicID string) bool {
 	return ok
 }
 
+func (registry *Registry) HasImageModel(publicImageID string, activeConfigFilename string) bool {
+	_, ok := registry.ImageModel(publicImageID, activeConfigFilename)
+	return ok
+}
+
 func (registry *Registry) Model(publicID string) (Model, bool) {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
@@ -121,13 +126,39 @@ func (registry *Registry) Model(publicID string) (Model, bool) {
 	return Model{}, false
 }
 
+func (registry *Registry) ImageModel(publicImageID string, activeConfigFilename string) (Model, bool) {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+
+	for _, model := range registry.view {
+		if registry.imageModelSelectableLocked(model, activeConfigFilename) && model.PublicImageID == publicImageID {
+			return model, true
+		}
+	}
+	return Model{}, false
+}
+
 func (registry *Registry) Acquire(publicID string, localHealthy bool) (Route, func(), bool) {
 	registry.mu.Lock()
-	route, ok := registry.selectRouteLocked(publicID, localHealthy)
+	route, ok := registry.selectRouteLocked(publicID, registry.replicasLocked(publicID), localHealthy)
 	if !ok {
 		registry.mu.Unlock()
 		return Route{}, func() {}, false
 	}
+	return registry.acquireRouteLocked(route)
+}
+
+func (registry *Registry) AcquireImage(publicImageID string, localHealthy bool, activeConfigFilename string) (Route, func(), bool) {
+	registry.mu.Lock()
+	route, ok := registry.selectRouteLocked(publicImageID, registry.imageReplicasLocked(publicImageID, activeConfigFilename), localHealthy)
+	if !ok {
+		registry.mu.Unlock()
+		return Route{}, func() {}, false
+	}
+	return registry.acquireRouteLocked(route)
+}
+
+func (registry *Registry) acquireRouteLocked(route Route) (Route, func(), bool) {
 	key := routeKey(route)
 	registry.busy[key]++
 	registry.mu.Unlock()
@@ -192,8 +223,7 @@ func (registry *Registry) localSource() string {
 	return SourceLocal
 }
 
-func (registry *Registry) selectRouteLocked(publicID string, localHealthy bool) (Route, bool) {
-	replicas := registry.replicasLocked(publicID)
+func (registry *Registry) selectRouteLocked(publicID string, replicas []Model, localHealthy bool) (Route, bool) {
 	if len(replicas) == 0 {
 		return Route{}, false
 	}
@@ -236,6 +266,32 @@ func (registry *Registry) replicasLocked(publicID string) []Model {
 	return replicas
 }
 
+func (registry *Registry) imageReplicasLocked(publicImageID string, activeConfigFilename string) []Model {
+	replicas := make([]Model, 0)
+	for _, model := range registry.view {
+		if model.PublicImageID == publicImageID && registry.imageModelSelectableLocked(model, activeConfigFilename) {
+			replicas = append(replicas, model)
+		}
+	}
+	sort.Slice(replicas, func(left, right int) bool {
+		return routeSortKey(replicas[left]) < routeSortKey(replicas[right])
+	})
+	return replicas
+}
+
+func (registry *Registry) imageModelSelectableLocked(model Model, activeConfigFilename string) bool {
+	if !model.HasImage || model.PublicImageID == "" {
+		return false
+	}
+	if !model.HasLLM {
+		return true
+	}
+	if model.NodeID != registry.localID {
+		return true
+	}
+	return model.Filename == activeConfigFilename
+}
+
 func (registry *Registry) saveLocked() error {
 	if registry.store == nil {
 		return nil
@@ -257,6 +313,7 @@ func normalizeNodeSnapshot(snapshot Snapshot) Snapshot {
 		normalized.Models[index].NodeID = normalized.NodeID
 		normalized.Models[index].NodeURL = normalized.NodeURL
 		normalized.Models[index].PublicID = normalized.Models[index].LocalID
+		normalized.Models[index].PublicImageID = normalized.Models[index].ImageID
 	}
 	return normalized
 }

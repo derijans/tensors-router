@@ -1123,6 +1123,69 @@ func TestImageRequestLoadsImageOnlyConfig(t *testing.T) {
 	}
 }
 
+func TestColdImageRequestWaitsForImageModelsEndpoint(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "image.kcpps"), []byte(`{"nomodel":true,"sdmodel":"C:\\models\\dream.safetensors"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	var probes atomic.Int32
+	var generations atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/sdapi/v1/sd-models" {
+			w.Header().Set("Content-Type", "application/json")
+			if probes.Add(1) < 3 {
+				_, _ = w.Write([]byte(`[]`))
+				return
+			}
+			_, _ = w.Write([]byte(`[{"model_name":"dream"}]`))
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/images/generations" {
+			if probes.Load() < 3 {
+				t.Fatalf("image request forwarded before image models endpoint was ready")
+			}
+			generations.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"model":"koboldcpp/backend","data":[]}`))
+			return
+		}
+		t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+	}))
+	defer server.Close()
+
+	backendURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := &fakeBackend{url: backendURL, healthy: true}
+	service := NewService(ServiceConfig{
+		Backend: backend,
+		Catalog: catalog.New(dir),
+		Logger:  log.New(io.Discard, "", 0),
+	})
+	service.backendRetryAttempts = 4
+	service.backendRetryDelay = 0
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{"model":"image-dream","prompt":"cat"}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if probes.Load() != 3 {
+		t.Fatalf("expected three image readiness probes, got %d", probes.Load())
+	}
+	if generations.Load() != 1 {
+		t.Fatalf("expected one image generation request, got %d", generations.Load())
+	}
+	if backend.reloads.Load() != 1 {
+		t.Fatalf("expected one reload, got %d", backend.reloads.Load())
+	}
+}
+
 func TestInactiveCombinedImageModelIsRejected(t *testing.T) {
 	service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), map[string]string{
 		"combo": `{"model_param":"C:\\models\\llm.gguf","sdmodel":"C:\\models\\vision.safetensors"}`,
@@ -1335,6 +1398,238 @@ func TestClusterRemoteRequestRewritesModelBothWays(t *testing.T) {
 	}
 }
 
+func TestClusterImageModelListUsesPublicImageIDs(t *testing.T) {
+	registry := newConflictingImageRegistry(t, "http://slave-a")
+	service, _ := newTestServiceWithRegistry(t, registry, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), "secret")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/sdapi/v1/sd-models", nil)
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"model_name":"same-dream"`) || !strings.Contains(recorder.Body.String(), `"model_name":"same-2-dream"`) {
+		t.Fatalf("missing public image models: %s", recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "slave-a") {
+		t.Fatalf("node identity leaked: %s", recorder.Body.String())
+	}
+}
+
+func TestClusterRemoteImageRequestRewritesModelBothWays(t *testing.T) {
+	var sawAuthorization bool
+	var sawLocalImageModel bool
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/images/generations" {
+			t.Fatalf("unexpected remote path %s", r.URL.Path)
+		}
+		sawAuthorization = r.Header.Get("Authorization") == "Bearer secret"
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sawLocalImageModel = strings.Contains(string(body), `"model":"same-dream"`)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"same-dream","data":[]}`))
+	}))
+	defer remote.Close()
+
+	registry := newConflictingImageRegistry(t, remote.URL)
+	service, backend := newTestServiceWithRegistry(t, registry, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), "secret")
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{"model":"same-2-dream","prompt":"cat"}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !sawAuthorization {
+		t.Fatalf("cluster authorization was not forwarded")
+	}
+	if !sawLocalImageModel {
+		t.Fatalf("remote did not receive local image model id")
+	}
+	if !strings.Contains(recorder.Body.String(), `"model":"same-2-dream"`) {
+		t.Fatalf("image response model was not rewritten: %s", recorder.Body.String())
+	}
+	if backend.reloads.Load() != 0 {
+		t.Fatalf("local backend should not reload for remote image request, got %d", backend.reloads.Load())
+	}
+}
+
+func TestClusterRemoteImageRequestRewritesSelectors(t *testing.T) {
+	tests := []struct {
+		name           string
+		path           string
+		body           string
+		contentType    string
+		headerModel    string
+		queryKey       string
+		expectedBody   string
+		expectedQuery  string
+		expectedHeader string
+	}{
+		{
+			name:         "sd checkpoint body",
+			path:         "/sdapi/v1/txt2img",
+			body:         `{"sd_model_checkpoint":"same-2-dream","prompt":"cat"}`,
+			contentType:  "application/json",
+			expectedBody: `"sd_model_checkpoint":"same-dream"`,
+		},
+		{
+			name:         "override checkpoint body",
+			path:         "/sdapi/v1/txt2img",
+			body:         `{"override_settings":{"sd_model_checkpoint":"same-2-dream"},"prompt":"cat"}`,
+			contentType:  "application/json",
+			expectedBody: `"sd_model_checkpoint":"same-dream"`,
+		},
+		{
+			name:          "model query",
+			path:          "/v1/images/generations?model=same-2-dream",
+			body:          `{"prompt":"cat"}`,
+			contentType:   "application/json",
+			queryKey:      "model",
+			expectedQuery: "same-dream",
+		},
+		{
+			name:          "sd checkpoint query",
+			path:          "/sdapi/v1/txt2img?sd_model_checkpoint=same-2-dream",
+			body:          `{"prompt":"cat"}`,
+			contentType:   "application/json",
+			queryKey:      "sd_model_checkpoint",
+			expectedQuery: "same-dream",
+		},
+		{
+			name:           "model header",
+			path:           "/sdapi/v1/txt2img",
+			body:           `{"prompt":"cat"}`,
+			contentType:    "application/json",
+			headerModel:    "same-2-dream",
+			expectedHeader: "same-dream",
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if testCase.expectedBody != "" && !strings.Contains(string(body), testCase.expectedBody) {
+					t.Fatalf("remote body missing rewritten selector: %s", string(body))
+				}
+				if testCase.queryKey != "" && r.URL.Query().Get(testCase.queryKey) != testCase.expectedQuery {
+					t.Fatalf("remote query was not rewritten: %s", r.URL.RawQuery)
+				}
+				if testCase.expectedHeader != "" && r.Header.Get("X-Tensors-Model") != testCase.expectedHeader {
+					t.Fatalf("remote header was not rewritten: %s", r.Header.Get("X-Tensors-Model"))
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"model":"same-dream","data":[]}`))
+			}))
+			defer remote.Close()
+
+			registry := newConflictingImageRegistry(t, remote.URL)
+			service, _ := newTestServiceWithRegistry(t, registry, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), "secret")
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, testCase.path, strings.NewReader(testCase.body))
+			if testCase.contentType != "" {
+				request.Header.Set("Content-Type", testCase.contentType)
+			}
+			if testCase.headerModel != "" {
+				request.Header.Set("X-Tensors-Model", testCase.headerModel)
+			}
+			service.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), `"model":"same-2-dream"`) {
+				t.Fatalf("image response model was not rewritten: %s", recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestClusterInactiveLocalCombinedImageModelIsRejected(t *testing.T) {
+	service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), map[string]string{
+		"combo": `{"model_param":"C:\\models\\llm.gguf","sdmodel":"C:\\models\\vision.safetensors"}`,
+	})
+	models, err := service.catalog.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master", nil)
+	if err := registry.UpdateLocal(cluster.LocalModels(models, "master", "http://master", cluster.SourceMaster)); err != nil {
+		t.Fatal(err)
+	}
+	service.registry = registry
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{"model":"combo-vision","prompt":"cat"}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if backend.reloads.Load() != 0 {
+		t.Fatalf("expected no reload, got %d", backend.reloads.Load())
+	}
+}
+
+func TestClusterRemoteEmbeddingsRequestRewritesModelBothWays(t *testing.T) {
+	var sawAuthorization bool
+	var sawLocalModel bool
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/embeddings" {
+			t.Fatalf("unexpected remote path %s", r.URL.Path)
+		}
+		sawAuthorization = r.Header.Get("Authorization") == "Bearer secret"
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sawLocalModel = strings.Contains(string(body), `"model":"embed"`)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"embed","data":[]}`))
+	}))
+	defer remote.Close()
+
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master", nil)
+	if err := registry.UpdateLocal([]cluster.Model{testClusterEmbeddingModel("embed", "master", "master-hash", "config-hash", cluster.SourceMaster)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.UpdateNode(cluster.Snapshot{
+		NodeID:  "slave-a",
+		NodeURL: remote.URL,
+		Models:  []cluster.Model{testClusterEmbeddingModel("embed", "slave-a", "slave-hash", "config-hash", cluster.SourceSlave)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service, _ := newTestServiceWithRegistry(t, registry, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), "secret")
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(`{"model":"embed-2","input":"hello"}`))
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !sawAuthorization {
+		t.Fatalf("cluster authorization was not forwarded")
+	}
+	if !sawLocalModel {
+		t.Fatalf("remote did not receive local embedding model id")
+	}
+	if !strings.Contains(recorder.Body.String(), `"model":"embed-2"`) {
+		t.Fatalf("embedding response model was not rewritten: %s", recorder.Body.String())
+	}
+}
+
 func TestRouterUnloadCallsBackendUnload(t *testing.T) {
 	service, backend := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
@@ -1405,9 +1700,14 @@ func newTestServiceWithConfigContents(t *testing.T, backendHandler http.Handler,
 	}
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet && (r.URL.Path == "/v1/models" || r.URL.Path == "/sdapi/v1/sd-models") {
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"object":"list","data":[]}`))
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/sdapi/v1/sd-models" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"model_name":"ready"}]`))
 			return
 		}
 		backendHandler.ServeHTTP(w, r)
@@ -1441,6 +1741,45 @@ func testClusterModel(id string, nodeID string, modelHash string, configHash str
 		NodeURL:    "http://" + nodeID,
 		Available:  true,
 	}
+}
+
+func testClusterImageModel(id string, nodeID string, modelHash string, configHash string, source string, imageName string) cluster.Model {
+	model := testClusterModel(id, nodeID, modelHash, configHash, source)
+	model.HasLLM = false
+	model.HasImage = true
+	model.ImageID = id + "-" + imageName
+	model.PublicImageID = model.ImageID
+	model.Capabilities.Image = &catalog.ImageCapabilities{
+		Model: "C:/models/" + imageName + ".safetensors",
+	}
+	return model
+}
+
+func testClusterEmbeddingModel(id string, nodeID string, modelHash string, configHash string, source string) cluster.Model {
+	model := testClusterModel(id, nodeID, modelHash, configHash, source)
+	model.HasLLM = false
+	model.HasEmbeddings = true
+	model.Capabilities.Embeddings = &catalog.EmbeddingCapability{
+		Model: "C:/models/" + id + ".gguf",
+	}
+	return model
+}
+
+func newConflictingImageRegistry(t *testing.T, slaveURL string) *cluster.Registry {
+	t.Helper()
+
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master", nil)
+	if err := registry.UpdateLocal([]cluster.Model{testClusterImageModel("same", "master", "master-hash", "config-hash", cluster.SourceMaster, "dream")}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.UpdateNode(cluster.Snapshot{
+		NodeID:  "slave-a",
+		NodeURL: slaveURL,
+		Models:  []cluster.Model{testClusterImageModel("same", "slave-a", "slave-hash", "config-hash", cluster.SourceSlave, "dream")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return registry
 }
 
 func newTestServiceWithBackendSetup(t *testing.T, backendHandler http.Handler, logger *log.Logger, addModelsEndpoint bool, modelIDs ...string) (*Service, *fakeBackend) {
