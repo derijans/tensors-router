@@ -15,6 +15,8 @@ type Catalog struct {
 	hashStore *HashStore
 }
 
+const AllImageConfigs = "*"
+
 type Model struct {
 	ID             string
 	Filename       string
@@ -136,7 +138,7 @@ func (catalog *Catalog) ListImages(activeConfigFilename string) ([]Model, error)
 		if !model.HasImage {
 			continue
 		}
-		if model.HasLLM && model.Filename != activeConfigFilename {
+		if activeConfigFilename != AllImageConfigs && model.HasLLM && model.Filename != activeConfigFilename {
 			continue
 		}
 		if _, ok := seen[model.ImageID]; ok {

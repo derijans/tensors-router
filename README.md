@@ -54,14 +54,41 @@ models:
   config_dir: "./kcpps"
   startup_model: ""
 
+backend:
+  mode: "kobold"
+
 kobold:
   backend_url: "http://127.0.0.1:5001"
   binary_path: "./bin/koboldcpp"
   data_dir: "./data"
   no_model: true
 
+llama:
+  backend_url: "http://127.0.0.1:5002"
+  binary_path: "./bin/llama-server"
+  data_dir: "./data/llama"
+  hide_window: true
+  extra_args: []
+
+sdcpp:
+  backend_url: "http://127.0.0.1:7860"
+  binary_path: "./bin/sd-server"
+  data_dir: "./data/sdcpp"
+  hide_window: true
+  extra_args: []
+
 logging:
   enabled: true
+
+updates:
+  enabled: false
+  check_interval: "168h"
+  binary_url: "https://koboldai.org/cpplinuxrocm"
+  binary_sha256: ""
+  llama_binary_url: ""
+  llama_binary_sha256: ""
+  sdcpp_binary_url: ""
+  sdcpp_binary_sha256: ""
 
 cluster:
   role: "standalone"
@@ -75,13 +102,15 @@ cluster:
   health_interval: "15s"
 ```
 
-## Download KoboldCpp
+## Download Backends
 
 ```bash
 ./tensors-router download --config config.yaml
 ```
 
-Set `updates.binary_url` for the KoboldCpp build you want.
+In `kobold` mode this downloads `kobold.binary_path` from `updates.binary_url` and verifies it against `updates.binary_sha256`.
+
+In `llama_sdcpp` mode this downloads both `llama.binary_path` and `sdcpp.binary_path` from `updates.llama_binary_url` and `updates.sdcpp_binary_url`, then verifies them against `updates.llama_binary_sha256` and `updates.sdcpp_binary_sha256`. URLs must use HTTPS. Set these fields to the platform-specific `llama-server` and `sd-server` builds you want before running `download` or enabling automatic updates.
 
 ## Run
 
@@ -108,6 +137,8 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 The router reloads the whole `.kcpps` file. It does not patch selected fields.
 
 Set `models.startup_model` to preload one LLM config before the router starts listening. Leave it empty to keep lazy loading.
+
+Set `backend.mode: "kobold"` to keep the original single KoboldCpp process. Set `backend.mode: "llama_sdcpp"` to route LLM, embeddings, and multimodal requests to `llama-server`, and image requests to `sd-server`. In split mode, the router starts each native process lazily from the selected `.kcpps` file and stops the previous process in that lane after in-flight requests finish.
 
 Requests to `/v1/chat/completions` and `/v1/completions` require a `model` field. The model id must match a `.kcpps` filename stem.
 
@@ -141,6 +172,8 @@ Image selection can come from JSON `model`, JSON `sd_model_checkpoint`, JSON `ov
 
 Stable Diffusion routes under `/sdapi/v1/...` and common ComfyUI-style image routes such as `/prompt`, `/queue`, `/history`, `/view`, and `/object_info` are proxied to KoboldCpp.
 
+In `llama_sdcpp` mode, image routing targets stable-diffusion.cpp server APIs: `/v1/images/...`, `/sdapi/v1/...`, and `/sdcpp/v1/...`. Legacy ComfyUI-style routes such as `/prompt`, `/queue`, `/history`, `/view`, and `/object_info` are still recognized as image paths by the router but require a backend that implements them; `sd-server` does not provide those ComfyUI endpoints.
+
 ## Config Types
 
 The router only reads enough `.kcpps` JSON to detect `sdmodel` and text model fields. KoboldCpp still receives the whole config, so Flux, SD3, WAN, Qwen Image, VAE, LoRA, CLIP/T5, GPU, and other KoboldCpp image settings stay in the `.kcpps`.
@@ -153,6 +186,8 @@ Usable config types depend on the KoboldCpp endpoint being called:
 - Combined LLM+image config: use one `.kcpps` containing the text model plus `sdmodel`; its image id is available only while the combined config is loaded, and selecting it does not reload or unload the active LLM.
 
 Only one KoboldCpp config is active at a time. LLM and image requests share one model gate: requests using the active config can run together, while a config switch waits for in-flight requests to finish.
+
+In `llama_sdcpp` mode, combined LLM+image configs expose both lanes independently. Selecting the text model starts `llama-server`; selecting the image model starts `sd-server`; explicit `/router/v1/load` on a combined config starts both. The two lanes have separate gates, so a text model switch does not block an unrelated image request.
 
 ## Router Registry
 
@@ -181,6 +216,8 @@ Unload restarts KoboldCpp in no-model mode and clears the router active config.
 Set one router to `cluster.role: "master"` and slave routers to `cluster.role: "slave"`. Use the same `cluster.token` on all nodes. Slaves register with `cluster.master_url`; masters also query configured `cluster.slave_urls` at startup and on the health interval.
 
 The master hashes referenced model files and path-normalized `.kcpps` configs into `cluster.store_dir`. If master and slaves have the same public model id with identical hashes, clients see one normal model id. If a slave has the same id with different hashes, the master exposes an indexed id such as `model-2`. Requested models are rewritten to the selected slave local id while forwarding, then responses are rewritten back to the public id.
+
+Cluster model records include `backend_mode`. Masters use the text lane health for LLM, embedding, and multimodal routing, and the image lane health for image routing. Split-mode nodes can advertise combined config image models without the text config being active.
 
 ## Auth
 

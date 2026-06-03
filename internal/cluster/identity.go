@@ -93,10 +93,14 @@ func modelRouteKey(model Model) string {
 }
 
 func routeKey(route Route) string {
-	return route.NodeID + ":" + route.LocalID
+	lane := route.Lane
+	if lane == "" {
+		lane = RouteLaneText
+	}
+	return route.NodeID + ":" + route.LocalID + ":" + lane
 }
 
-func routeFromModel(model Model, remote bool) Route {
+func routeFromModel(model Model, remote bool, lane string) Route {
 	return Route{
 		PublicID:      model.PublicID,
 		LocalID:       model.LocalID,
@@ -106,6 +110,7 @@ func routeFromModel(model Model, remote bool) Route {
 		NodeID:        model.NodeID,
 		NodeURL:       model.NodeURL,
 		Remote:        remote,
+		Lane:          lane,
 	}
 }
 

@@ -39,6 +39,9 @@ type ModelCatalog interface {
 
 type ServiceConfig struct {
 	Backend       Backend
+	TextBackend   Backend
+	ImageBackend  Backend
+	BackendMode   string
 	Catalog       ModelCatalog
 	Registry      *cluster.Registry
 	ClusterToken  string
@@ -48,19 +51,15 @@ type ServiceConfig struct {
 
 type Service struct {
 	backend       Backend
+	textRuntime   *backendRuntime
+	imageRuntime  *backendRuntime
+	backendMode   string
 	catalog       ModelCatalog
 	registry      *cluster.Registry
 	clusterToken  string
 	clusterClient *cluster.Client
 	client        *http.Client
 	logger        *log.Logger
-
-	activeConfigMu            sync.Mutex
-	activeConfigChanged       chan struct{}
-	activeConfigFilename      string
-	activeConfigUsers         int
-	activeConfigSwitching     bool
-	activeConfigSwitchWaiters int
 
 	backendRetryAttempts int
 	backendRetryDelay    time.Duration
@@ -73,6 +72,8 @@ const (
 	defaultBackendRetryMaxDelay = 2 * time.Second
 	backendErrorBodyLimit       = 1024
 	modelOperationTimeout       = 15 * time.Minute
+	BackendModeKobold           = "kobold"
+	BackendModeLlamaSDCPP       = "llama_sdcpp"
 )
 
 type backendReadiness string
@@ -127,8 +128,26 @@ func NewService(config ServiceConfig) *Service {
 	if logger == nil {
 		logger = log.Default()
 	}
+	backendMode := strings.TrimSpace(config.BackendMode)
+	if backendMode == "" {
+		backendMode = BackendModeKobold
+	}
+	textBackend := config.TextBackend
+	if textBackend == nil {
+		textBackend = config.Backend
+	}
+	imageBackend := config.ImageBackend
+	sharedState := newActiveConfigState()
+	textRuntime := &backendRuntime{backend: textBackend, state: sharedState, name: "text"}
+	imageRuntime := textRuntime
+	if imageBackend != nil && backendMode == BackendModeLlamaSDCPP {
+		imageRuntime = &backendRuntime{backend: imageBackend, state: newActiveConfigState(), name: "image"}
+	}
 	service := &Service{
-		backend:      config.Backend,
+		backend:      textBackend,
+		textRuntime:  textRuntime,
+		imageRuntime: imageRuntime,
+		backendMode:  backendMode,
 		catalog:      config.Catalog,
 		registry:     config.Registry,
 		clusterToken: config.ClusterToken,
@@ -136,7 +155,6 @@ func NewService(config ServiceConfig) *Service {
 		client: &http.Client{
 			Timeout: 0,
 		},
-		activeConfigChanged:  make(chan struct{}),
 		backendRetryAttempts: defaultBackendRetryAttempts,
 		backendRetryDelay:    defaultBackendRetryDelay,
 		backendRetryMaxDelay: defaultBackendRetryMaxDelay,
@@ -162,14 +180,14 @@ func (service *Service) PreloadModel(ctx context.Context, modelID string) error 
 	if !ok {
 		return fmt.Errorf("startup model %q was not found", modelID)
 	}
-	if !model.HasLLM {
-		return fmt.Errorf("startup model %q is not an LLM model", modelID)
+	if !modelSupportsTextLane(model) {
+		return fmt.Errorf("startup model %q is not a text-lane model", modelID)
 	}
 
 	modelContext, cancelModelContext := context.WithTimeout(ctx, modelOperationTimeout)
 	defer cancelModelContext()
 
-	release, _, err := service.acquireModelConfig(modelContext, model.ID, model.Filename, readinessText, false)
+	release, _, err := service.acquireModelConfig(service.textRuntime, modelContext, model.ID, model.Filename, readinessText, false)
 	if err != nil {
 		return err
 	}
@@ -237,11 +255,11 @@ func (service *Service) handleModels(w http.ResponseWriter) {
 
 func (service *Service) handleImageModels(w http.ResponseWriter) {
 	if service.registry != nil {
-		openai.WriteJSON(w, http.StatusOK, clusterImageModelObjects(service.registry.Models(), service.currentConfigFilename()))
+		openai.WriteJSON(w, http.StatusOK, clusterImageModelObjects(service.registry.Models(), service.imageCatalogConfigSelector()))
 		return
 	}
 
-	models, err := service.catalog.ListImages(service.currentConfigFilename())
+	models, err := service.catalog.ListImages(service.imageCatalogConfigSelector())
 	if err != nil {
 		openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
 		return
@@ -264,7 +282,7 @@ func (service *Service) handleImageModels(w http.ResponseWriter) {
 func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		model, ok, err := service.catalog.ResolveActiveImage(service.currentConfigFilename())
+		model, ok, err := service.catalog.ResolveActiveImage(service.currentImageConfigFilename())
 		if err != nil {
 			openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
 			return
@@ -295,7 +313,7 @@ func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Reques
 			if service.registry != nil && service.handleRegistryImageOptions(w, r, body, modelID) {
 				return
 			}
-			model, ok, err := service.catalog.ResolveImage(modelID, service.currentConfigFilename())
+			model, ok, err := service.catalog.ResolveImage(modelID, service.imageCatalogConfigSelector())
 			if err != nil {
 				service.logger.Printf("image model catalog check failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
 				openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
@@ -306,9 +324,15 @@ func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Reques
 				openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("image model %q was not found", modelID))
 				return
 			}
+			if service.backendMode == BackendModeLlamaSDCPP && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
+				if err := service.loadLocalRuntimeForRequest(r.Context(), service.textRuntime, model.ID, model.Filename, readinessText); err != nil {
+					openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+					return
+				}
+			}
 			modelContext, cancelModelContext := context.WithTimeout(context.WithoutCancel(r.Context()), modelOperationTimeout)
 			defer cancelModelContext()
-			release, _, err := service.acquireModelConfig(modelContext, model.ImageID, model.Filename, readinessImage, false)
+			release, _, err := service.acquireModelConfig(service.imageRuntime, modelContext, model.ImageID, model.Filename, readinessImage, false)
 			if err != nil {
 				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 				return
@@ -357,6 +381,13 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 		hasModel = true
 	}
 
+	if service.backendMode == BackendModeLlamaSDCPP && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
+		if err := service.loadLocalRuntimeForRequest(r.Context(), service.textRuntime, model.ID, model.Filename, readinessText); err != nil {
+			openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+			return
+		}
+	}
+
 	response, err := service.forwardWithFallback(r.Context(), r, body, model.ImageID, model.Filename, hasModel, readinessImage)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
@@ -378,7 +409,7 @@ func (err imageModelLookupError) Error() string {
 }
 
 func (service *Service) resolveImageModel(r *http.Request, modelID string) (catalog.Model, error) {
-	model, ok, err := service.catalog.ResolveImage(modelID, service.currentConfigFilename())
+	model, ok, err := service.catalog.ResolveImage(modelID, service.imageCatalogConfigSelector())
 	if err != nil {
 		service.logger.Printf("image model catalog check failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
 		return catalog.Model{}, err
@@ -394,7 +425,7 @@ func (service *Service) resolveImageModel(r *http.Request, modelID string) (cata
 }
 
 func (service *Service) activeImageModel(r *http.Request) (catalog.Model, error) {
-	model, ok, err := service.catalog.ResolveActiveImage(service.currentConfigFilename())
+	model, ok, err := service.catalog.ResolveActiveImage(service.currentImageConfigFilename())
 	if err != nil {
 		service.logger.Printf("active image model catalog check failed path=%s error=%v", r.URL.Path, err)
 		return catalog.Model{}, err
@@ -445,6 +476,7 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 	}
 
 	configFilename := ""
+	var selectedModel catalog.Model
 	if hasModel {
 		model, ok, err := service.catalog.Resolve(modelID)
 		if err != nil {
@@ -463,6 +495,14 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		configFilename = model.Filename
+		selectedModel = model
+	}
+
+	if hasModel && service.backendMode == BackendModeLlamaSDCPP && selectedModel.HasImage {
+		if err := service.loadLocalRuntimeForRequest(r.Context(), service.imageRuntime, selectedModel.ImageID, selectedModel.Filename, readinessImage); err != nil {
+			openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+			return
+		}
 	}
 
 	response, err := service.forwardWithFallback(r.Context(), r, body, modelID, configFilename, hasModel, readinessText)
@@ -488,6 +528,7 @@ func writeModelProxyResponse(w http.ResponseWriter, response *http.Response, vir
 }
 
 func (service *Service) forwardWithFallback(ctx context.Context, original *http.Request, body []byte, modelID string, configFilename string, hasModel bool, readiness backendReadiness) (*http.Response, error) {
+	runtime := service.runtimeForReadiness(readiness)
 	loadedFresh := false
 	modelContext := ctx
 	cancelModelContext := func() {}
@@ -497,13 +538,13 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 		defer cancelModelContext()
 
 		var err error
-		releaseModel, loadedFresh, err = service.acquireModelConfig(modelContext, modelID, configFilename, readiness, false)
+		releaseModel, loadedFresh, err = service.acquireModelConfig(runtime, modelContext, modelID, configFilename, readiness, false)
 		if err != nil {
 			return nil, err
 		}
 	}
 
-	response, err := service.forward(ctx, original, body)
+	response, err := service.forward(runtime, ctx, original, body)
 	if !hasModel {
 		return response, err
 	}
@@ -518,9 +559,9 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 	lastBody := retryResult.body
 	service.logRetryableBackendResult(original.URL.Path, modelID, configFilename, 0, lastStatus, lastErr, lastBody)
 
-	if service.shouldRecoverBackend(ctx, retryResult) {
+	if service.shouldRecoverBackend(runtime, ctx, retryResult) {
 		var recoveryErr error
-		releaseModel, loadedFresh, recoveryErr = service.recoverBackendForModel(modelContext, releaseModel, modelID, configFilename, readiness, original.URL.Path, retryResult.err)
+		releaseModel, loadedFresh, recoveryErr = service.recoverBackendForModel(runtime, modelContext, releaseModel, modelID, configFilename, readiness, original.URL.Path, retryResult.err)
 		if recoveryErr != nil {
 			return nil, recoveryErr
 		}
@@ -528,7 +569,7 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 	} else if !loadedFresh && !isBackendWaitingResponse(lastStatus, lastBody) {
 		releaseModel()
 		var reloadErr error
-		releaseModel, loadedFresh, reloadErr = service.acquireModelConfig(modelContext, modelID, configFilename, readiness, true)
+		releaseModel, loadedFresh, reloadErr = service.acquireModelConfig(runtime, modelContext, modelID, configFilename, readiness, true)
 		if reloadErr != nil {
 			return nil, reloadErr
 		}
@@ -541,7 +582,7 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 	retryDelay := service.backendRetryDelay
 	skipRetryDelay := false
 	if retryResult.inactive {
-		if err := service.waitForInactiveBackend(modelContext, readiness, modelID, configFilename, original.URL.Path); err != nil {
+		if err := service.waitForInactiveBackend(runtime, modelContext, readiness, modelID, configFilename, original.URL.Path); err != nil {
 			releaseModel()
 			return nil, err
 		}
@@ -557,7 +598,7 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 		}
 		skipRetryDelay = false
 
-		response, err = service.forward(ctx, original, body)
+		response, err = service.forward(runtime, ctx, original, body)
 		retryResult = service.backendRetryResult(response, err, original.URL.Path)
 		if !retryResult.retry {
 			return responseWithRelease(response, releaseModel), nil
@@ -568,16 +609,16 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 		lastBody = retryResult.body
 		service.logRetryableBackendResult(original.URL.Path, modelID, configFilename, attempt, lastStatus, lastErr, lastBody)
 
-		if !recoveredBackend && service.shouldRecoverBackend(ctx, retryResult) {
+		if !recoveredBackend && service.shouldRecoverBackend(runtime, ctx, retryResult) {
 			var recoveryErr error
-			releaseModel, loadedFresh, recoveryErr = service.recoverBackendForModel(modelContext, releaseModel, modelID, configFilename, readiness, original.URL.Path, retryResult.err)
+			releaseModel, loadedFresh, recoveryErr = service.recoverBackendForModel(runtime, modelContext, releaseModel, modelID, configFilename, readiness, original.URL.Path, retryResult.err)
 			if recoveryErr != nil {
 				return nil, recoveryErr
 			}
 			recoveredBackend = true
 		}
 		if retryResult.inactive {
-			if err := service.waitForInactiveBackend(modelContext, readiness, modelID, configFilename, original.URL.Path); err != nil {
+			if err := service.waitForInactiveBackend(runtime, modelContext, readiness, modelID, configFilename, original.URL.Path); err != nil {
 				releaseModel()
 				return nil, err
 			}
@@ -590,20 +631,20 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 	return nil, backendRetryExhaustedError(lastStatus, lastErr, lastBody)
 }
 
-func (service *Service) shouldRecoverBackend(ctx context.Context, retryResult backendRetryResult) bool {
+func (service *Service) shouldRecoverBackend(runtime *backendRuntime, ctx context.Context, retryResult backendRetryResult) bool {
 	if retryResult.err == nil {
 		return false
 	}
 	if ctx.Err() != nil {
 		return false
 	}
-	return !service.backend.Healthy(ctx)
+	return !runtime.backend.Healthy(ctx)
 }
 
-func (service *Service) recoverBackendForModel(ctx context.Context, releaseModel func(), modelID string, configFilename string, readiness backendReadiness, path string, cause error) (func(), bool, error) {
+func (service *Service) recoverBackendForModel(runtime *backendRuntime, ctx context.Context, releaseModel func(), modelID string, configFilename string, readiness backendReadiness, path string, cause error) (func(), bool, error) {
 	service.logger.Printf("backend transport recovery attempt path=%s model=%q config=%q error=%v", path, modelID, configFilename, cause)
 	releaseModel()
-	release, loadedFresh, err := service.acquireModelConfig(ctx, modelID, configFilename, readiness, true)
+	release, loadedFresh, err := service.acquireModelConfig(runtime, ctx, modelID, configFilename, readiness, true)
 	if err != nil {
 		return nil, false, err
 	}
@@ -611,9 +652,9 @@ func (service *Service) recoverBackendForModel(ctx context.Context, releaseModel
 	return release, loadedFresh, nil
 }
 
-func (service *Service) waitForInactiveBackend(ctx context.Context, readiness backendReadiness, modelID string, configFilename string, path string) error {
+func (service *Service) waitForInactiveBackend(runtime *backendRuntime, ctx context.Context, readiness backendReadiness, modelID string, configFilename string, path string) error {
 	service.logger.Printf("backend inactive response path=%s model=%q config=%q", path, modelID, configFilename)
-	return service.waitForBackendEndpoint(ctx, readiness, modelID, configFilename)
+	return service.waitForBackendEndpoint(runtime, ctx, readiness, modelID, configFilename)
 }
 
 func (service *Service) backendRetryResult(response *http.Response, err error, path string) backendRetryResult {
@@ -858,112 +899,26 @@ func backendRetryExhaustedError(status int, err error, body string) error {
 	return fmt.Errorf("backend unavailable after retries")
 }
 
-func (service *Service) acquireModelConfig(ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (func(), bool, error) {
-	waitingSwitch := false
-	for {
-		service.activeConfigMu.Lock()
-		if !force && service.activeConfigFilename == configFilename && !service.activeConfigSwitching && (service.activeConfigSwitchWaiters == 0 || waitingSwitch) {
-			if waitingSwitch {
-				service.activeConfigSwitchWaiters--
-				service.notifyActiveConfigLocked()
-			}
-			service.activeConfigUsers++
-			release := service.releaseActiveConfigOnce()
-			service.activeConfigMu.Unlock()
-			return release, false, nil
-		}
-
-		if !waitingSwitch && service.activeConfigSwitchWaiters > 0 {
-			changed := service.activeConfigChanged
-			service.activeConfigMu.Unlock()
-			if err := waitForActiveConfigChange(ctx, changed); err != nil {
-				return nil, false, err
-			}
-			continue
-		}
-		if !waitingSwitch {
-			service.activeConfigSwitchWaiters++
-			waitingSwitch = true
-		}
-		if service.activeConfigSwitching || service.activeConfigUsers > 0 {
-			changed := service.activeConfigChanged
-			service.activeConfigMu.Unlock()
-			if err := waitForActiveConfigChange(ctx, changed); err != nil {
-				service.cancelConfigSwitchWaiter()
-				return nil, false, err
-			}
-			continue
-		}
-
-		service.activeConfigSwitchWaiters--
-		service.activeConfigSwitching = true
-		service.activeConfigMu.Unlock()
-
-		err := service.reloadModelConfig(ctx, modelID, configFilename)
-		if err == nil {
-			err = service.waitForBackendEndpoint(ctx, readiness, modelID, configFilename)
-		}
-
-		service.activeConfigMu.Lock()
-		service.activeConfigSwitching = false
-		if err != nil {
-			service.activeConfigFilename = ""
-			service.notifyActiveConfigLocked()
-			service.activeConfigMu.Unlock()
-			return nil, false, err
-		}
-		service.activeConfigFilename = configFilename
-		service.activeConfigUsers++
-		release := service.releaseActiveConfigOnce()
-		service.notifyActiveConfigLocked()
-		service.activeConfigMu.Unlock()
-		return release, true, nil
-	}
-}
-
-func (service *Service) cancelConfigSwitchWaiter() {
-	service.activeConfigMu.Lock()
-	if service.activeConfigSwitchWaiters > 0 {
-		service.activeConfigSwitchWaiters--
-		service.notifyActiveConfigLocked()
-	}
-	service.activeConfigMu.Unlock()
-}
-
-func (service *Service) releaseActiveConfigOnce() func() {
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			service.activeConfigMu.Lock()
-			if service.activeConfigUsers > 0 {
-				service.activeConfigUsers--
-				if service.activeConfigUsers == 0 {
-					service.notifyActiveConfigLocked()
-				}
-			}
-			service.activeConfigMu.Unlock()
-		})
-	}
-}
-
-func (service *Service) notifyActiveConfigLocked() {
-	close(service.activeConfigChanged)
-	service.activeConfigChanged = make(chan struct{})
-}
-
-func waitForActiveConfigChange(ctx context.Context, changed <-chan struct{}) error {
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-changed:
-		return nil
-	}
-}
-
 func (service *Service) currentConfigFilename() string {
-	service.activeConfigMu.Lock()
-	defer service.activeConfigMu.Unlock()
-	return service.activeConfigFilename
+	return currentRuntimeConfigFilename(service.textRuntime)
+}
+
+func (service *Service) currentImageConfigFilename() string {
+	return currentRuntimeConfigFilename(service.imageRuntime)
+}
+
+func (service *Service) imageCatalogConfigSelector() string {
+	if service.backendMode == BackendModeLlamaSDCPP {
+		return catalog.AllImageConfigs
+	}
+	return service.currentImageConfigFilename()
+}
+
+func (service *Service) runtimeForReadiness(readiness backendReadiness) *backendRuntime {
+	if readiness == readinessImage {
+		return service.imageRuntime
+	}
+	return service.textRuntime
 }
 
 func responseWithRelease(response *http.Response, release func()) *http.Response {
@@ -982,25 +937,25 @@ func responseWithRelease(response *http.Response, release func()) *http.Response
 	return response
 }
 
-func (service *Service) reloadModelConfig(ctx context.Context, modelID string, configFilename string) error {
+func (service *Service) reloadModelConfig(runtime *backendRuntime, ctx context.Context, modelID string, configFilename string) error {
 	service.logger.Printf("config switch reload attempt model=%q config=%q", modelID, configFilename)
-	if reloadErr := service.backend.ReloadConfig(ctx, configFilename); reloadErr != nil {
+	if reloadErr := runtime.backend.ReloadConfig(ctx, configFilename); reloadErr != nil {
 		service.logger.Printf("config switch reload failed model=%q config=%q error=%v", modelID, configFilename, reloadErr)
-		if service.backend.Healthy(ctx) {
+		if runtime.backend.Healthy(ctx) {
 			return reloadErr
 		}
 
 		service.logger.Printf("backend unhealthy after config switch failure model=%q config=%q", modelID, configFilename)
 		restartContext, cancel := context.WithTimeout(ctx, 2*time.Minute)
 		defer cancel()
-		service.logger.Printf("kobold restart attempt model=%q config=%q", modelID, configFilename)
-		if restartErr := service.backend.Restart(restartContext); restartErr != nil {
-			service.logger.Printf("kobold restart failed model=%q config=%q error=%v", modelID, configFilename, restartErr)
+		service.logger.Printf("backend restart attempt model=%q config=%q lane=%s", modelID, configFilename, runtime.name)
+		if restartErr := runtime.backend.Restart(restartContext); restartErr != nil {
+			service.logger.Printf("backend restart failed model=%q config=%q lane=%s error=%v", modelID, configFilename, runtime.name, restartErr)
 			return fmt.Errorf("reload failed: %v; restart failed: %w", reloadErr, restartErr)
 		}
 
 		service.logger.Printf("config switch reload retry model=%q config=%q", modelID, configFilename)
-		if retryErr := service.backend.ReloadConfig(ctx, configFilename); retryErr != nil {
+		if retryErr := runtime.backend.ReloadConfig(ctx, configFilename); retryErr != nil {
 			return fmt.Errorf("reload failed after restart: %w", retryErr)
 		}
 	}
@@ -1009,14 +964,14 @@ func (service *Service) reloadModelConfig(ctx context.Context, modelID string, c
 	return nil
 }
 
-func (service *Service) waitForBackendEndpoint(ctx context.Context, readiness backendReadiness, modelID string, configFilename string) error {
+func (service *Service) waitForBackendEndpoint(runtime *backendRuntime, ctx context.Context, readiness backendReadiness, modelID string, configFilename string) error {
 	retryDelay := service.backendRetryDelay
 	var lastStatus int
 	var lastBody string
 	var lastErr error
 
 	for attempt := 1; attempt <= service.backendRetryAttempts; attempt++ {
-		status, body, err := service.probeBackendEndpoint(ctx, string(readiness))
+		status, body, err := service.probeBackendEndpoint(runtime, ctx, string(readiness))
 		if err == nil && backendEndpointReady(readiness, status, body) {
 			if attempt > 1 {
 				service.logger.Printf("backend model endpoint ready model=%q config=%q attempt=%d", modelID, configFilename, attempt)
@@ -1139,8 +1094,8 @@ func backendTextEndpointReady(body string) bool {
 	return !hasID
 }
 
-func (service *Service) probeBackendEndpoint(ctx context.Context, path string) (int, string, error) {
-	target := service.backend.URL()
+func (service *Service) probeBackendEndpoint(runtime *backendRuntime, ctx context.Context, path string) (int, string, error) {
+	target := runtime.backend.URL()
 	target.Path = joinPath(target.Path, path)
 	target.RawQuery = ""
 
@@ -1156,8 +1111,8 @@ func (service *Service) probeBackendEndpoint(ctx context.Context, path string) (
 	return response.StatusCode, drainResponseBodyPreview(response), nil
 }
 
-func (service *Service) forward(ctx context.Context, original *http.Request, body []byte) (*http.Response, error) {
-	target := service.backend.URL()
+func (service *Service) forward(runtime *backendRuntime, ctx context.Context, original *http.Request, body []byte) (*http.Response, error) {
+	target := runtime.backend.URL()
 	target.Path = joinPath(target.Path, original.URL.Path)
 	target.RawQuery = original.URL.RawQuery
 
@@ -1532,6 +1487,9 @@ func isImagePath(path string) bool {
 		return true
 	}
 	if strings.HasPrefix(path, "/sdapi/v1/") {
+		return true
+	}
+	if strings.HasPrefix(path, "/sdcpp/v1/") {
 		return true
 	}
 	switch path {

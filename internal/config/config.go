@@ -14,7 +14,10 @@ type Config struct {
 	Server  ServerConfig
 	Auth    AuthConfig
 	Models  ModelsConfig
+	Backend BackendConfig
 	Kobold  KoboldConfig
+	Llama   NativeServerConfig
+	SDCPP   NativeServerConfig
 	Logging LoggingConfig
 	Updates UpdatesConfig
 	Cluster ClusterConfig
@@ -34,6 +37,10 @@ type ModelsConfig struct {
 	StartupModel string
 }
 
+type BackendConfig struct {
+	Mode string
+}
+
 type KoboldConfig struct {
 	BackendURL   string
 	BinaryPath   string
@@ -46,14 +53,27 @@ type KoboldConfig struct {
 	HideWindow   bool
 }
 
+type NativeServerConfig struct {
+	BackendURL string
+	BinaryPath string
+	DataDir    string
+	ExtraArgs  []string
+	HideWindow bool
+}
+
 type LoggingConfig struct {
 	Enabled bool
 }
 
 type UpdatesConfig struct {
-	Enabled       bool
-	CheckInterval time.Duration
-	BinaryURL     string
+	Enabled        bool
+	CheckInterval  time.Duration
+	BinaryURL      string
+	BinarySHA256   string
+	LlamaBinaryURL string
+	LlamaSHA256    string
+	SDCPPBinaryURL string
+	SDCPPSHA256    string
 }
 
 type ClusterConfig struct {
@@ -86,6 +106,9 @@ func Defaults() Config {
 		Models: ModelsConfig{
 			ConfigDir: "./kcpps",
 		},
+		Backend: BackendConfig{
+			Mode: "kobold",
+		},
 		Kobold: KoboldConfig{
 			BackendURL:   "http://127.0.0.1:5001",
 			BinaryPath:   "./bin/koboldcpp",
@@ -97,13 +120,32 @@ func Defaults() Config {
 			NoModel:      true,
 			HideWindow:   true,
 		},
+		Llama: NativeServerConfig{
+			BackendURL: "http://127.0.0.1:5002",
+			BinaryPath: "./bin/llama-server",
+			DataDir:    "./data/llama",
+			ExtraArgs:  []string{},
+			HideWindow: true,
+		},
+		SDCPP: NativeServerConfig{
+			BackendURL: "http://127.0.0.1:7860",
+			BinaryPath: "./bin/sd-server",
+			DataDir:    "./data/sdcpp",
+			ExtraArgs:  []string{},
+			HideWindow: true,
+		},
 		Logging: LoggingConfig{
 			Enabled: true,
 		},
 		Updates: UpdatesConfig{
-			Enabled:       true,
-			CheckInterval: 168 * time.Hour,
-			BinaryURL:     "https://koboldai.org/cpplinuxrocm",
+			Enabled:        false,
+			CheckInterval:  168 * time.Hour,
+			BinaryURL:      "https://koboldai.org/cpplinuxrocm",
+			BinarySHA256:   "",
+			LlamaBinaryURL: "",
+			LlamaSHA256:    "",
+			SDCPPBinaryURL: "",
+			SDCPPSHA256:    "",
 		},
 		Cluster: ClusterConfig{
 			Role:           "standalone",
@@ -144,6 +186,11 @@ func validate(cfg Config) error {
 	if cfg.Models.ConfigDir == "" {
 		return fmt.Errorf("models.config_dir is required")
 	}
+	switch cfg.Backend.Mode {
+	case "kobold", "llama_sdcpp":
+	default:
+		return fmt.Errorf("backend.mode must be kobold or llama_sdcpp")
+	}
 	if cfg.Kobold.BackendURL == "" {
 		return fmt.Errorf("kobold.backend_url is required")
 	}
@@ -159,11 +206,29 @@ func validate(cfg Config) error {
 	if cfg.Kobold.Multiuser < 1 {
 		return fmt.Errorf("kobold.multiuser must be at least 1")
 	}
+	if cfg.Backend.Mode == "llama_sdcpp" {
+		if err := validateNativeServerConfig("llama", cfg.Llama); err != nil {
+			return err
+		}
+		if err := validateNativeServerConfig("sdcpp", cfg.SDCPP); err != nil {
+			return err
+		}
+	}
 	if cfg.Updates.CheckInterval <= 0 {
 		return fmt.Errorf("updates.check_interval must be positive")
 	}
-	if cfg.Updates.Enabled && cfg.Updates.BinaryURL == "" {
-		return fmt.Errorf("updates.binary_url is required when updates.enabled is true")
+	if cfg.Updates.Enabled && cfg.Backend.Mode == "kobold" {
+		if err := validateUpdateDownload("updates.binary_url", cfg.Updates.BinaryURL, "updates.binary_sha256", cfg.Updates.BinarySHA256); err != nil {
+			return err
+		}
+	}
+	if cfg.Updates.Enabled && cfg.Backend.Mode == "llama_sdcpp" {
+		if err := validateUpdateDownload("updates.llama_binary_url", cfg.Updates.LlamaBinaryURL, "updates.llama_binary_sha256", cfg.Updates.LlamaSHA256); err != nil {
+			return err
+		}
+		if err := validateUpdateDownload("updates.sdcpp_binary_url", cfg.Updates.SDCPPBinaryURL, "updates.sdcpp_binary_sha256", cfg.Updates.SDCPPSHA256); err != nil {
+			return err
+		}
 	}
 	switch cfg.Cluster.Role {
 	case "standalone", "master", "slave":
@@ -209,6 +274,59 @@ func validate(cfg Config) error {
 		}
 	}
 	return nil
+}
+
+func validateNativeServerConfig(section string, server NativeServerConfig) error {
+	if server.BackendURL == "" {
+		return fmt.Errorf("%s.backend_url is required", section)
+	}
+	if _, err := url.ParseRequestURI(server.BackendURL); err != nil {
+		return fmt.Errorf("%s.backend_url is invalid: %w", section, err)
+	}
+	if server.BinaryPath == "" {
+		return fmt.Errorf("%s.binary_path is required", section)
+	}
+	if server.DataDir == "" {
+		return fmt.Errorf("%s.data_dir is required", section)
+	}
+	return nil
+}
+
+func validateUpdateDownload(urlField string, rawURL string, shaField string, sha256 string) error {
+	if rawURL == "" {
+		return fmt.Errorf("%s is required when updates.enabled is true", urlField)
+	}
+	parsed, err := url.ParseRequestURI(rawURL)
+	if err != nil {
+		return fmt.Errorf("%s is invalid: %w", urlField, err)
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("%s must use https", urlField)
+	}
+	if parsed.Host == "" {
+		return fmt.Errorf("%s must include a host", urlField)
+	}
+	if !validSHA256Hex(sha256) {
+		return fmt.Errorf("%s must be a 64 character SHA-256 hex digest when updates.enabled is true", shaField)
+	}
+	return nil
+}
+
+func validSHA256Hex(value string) bool {
+	value = strings.TrimSpace(value)
+	if len(value) != 64 {
+		return false
+	}
+	for _, char := range value {
+		switch {
+		case char >= '0' && char <= '9':
+		case char >= 'a' && char <= 'f':
+		case char >= 'A' && char <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func parseYAML(content []byte, cfg *Config) error {
@@ -403,6 +521,12 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			cfg.Models.StartupModel = value
 			return nil
 		}
+	case "backend":
+		switch key {
+		case "mode":
+			cfg.Backend.Mode = value
+			return nil
+		}
 	case "kobold":
 		switch key {
 		case "backend_url":
@@ -450,6 +574,10 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			cfg.Kobold.HideWindow = parsed
 			return nil
 		}
+	case "llama":
+		return setNativeServerScalar(&cfg.Llama, section, key, value)
+	case "sdcpp":
+		return setNativeServerScalar(&cfg.SDCPP, section, key, value)
 	case "logging":
 		switch key {
 		case "enabled":
@@ -478,6 +606,21 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			return nil
 		case "binary_url":
 			cfg.Updates.BinaryURL = value
+			return nil
+		case "binary_sha256":
+			cfg.Updates.BinarySHA256 = value
+			return nil
+		case "llama_binary_url":
+			cfg.Updates.LlamaBinaryURL = value
+			return nil
+		case "llama_binary_sha256":
+			cfg.Updates.LlamaSHA256 = value
+			return nil
+		case "sdcpp_binary_url":
+			cfg.Updates.SDCPPBinaryURL = value
+			return nil
+		case "sdcpp_binary_sha256":
+			cfg.Updates.SDCPPSHA256 = value
 			return nil
 		}
 	case "cluster":
@@ -519,6 +662,28 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 	return fmt.Errorf("unknown key %s.%s", section, key)
 }
 
+func setNativeServerScalar(server *NativeServerConfig, section string, key string, value string) error {
+	switch key {
+	case "backend_url":
+		server.BackendURL = value
+		return nil
+	case "binary_path":
+		server.BinaryPath = value
+		return nil
+	case "data_dir":
+		server.DataDir = value
+		return nil
+	case "hide_window":
+		parsed, err := strconv.ParseBool(value)
+		if err != nil {
+			return err
+		}
+		server.HideWindow = parsed
+		return nil
+	}
+	return fmt.Errorf("unknown key %s.%s", section, key)
+}
+
 func setListValue(cfg *Config, section string, key string, values []string) error {
 	if values == nil {
 		values = []string{}
@@ -537,6 +702,16 @@ func setListValue(cfg *Config, section string, key string, values []string) erro
 	case "kobold":
 		if key == "extra_args" {
 			cfg.Kobold.ExtraArgs = values
+			return nil
+		}
+	case "llama":
+		if key == "extra_args" {
+			cfg.Llama.ExtraArgs = values
+			return nil
+		}
+	case "sdcpp":
+		if key == "extra_args" {
+			cfg.SDCPP.ExtraArgs = values
 			return nil
 		}
 	case "cluster":
@@ -563,6 +738,16 @@ func appendListValue(cfg *Config, section string, key string, value string) erro
 	case "kobold":
 		if key == "extra_args" {
 			cfg.Kobold.ExtraArgs = append(cfg.Kobold.ExtraArgs, value)
+			return nil
+		}
+	case "llama":
+		if key == "extra_args" {
+			cfg.Llama.ExtraArgs = append(cfg.Llama.ExtraArgs, value)
+			return nil
+		}
+	case "sdcpp":
+		if key == "extra_args" {
+			cfg.SDCPP.ExtraArgs = append(cfg.SDCPP.ExtraArgs, value)
 			return nil
 		}
 	case "cluster":

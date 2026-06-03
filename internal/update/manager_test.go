@@ -2,6 +2,8 @@ package update
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,14 +17,16 @@ import (
 
 func TestDownloadWritesBinaryAndMetadata(t *testing.T) {
 	cfg := testConfig(t)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("ETag", `"abc"`)
 		_, _ = w.Write([]byte("binary"))
 	}))
 	defer server.Close()
 	cfg.Updates.BinaryURL = server.URL
+	cfg.Updates.BinarySHA256 = sha256Hex("binary")
 
 	manager := NewManager(cfg)
+	manager.client = server.Client()
 	manager.Now = func() time.Time { return time.Unix(100, 0).UTC() }
 
 	if err := manager.Download(context.Background()); err != nil {
@@ -37,21 +41,25 @@ func TestDownloadWritesBinaryAndMetadata(t *testing.T) {
 		t.Fatalf("unexpected binary content %q", string(content))
 	}
 
-	meta := manager.readMetadata()
+	meta := manager.readMetadata(manager.targets()[0])
 	if meta.ETag != `"abc"` {
 		t.Fatalf("unexpected etag %q", meta.ETag)
+	}
+	if meta.SHA256 != cfg.Updates.BinarySHA256 {
+		t.Fatalf("unexpected sha256 %q", meta.SHA256)
 	}
 }
 
 func TestEnsureSkipsFreshCheck(t *testing.T) {
 	cfg := testConfig(t)
 	var hits atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
 		_, _ = w.Write([]byte("binary"))
 	}))
 	defer server.Close()
 	cfg.Updates.BinaryURL = server.URL
+	cfg.Updates.BinarySHA256 = sha256Hex("old")
 
 	if err := os.MkdirAll(filepath.Dir(cfg.Kobold.BinaryPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -61,11 +69,13 @@ func TestEnsureSkipsFreshCheck(t *testing.T) {
 	}
 
 	manager := NewManager(cfg)
+	manager.client = server.Client()
 	now := time.Unix(200, 0).UTC()
 	manager.Now = func() time.Time { return now }
-	if err := manager.writeMetadata(metadata{
+	if err := manager.writeMetadata(manager.targets()[0], metadata{
 		CheckedAt: now.Add(-time.Hour),
 		URL:       cfg.Updates.BinaryURL,
+		SHA256:    cfg.Updates.BinarySHA256,
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -80,11 +90,12 @@ func TestEnsureSkipsFreshCheck(t *testing.T) {
 
 func TestDownloadFailureKeepsPreviousBinary(t *testing.T) {
 	cfg := testConfig(t)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "nope", http.StatusInternalServerError)
 	}))
 	defer server.Close()
 	cfg.Updates.BinaryURL = server.URL
+	cfg.Updates.BinarySHA256 = sha256Hex("binary")
 
 	if err := os.MkdirAll(filepath.Dir(cfg.Kobold.BinaryPath), 0o755); err != nil {
 		t.Fatal(err)
@@ -94,6 +105,7 @@ func TestDownloadFailureKeepsPreviousBinary(t *testing.T) {
 	}
 
 	manager := NewManager(cfg)
+	manager.client = server.Client()
 	if err := manager.Download(context.Background()); err == nil {
 		t.Fatalf("expected download failure")
 	}
@@ -107,12 +119,108 @@ func TestDownloadFailureKeepsPreviousBinary(t *testing.T) {
 	}
 }
 
+func TestDownloadSplitModeWritesLlamaAndSDCPPBinaries(t *testing.T) {
+	cfg := testConfig(t)
+	cfg.Backend.Mode = "llama_sdcpp"
+	cfg.Llama.BinaryPath = filepath.Join(filepath.Dir(cfg.Kobold.BinaryPath), "llama-server")
+	cfg.Llama.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "llama")
+	cfg.SDCPP.BinaryPath = filepath.Join(filepath.Dir(cfg.Kobold.BinaryPath), "sd-server")
+	cfg.SDCPP.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "sdcpp")
+
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/llama":
+			_, _ = w.Write([]byte("llama"))
+		case "/sdcpp":
+			_, _ = w.Write([]byte("sdcpp"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	cfg.Updates.LlamaBinaryURL = server.URL + "/llama"
+	cfg.Updates.LlamaSHA256 = sha256Hex("llama")
+	cfg.Updates.SDCPPBinaryURL = server.URL + "/sdcpp"
+	cfg.Updates.SDCPPSHA256 = sha256Hex("sdcpp")
+
+	manager := NewManager(cfg)
+	manager.client = server.Client()
+	paths, err := manager.DownloadedPaths(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(paths) != 2 || paths[0] != cfg.Llama.BinaryPath || paths[1] != cfg.SDCPP.BinaryPath {
+		t.Fatalf("unexpected downloaded paths %#v", paths)
+	}
+
+	llamaContent, err := os.ReadFile(cfg.Llama.BinaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(llamaContent) != "llama" {
+		t.Fatalf("unexpected llama binary %q", string(llamaContent))
+	}
+	sdcppContent, err := os.ReadFile(cfg.SDCPP.BinaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(sdcppContent) != "sdcpp" {
+		t.Fatalf("unexpected sdcpp binary %q", string(sdcppContent))
+	}
+
+	if manager.readMetadata(manager.targets()[0]).URL != cfg.Updates.LlamaBinaryURL {
+		t.Fatalf("llama metadata was not written")
+	}
+	if manager.readMetadata(manager.targets()[1]).URL != cfg.Updates.SDCPPBinaryURL {
+		t.Fatalf("sdcpp metadata was not written")
+	}
+}
+
+func TestDownloadRejectsHTTPURL(t *testing.T) {
+	cfg := testConfig(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("binary"))
+	}))
+	defer server.Close()
+	cfg.Updates.BinaryURL = server.URL
+	cfg.Updates.BinarySHA256 = sha256Hex("binary")
+
+	if err := NewManager(cfg).Download(context.Background()); err == nil {
+		t.Fatalf("expected http url rejection")
+	}
+}
+
+func TestDownloadRejectsSHA256Mismatch(t *testing.T) {
+	cfg := testConfig(t)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("binary"))
+	}))
+	defer server.Close()
+	cfg.Updates.BinaryURL = server.URL
+	cfg.Updates.BinarySHA256 = sha256Hex("other")
+
+	manager := NewManager(cfg)
+	manager.client = server.Client()
+	if err := manager.Download(context.Background()); err == nil {
+		t.Fatalf("expected sha256 mismatch")
+	}
+	if fileExists(cfg.Kobold.BinaryPath) {
+		t.Fatalf("mismatched binary should not be installed")
+	}
+}
+
 func testConfig(t *testing.T) config.Config {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := config.Defaults()
 	cfg.Kobold.BinaryPath = filepath.Join(dir, "bin", "koboldcpp")
 	cfg.Kobold.DataDir = filepath.Join(dir, "data")
+	cfg.Updates.Enabled = true
 	cfg.Updates.CheckInterval = 168 * time.Hour
 	return cfg
+}
+
+func sha256Hex(value string) string {
+	hash := sha256.Sum256([]byte(value))
+	return hex.EncodeToString(hash[:])
 }

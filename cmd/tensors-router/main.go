@@ -19,6 +19,7 @@ import (
 	routercluster "tensors-router/internal/cluster"
 	"tensors-router/internal/config"
 	"tensors-router/internal/kobold"
+	"tensors-router/internal/native"
 	"tensors-router/internal/proxy"
 	routerupdate "tensors-router/internal/update"
 )
@@ -92,7 +93,7 @@ func runServe(args []string) error {
 	if cfg.Cluster.Role == routercluster.RoleMaster {
 		localSource = routercluster.SourceMaster
 	}
-	if err := registry.UpdateLocal(routercluster.LocalModels(localModels, cfg.Cluster.NodeID, cfg.Cluster.PublicURL, localSource)); err != nil {
+	if err := registry.UpdateLocal(routercluster.LocalModelsWithBackendMode(localModels, cfg.Cluster.NodeID, cfg.Cluster.PublicURL, localSource, cfg.Backend.Mode)); err != nil {
 		return err
 	}
 	clusterClient := routercluster.NewClient(cfg.Cluster.Token)
@@ -105,31 +106,17 @@ func runServe(args []string) error {
 	}
 	routercluster.SyncConfiguredSlaves(ctx, syncConfig, registry, clusterClient, serveLogger)
 
-	processManager, err := kobold.NewManager(kobold.ProcessConfig{
-		BackendURL:   cfg.Kobold.BackendURL,
-		BinaryPath:   cfg.Kobold.BinaryPath,
-		ConfigDir:    cfg.Models.ConfigDir,
-		DataDir:      cfg.Kobold.DataDir,
-		ExtraArgs:    cfg.Kobold.ExtraArgs,
-		Multiuser:    cfg.Kobold.Multiuser,
-		Quiet:        cfg.Kobold.Quiet,
-		SkipLauncher: cfg.Kobold.SkipLauncher,
-		NoModel:      cfg.Kobold.NoModel,
-		HideWindow:   cfg.Kobold.HideWindow,
-		Logging:      cfg.Logging.Enabled,
-	})
+	textBackend, imageBackend, shutdownBackends, err := createBackends(ctx, cfg)
 	if err != nil {
-		return err
-	}
-
-	if err := processManager.Start(ctx); err != nil {
 		return err
 	}
 	defer func() {
 		shutdownContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
-		if err := processManager.Stop(shutdownContext); err != nil {
-			serveLogger.Printf("kobold stop failed: %v", err)
+		for _, shutdownBackend := range shutdownBackends {
+			if err := shutdownBackend(shutdownContext); err != nil {
+				serveLogger.Printf("backend stop failed: %v", err)
+			}
 		}
 	}()
 
@@ -143,7 +130,10 @@ func runServe(args []string) error {
 	}
 
 	router := proxy.NewService(proxy.ServiceConfig{
-		Backend:       processManager,
+		Backend:       textBackend,
+		TextBackend:   textBackend,
+		ImageBackend:  imageBackend,
+		BackendMode:   cfg.Backend.Mode,
 		Catalog:       modelCatalog,
 		Registry:      registry,
 		ClusterToken:  cfg.Cluster.Token,
@@ -188,6 +178,58 @@ func runServe(args []string) error {
 	}
 }
 
+func createBackends(ctx context.Context, cfg config.Config) (proxy.Backend, proxy.Backend, []func(context.Context) error, error) {
+	switch cfg.Backend.Mode {
+	case proxy.BackendModeLlamaSDCPP:
+		llamaManager, err := native.NewLlamaManager(native.ProcessConfig{
+			BackendURL: cfg.Llama.BackendURL,
+			BinaryPath: cfg.Llama.BinaryPath,
+			ConfigDir:  cfg.Models.ConfigDir,
+			DataDir:    cfg.Llama.DataDir,
+			ExtraArgs:  cfg.Llama.ExtraArgs,
+			HideWindow: cfg.Llama.HideWindow,
+			Logging:    cfg.Logging.Enabled,
+		})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		sdcppManager, err := native.NewSDCPPManager(native.ProcessConfig{
+			BackendURL: cfg.SDCPP.BackendURL,
+			BinaryPath: cfg.SDCPP.BinaryPath,
+			ConfigDir:  cfg.Models.ConfigDir,
+			DataDir:    cfg.SDCPP.DataDir,
+			ExtraArgs:  cfg.SDCPP.ExtraArgs,
+			HideWindow: cfg.SDCPP.HideWindow,
+			Logging:    cfg.Logging.Enabled,
+		})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		return llamaManager, sdcppManager, []func(context.Context) error{llamaManager.Unload, sdcppManager.Unload}, nil
+	default:
+		processManager, err := kobold.NewManager(kobold.ProcessConfig{
+			BackendURL:   cfg.Kobold.BackendURL,
+			BinaryPath:   cfg.Kobold.BinaryPath,
+			ConfigDir:    cfg.Models.ConfigDir,
+			DataDir:      cfg.Kobold.DataDir,
+			ExtraArgs:    cfg.Kobold.ExtraArgs,
+			Multiuser:    cfg.Kobold.Multiuser,
+			Quiet:        cfg.Kobold.Quiet,
+			SkipLauncher: cfg.Kobold.SkipLauncher,
+			NoModel:      cfg.Kobold.NoModel,
+			HideWindow:   cfg.Kobold.HideWindow,
+			Logging:      cfg.Logging.Enabled,
+		})
+		if err != nil {
+			return nil, nil, nil, err
+		}
+		if err := processManager.Start(ctx); err != nil {
+			return nil, nil, nil, err
+		}
+		return processManager, processManager, []func(context.Context) error{processManager.Stop}, nil
+	}
+}
+
 func runDownload(args []string) error {
 	flags := flag.NewFlagSet("download", flag.ContinueOnError)
 	configPath := flags.String("config", "config.yaml", "config file")
@@ -201,11 +243,14 @@ func runDownload(args []string) error {
 	}
 
 	updater := routerupdate.NewManager(cfg)
-	if err := updater.Download(context.Background()); err != nil {
+	paths, err := updater.DownloadedPaths(context.Background())
+	if err != nil {
 		return err
 	}
 
-	fmt.Printf("downloaded %s\n", cfg.Kobold.BinaryPath)
+	for _, path := range paths {
+		fmt.Printf("downloaded %s\n", path)
+	}
 	return nil
 }
 

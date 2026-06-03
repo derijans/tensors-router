@@ -14,6 +14,16 @@ const (
 	SourceSlave  = "slave"
 )
 
+const (
+	BackendModeKobold     = "kobold"
+	BackendModeLlamaSDCPP = "llama_sdcpp"
+)
+
+const (
+	RouteLaneText  = "text"
+	RouteLaneImage = "image"
+)
+
 type Model struct {
 	PublicID      string               `json:"public_id"`
 	LocalID       string               `json:"local_id"`
@@ -28,6 +38,7 @@ type Model struct {
 	ModelHash     string               `json:"model_hash"`
 	ConfigHash    string               `json:"config_hash"`
 	Capabilities  catalog.Capabilities `json:"capabilities"`
+	BackendMode   string               `json:"backend_mode"`
 	Source        string               `json:"source"`
 	NodeID        string               `json:"node_id"`
 	NodeURL       string               `json:"node_url,omitempty"`
@@ -49,9 +60,17 @@ type Route struct {
 	NodeID        string
 	NodeURL       string
 	Remote        bool
+	Lane          string
 }
 
 func LocalModels(models []catalog.Model, nodeID string, nodeURL string, source string) []Model {
+	return LocalModelsWithBackendMode(models, nodeID, nodeURL, source, BackendModeKobold)
+}
+
+func LocalModelsWithBackendMode(models []catalog.Model, nodeID string, nodeURL string, source string, backendMode string) []Model {
+	if backendMode == "" {
+		backendMode = BackendModeKobold
+	}
 	records := make([]Model, 0, len(models))
 	for _, model := range models {
 		records = append(records, Model{
@@ -68,6 +87,7 @@ func LocalModels(models []catalog.Model, nodeID string, nodeURL string, source s
 			ModelHash:     model.ModelHash,
 			ConfigHash:    model.ConfigHash,
 			Capabilities:  model.Capabilities,
+			BackendMode:   backendMode,
 			Source:        source,
 			NodeID:        nodeID,
 			NodeURL:       nodeURL,

@@ -66,6 +66,37 @@ func TestRegistryPrefersMasterThenBalancesSlavesWhenMasterBusy(t *testing.T) {
 	releaseThird()
 }
 
+func TestRegistryKeepsSplitImageLaneLocalWhenTextLaneBusy(t *testing.T) {
+	registry := NewRegistry(RoleMaster, "master", "http://master", nil)
+	model := testModel("combo", "master", "mhash", "chash", SourceMaster)
+	model.HasImage = true
+	model.ImageID = "combo-dream"
+	model.PublicImageID = "combo-dream"
+	model.BackendMode = BackendModeLlamaSDCPP
+	if err := registry.UpdateLocal([]Model{model}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.UpdateNode(Snapshot{
+		NodeID:  "slave-a",
+		NodeURL: "http://slave-a",
+		Models:  []Model{model},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	textRoute, releaseText, ok := registry.Acquire("combo", true)
+	if !ok || textRoute.Remote || textRoute.Lane != RouteLaneText {
+		t.Fatalf("expected local text route %#v ok=%t", textRoute, ok)
+	}
+	defer releaseText()
+
+	imageRoute, releaseImage, ok := registry.AcquireImage("combo-dream", true, "*")
+	if !ok || imageRoute.Remote || imageRoute.Lane != RouteLaneImage {
+		t.Fatalf("expected local image route while text lane busy %#v ok=%t", imageRoute, ok)
+	}
+	releaseImage()
+}
+
 func TestRegistryMarksSlaveURLUnhealthy(t *testing.T) {
 	registry := NewRegistry(RoleMaster, "master", "http://master", nil)
 	for _, nodeID := range []string{"slave-a", "slave-b"} {

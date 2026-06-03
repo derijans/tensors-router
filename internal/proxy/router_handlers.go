@@ -54,7 +54,7 @@ func (service *Service) handleRouterModels(w http.ResponseWriter) {
 	}
 	openai.WriteJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
-		"data":   cluster.LocalModels(models, "local", "", cluster.SourceLocal),
+		"data":   cluster.LocalModelsWithBackendMode(models, "local", "", cluster.SourceLocal, service.backendMode),
 	})
 }
 
@@ -71,7 +71,7 @@ func (service *Service) handleNodeModels(w http.ResponseWriter) {
 	}
 	openai.WriteJSON(w, http.StatusOK, cluster.Snapshot{
 		NodeID: "local",
-		Models: cluster.LocalModels(models, "local", "", cluster.SourceLocal),
+		Models: cluster.LocalModelsWithBackendMode(models, "local", "", cluster.SourceLocal, service.backendMode),
 	})
 }
 
@@ -127,7 +127,7 @@ func (service *Service) handleRouterUnload(w http.ResponseWriter, r *http.Reques
 func (service *Service) loadPublicModel(ctx context.Context, publicID string) error {
 	publicID = strings.TrimSpace(publicID)
 	if service.registry != nil && service.registry.HasModel(publicID) {
-		route, release, ok := service.registry.Acquire(publicID, service.backend.Healthy(ctx))
+		route, release, ok := service.registry.Acquire(publicID, service.textRuntime.backend.Healthy(ctx))
 		if !ok {
 			return fmt.Errorf("model %q was not found", publicID)
 		}
@@ -143,7 +143,7 @@ func (service *Service) loadPublicModel(ctx context.Context, publicID string) er
 func (service *Service) unloadPublicModel(ctx context.Context, publicID string) error {
 	publicID = strings.TrimSpace(publicID)
 	if publicID != "" && service.registry != nil && service.registry.HasModel(publicID) {
-		route, release, ok := service.registry.Acquire(publicID, service.backend.Healthy(ctx))
+		route, release, ok := service.registry.Acquire(publicID, service.textRuntime.backend.Healthy(ctx))
 		if !ok {
 			return fmt.Errorf("model %q was not found", publicID)
 		}
@@ -163,11 +163,24 @@ func (service *Service) loadLocalModel(ctx context.Context, publicID string, loc
 	if !ok {
 		return fmt.Errorf("model %q was not found", publicID)
 	}
-	readiness := readinessText
-	if model.HasImage && !model.HasLLM && !model.HasEmbeddings {
-		readiness = readinessImage
+	if service.backendMode == BackendModeLlamaSDCPP && model.HasImage && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
+		if err := service.loadLocalConfig(ctx, service.textRuntime, publicID, model.Filename, readinessText); err != nil {
+			return err
+		}
+		return service.loadLocalConfig(ctx, service.imageRuntime, publicID, model.Filename, readinessImage)
 	}
-	release, _, err := service.acquireModelConfig(ctx, publicID, model.Filename, readiness, false)
+
+	readiness := readinessText
+	runtime := service.textRuntime
+	if model.HasImage && !model.HasLLM && !model.HasEmbeddings && !model.HasMultimodal {
+		readiness = readinessImage
+		runtime = service.imageRuntime
+	}
+	return service.loadLocalConfig(ctx, runtime, publicID, model.Filename, readiness)
+}
+
+func (service *Service) loadLocalConfig(ctx context.Context, runtime *backendRuntime, publicID string, filename string, readiness backendReadiness) error {
+	release, _, err := service.acquireModelConfig(runtime, ctx, publicID, filename, readiness, false)
 	if err != nil {
 		return err
 	}
@@ -175,12 +188,32 @@ func (service *Service) loadLocalModel(ctx context.Context, publicID string, loc
 	return nil
 }
 
+func (service *Service) loadLocalRuntimeForRequest(ctx context.Context, runtime *backendRuntime, publicID string, filename string, readiness backendReadiness) error {
+	modelContext, cancelModelContext := context.WithTimeout(context.WithoutCancel(ctx), modelOperationTimeout)
+	defer cancelModelContext()
+	return service.loadLocalConfig(modelContext, runtime, publicID, filename, readiness)
+}
+
 func (service *Service) unloadLocal(ctx context.Context) error {
-	service.activeConfigMu.Lock()
-	service.activeConfigFilename = ""
-	service.notifyActiveConfigLocked()
-	service.activeConfigMu.Unlock()
-	return service.backend.Unload(ctx)
+	if service.imageRuntime == service.textRuntime {
+		return service.unloadRuntime(ctx, service.textRuntime)
+	}
+
+	errors := make(chan error, 2)
+	go func() {
+		errors <- service.unloadRuntime(ctx, service.textRuntime)
+	}()
+	go func() {
+		errors <- service.unloadRuntime(ctx, service.imageRuntime)
+	}()
+
+	var firstErr error
+	for index := 0; index < 2; index++ {
+		if err := <-errors; err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
 }
 
 func readModelControlRequest(r *http.Request, requireModel bool) (modelControlRequest, error) {

@@ -14,6 +14,9 @@ models:
   config_dir: "./kcpps"
   startup_model: ""
 
+backend:
+  mode: "kobold"
+
 kobold:
   backend_url: "http://127.0.0.1:5001"
   binary_path: "./bin/koboldcpp"
@@ -25,13 +28,32 @@ kobold:
   hide_window: true
   extra_args: []
 
+llama:
+  backend_url: "http://127.0.0.1:5002"
+  binary_path: "./bin/llama-server"
+  data_dir: "./data/llama"
+  hide_window: true
+  extra_args: []
+
+sdcpp:
+  backend_url: "http://127.0.0.1:7860"
+  binary_path: "./bin/sd-server"
+  data_dir: "./data/sdcpp"
+  hide_window: true
+  extra_args: []
+
 logging:
   enabled: true
 
 updates:
-  enabled: true
+  enabled: false
   check_interval: "168h"
   binary_url: "https://koboldai.org/cpplinuxrocm"
+  binary_sha256: ""
+  llama_binary_url: ""
+  llama_binary_sha256: ""
+  sdcpp_binary_url: ""
+  sdcpp_binary_sha256: ""
 
 cluster:
   role: "standalone"

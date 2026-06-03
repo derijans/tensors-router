@@ -30,6 +30,7 @@ type fakeBackend struct {
 	lastReload string
 	onReload   func(string)
 	onRestart  func()
+	onUnload   func()
 	reloadErr  func(string) error
 	restartErr func() error
 }
@@ -64,6 +65,9 @@ func (backend *fakeBackend) Restart(ctx context.Context) error {
 
 func (backend *fakeBackend) Unload(ctx context.Context) error {
 	backend.unloads.Add(1)
+	if backend.onUnload != nil {
+		backend.onUnload()
+	}
 	return nil
 }
 
@@ -572,11 +576,31 @@ func TestPreloadModelRejectsImageOnlyModel(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected image-only model error")
 	}
-	if !strings.Contains(err.Error(), "is not an LLM model") {
+	if !strings.Contains(err.Error(), "is not a text-lane model") {
 		t.Fatalf("unexpected error %v", err)
 	}
 	if backend.reloads.Load() != 0 {
 		t.Fatalf("expected no reload, got %d", backend.reloads.Load())
+	}
+}
+
+func TestPreloadModelAcceptsEmbeddingOnlyModel(t *testing.T) {
+	service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"embed"}]}`))
+			return
+		}
+		t.Fatalf("unexpected path %s", r.URL.Path)
+	}), map[string]string{
+		"embed": `{"nomodel":true,"embeddingsmodel":"C:\\models\\embed.gguf"}`,
+	})
+
+	if err := service.PreloadModel(context.Background(), "embed"); err != nil {
+		t.Fatal(err)
+	}
+	if backend.reloads.Load() != 1 {
+		t.Fatalf("expected one preload reload, got %d", backend.reloads.Load())
 	}
 }
 
@@ -1581,6 +1605,136 @@ func TestClusterInactiveLocalCombinedImageModelIsRejected(t *testing.T) {
 	}
 }
 
+func TestLlamaSDCPPRoutesTextAndImagesToSeparateBackends(t *testing.T) {
+	var textPosts atomic.Int32
+	var imagePosts atomic.Int32
+	service, textBackend, imageBackend := newSplitTestServiceWithConfigContents(
+		t,
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"backend"}]}`))
+				return
+			}
+			if r.URL.Path != "/v1/chat/completions" {
+				t.Fatalf("unexpected text path %s", r.URL.Path)
+			}
+			textPosts.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"model":"backend","choices":[{"message":{"content":"ok"}}]}`))
+		}),
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet && r.URL.Path == "/sdapi/v1/sd-models" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`[{"model_name":"ready"}]`))
+				return
+			}
+			if r.URL.Path != "/v1/images/generations" {
+				t.Fatalf("unexpected image path %s", r.URL.Path)
+			}
+			imagePosts.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"model":"backend","data":[]}`))
+		}),
+		map[string]string{
+			"combo": `{"model_param":"C:\\models\\llm.gguf","sdmodel":"C:\\models\\dream.safetensors"}`,
+		},
+	)
+
+	listRecorder := httptest.NewRecorder()
+	service.ServeHTTP(listRecorder, httptest.NewRequest(http.MethodGet, "/sdapi/v1/sd-models", nil))
+	if listRecorder.Code != http.StatusOK || !strings.Contains(listRecorder.Body.String(), `"model_name":"combo-dream"`) {
+		t.Fatalf("combined image was not listed in split mode: status=%d body=%s", listRecorder.Code, listRecorder.Body.String())
+	}
+
+	textRecorder := httptest.NewRecorder()
+	textRequest := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"combo","messages":[]}`))
+	textRequest.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(textRecorder, textRequest)
+	if textRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected text status %d body %s", textRecorder.Code, textRecorder.Body.String())
+	}
+
+	imageRecorder := httptest.NewRecorder()
+	imageRequest := httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{"model":"combo-dream","prompt":"cat"}`))
+	imageRequest.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(imageRecorder, imageRequest)
+	if imageRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected image status %d body %s", imageRecorder.Code, imageRecorder.Body.String())
+	}
+
+	if textPosts.Load() != 1 || imagePosts.Load() != 1 {
+		t.Fatalf("unexpected forward counts text=%d image=%d", textPosts.Load(), imagePosts.Load())
+	}
+	if textBackend.reloads.Load() != 1 || imageBackend.reloads.Load() != 1 {
+		t.Fatalf("unexpected reload counts text=%d image=%d", textBackend.reloads.Load(), imageBackend.reloads.Load())
+	}
+}
+
+func TestLlamaSDCPPRouterLoadCombinedConfigLoadsBothLanes(t *testing.T) {
+	service, textBackend, imageBackend := newSplitTestServiceWithConfigContents(
+		t,
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"backend"}]}`))
+				return
+			}
+			t.Fatalf("unexpected text path %s", r.URL.Path)
+		}),
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet && r.URL.Path == "/sdapi/v1/sd-models" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`[{"model_name":"ready"}]`))
+				return
+			}
+			t.Fatalf("unexpected image path %s", r.URL.Path)
+		}),
+		map[string]string{
+			"combo": `{"model_param":"C:\\models\\llm.gguf","sdmodel":"C:\\models\\dream.safetensors"}`,
+		},
+	)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/router/v1/load", strings.NewReader(`{"model":"combo"}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if textBackend.reloads.Load() != 1 || imageBackend.reloads.Load() != 1 {
+		t.Fatalf("expected both lanes to reload, got text=%d image=%d", textBackend.reloads.Load(), imageBackend.reloads.Load())
+	}
+}
+
+func TestClusterSplitCombinedImageModelIsVisibleWhenInactive(t *testing.T) {
+	model := testClusterModel("combo", "master", "model-hash", "config-hash", cluster.SourceMaster)
+	model.HasImage = true
+	model.ImageID = "combo-dream"
+	model.PublicImageID = "combo-dream"
+	model.BackendMode = BackendModeLlamaSDCPP
+	model.Capabilities.Image = &catalog.ImageCapabilities{Model: "C:/models/dream.safetensors"}
+
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master", nil)
+	if err := registry.UpdateLocal([]cluster.Model{model}); err != nil {
+		t.Fatal(err)
+	}
+
+	service, _ := newTestServiceWithRegistry(t, registry, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), "secret")
+	service.backendMode = BackendModeLlamaSDCPP
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/sdapi/v1/sd-models", nil)
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"model_name":"combo-dream"`) {
+		t.Fatalf("combined split image model was hidden: %s", recorder.Body.String())
+	}
+}
+
 func TestClusterRemoteEmbeddingsRequestRewritesModelBothWays(t *testing.T) {
 	var sawAuthorization bool
 	var sawLocalModel bool
@@ -1639,6 +1793,83 @@ func TestRouterUnloadCallsBackendUnload(t *testing.T) {
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if backend.unloads.Load() != 1 {
+		t.Fatalf("expected one unload, got %d", backend.unloads.Load())
+	}
+}
+
+func TestRouterUnloadWaitsForStreamingRequest(t *testing.T) {
+	streamStarted := make(chan struct{})
+	releaseStream := make(chan struct{})
+	unloaded := make(chan struct{})
+	var unloadOnce sync.Once
+	service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/chat/completions":
+			w.Header().Set("Content-Type", "text/event-stream")
+			_, _ = w.Write([]byte("data: {\"model\":\"backend\",\"choices\":[]}\n\n"))
+			if flusher, ok := w.(http.Flusher); ok {
+				flusher.Flush()
+			}
+			close(streamStarted)
+			<-releaseStream
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}), map[string]string{
+		"llm": `{}`,
+	})
+	backend.onUnload = func() {
+		unloadOnce.Do(func() {
+			close(unloaded)
+		})
+	}
+
+	streamDone := make(chan struct{})
+	go func() {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"llm","messages":[],"stream":true}`))
+		request.Header.Set("Content-Type", "application/json")
+		service.ServeHTTP(recorder, request)
+		close(streamDone)
+	}()
+
+	select {
+	case <-streamStarted:
+	case <-time.After(time.Second):
+		t.Fatal("stream did not start")
+	}
+
+	unloadDone := make(chan struct{})
+	go func() {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/router/v1/unload", nil)
+		service.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Errorf("unexpected unload status %d body %s", recorder.Code, recorder.Body.String())
+		}
+		close(unloadDone)
+	}()
+
+	select {
+	case <-unloaded:
+		t.Fatal("backend unloaded while stream was active")
+	case <-time.After(100 * time.Millisecond):
+	}
+
+	close(releaseStream)
+
+	select {
+	case <-streamDone:
+	case <-time.After(time.Second):
+		t.Fatal("stream did not finish")
+	}
+	select {
+	case <-unloadDone:
+	case <-time.After(time.Second):
+		t.Fatal("unload did not finish")
 	}
 	if backend.unloads.Load() != 1 {
 		t.Fatalf("expected one unload, got %d", backend.unloads.Load())
@@ -1725,6 +1956,42 @@ func newTestServiceWithConfigContents(t *testing.T, backendHandler http.Handler,
 		Logger:  log.New(io.Discard, "", 0),
 	})
 	return service, backend
+}
+
+func newSplitTestServiceWithConfigContents(t *testing.T, textHandler http.Handler, imageHandler http.Handler, configs map[string]string) (*Service, *fakeBackend, *fakeBackend) {
+	t.Helper()
+
+	dir := t.TempDir()
+	for modelID, content := range configs {
+		if err := os.WriteFile(filepath.Join(dir, modelID+".kcpps"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	textServer := httptest.NewServer(textHandler)
+	t.Cleanup(textServer.Close)
+	imageServer := httptest.NewServer(imageHandler)
+	t.Cleanup(imageServer.Close)
+	textURL, err := url.Parse(textServer.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	imageURL, err := url.Parse(imageServer.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	textBackend := &fakeBackend{url: textURL, healthy: true}
+	imageBackend := &fakeBackend{url: imageURL, healthy: true}
+	service := NewService(ServiceConfig{
+		Backend:      textBackend,
+		TextBackend:  textBackend,
+		ImageBackend: imageBackend,
+		BackendMode:  BackendModeLlamaSDCPP,
+		Catalog:      catalog.New(dir),
+		Logger:       log.New(io.Discard, "", 0),
+	})
+	return service, textBackend, imageBackend
 }
 
 func testClusterModel(id string, nodeID string, modelHash string, configHash string, source string) cluster.Model {

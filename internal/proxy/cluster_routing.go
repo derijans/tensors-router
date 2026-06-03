@@ -25,7 +25,7 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 		return
 	}
 
-	route, release, ok := service.registry.Acquire(publicID, service.backend.Healthy(r.Context()))
+	route, release, ok := service.registry.Acquire(publicID, service.textRuntime.backend.Healthy(r.Context()))
 	if !ok {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("model %q has no available replicas", publicID))
 		return
@@ -37,6 +37,13 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 	if route.Remote {
 		response, err = service.forwardRemote(r.Context(), r, requestBody, route)
 	} else {
+		if service.backendMode == BackendModeLlamaSDCPP && model.HasImage {
+			if err := service.loadLocalRuntimeForRequest(r.Context(), service.imageRuntime, route.PublicImageID, route.Filename, readinessImage); err != nil {
+				release()
+				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+				return
+			}
+		}
 		response, err = service.forwardWithFallback(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readinessText)
 	}
 	if err != nil {
@@ -52,12 +59,13 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 }
 
 func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *http.Request, body []byte, publicImageID string) bool {
-	activeConfigFilename := service.currentConfigFilename()
-	if !service.registry.HasImageModel(publicImageID, activeConfigFilename) {
+	activeConfigFilename := service.imageCatalogConfigSelector()
+	model, hasImageModel := service.registry.ImageModel(publicImageID, activeConfigFilename)
+	if !hasImageModel {
 		return false
 	}
 
-	route, release, ok := service.registry.AcquireImage(publicImageID, service.backend.Healthy(r.Context()), activeConfigFilename)
+	route, release, ok := service.registry.AcquireImage(publicImageID, service.imageRuntime.backend.Healthy(r.Context()), activeConfigFilename)
 	if !ok {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("image model %q has no available replicas", publicImageID))
 		return true
@@ -70,6 +78,13 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 	if route.Remote {
 		response, err = service.forwardRemote(r.Context(), request, requestBody, route)
 	} else {
+		if service.backendMode == BackendModeLlamaSDCPP && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
+			if err := service.loadLocalRuntimeForRequest(r.Context(), service.textRuntime, route.PublicID, route.Filename, readinessText); err != nil {
+				release()
+				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+				return true
+			}
+		}
 		response, err = service.forwardWithFallback(r.Context(), request, requestBody, route.PublicImageID, route.Filename, true, readinessImage)
 	}
 	if err != nil {
@@ -86,12 +101,13 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 }
 
 func (service *Service) handleRegistryImageOptions(w http.ResponseWriter, r *http.Request, body []byte, publicImageID string) bool {
-	activeConfigFilename := service.currentConfigFilename()
-	if !service.registry.HasImageModel(publicImageID, activeConfigFilename) {
+	activeConfigFilename := service.imageCatalogConfigSelector()
+	model, hasImageModel := service.registry.ImageModel(publicImageID, activeConfigFilename)
+	if !hasImageModel {
 		return false
 	}
 
-	route, release, ok := service.registry.AcquireImage(publicImageID, service.backend.Healthy(r.Context()), activeConfigFilename)
+	route, release, ok := service.registry.AcquireImage(publicImageID, service.imageRuntime.backend.Healthy(r.Context()), activeConfigFilename)
 	if !ok {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("image model %q has no available replicas", publicImageID))
 		return true
@@ -115,7 +131,14 @@ func (service *Service) handleRegistryImageOptions(w http.ResponseWriter, r *htt
 
 	modelContext, cancelModelContext := context.WithTimeout(context.WithoutCancel(r.Context()), modelOperationTimeout)
 	defer cancelModelContext()
-	releaseModel, _, err := service.acquireModelConfig(modelContext, route.PublicImageID, route.Filename, readinessImage, false)
+	if service.backendMode == BackendModeLlamaSDCPP && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
+		if err := service.loadLocalConfig(modelContext, service.textRuntime, route.PublicID, route.Filename, readinessText); err != nil {
+			release()
+			openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+			return true
+		}
+	}
+	releaseModel, _, err := service.acquireModelConfig(service.imageRuntime, modelContext, route.PublicImageID, route.Filename, readinessImage, false)
 	if err != nil {
 		release()
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
@@ -255,6 +278,9 @@ func clusterImageModelVisible(model cluster.Model, activeConfigFilename string) 
 	if !model.HasLLM {
 		return true
 	}
+	if model.BackendMode == BackendModeLlamaSDCPP {
+		return true
+	}
 	if model.Source != cluster.SourceMaster && model.Source != cluster.SourceLocal {
 		return false
 	}
@@ -268,6 +294,10 @@ func modelSupportsOpenAIPath(model catalog.Model, path string) bool {
 	if isCorePath(path) {
 		return model.HasLLM
 	}
+	return modelSupportsTextLane(model)
+}
+
+func modelSupportsTextLane(model catalog.Model) bool {
 	return model.HasLLM || model.HasEmbeddings || model.HasMultimodal
 }
 

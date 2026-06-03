@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+
+	"tensors-router/internal/catalog"
 )
 
 type Registry struct {
@@ -140,7 +142,7 @@ func (registry *Registry) ImageModel(publicImageID string, activeConfigFilename 
 
 func (registry *Registry) Acquire(publicID string, localHealthy bool) (Route, func(), bool) {
 	registry.mu.Lock()
-	route, ok := registry.selectRouteLocked(publicID, registry.replicasLocked(publicID), localHealthy)
+	route, ok := registry.selectRouteLocked(publicID, registry.replicasLocked(publicID), localHealthy, RouteLaneText)
 	if !ok {
 		registry.mu.Unlock()
 		return Route{}, func() {}, false
@@ -150,7 +152,7 @@ func (registry *Registry) Acquire(publicID string, localHealthy bool) (Route, fu
 
 func (registry *Registry) AcquireImage(publicImageID string, localHealthy bool, activeConfigFilename string) (Route, func(), bool) {
 	registry.mu.Lock()
-	route, ok := registry.selectRouteLocked(publicImageID, registry.imageReplicasLocked(publicImageID, activeConfigFilename), localHealthy)
+	route, ok := registry.selectRouteLocked(publicImageID, registry.imageReplicasLocked(publicImageID, activeConfigFilename), localHealthy, RouteLaneImage)
 	if !ok {
 		registry.mu.Unlock()
 		return Route{}, func() {}, false
@@ -223,13 +225,14 @@ func (registry *Registry) localSource() string {
 	return SourceLocal
 }
 
-func (registry *Registry) selectRouteLocked(publicID string, replicas []Model, localHealthy bool) (Route, bool) {
+func (registry *Registry) selectRouteLocked(publicID string, replicas []Model, localHealthy bool, lane string) (Route, bool) {
 	if len(replicas) == 0 {
 		return Route{}, false
 	}
 	for _, replica := range replicas {
-		if replica.NodeID == registry.localID && replica.Available && localHealthy && registry.busy[routeKey(routeFromModel(replica, false))] == 0 {
-			return routeFromModel(replica, false), true
+		route := routeFromModel(replica, false, lane)
+		if replica.NodeID == registry.localID && replica.Available && localHealthy && registry.busy[routeKey(route)] == 0 {
+			return route, true
 		}
 	}
 
@@ -242,12 +245,12 @@ func (registry *Registry) selectRouteLocked(publicID string, replicas []Model, l
 	if len(slaves) > 0 {
 		index := registry.next[publicID] % len(slaves)
 		registry.next[publicID] = (registry.next[publicID] + 1) % len(slaves)
-		return routeFromModel(slaves[index], true), true
+		return routeFromModel(slaves[index], true, lane), true
 	}
 
 	for _, replica := range replicas {
 		if replica.NodeID == registry.localID && replica.Available && localHealthy {
-			return routeFromModel(replica, false), true
+			return routeFromModel(replica, false, lane), true
 		}
 	}
 	return Route{}, false
@@ -286,6 +289,12 @@ func (registry *Registry) imageModelSelectableLocked(model Model, activeConfigFi
 	if !model.HasLLM {
 		return true
 	}
+	if model.BackendMode == BackendModeLlamaSDCPP {
+		return true
+	}
+	if activeConfigFilename == catalog.AllImageConfigs && model.BackendMode == BackendModeLlamaSDCPP {
+		return true
+	}
 	if model.NodeID != registry.localID {
 		return true
 	}
@@ -314,6 +323,9 @@ func normalizeNodeSnapshot(snapshot Snapshot) Snapshot {
 		normalized.Models[index].NodeURL = normalized.NodeURL
 		normalized.Models[index].PublicID = normalized.Models[index].LocalID
 		normalized.Models[index].PublicImageID = normalized.Models[index].ImageID
+		if normalized.Models[index].BackendMode == "" {
+			normalized.Models[index].BackendMode = BackendModeKobold
+		}
 	}
 	return normalized
 }
