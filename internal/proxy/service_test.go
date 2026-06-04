@@ -1344,7 +1344,7 @@ func TestImageConfigSwitchWaitsForStreamingLLMRequest(t *testing.T) {
 }
 
 func TestClusterModelsEndpointHidesNodeIdentityAndIndexesConflicts(t *testing.T) {
-	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master", nil)
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
 	if err := registry.UpdateLocal([]cluster.Model{testClusterModel("same", "master", "master-hash", "config-hash", cluster.SourceMaster)}); err != nil {
 		t.Fatal(err)
 	}
@@ -1390,7 +1390,7 @@ func TestClusterRemoteRequestRewritesModelBothWays(t *testing.T) {
 	}))
 	defer remote.Close()
 
-	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master", nil)
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
 	if err := registry.UpdateLocal([]cluster.Model{testClusterModel("same", "master", "master-hash", "config-hash", cluster.SourceMaster)}); err != nil {
 		t.Fatal(err)
 	}
@@ -1586,7 +1586,7 @@ func TestClusterInactiveLocalCombinedImageModelIsRejected(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master", nil)
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
 	if err := registry.UpdateLocal(cluster.LocalModels(models, "master", "http://master", cluster.SourceMaster)); err != nil {
 		t.Fatal(err)
 	}
@@ -1716,7 +1716,7 @@ func TestClusterSplitCombinedImageModelIsVisibleWhenInactive(t *testing.T) {
 	model.BackendMode = BackendModeLlamaSDCPP
 	model.Capabilities.Image = &catalog.ImageCapabilities{Model: "C:/models/dream.safetensors"}
 
-	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master", nil)
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
 	if err := registry.UpdateLocal([]cluster.Model{model}); err != nil {
 		t.Fatal(err)
 	}
@@ -1753,7 +1753,7 @@ func TestClusterRemoteEmbeddingsRequestRewritesModelBothWays(t *testing.T) {
 	}))
 	defer remote.Close()
 
-	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master", nil)
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
 	if err := registry.UpdateLocal([]cluster.Model{testClusterEmbeddingModel("embed", "master", "master-hash", "config-hash", cluster.SourceMaster)}); err != nil {
 		t.Fatal(err)
 	}
@@ -2035,7 +2035,7 @@ func testClusterEmbeddingModel(id string, nodeID string, modelHash string, confi
 func newConflictingImageRegistry(t *testing.T, slaveURL string) *cluster.Registry {
 	t.Helper()
 
-	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master", nil)
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
 	if err := registry.UpdateLocal([]cluster.Model{testClusterImageModel("same", "master", "master-hash", "config-hash", cluster.SourceMaster, "dream")}); err != nil {
 		t.Fatal(err)
 	}

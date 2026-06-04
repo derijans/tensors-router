@@ -1,0 +1,174 @@
+# test log
+getenv GOTMPDIR
+open C:\Users\admin\AppData\Local\Temp\TestLlamaLaunchArgumentsFromKcpps1809249451\001\combo.kcpps
+stat C:\Users\admin\AppData\Local\Temp\TestLlamaLaunchArgumentsFromKcpps1809249451
+open C:\Users\admin\AppData\Local\Temp\TestLlamaLaunchArgumentsFromKcpps1809249451\001\combo.kcpps
+open C:\Users\admin\AppData\Local\Temp
+getenv GOTMPDIR
+open C:\Users\admin\AppData\Local\Temp\TestSDCPPLaunchArgumentsFromKcpps1946301140\001\image.kcpps
+stat C:\Users\admin\AppData\Local\Temp\TestSDCPPLaunchArgumentsFromKcpps1946301140
+open C:\Users\admin\AppData\Local\Temp\TestSDCPPLaunchArgumentsFromKcpps1946301140\001\image.kcpps
+open C:\Users\admin\AppData\Local\Temp
+getenv GOTMPDIR
+open C:\Users\admin\AppData\Local\Temp\TestNativeManagersStartAndStopServerProcessesWithoutRealModels3197740201\001\main.go
+getenv PATHEXT
+getenv NoDefaultCurrentDirectoryInExePath
+stat go.com
+stat go.exe
+stat go.bat
+stat go.cmd
+stat go.vbs
+stat go.vbe
+stat go.js
+stat go.jse
+stat go.wsf
+stat go.wsh
+stat go.msc
+stat go.cpl
+getenv path
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\go.com
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\go.exe
+getenv PATHEXT
+open NUL
+open C:\Users\admin\.local\go1.26.3-tar\go\bin\go.exe
+stat C:\Users\admin\AppData\Local\Temp\TestNativeManagersStartAndStopServerProcessesWithoutRealModels3197740201
+open C:\Users\admin\AppData\Local\Temp\TestNativeManagersStartAndStopServerProcessesWithoutRealModels3197740201\002\text.kcpps
+open C:\Users\admin\AppData\Local\Temp\TestNativeManagersStartAndStopServerProcessesWithoutRealModels3197740201\002\image.kcpps
+stat C:\Users\admin\AppData\Local\Temp\TestNativeManagersStartAndStopServerProcessesWithoutRealModels3197740201
+open C:\Users\admin\AppData\Local\Temp\TestNativeManagersStartAndStopServerProcessesWithoutRealModels3197740201\002\text.kcpps
+stat C:\Users\admin\AppData\Local\Temp\TestNativeManagersStartAndStopServerProcessesWithoutRealModels3197740201\003\llama
+stat C:\Users\admin\AppData\Local\Temp\TestNativeManagersStartAndStopServerProcessesWithoutRealModels3197740201\003
+getenv PATHEXT
+open NUL
+open C:\Users\admin\AppData\Local\Temp\TestNativeManagersStartAndStopServerProcessesWithoutRealModels3197740201\001\fake-native-server.exe
+getenv HTTP_PROXY
+getenv http_proxy
+getenv HTTPS_PROXY
+getenv https_proxy
+getenv NO_PROXY
+getenv no_proxy
+getenv REQUEST_METHOD
+getenv PATHEXT
+getenv NoDefaultCurrentDirectoryInExePath
+stat taskkill.com
+stat taskkill.exe
+stat taskkill.bat
+stat taskkill.cmd
+stat taskkill.vbs
+stat taskkill.vbe
+stat taskkill.js
+stat taskkill.jse
+stat taskkill.wsf
+stat taskkill.wsh
+stat taskkill.msc
+stat taskkill.cpl
+getenv path
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.com
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.exe
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.bat
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.cmd
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.vbs
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.vbe
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.js
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.jse
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.wsf
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.wsh
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.msc
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.cpl
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.com
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.exe
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.bat
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.cmd
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.vbs
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.vbe
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.js
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.jse
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.wsf
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.wsh
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.msc
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.cpl
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.com
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.exe
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.bat
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.cmd
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.vbs
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.vbe
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.js
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.jse
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.wsf
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.wsh
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.msc
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.cpl
+stat C:\WINDOWS\system32\taskkill.com
+stat C:\WINDOWS\system32\taskkill.exe
+getenv PATHEXT
+open NUL
+open NUL
+open NUL
+open C:\WINDOWS\system32\taskkill.exe
+stat C:\Users\admin\AppData\Local\Temp\TestNativeManagersStartAndStopServerProcessesWithoutRealModels3197740201
+open C:\Users\admin\AppData\Local\Temp\TestNativeManagersStartAndStopServerProcessesWithoutRealModels3197740201\002\image.kcpps
+stat C:\Users\admin\AppData\Local\Temp\TestNativeManagersStartAndStopServerProcessesWithoutRealModels3197740201\004\sdcpp
+stat C:\Users\admin\AppData\Local\Temp\TestNativeManagersStartAndStopServerProcessesWithoutRealModels3197740201\004
+getenv PATHEXT
+open NUL
+open C:\Users\admin\AppData\Local\Temp\TestNativeManagersStartAndStopServerProcessesWithoutRealModels3197740201\001\fake-native-server.exe
+getenv PATHEXT
+getenv NoDefaultCurrentDirectoryInExePath
+stat taskkill.com
+stat taskkill.exe
+stat taskkill.bat
+stat taskkill.cmd
+stat taskkill.vbs
+stat taskkill.vbe
+stat taskkill.js
+stat taskkill.jse
+stat taskkill.wsf
+stat taskkill.wsh
+stat taskkill.msc
+stat taskkill.cpl
+getenv path
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.com
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.exe
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.bat
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.cmd
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.vbs
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.vbe
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.js
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.jse
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.wsf
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.wsh
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.msc
+stat C:\Users\admin\.local\go1.26.3-tar\go\bin\taskkill.cpl
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.com
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.exe
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.bat
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.cmd
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.vbs
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.vbe
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.js
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.jse
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.wsf
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.wsh
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.msc
+stat C:\Users\admin\.codex\tmp\arg0\codex-arg0Sa6hrD\taskkill.cpl
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.com
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.exe
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.bat
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.cmd
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.vbs
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.vbe
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.js
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.jse
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.wsf
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.wsh
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.msc
+stat C:\Program Files\Eclipse Adoptium\jdk-21.0.10.7-hotspot\bin\taskkill.cpl
+stat C:\WINDOWS\system32\taskkill.com
+stat C:\WINDOWS\system32\taskkill.exe
+getenv PATHEXT
+open NUL
+open NUL
+open NUL
+open C:\WINDOWS\system32\taskkill.exe
+open C:\Users\admin\AppData\Local\Temp

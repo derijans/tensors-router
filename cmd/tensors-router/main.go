@@ -84,11 +84,7 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	clusterStore, err := routercluster.NewStore(cfg.Cluster.StoreDir)
-	if err != nil {
-		return err
-	}
-	registry := routercluster.NewRegistry(cfg.Cluster.Role, cfg.Cluster.NodeID, cfg.Cluster.PublicURL, clusterStore)
+	registry := routercluster.NewRegistry(cfg.Cluster.Role, cfg.Cluster.NodeID, cfg.Cluster.PublicURL)
 	localSource := routercluster.SourceLocal
 	if cfg.Cluster.Role == routercluster.RoleMaster {
 		localSource = routercluster.SourceMaster

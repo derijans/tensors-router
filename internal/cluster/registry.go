@@ -19,10 +19,9 @@ type Registry struct {
 	busy      map[string]int
 	next      map[string]int
 	view      []Model
-	store     *Store
 }
 
-func NewRegistry(role string, localID string, localURL string, store *Store) *Registry {
+func NewRegistry(role string, localID string, localURL string) *Registry {
 	return &Registry{
 		role:      role,
 		localID:   localID,
@@ -31,7 +30,6 @@ func NewRegistry(role string, localID string, localURL string, store *Store) *Re
 		unhealthy: map[string]struct{}{},
 		busy:      map[string]int{},
 		next:      map[string]int{},
-		store:     store,
 	}
 }
 
@@ -41,7 +39,7 @@ func (registry *Registry) UpdateLocal(models []Model) error {
 
 	registry.local = cloneModels(models)
 	registry.rebuildLocked()
-	return registry.saveLocked()
+	return nil
 }
 
 func (registry *Registry) UpdateNode(snapshot Snapshot) error {
@@ -54,7 +52,7 @@ func (registry *Registry) UpdateNode(snapshot Snapshot) error {
 	registry.nodes[snapshot.NodeID] = normalizeNodeSnapshot(snapshot)
 	delete(registry.unhealthy, snapshot.NodeID)
 	registry.rebuildLocked()
-	return registry.saveLocked()
+	return nil
 }
 
 func (registry *Registry) MarkNodeHealth(nodeID string, healthy bool) {
@@ -67,7 +65,6 @@ func (registry *Registry) MarkNodeHealth(nodeID string, healthy bool) {
 		registry.unhealthy[nodeID] = struct{}{}
 	}
 	registry.rebuildLocked()
-	_ = registry.saveLocked()
 }
 
 func (registry *Registry) MarkNodeURLHealth(nodeURL string, healthy bool) {
@@ -85,7 +82,6 @@ func (registry *Registry) MarkNodeURLHealth(nodeURL string, healthy bool) {
 		}
 	}
 	registry.rebuildLocked()
-	_ = registry.saveLocked()
 }
 
 func (registry *Registry) Snapshot() Snapshot {
@@ -299,17 +295,6 @@ func (registry *Registry) imageModelSelectableLocked(model Model, activeConfigFi
 		return true
 	}
 	return model.Filename == activeConfigFilename
-}
-
-func (registry *Registry) saveLocked() error {
-	if registry.store == nil {
-		return nil
-	}
-	return registry.store.Save(Snapshot{
-		NodeID:  registry.localID,
-		NodeURL: registry.localURL,
-		Models:  cloneModels(registry.view),
-	})
 }
 
 func normalizeNodeSnapshot(snapshot Snapshot) Snapshot {

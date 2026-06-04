@@ -3,7 +3,7 @@ package cluster
 import "testing"
 
 func TestRegistryDedupeAndIndexesConflictingSlaveModel(t *testing.T) {
-	registry := NewRegistry(RoleMaster, "master", "http://master", nil)
+	registry := NewRegistry(RoleMaster, "master", "http://master")
 	if err := registry.UpdateLocal([]Model{testModel("same", "master", "mhash", "chash", SourceMaster)}); err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestRegistryDedupeAndIndexesConflictingSlaveModel(t *testing.T) {
 }
 
 func TestRegistryPrefersMasterThenBalancesSlavesWhenMasterBusy(t *testing.T) {
-	registry := NewRegistry(RoleMaster, "master", "http://master", nil)
+	registry := NewRegistry(RoleMaster, "master", "http://master")
 	if err := registry.UpdateLocal([]Model{testModel("llm", "master", "mhash", "chash", SourceMaster)}); err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +67,7 @@ func TestRegistryPrefersMasterThenBalancesSlavesWhenMasterBusy(t *testing.T) {
 }
 
 func TestRegistryKeepsSplitImageLaneLocalWhenTextLaneBusy(t *testing.T) {
-	registry := NewRegistry(RoleMaster, "master", "http://master", nil)
+	registry := NewRegistry(RoleMaster, "master", "http://master")
 	model := testModel("combo", "master", "mhash", "chash", SourceMaster)
 	model.HasImage = true
 	model.ImageID = "combo-dream"
@@ -98,7 +98,7 @@ func TestRegistryKeepsSplitImageLaneLocalWhenTextLaneBusy(t *testing.T) {
 }
 
 func TestRegistryMarksSlaveURLUnhealthy(t *testing.T) {
-	registry := NewRegistry(RoleMaster, "master", "http://master", nil)
+	registry := NewRegistry(RoleMaster, "master", "http://master")
 	for _, nodeID := range []string{"slave-a", "slave-b"} {
 		if err := registry.UpdateNode(Snapshot{
 			NodeID:  nodeID,
