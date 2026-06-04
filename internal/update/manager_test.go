@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -260,6 +261,88 @@ func TestDownloadSplitModeExtractsArchivedBinaries(t *testing.T) {
 	}
 }
 
+func TestExtractZipPayloadRejectsUnsafeSymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, "payload.zip")
+	if err := os.WriteFile(archivePath, zipSymlinkPayload(t, "link", "C:/outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := extractZipPayload(archivePath, filepath.Join(dir, "out"), downloadTarget{})
+	if err == nil {
+		t.Fatalf("expected unsafe symlink target rejection")
+	}
+	if !strings.Contains(err.Error(), "safe relative target") {
+		t.Fatalf("unexpected error %v", err)
+	}
+}
+
+func TestExtractTarGzPayloadRejectsUnsafeSymlinkTarget(t *testing.T) {
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, "payload.tar.gz")
+	if err := os.WriteFile(archivePath, tarGzSymlinkPayload(t, "link", "C:/outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := extractTarGzPayload(archivePath, filepath.Join(dir, "out"), downloadTarget{})
+	if err == nil {
+		t.Fatalf("expected unsafe symlink target rejection")
+	}
+	if !strings.Contains(err.Error(), "safe relative target") {
+		t.Fatalf("unexpected error %v", err)
+	}
+}
+
+func TestArchiveEntryOutputNameRejectsDriveQualifiedPath(t *testing.T) {
+	if _, _, err := archiveEntryOutputName("C:/outside"); err == nil {
+		t.Fatalf("expected drive-qualified path rejection")
+	}
+}
+
+func TestWriteExtractedFileRejectsSymlinkParent(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "target"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("target", filepath.Join(root, "link")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	err := writeExtractedFile(root, "link/file", strings.NewReader("evil"), 0o644)
+	if err == nil {
+		t.Fatalf("expected symlink parent rejection")
+	}
+	if !strings.Contains(err.Error(), "symlink") {
+		t.Fatalf("unexpected error %v", err)
+	}
+	if fileExists(filepath.Join(root, "target", "file")) {
+		t.Fatalf("file was written through symlink parent")
+	}
+}
+
+func TestWriteExtractedFileDoesNotFollowSymlinkLeaf(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "target"), []byte("old"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("target", filepath.Join(root, "link")); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	if err := writeExtractedFile(root, "link", strings.NewReader("new"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	assertFileContent(t, filepath.Join(root, "target"), "old")
+	assertFileContent(t, filepath.Join(root, "link"), "new")
+	info, err := os.Lstat(filepath.Join(root, "link"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("symlink leaf was not replaced")
+	}
+}
+
 func TestDownloadRejectsHTTPURL(t *testing.T) {
 	cfg := testConfig(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -357,6 +440,47 @@ func zipPayload(t *testing.T, files []archiveFile) []byte {
 		if _, err := io.WriteString(writer, file.Content); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if err := zipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
+}
+
+func tarGzSymlinkPayload(t *testing.T, name string, linkTarget string) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	gzipWriter := gzip.NewWriter(&buffer)
+	tarWriter := tar.NewWriter(gzipWriter)
+	if err := tarWriter.WriteHeader(&tar.Header{
+		Name:     name,
+		Mode:     0o777,
+		Typeflag: tar.TypeSymlink,
+		Linkname: linkTarget,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tarWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := gzipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	return buffer.Bytes()
+}
+
+func zipSymlinkPayload(t *testing.T, name string, linkTarget string) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	zipWriter := zip.NewWriter(&buffer)
+	header := &zip.FileHeader{Name: name}
+	header.SetMode(os.ModeSymlink | 0o777)
+	writer, err := zipWriter.CreateHeader(header)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.WriteString(writer, linkTarget); err != nil {
+		t.Fatal(err)
 	}
 	if err := zipWriter.Close(); err != nil {
 		t.Fatal(err)

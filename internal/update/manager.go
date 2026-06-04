@@ -320,12 +320,8 @@ func extractZipPayload(archivePath string, outputDir string, target downloadTarg
 		if !ok {
 			continue
 		}
-		outputPath, err := archiveOutputPath(outputDir, outputName)
-		if err != nil {
-			return err
-		}
 		if info.IsDir() {
-			if err := os.MkdirAll(outputPath, 0o755); err != nil {
+			if _, err := ensureExtractedDirectory(outputDir, outputName, 0o755); err != nil {
 				return err
 			}
 			continue
@@ -343,7 +339,7 @@ func extractZipPayload(archivePath string, outputDir string, target downloadTarg
 			if closeErr != nil {
 				return closeErr
 			}
-			if err := writeExtractedSymlink(outputPath, string(linkTarget)); err != nil {
+			if err := writeExtractedSymlink(outputDir, outputName, string(linkTarget)); err != nil {
 				return err
 			}
 			continue
@@ -352,7 +348,7 @@ func extractZipPayload(archivePath string, outputDir string, target downloadTarg
 		if err != nil {
 			return err
 		}
-		err = writeExtractedFile(outputPath, input, normalizedArchiveMode(info.Mode()))
+		err = writeExtractedFile(outputDir, outputName, input, normalizedArchiveMode(info.Mode()))
 		closeErr := input.Close()
 		if err != nil {
 			return err
@@ -412,23 +408,19 @@ func extractTarGzPayload(archivePath string, outputDir string, target downloadTa
 		if !ok {
 			continue
 		}
-		outputPath, err := archiveOutputPath(outputDir, outputName)
-		if err != nil {
-			return err
-		}
 		if header.Typeflag == tar.TypeDir {
-			if err := os.MkdirAll(outputPath, normalizedArchiveMode(header.FileInfo().Mode())); err != nil {
+			if _, err := ensureExtractedDirectory(outputDir, outputName, normalizedArchiveMode(header.FileInfo().Mode())); err != nil {
 				return err
 			}
 			continue
 		}
 		if header.Typeflag == tar.TypeSymlink {
-			if err := writeExtractedSymlink(outputPath, header.Linkname); err != nil {
+			if err := writeExtractedSymlink(outputDir, outputName, header.Linkname); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := writeExtractedFile(outputPath, tarReader, normalizedArchiveMode(header.FileInfo().Mode())); err != nil {
+		if err := writeExtractedFile(outputDir, outputName, tarReader, normalizedArchiveMode(header.FileInfo().Mode())); err != nil {
 			return err
 		}
 	}
@@ -465,11 +457,88 @@ func tarGzArchiveBinaryPath(archivePath string, target downloadTarget) (string, 
 	return archiveBinaryPathFromNames(names, target)
 }
 
-func writeExtractedFile(outputPath string, input io.Reader, mode os.FileMode) error {
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+func ensureExtractedDirectory(root string, name string, mode os.FileMode) (string, error) {
+	outputPath, err := archiveOutputPath(root, name)
+	if err != nil {
+		return "", err
+	}
+	if err := ensureExtractionRoot(root); err != nil {
+		return "", err
+	}
+	if name == "." || name == "" {
+		return outputPath, nil
+	}
+	currentPath := root
+	for _, part := range strings.Split(name, "/") {
+		currentPath = filepath.Join(currentPath, filepath.FromSlash(part))
+		info, err := os.Lstat(currentPath)
+		if err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				return "", fmt.Errorf("archive entry %q cannot extract through symlink %q", name, currentPath)
+			}
+			if !info.IsDir() {
+				return "", fmt.Errorf("archive entry %q conflicts with file %q", name, currentPath)
+			}
+			continue
+		}
+		if !os.IsNotExist(err) {
+			return "", err
+		}
+		if err := os.Mkdir(currentPath, mode); err != nil {
+			return "", err
+		}
+	}
+	if err := validateRealArchiveOutputPath(root, outputPath, name); err != nil {
+		return "", err
+	}
+	return outputPath, nil
+}
+
+func ensureExtractionRoot(root string) error {
+	info, err := os.Lstat(root)
+	if err != nil {
 		return err
 	}
-	output, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("archive extraction root %q is a symlink", root)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("archive extraction root %q is not a directory", root)
+	}
+	return nil
+}
+
+func validateRealArchiveOutputPath(root string, outputPath string, name string) error {
+	rootReal, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return err
+	}
+	outputReal, err := filepath.EvalSymlinks(outputPath)
+	if err != nil {
+		return err
+	}
+	relativePath, err := filepath.Rel(rootReal, outputReal)
+	if err != nil {
+		return err
+	}
+	if relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) || filepath.IsAbs(relativePath) {
+		return fmt.Errorf("archive entry %q escapes extraction directory", name)
+	}
+	return nil
+}
+
+func writeExtractedFile(root string, name string, input io.Reader, mode os.FileMode) error {
+	outputPath, err := archiveOutputPath(root, name)
+	if err != nil {
+		return err
+	}
+	if _, err := ensureExtractedDirectory(root, path.Dir(name), 0o755); err != nil {
+		return err
+	}
+	if err := removeExtractedOutput(outputPath, name); err != nil {
+		return err
+	}
+	output, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, mode)
 	if err != nil {
 		return err
 	}
@@ -484,18 +553,39 @@ func writeExtractedFile(outputPath string, input io.Reader, mode os.FileMode) er
 	return os.Chmod(outputPath, mode)
 }
 
-func writeExtractedSymlink(outputPath string, linkTarget string) error {
+func writeExtractedSymlink(root string, name string, linkTarget string) error {
 	cleanTarget, ok := cleanArchiveSymlinkTarget(linkTarget)
 	if !ok {
 		return fmt.Errorf("archive symlink %q is not a safe relative target", linkTarget)
 	}
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+	if _, err := archiveOutputPath(root, path.Join(path.Dir(name), cleanTarget)); err != nil {
 		return err
 	}
-	if err := os.Remove(outputPath); err != nil && !os.IsNotExist(err) {
+	outputPath, err := archiveOutputPath(root, name)
+	if err != nil {
 		return err
 	}
-	return os.Symlink(cleanTarget, outputPath)
+	if _, err := ensureExtractedDirectory(root, path.Dir(name), 0o755); err != nil {
+		return err
+	}
+	if err := removeExtractedOutput(outputPath, name); err != nil {
+		return err
+	}
+	return os.Symlink(filepath.FromSlash(cleanTarget), outputPath)
+}
+
+func removeExtractedOutput(outputPath string, name string) error {
+	info, err := os.Lstat(outputPath)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.IsDir() {
+		return fmt.Errorf("archive entry %q conflicts with directory %q", name, outputPath)
+	}
+	return os.Remove(outputPath)
 }
 
 func archiveEntryOutputName(entryName string) (string, bool, error) {
@@ -511,7 +601,7 @@ func archiveEntryOutputName(entryName string) (string, bool, error) {
 
 func cleanArchiveEntryName(entryName string) (string, bool) {
 	cleanName := path.Clean(strings.ReplaceAll(entryName, "\\", "/"))
-	if cleanName == "." || cleanName == ".." || strings.HasPrefix(cleanName, "../") || strings.HasPrefix(cleanName, "/") {
+	if !archiveRelativePathIsSafe(cleanName) {
 		return "", false
 	}
 	return cleanName, true
@@ -519,10 +609,22 @@ func cleanArchiveEntryName(entryName string) (string, bool) {
 
 func cleanArchiveSymlinkTarget(linkTarget string) (string, bool) {
 	cleanTarget := path.Clean(strings.ReplaceAll(linkTarget, "\\", "/"))
-	if cleanTarget == "." || cleanTarget == ".." || strings.HasPrefix(cleanTarget, "../") || strings.HasPrefix(cleanTarget, "/") {
+	if cleanTarget == "." || !archiveRelativePathIsSafe(cleanTarget) {
 		return "", false
 	}
-	return filepath.FromSlash(cleanTarget), true
+	return cleanTarget, true
+}
+
+func archiveRelativePathIsSafe(cleanName string) bool {
+	if cleanName == "" || cleanName == ".." || strings.HasPrefix(cleanName, "../") || strings.HasPrefix(cleanName, "/") {
+		return false
+	}
+	for _, part := range strings.Split(cleanName, "/") {
+		if part == "" || strings.Contains(part, ":") {
+			return false
+		}
+	}
+	return true
 }
 
 func archiveOutputPath(root string, name string) (string, error) {
