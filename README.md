@@ -61,20 +61,20 @@ backend:
 
 kobold:
   backend_url: "http://127.0.0.1:5001"
-  binary_path: "./bin/koboldcpp"
+  binary_path: "./bin/kobold/koboldcpp"
   data_dir: "./data"
   no_model: true
 
 llama:
   backend_url: "http://127.0.0.1:5002"
-  binary_path: "./bin/llama/llama-server"
+  binary_path: "./bin/llama/llama-b9495/llama-server"
   data_dir: "./data/llama"
   hide_window: true
   extra_args: []
 
 sdcpp:
   backend_url: "http://127.0.0.1:7860"
-  binary_path: "./bin/sdcpp/sd-server"
+  binary_path: "./bin/stable-diffusion/build/bin/sd-server"
   data_dir: "./data/sdcpp"
   hide_window: true
   extra_args: []
@@ -110,9 +110,9 @@ cluster:
 ./tensors-router download --config config.yaml
 ```
 
-In `kobold` mode this downloads `kobold.binary_path` from `updates.binary_url` and verifies it against `updates.binary_sha256`.
+In `kobold` mode this downloads `kobold.binary_path` from `updates.binary_url` and verifies the downloaded payload against `updates.binary_sha256`.
 
-In `llama_sdcpp` mode this downloads both `llama.binary_path` and `sdcpp.binary_path` from `updates.llama_binary_url` and `updates.sdcpp_binary_url`, then verifies them against `updates.llama_binary_sha256` and `updates.sdcpp_binary_sha256`. URLs must use HTTPS. Direct binaries, `.zip`, `.tar.gz`, and `.tgz` downloads are supported; archives are unpacked into the binary folder so server executables and peer runtime files stay together. A single release-root directory is stripped when present. The example config pins Linux x64 ROCm archives for llama.cpp b9495 and stable-diffusion.cpp master-672-1f9ee88.
+In `llama_sdcpp` mode this downloads both `llama.binary_path` and `sdcpp.binary_path` from `updates.llama_binary_url` and `updates.sdcpp_binary_url`, then verifies the downloaded payloads against `updates.llama_binary_sha256` and `updates.sdcpp_binary_sha256`. For archive URLs, these hashes are archive SHA256 values. URLs must use HTTPS. Direct binaries, `.zip`, `.tar.gz`, and `.tgz` downloads are supported. Archives are extracted as-is into their backend folder, so `binary_path` must include the executable path inside that archive. The previous backend folder is removed before an archive update is installed. The example config pins Linux x64 ROCm archives for llama.cpp b9495 and stable-diffusion.cpp master-672-1f9ee88.
 
 ## Run
 

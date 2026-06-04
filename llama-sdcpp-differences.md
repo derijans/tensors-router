@@ -14,9 +14,9 @@ Split mode starts native workers lazily when a request or explicit load selects 
 
 ## Backend Downloads
 
-Kobold mode downloads `kobold.binary_path` from `updates.binary_url` and verifies `updates.binary_sha256`.
+Kobold mode downloads `kobold.binary_path` from `updates.binary_url` and verifies the downloaded payload against `updates.binary_sha256`.
 
-Split mode downloads `llama.binary_path` from `updates.llama_binary_url` and `sdcpp.binary_path` from `updates.sdcpp_binary_url`, then verifies `updates.llama_binary_sha256` and `updates.sdcpp_binary_sha256`. Download URLs must use HTTPS. Direct binaries, `.zip`, `.tar.gz`, and `.tgz` downloads are supported; archives are unpacked and the matching `llama-server` or `sd-server` executable is installed. Each binary has separate update metadata in its own data directory, so a fresh llama.cpp download does not suppress a needed stable-diffusion.cpp download.
+Split mode downloads `llama.binary_path` from `updates.llama_binary_url` and `sdcpp.binary_path` from `updates.sdcpp_binary_url`, then verifies the downloaded payloads against `updates.llama_binary_sha256` and `updates.sdcpp_binary_sha256`. For archive URLs, these hashes are archive SHA256 values. Download URLs must use HTTPS. Direct binaries, `.zip`, `.tar.gz`, and `.tgz` downloads are supported. Archives are extracted as-is into their backend folder, so `binary_path` must include the executable path inside that archive. The previous backend folder is removed before an archive update is installed. Each binary has separate update metadata in its own data directory, so a fresh llama.cpp download does not suppress a needed stable-diffusion.cpp download.
 
 ## Endpoint Coverage
 

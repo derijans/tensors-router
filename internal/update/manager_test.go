@@ -127,9 +127,10 @@ func TestDownloadFailureKeepsPreviousBinary(t *testing.T) {
 func TestDownloadSplitModeWritesLlamaAndSDCPPBinaries(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Backend.Mode = "llama_sdcpp"
-	cfg.Llama.BinaryPath = filepath.Join(filepath.Dir(cfg.Kobold.BinaryPath), "llama", "llama-server")
+	binRoot := filepath.Dir(filepath.Dir(cfg.Kobold.BinaryPath))
+	cfg.Llama.BinaryPath = filepath.Join(binRoot, "llama", "llama-server")
 	cfg.Llama.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "llama")
-	cfg.SDCPP.BinaryPath = filepath.Join(filepath.Dir(cfg.Kobold.BinaryPath), "sdcpp", "sd-server")
+	cfg.SDCPP.BinaryPath = filepath.Join(binRoot, "stable-diffusion", "sd-server")
 	cfg.SDCPP.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "sdcpp")
 
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -184,18 +185,27 @@ func TestDownloadSplitModeWritesLlamaAndSDCPPBinaries(t *testing.T) {
 func TestDownloadSplitModeExtractsArchivedBinaries(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Backend.Mode = "llama_sdcpp"
-	cfg.Llama.BinaryPath = filepath.Join(filepath.Dir(cfg.Kobold.BinaryPath), "llama", "llama-server")
+	cfg.Llama.BinaryPath = filepath.Join(filepath.Dir(filepath.Dir(cfg.Kobold.BinaryPath)), "llama", "llama-b9495", "llama-server")
 	cfg.Llama.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "llama")
-	cfg.SDCPP.BinaryPath = filepath.Join(filepath.Dir(cfg.Kobold.BinaryPath), "sdcpp", "sd-server")
+	cfg.SDCPP.BinaryPath = filepath.Join(filepath.Dir(filepath.Dir(cfg.Kobold.BinaryPath)), "stable-diffusion", "build", "bin", "sd-server")
 	cfg.SDCPP.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "sdcpp")
+	sdcppRoot := filepath.Join(filepath.Dir(filepath.Dir(cfg.Kobold.BinaryPath)), "stable-diffusion")
+	if err := os.MkdirAll(sdcppRoot, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sdcppRoot, "stale-runtime.so"), []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 
 	llamaArchive := tarGzPayload(t, []archiveFile{
 		{Name: "llama-b9495/llama-server", Content: "llama"},
 		{Name: "llama-b9495/libllama.so", Content: "llama-lib"},
 	})
 	sdcppArchive := zipPayload(t, []archiveFile{
-		{Name: "sd-server", Content: "sdcpp"},
-		{Name: "libstable-diffusion.so", Content: "sdcpp-lib"},
+		{Name: "build/bin/sd-server", Content: "sdcpp"},
+		{Name: "build/bin/sd-cli", Content: "sdcpp-cli"},
+		{Name: "build/bin/libstable-diffusion.so", Content: "sdcpp-lib"},
+		{Name: "build/bin/stable-diffusion.cpp.txt", Content: "sdcpp-license"},
 	})
 
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -236,6 +246,11 @@ func TestDownloadSplitModeExtractsArchivedBinaries(t *testing.T) {
 	}
 	assertFileContent(t, filepath.Join(filepath.Dir(cfg.Llama.BinaryPath), "libllama.so"), "llama-lib")
 	assertFileContent(t, filepath.Join(filepath.Dir(cfg.SDCPP.BinaryPath), "libstable-diffusion.so"), "sdcpp-lib")
+	assertFileContent(t, filepath.Join(filepath.Dir(cfg.SDCPP.BinaryPath), "sd-cli"), "sdcpp-cli")
+	assertFileContent(t, filepath.Join(filepath.Dir(cfg.SDCPP.BinaryPath), "stable-diffusion.cpp.txt"), "sdcpp-license")
+	if fileExists(filepath.Join(sdcppRoot, "stale-runtime.so")) {
+		t.Fatalf("stale archive content was not removed")
+	}
 
 	if manager.readMetadata(manager.targets()[0]).BinarySHA256 != sha256Hex("llama") {
 		t.Fatalf("llama metadata did not record extracted binary hash")
@@ -282,7 +297,7 @@ func testConfig(t *testing.T) config.Config {
 	t.Helper()
 	dir := t.TempDir()
 	cfg := config.Defaults()
-	cfg.Kobold.BinaryPath = filepath.Join(dir, "bin", "koboldcpp")
+	cfg.Kobold.BinaryPath = filepath.Join(dir, "bin", "kobold", "koboldcpp")
 	cfg.Kobold.DataDir = filepath.Join(dir, "data")
 	cfg.Updates.Enabled = true
 	cfg.Updates.CheckInterval = 168 * time.Hour

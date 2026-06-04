@@ -157,7 +157,7 @@ func TestLoadDefaultConfigWhenDefaultFileMissing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Kobold.BinaryPath != "./bin/koboldcpp" {
+	if cfg.Kobold.BinaryPath != "./bin/kobold/koboldcpp" {
 		t.Fatalf("unexpected binary path %q", cfg.Kobold.BinaryPath)
 	}
 	if cfg.Models.StartupModel != "" {
@@ -172,7 +172,7 @@ func TestLoadDefaultConfigWhenDefaultFileMissing(t *testing.T) {
 	if cfg.Llama.BackendURL != "http://127.0.0.1:5002" || cfg.SDCPP.BackendURL != "http://127.0.0.1:7860" {
 		t.Fatalf("unexpected native defaults llama=%#v sdcpp=%#v", cfg.Llama, cfg.SDCPP)
 	}
-	if cfg.Llama.BinaryPath != "./bin/llama/llama-server" || cfg.SDCPP.BinaryPath != "./bin/sdcpp/sd-server" {
+	if cfg.Llama.BinaryPath != "./bin/llama/llama-b9495/llama-server" || cfg.SDCPP.BinaryPath != "./bin/stable-diffusion/build/bin/sd-server" {
 		t.Fatalf("unexpected native binary defaults llama=%q sdcpp=%q", cfg.Llama.BinaryPath, cfg.SDCPP.BinaryPath)
 	}
 	if !cfg.Logging.Enabled {

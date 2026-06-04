@@ -111,7 +111,7 @@ func Defaults() Config {
 		},
 		Kobold: KoboldConfig{
 			BackendURL:   "http://127.0.0.1:5001",
-			BinaryPath:   "./bin/koboldcpp",
+			BinaryPath:   "./bin/kobold/koboldcpp",
 			DataDir:      "./data",
 			Multiuser:    1,
 			ExtraArgs:    []string{},
@@ -122,14 +122,14 @@ func Defaults() Config {
 		},
 		Llama: NativeServerConfig{
 			BackendURL: "http://127.0.0.1:5002",
-			BinaryPath: "./bin/llama/llama-server",
+			BinaryPath: "./bin/llama/llama-b9495/llama-server",
 			DataDir:    "./data/llama",
 			ExtraArgs:  []string{},
 			HideWindow: true,
 		},
 		SDCPP: NativeServerConfig{
 			BackendURL: "http://127.0.0.1:7860",
-			BinaryPath: "./bin/sdcpp/sd-server",
+			BinaryPath: "./bin/stable-diffusion/build/bin/sd-server",
 			DataDir:    "./data/sdcpp",
 			ExtraArgs:  []string{},
 			HideWindow: true,
