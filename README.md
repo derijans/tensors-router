@@ -1,8 +1,10 @@
 # tensors-router
 
-Router for KoboldCpp `.kcpps` configs.
+Router for `.kcpps` configs.
 
-It runs a KoboldCpp process, exposes LLM `.kcpps` filenames as `/v1/models`, exposes image-capable configs through image model endpoints, reloads the matching config through KoboldCpp admin mode, then forwards the request to KoboldCpp.
+It exposes text configs as `/v1/models`, exposes image configs through image model endpoints, loads the selected config, and forwards requests to the active backend.
+
+`backend.mode: "kobold"` uses one KoboldCpp process. `backend.mode: "llama_sdcpp"` uses `llama-server` for LLM, embeddings, and multimodal requests, and `sd-server` for image requests.
 
 ## Build
 
@@ -140,6 +142,8 @@ Set `models.startup_model` to preload one LLM config before the router starts li
 
 Set `backend.mode: "kobold"` to keep the original single KoboldCpp process. Set `backend.mode: "llama_sdcpp"` to route LLM, embeddings, and multimodal requests to `llama-server`, and image requests to `sd-server`. In split mode, the router starts each native process lazily from the selected `.kcpps` file and stops the previous process in that lane after in-flight requests finish.
 
+Backend differences: [llama-sdcpp-differences.md](llama-sdcpp-differences.md).
+
 Requests to `/v1/chat/completions` and `/v1/completions` require a `model` field. The model id must match a `.kcpps` filename stem.
 
 Other `/v1/...` endpoints are forwarded too. If the JSON body has a `model` field, the matching `.kcpps` config is loaded first. If there is no `model` field, the request is forwarded to the currently loaded KoboldCpp config.
@@ -270,3 +274,7 @@ Remove:
 ```bash
 bash scripts/uninstall-systemd-user.sh
 ```
+
+## Warning
+
+This router is meant for intranet use only. Do not expose it directly to the public internet. Bind it to localhost or a private interface, use a reverse proxy or VPN for access, and keep `server.allowed_cidrs` restricted.
