@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -227,9 +228,9 @@ func (manager *Manager) download(ctx context.Context, target downloadTarget, pre
 func installDownloadedPayload(payloadPath string, target downloadTarget) (string, error) {
 	switch archiveType(target.URL) {
 	case "zip":
-		return installArchivedBinary(payloadPath, target, extractBinaryFromZip)
+		return installArchivedPayload(payloadPath, target, extractZipPayload)
 	case "tar.gz":
-		return installArchivedBinary(payloadPath, target, extractBinaryFromTarGz)
+		return installArchivedPayload(payloadPath, target, extractTarGzPayload)
 	default:
 		if err := os.Chmod(payloadPath, 0o755); err != nil {
 			return "", err
@@ -241,24 +242,32 @@ func installDownloadedPayload(payloadPath string, target downloadTarget) (string
 	}
 }
 
-func installArchivedBinary(payloadPath string, target downloadTarget, extract func(string, string, downloadTarget) error) (string, error) {
-	extractedPath := target.BinaryPath + ".extracted"
-	_ = os.Remove(extractedPath)
-	if err := extract(payloadPath, extractedPath, target); err != nil {
-		_ = os.Remove(extractedPath)
+func installArchivedPayload(payloadPath string, target downloadTarget, extract func(string, string, downloadTarget) error) (string, error) {
+	installDir := filepath.Dir(target.BinaryPath)
+	extractedDir := installDir + ".extracted"
+	_ = os.RemoveAll(extractedDir)
+	if err := os.MkdirAll(extractedDir, 0o755); err != nil {
 		return "", err
 	}
-	binarySHA256, err := fileSHA256Hex(extractedPath)
+	defer os.RemoveAll(extractedDir)
+
+	if err := extract(payloadPath, extractedDir, target); err != nil {
+		return "", err
+	}
+
+	extractedBinaryPath := filepath.Join(extractedDir, filepath.Base(target.BinaryPath))
+	if !fileExists(extractedBinaryPath) {
+		return "", fmt.Errorf("%s archive does not contain %s at install root", target.Name, strings.Join(binaryArchiveNames(target), " or "))
+	}
+
+	binarySHA256, err := fileSHA256Hex(extractedBinaryPath)
 	if err != nil {
-		_ = os.Remove(extractedPath)
 		return "", err
 	}
-	if err := os.Chmod(extractedPath, 0o755); err != nil {
-		_ = os.Remove(extractedPath)
+	if err := os.Chmod(extractedBinaryPath, 0o755); err != nil {
 		return "", err
 	}
-	if err := replaceBinary(extractedPath, target.BinaryPath); err != nil {
-		_ = os.Remove(extractedPath)
+	if err := installExtractedPayload(extractedDir, installDir); err != nil {
 		return "", err
 	}
 	return binarySHA256, nil
@@ -280,22 +289,46 @@ func archiveType(rawURL string) string {
 	}
 }
 
-func extractBinaryFromZip(archivePath string, outputPath string, target downloadTarget) error {
+func extractZipPayload(archivePath string, outputDir string, target downloadTarget) error {
 	reader, err := zip.OpenReader(archivePath)
 	if err != nil {
 		return err
 	}
 	defer reader.Close()
 
+	names := make([]string, 0, len(reader.File))
 	for _, file := range reader.File {
-		if file.FileInfo().IsDir() || !archiveEntryMatchesBinary(file.Name, target) {
+		names = append(names, file.Name)
+	}
+	stripRoot := commonArchiveRoot(names)
+
+	for _, file := range reader.File {
+		info := file.FileInfo()
+		if !info.IsDir() && !info.Mode().IsRegular() {
+			continue
+		}
+		outputName, ok, err := archiveEntryOutputName(file.Name, stripRoot)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		outputPath, err := archiveOutputPath(outputDir, outputName)
+		if err != nil {
+			return err
+		}
+		if info.IsDir() {
+			if err := os.MkdirAll(outputPath, 0o755); err != nil {
+				return err
+			}
 			continue
 		}
 		input, err := file.Open()
 		if err != nil {
 			return err
 		}
-		err = writeExtractedBinary(outputPath, input)
+		err = writeExtractedFile(outputPath, input, normalizedArchiveMode(info.Mode()))
 		closeErr := input.Close()
 		if err != nil {
 			return err
@@ -303,12 +336,17 @@ func extractBinaryFromZip(archivePath string, outputPath string, target download
 		if closeErr != nil {
 			return closeErr
 		}
-		return nil
 	}
-	return fmt.Errorf("%s archive does not contain %s", target.Name, strings.Join(binaryArchiveNames(target), " or "))
+	return requireExtractedBinary(outputDir, target)
 }
 
-func extractBinaryFromTarGz(archivePath string, outputPath string, target downloadTarget) error {
+func extractTarGzPayload(archivePath string, outputDir string, target downloadTarget) error {
+	names, err := tarGzEntryNames(archivePath)
+	if err != nil {
+		return err
+	}
+	stripRoot := commonArchiveRoot(names)
+
 	file, err := os.Open(archivePath)
 	if err != nil {
 		return err
@@ -330,16 +368,66 @@ func extractBinaryFromTarGz(archivePath string, outputPath string, target downlo
 		if err != nil {
 			return err
 		}
-		if (header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA) || !archiveEntryMatchesBinary(header.Name, target) {
+		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA && header.Typeflag != tar.TypeDir {
 			continue
 		}
-		return writeExtractedBinary(outputPath, tarReader)
+		outputName, ok, err := archiveEntryOutputName(header.Name, stripRoot)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
+		outputPath, err := archiveOutputPath(outputDir, outputName)
+		if err != nil {
+			return err
+		}
+		if header.Typeflag == tar.TypeDir {
+			if err := os.MkdirAll(outputPath, normalizedArchiveMode(header.FileInfo().Mode())); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := writeExtractedFile(outputPath, tarReader, normalizedArchiveMode(header.FileInfo().Mode())); err != nil {
+			return err
+		}
 	}
-	return fmt.Errorf("%s archive does not contain %s", target.Name, strings.Join(binaryArchiveNames(target), " or "))
+	return requireExtractedBinary(outputDir, target)
 }
 
-func writeExtractedBinary(outputPath string, input io.Reader) error {
-	output, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+func tarGzEntryNames(archivePath string) ([]string, error) {
+	file, err := os.Open(archivePath)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	gzipReader, err := gzip.NewReader(file)
+	if err != nil {
+		return nil, err
+	}
+	defer gzipReader.Close()
+
+	names := make([]string, 0)
+	tarReader := tar.NewReader(gzipReader)
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		names = append(names, header.Name)
+	}
+	return names, nil
+}
+
+func writeExtractedFile(outputPath string, input io.Reader, mode os.FileMode) error {
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+		return err
+	}
+	output, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
 	if err != nil {
 		return err
 	}
@@ -348,17 +436,157 @@ func writeExtractedBinary(outputPath string, input io.Reader) error {
 	if copyErr != nil {
 		return copyErr
 	}
-	return closeErr
+	if closeErr != nil {
+		return closeErr
+	}
+	return os.Chmod(outputPath, mode)
 }
 
-func archiveEntryMatchesBinary(entryName string, target downloadTarget) bool {
-	entryBase := filepath.Base(strings.ReplaceAll(entryName, "\\", "/"))
-	for _, candidate := range binaryArchiveNames(target) {
-		if strings.EqualFold(entryBase, candidate) {
-			return true
+func installExtractedPayload(extractedDir string, installDir string) error {
+	if err := os.MkdirAll(installDir, 0o755); err != nil {
+		return err
+	}
+	return filepath.Walk(extractedDir, func(sourcePath string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if sourcePath == extractedDir {
+			return nil
+		}
+		relativePath, err := filepath.Rel(extractedDir, sourcePath)
+		if err != nil {
+			return err
+		}
+		targetPath := filepath.Join(installDir, relativePath)
+		if info.IsDir() {
+			return os.MkdirAll(targetPath, 0o755)
+		}
+		if !info.Mode().IsRegular() {
+			return nil
+		}
+		return replaceExtractedFile(sourcePath, targetPath, info.Mode().Perm())
+	})
+}
+
+func replaceExtractedFile(sourcePath string, targetPath string, mode os.FileMode) error {
+	input, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer input.Close()
+
+	tempPath := targetPath + ".download"
+	output, err := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(output, input)
+	closeErr := output.Close()
+	if copyErr != nil {
+		_ = os.Remove(tempPath)
+		return copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(tempPath)
+		return closeErr
+	}
+	if err := os.Chmod(tempPath, mode); err != nil {
+		_ = os.Remove(tempPath)
+		return err
+	}
+	return replaceBinary(tempPath, targetPath)
+}
+
+func requireExtractedBinary(outputDir string, target downloadTarget) error {
+	if fileExists(filepath.Join(outputDir, filepath.Base(target.BinaryPath))) {
+		return nil
+	}
+	return fmt.Errorf("%s archive does not contain %s at install root", target.Name, strings.Join(binaryArchiveNames(target), " or "))
+}
+
+func commonArchiveRoot(names []string) string {
+	root := ""
+	hasNestedEntry := false
+	for _, name := range names {
+		cleanName, ok := cleanArchiveEntryName(name)
+		if !ok {
+			return ""
+		}
+		parts := strings.Split(cleanName, "/")
+		if len(parts) > 1 {
+			hasNestedEntry = true
+		}
+		if root == "" {
+			root = parts[0]
+			continue
+		}
+		if root != parts[0] {
+			return ""
 		}
 	}
-	return false
+	if !hasNestedEntry {
+		return ""
+	}
+	return root
+}
+
+func archiveEntryOutputName(entryName string, stripRoot string) (string, bool, error) {
+	cleanName, ok := cleanArchiveEntryName(entryName)
+	if !ok {
+		return "", false, fmt.Errorf("archive entry %q is not a safe relative path", entryName)
+	}
+	if stripRoot != "" {
+		if cleanName == stripRoot {
+			return "", false, nil
+		}
+		prefix := stripRoot + "/"
+		if strings.HasPrefix(cleanName, prefix) {
+			cleanName = strings.TrimPrefix(cleanName, prefix)
+		}
+	}
+	if cleanName == "" || cleanName == "." {
+		return "", false, nil
+	}
+	return cleanName, true, nil
+}
+
+func cleanArchiveEntryName(entryName string) (string, bool) {
+	cleanName := path.Clean(strings.ReplaceAll(entryName, "\\", "/"))
+	if cleanName == "." || cleanName == ".." || strings.HasPrefix(cleanName, "../") || strings.HasPrefix(cleanName, "/") {
+		return "", false
+	}
+	return cleanName, true
+}
+
+func archiveOutputPath(root string, name string) (string, error) {
+	outputPath := filepath.Join(root, filepath.FromSlash(name))
+	rootAbs, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
+	}
+	outputAbs, err := filepath.Abs(outputPath)
+	if err != nil {
+		return "", err
+	}
+	relativePath, err := filepath.Rel(rootAbs, outputAbs)
+	if err != nil {
+		return "", err
+	}
+	if relativePath == ".." || strings.HasPrefix(relativePath, ".."+string(filepath.Separator)) || filepath.IsAbs(relativePath) {
+		return "", fmt.Errorf("archive entry %q escapes extraction directory", name)
+	}
+	return outputPath, nil
+}
+
+func normalizedArchiveMode(mode os.FileMode) os.FileMode {
+	mode = mode.Perm()
+	if mode == 0 {
+		return 0o644
+	}
+	if mode&0o111 != 0 {
+		return mode | 0o755
+	}
+	return mode | 0o644
 }
 
 func binaryArchiveNames(target downloadTarget) []string {

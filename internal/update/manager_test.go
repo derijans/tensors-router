@@ -127,9 +127,9 @@ func TestDownloadFailureKeepsPreviousBinary(t *testing.T) {
 func TestDownloadSplitModeWritesLlamaAndSDCPPBinaries(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Backend.Mode = "llama_sdcpp"
-	cfg.Llama.BinaryPath = filepath.Join(filepath.Dir(cfg.Kobold.BinaryPath), "llama-server")
+	cfg.Llama.BinaryPath = filepath.Join(filepath.Dir(cfg.Kobold.BinaryPath), "llama", "llama-server")
 	cfg.Llama.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "llama")
-	cfg.SDCPP.BinaryPath = filepath.Join(filepath.Dir(cfg.Kobold.BinaryPath), "sd-server")
+	cfg.SDCPP.BinaryPath = filepath.Join(filepath.Dir(cfg.Kobold.BinaryPath), "sdcpp", "sd-server")
 	cfg.SDCPP.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "sdcpp")
 
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -184,13 +184,19 @@ func TestDownloadSplitModeWritesLlamaAndSDCPPBinaries(t *testing.T) {
 func TestDownloadSplitModeExtractsArchivedBinaries(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Backend.Mode = "llama_sdcpp"
-	cfg.Llama.BinaryPath = filepath.Join(filepath.Dir(cfg.Kobold.BinaryPath), "llama-server")
+	cfg.Llama.BinaryPath = filepath.Join(filepath.Dir(cfg.Kobold.BinaryPath), "llama", "llama-server")
 	cfg.Llama.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "llama")
-	cfg.SDCPP.BinaryPath = filepath.Join(filepath.Dir(cfg.Kobold.BinaryPath), "sd-server")
+	cfg.SDCPP.BinaryPath = filepath.Join(filepath.Dir(cfg.Kobold.BinaryPath), "sdcpp", "sd-server")
 	cfg.SDCPP.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "sdcpp")
 
-	llamaArchive := tarGzPayload(t, "llama-b9495/bin/llama-server", "llama")
-	sdcppArchive := zipPayload(t, "sd-master/bin/sd-server", "sdcpp")
+	llamaArchive := tarGzPayload(t, []archiveFile{
+		{Name: "llama-b9495/llama-server", Content: "llama"},
+		{Name: "llama-b9495/libllama.so", Content: "llama-lib"},
+	})
+	sdcppArchive := zipPayload(t, []archiveFile{
+		{Name: "sd-server", Content: "sdcpp"},
+		{Name: "libstable-diffusion.so", Content: "sdcpp-lib"},
+	})
 
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -228,6 +234,8 @@ func TestDownloadSplitModeExtractsArchivedBinaries(t *testing.T) {
 	if string(sdcppContent) != "sdcpp" {
 		t.Fatalf("unexpected sdcpp binary %q", string(sdcppContent))
 	}
+	assertFileContent(t, filepath.Join(filepath.Dir(cfg.Llama.BinaryPath), "libllama.so"), "llama-lib")
+	assertFileContent(t, filepath.Join(filepath.Dir(cfg.SDCPP.BinaryPath), "libstable-diffusion.so"), "sdcpp-lib")
 
 	if manager.readMetadata(manager.targets()[0]).BinarySHA256 != sha256Hex("llama") {
 		t.Fatalf("llama metadata did not record extracted binary hash")
@@ -291,20 +299,27 @@ func sha256BytesHex(value []byte) string {
 	return hex.EncodeToString(hash[:])
 }
 
-func tarGzPayload(t *testing.T, name string, content string) []byte {
+type archiveFile struct {
+	Name    string
+	Content string
+}
+
+func tarGzPayload(t *testing.T, files []archiveFile) []byte {
 	t.Helper()
 	var buffer bytes.Buffer
 	gzipWriter := gzip.NewWriter(&buffer)
 	tarWriter := tar.NewWriter(gzipWriter)
-	if err := tarWriter.WriteHeader(&tar.Header{
-		Name: name,
-		Mode: 0o755,
-		Size: int64(len(content)),
-	}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := io.WriteString(tarWriter, content); err != nil {
-		t.Fatal(err)
+	for _, file := range files {
+		if err := tarWriter.WriteHeader(&tar.Header{
+			Name: file.Name,
+			Mode: 0o755,
+			Size: int64(len(file.Content)),
+		}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(tarWriter, file.Content); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := tarWriter.Close(); err != nil {
 		t.Fatal(err)
@@ -315,19 +330,32 @@ func tarGzPayload(t *testing.T, name string, content string) []byte {
 	return buffer.Bytes()
 }
 
-func zipPayload(t *testing.T, name string, content string) []byte {
+func zipPayload(t *testing.T, files []archiveFile) []byte {
 	t.Helper()
 	var buffer bytes.Buffer
 	zipWriter := zip.NewWriter(&buffer)
-	writer, err := zipWriter.Create(name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := io.WriteString(writer, content); err != nil {
-		t.Fatal(err)
+	for _, file := range files {
+		writer, err := zipWriter.Create(file.Name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := io.WriteString(writer, file.Content); err != nil {
+			t.Fatal(err)
+		}
 	}
 	if err := zipWriter.Close(); err != nil {
 		t.Fatal(err)
 	}
 	return buffer.Bytes()
+}
+
+func assertFileContent(t *testing.T, path string, expected string) {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(content) != expected {
+		t.Fatalf("unexpected content for %s: %q", path, string(content))
+	}
 }

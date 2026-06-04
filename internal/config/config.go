@@ -122,14 +122,14 @@ func Defaults() Config {
 		},
 		Llama: NativeServerConfig{
 			BackendURL: "http://127.0.0.1:5002",
-			BinaryPath: "./bin/llama-server",
+			BinaryPath: "./bin/llama/llama-server",
 			DataDir:    "./data/llama",
 			ExtraArgs:  []string{},
 			HideWindow: true,
 		},
 		SDCPP: NativeServerConfig{
 			BackendURL: "http://127.0.0.1:7860",
-			BinaryPath: "./bin/sd-server",
+			BinaryPath: "./bin/sdcpp/sd-server",
 			DataDir:    "./data/sdcpp",
 			ExtraArgs:  []string{},
 			HideWindow: true,

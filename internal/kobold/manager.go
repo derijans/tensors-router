@@ -207,7 +207,9 @@ func (manager *Manager) stopLocked(ctx context.Context) error {
 }
 
 func stopManagedProcess(ctx context.Context, cmd *exec.Cmd, waitDone <-chan error) error {
-	_ = terminateCommand(cmd)
+	if err := terminateCommand(cmd); err != nil {
+		_ = killCommand(cmd)
+	}
 	if waitDone == nil {
 		_ = killCommand(cmd)
 		return nil

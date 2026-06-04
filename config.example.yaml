@@ -30,14 +30,14 @@ kobold:
 
 llama:
   backend_url: "http://127.0.0.1:5002"
-  binary_path: "./bin/llama-server"
+  binary_path: "./bin/llama/llama-server"
   data_dir: "./data/llama"
   hide_window: true
   extra_args: []
 
 sdcpp:
   backend_url: "http://127.0.0.1:7860"
-  binary_path: "./bin/sd-server"
+  binary_path: "./bin/sdcpp/sd-server"
   data_dir: "./data/sdcpp"
   hide_window: true
   extra_args: []

@@ -172,6 +172,9 @@ func TestLoadDefaultConfigWhenDefaultFileMissing(t *testing.T) {
 	if cfg.Llama.BackendURL != "http://127.0.0.1:5002" || cfg.SDCPP.BackendURL != "http://127.0.0.1:7860" {
 		t.Fatalf("unexpected native defaults llama=%#v sdcpp=%#v", cfg.Llama, cfg.SDCPP)
 	}
+	if cfg.Llama.BinaryPath != "./bin/llama/llama-server" || cfg.SDCPP.BinaryPath != "./bin/sdcpp/sd-server" {
+		t.Fatalf("unexpected native binary defaults llama=%q sdcpp=%q", cfg.Llama.BinaryPath, cfg.SDCPP.BinaryPath)
+	}
 	if !cfg.Logging.Enabled {
 		t.Fatalf("default logging should be enabled")
 	}
