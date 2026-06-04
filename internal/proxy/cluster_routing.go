@@ -15,17 +15,12 @@ import (
 )
 
 func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string) {
-	model, ok := service.registry.Model(publicID)
-	if !ok {
-		openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", publicID))
-		return
-	}
+	model, route, release, ok := service.acquireRegistryModelRoute(r, publicID)
+	defer release()
 	if !registryModelSupportsOpenAIPath(model, r.URL.Path) {
 		openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", publicID))
 		return
 	}
-
-	route, release, ok := service.registry.Acquire(publicID, service.textRuntime.backend.Healthy(r.Context()))
 	if !ok {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("model %q has no available replicas", publicID))
 		return
@@ -37,9 +32,8 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 	if route.Remote {
 		response, err = service.forwardRemote(r.Context(), r, requestBody, route)
 	} else {
-		if service.backendMode == BackendModeLlamaSDCPP && model.HasImage {
+		if service.backendMode == BackendModeLlamaSDCPP && model.HasImage && !isEmbeddingsPath(r.URL.Path) {
 			if err := service.loadLocalRuntimeForRequest(r.Context(), service.imageRuntime, route.PublicImageID, route.Filename, readinessImage); err != nil {
-				release()
 				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 				return
 			}
@@ -47,7 +41,6 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 		response, err = service.forwardWithFallback(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readinessText)
 	}
 	if err != nil {
-		release()
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
@@ -56,6 +49,30 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 	if err := writeModelProxyResponse(w, response, publicID, true); err != nil {
 		return
 	}
+}
+
+func (service *Service) acquireRegistryModelRoute(r *http.Request, publicID string) (cluster.Model, cluster.Route, func(), bool) {
+	if isEmbeddingsPath(r.URL.Path) {
+		model, ok := service.registry.EmbeddingModel(publicID)
+		if !ok {
+			return cluster.Model{}, cluster.Route{}, func() {}, false
+		}
+		route, release, ok := service.registry.AcquireEmbedding(publicID, service.textRuntime.backend.Healthy(r.Context()))
+		return model, route, release, ok
+	}
+	model, ok := service.registry.Model(publicID)
+	if !ok {
+		return cluster.Model{}, cluster.Route{}, func() {}, false
+	}
+	route, release, ok := service.registry.Acquire(publicID, service.textRuntime.backend.Healthy(r.Context()))
+	return model, route, release, ok
+}
+
+func (service *Service) registryHasModelForOpenAIPath(modelID string, path string) bool {
+	if isEmbeddingsPath(path) {
+		return service.registry.HasEmbeddingModel(modelID)
+	}
+	return service.registry.HasModel(modelID)
 }
 
 func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *http.Request, body []byte, publicImageID string) bool {

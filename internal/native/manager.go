@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -164,6 +165,7 @@ func (manager *Manager) startLocked(ctx context.Context, filename string, args [
 	}
 
 	cmd := exec.Command(manager.config.BinaryPath, args...)
+	cmd.Env = nativeProcessEnv(manager.config.BinaryPath, os.Environ())
 	prepareCommand(cmd, manager.config)
 	cmd.Stdout = processOutput
 	cmd.Stderr = processOutput
@@ -288,6 +290,9 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	if metadata.UseMLock {
 		args = append(args, "--mlock")
 	}
+	if strings.TrimSpace(metadata.EmbeddingsModel) != "" {
+		args = append(args, "--embeddings")
+	}
 	if strings.TrimSpace(metadata.QuantKV) != "" {
 		args = append(args, "--cache-type-k", strings.TrimSpace(metadata.QuantKV), "--cache-type-v", strings.TrimSpace(metadata.QuantKV))
 	}
@@ -371,6 +376,57 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func nativeProcessEnv(binaryPath string, baseEnv []string) []string {
+	binaryDir := filepath.Dir(strings.TrimSpace(binaryPath))
+	if binaryDir == "" {
+		return baseEnv
+	}
+	if absoluteDir, err := filepath.Abs(binaryDir); err == nil {
+		binaryDir = absoluteDir
+	}
+	return prependEnvPath(baseEnv, nativeLibraryPathEnvName(), binaryDir)
+}
+
+func nativeLibraryPathEnvName() string {
+	switch runtime.GOOS {
+	case "windows":
+		return "PATH"
+	case "darwin":
+		return "DYLD_LIBRARY_PATH"
+	default:
+		return "LD_LIBRARY_PATH"
+	}
+}
+
+func prependEnvPath(baseEnv []string, name string, path string) []string {
+	if strings.TrimSpace(path) == "" {
+		return baseEnv
+	}
+	prefix := name + "="
+	for index, value := range baseEnv {
+		key, current, ok := strings.Cut(value, "=")
+		if ok && envNameMatches(key, name) {
+			updated := path
+			if current != "" {
+				updated += string(os.PathListSeparator) + current
+			}
+			env := append([]string{}, baseEnv...)
+			env[index] = key + "=" + updated
+			return env
+		}
+	}
+	env := append([]string{}, baseEnv...)
+	env = append(env, prefix+path)
+	return env
+}
+
+func envNameMatches(key string, name string) bool {
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(key, name)
+	}
+	return key == name
 }
 
 func stopManagedProcess(ctx context.Context, cmd *exec.Cmd, waitDone <-chan error) error {

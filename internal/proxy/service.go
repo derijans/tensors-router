@@ -470,15 +470,16 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if hasModel && service.registry != nil && service.registry.HasModel(modelID) {
+	if hasModel && service.registry != nil && service.registryHasModelForOpenAIPath(modelID, r.URL.Path) {
 		service.handleRegistryModelRequest(w, r, body, modelID)
 		return
 	}
 
 	configFilename := ""
+	backendModelID := modelID
 	var selectedModel catalog.Model
 	if hasModel {
-		model, ok, err := service.catalog.Resolve(modelID)
+		model, ok, err := service.resolveCatalogModelForOpenAIPath(modelID, r.URL.Path)
 		if err != nil {
 			service.logger.Printf("model catalog check failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
 			openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
@@ -495,17 +496,23 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		configFilename = model.Filename
+		backendModelID = model.ID
 		selectedModel = model
 	}
 
-	if hasModel && service.backendMode == BackendModeLlamaSDCPP && selectedModel.HasImage {
+	if hasModel && service.backendMode == BackendModeLlamaSDCPP && selectedModel.HasImage && !isEmbeddingsPath(r.URL.Path) {
 		if err := service.loadLocalRuntimeForRequest(r.Context(), service.imageRuntime, selectedModel.ImageID, selectedModel.Filename, readinessImage); err != nil {
 			openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 			return
 		}
 	}
 
-	response, err := service.forwardWithFallback(r.Context(), r, body, modelID, configFilename, hasModel, readinessText)
+	requestBody := body
+	if hasModel && backendModelID != modelID {
+		requestBody = rewriteRequestModel(body, backendModelID)
+	}
+
+	response, err := service.forwardWithFallback(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readinessText)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
@@ -514,6 +521,21 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 	if err := writeModelProxyResponse(w, response, modelID, hasModel); err != nil {
 		return
 	}
+}
+
+func (service *Service) resolveCatalogModelForOpenAIPath(modelID string, path string) (catalog.Model, bool, error) {
+	model, ok, err := service.catalog.Resolve(modelID)
+	if err != nil || ok || !isEmbeddingsPath(path) {
+		return model, ok, err
+	}
+	model, ok, err = service.catalog.ResolveImage(modelID, service.imageCatalogConfigSelector())
+	if err != nil || !ok {
+		return catalog.Model{}, ok, err
+	}
+	if model.HasEmbeddings {
+		return model, true, nil
+	}
+	return catalog.Model{}, false, nil
 }
 
 func writeModelProxyResponse(w http.ResponseWriter, response *http.Response, virtualModelID string, rewriteModel bool) error {
@@ -1505,6 +1527,10 @@ func isImagePath(path string) bool {
 
 func isCorePath(path string) bool {
 	return path == "/v1/chat/completions" || path == "/v1/completions"
+}
+
+func isEmbeddingsPath(path string) bool {
+	return path == "/v1/embeddings"
 }
 
 func isOpenAIPath(path string) bool {

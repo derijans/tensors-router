@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -70,6 +71,42 @@ func TestLlamaLaunchArgumentsFromKcpps(t *testing.T) {
 		"--image-min-tokens", "32",
 		"--image-max-tokens", "512",
 		"--parallel", "2",
+	}
+	if !reflect.DeepEqual(args, expected) {
+		t.Fatalf("unexpected args %#v", args)
+	}
+}
+
+func TestLlamaEmbeddingLaunchArgumentsEnableEmbeddings(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "embed.kcpps"), []byte(`{
+		"nomodel":true,
+		"embeddingsmodel":"C:/models/embed.gguf"
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	manager, err := NewLlamaManager(ProcessConfig{
+		BackendURL: "http://127.0.0.1:6003",
+		BinaryPath: "llama-server",
+		ConfigDir:  dir,
+		DataDir:    t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, err := manager.LaunchArguments("embed.kcpps")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := []string{
+		"--host", "127.0.0.1",
+		"--port", "6003",
+		"--model", "C:/models/embed.gguf",
+		"--alias", "embed",
+		"--no-mmap",
+		"--embeddings",
 	}
 	if !reflect.DeepEqual(args, expected) {
 		t.Fatalf("unexpected args %#v", args)
@@ -183,6 +220,19 @@ func TestNativeManagersStartAndStopServerProcessesWithoutRealModels(t *testing.T
 	}
 }
 
+func TestNativeProcessEnvPrependsBinaryDirectory(t *testing.T) {
+	dir := t.TempDir()
+	envName := nativeLibraryPathEnvName()
+	env := nativeProcessEnv(filepath.Join(dir, "sd-server"), []string{envName + "=/existing"})
+	value := testEnvValue(env, envName)
+	if !strings.HasPrefix(value, dir+string(os.PathListSeparator)) {
+		t.Fatalf("expected %s to start with binary dir, got %q", envName, value)
+	}
+	if !strings.HasSuffix(value, string(os.PathListSeparator)+"/existing") {
+		t.Fatalf("expected %s to preserve existing path, got %q", envName, value)
+	}
+}
+
 func buildFakeNativeServer(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
@@ -214,6 +264,16 @@ func freeTCPPort(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return port
+}
+
+func testEnvValue(env []string, name string) string {
+	for _, item := range env {
+		key, value, ok := strings.Cut(item, "=")
+		if ok && envNameMatches(key, name) {
+			return value
+		}
+	}
+	return ""
 }
 
 const fakeNativeServerSource = `package main

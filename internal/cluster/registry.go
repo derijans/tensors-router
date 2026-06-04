@@ -107,6 +107,11 @@ func (registry *Registry) HasModel(publicID string) bool {
 	return ok
 }
 
+func (registry *Registry) HasEmbeddingModel(publicID string) bool {
+	_, ok := registry.EmbeddingModel(publicID)
+	return ok
+}
+
 func (registry *Registry) HasImageModel(publicImageID string, activeConfigFilename string) bool {
 	_, ok := registry.ImageModel(publicImageID, activeConfigFilename)
 	return ok
@@ -118,6 +123,18 @@ func (registry *Registry) Model(publicID string) (Model, bool) {
 
 	for _, model := range registry.view {
 		if model.PublicID == publicID {
+			return model, true
+		}
+	}
+	return Model{}, false
+}
+
+func (registry *Registry) EmbeddingModel(publicID string) (Model, bool) {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+
+	for _, model := range registry.view {
+		if registry.embeddingModelSelectableLocked(model, publicID) {
 			return model, true
 		}
 	}
@@ -139,6 +156,16 @@ func (registry *Registry) ImageModel(publicImageID string, activeConfigFilename 
 func (registry *Registry) Acquire(publicID string, localHealthy bool) (Route, func(), bool) {
 	registry.mu.Lock()
 	route, ok := registry.selectRouteLocked(publicID, registry.replicasLocked(publicID), localHealthy, RouteLaneText)
+	if !ok {
+		registry.mu.Unlock()
+		return Route{}, func() {}, false
+	}
+	return registry.acquireRouteLocked(route)
+}
+
+func (registry *Registry) AcquireEmbedding(publicID string, localHealthy bool) (Route, func(), bool) {
+	registry.mu.Lock()
+	route, ok := registry.selectRouteLocked(publicID, registry.embeddingReplicasLocked(publicID), localHealthy, RouteLaneText)
 	if !ok {
 		registry.mu.Unlock()
 		return Route{}, func() {}, false
@@ -265,6 +292,19 @@ func (registry *Registry) replicasLocked(publicID string) []Model {
 	return replicas
 }
 
+func (registry *Registry) embeddingReplicasLocked(publicID string) []Model {
+	replicas := make([]Model, 0)
+	for _, model := range registry.view {
+		if registry.embeddingModelSelectableLocked(model, publicID) {
+			replicas = append(replicas, model)
+		}
+	}
+	sort.Slice(replicas, func(left, right int) bool {
+		return routeSortKey(replicas[left]) < routeSortKey(replicas[right])
+	})
+	return replicas
+}
+
 func (registry *Registry) imageReplicasLocked(publicImageID string, activeConfigFilename string) []Model {
 	replicas := make([]Model, 0)
 	for _, model := range registry.view {
@@ -276,6 +316,13 @@ func (registry *Registry) imageReplicasLocked(publicImageID string, activeConfig
 		return routeSortKey(replicas[left]) < routeSortKey(replicas[right])
 	})
 	return replicas
+}
+
+func (registry *Registry) embeddingModelSelectableLocked(model Model, publicID string) bool {
+	if model.PublicID == publicID {
+		return model.HasEmbeddings || model.HasLLM
+	}
+	return model.HasEmbeddings && model.PublicImageID == publicID
 }
 
 func (registry *Registry) imageModelSelectableLocked(model Model, activeConfigFilename string) bool {

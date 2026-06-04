@@ -1065,6 +1065,54 @@ func TestEmbeddingsPassThroughWithModelValidation(t *testing.T) {
 	}
 }
 
+func TestEmbeddingRequestCanUseImageModelAlias(t *testing.T) {
+	var sawTextBody bool
+	service, textBackend, imageBackend := newSplitTestServiceWithConfigContents(
+		t,
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"imageembed"}]}`))
+				return
+			}
+			if r.URL.Path != "/v1/embeddings" {
+				t.Fatalf("unexpected text path %s", r.URL.Path)
+			}
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			sawTextBody = strings.Contains(string(body), `"model":"imageembed"`) && !strings.Contains(string(body), "perfectdeliberate")
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"model":"imageembed","data":[]}`))
+		}),
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			t.Fatalf("unexpected image path %s", r.URL.Path)
+		}),
+		map[string]string{
+			"imageembed": `{"nomodel":true,"sdmodel":"C:\\models\\perfectdeliberate_v90.safetensors","embeddingsmodel":"C:\\models\\embed.gguf"}`,
+		},
+	)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(`{"model":"imageembed-perfectdeliberate_v90","input":"hello"}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !sawTextBody {
+		t.Fatalf("backend did not receive the text model alias")
+	}
+	if !strings.Contains(recorder.Body.String(), `"model":"imageembed-perfectdeliberate_v90"`) {
+		t.Fatalf("embedding response model was not rewritten: %s", recorder.Body.String())
+	}
+	if textBackend.reloads.Load() != 1 || imageBackend.reloads.Load() != 0 {
+		t.Fatalf("unexpected reload counts text=%d image=%d", textBackend.reloads.Load(), imageBackend.reloads.Load())
+	}
+}
+
 func TestImageModelListUsesImageEndpoints(t *testing.T) {
 	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -1784,6 +1832,53 @@ func TestClusterRemoteEmbeddingsRequestRewritesModelBothWays(t *testing.T) {
 	}
 }
 
+func TestClusterRemoteEmbeddingsRequestCanUsePublicImageID(t *testing.T) {
+	var sawAuthorization bool
+	var sawLocalModel bool
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/embeddings" {
+			t.Fatalf("unexpected remote path %s", r.URL.Path)
+		}
+		sawAuthorization = r.Header.Get("Authorization") == "Bearer secret"
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sawLocalModel = strings.Contains(string(body), `"model":"imageembed"`) && !strings.Contains(string(body), "perfectdeliberate")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"imageembed","data":[]}`))
+	}))
+	defer remote.Close()
+
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
+	if err := registry.UpdateNode(cluster.Snapshot{
+		NodeID:  "slave-a",
+		NodeURL: remote.URL,
+		Models:  []cluster.Model{testClusterImageEmbeddingModel("imageembed", "slave-a", "slave-hash", "config-hash", cluster.SourceSlave, "perfectdeliberate_v90")},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service, _ := newTestServiceWithRegistry(t, registry, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), "secret")
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(`{"model":"imageembed-perfectdeliberate_v90","input":"hello"}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !sawAuthorization {
+		t.Fatalf("cluster authorization was not forwarded")
+	}
+	if !sawLocalModel {
+		t.Fatalf("remote did not receive local embedding model id")
+	}
+	if !strings.Contains(recorder.Body.String(), `"model":"imageembed-perfectdeliberate_v90"`) {
+		t.Fatalf("embedding response model was not rewritten: %s", recorder.Body.String())
+	}
+}
+
 func TestRouterUnloadCallsBackendUnload(t *testing.T) {
 	service, backend := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
@@ -2028,6 +2123,18 @@ func testClusterEmbeddingModel(id string, nodeID string, modelHash string, confi
 	model.HasEmbeddings = true
 	model.Capabilities.Embeddings = &catalog.EmbeddingCapability{
 		Model: "C:/models/" + id + ".gguf",
+	}
+	return model
+}
+
+func testClusterImageEmbeddingModel(id string, nodeID string, modelHash string, configHash string, source string, imageName string) cluster.Model {
+	model := testClusterEmbeddingModel(id, nodeID, modelHash, configHash, source)
+	model.HasImage = true
+	model.ImageID = id + "-" + imageName
+	model.PublicImageID = model.ImageID
+	model.BackendMode = BackendModeLlamaSDCPP
+	model.Capabilities.Image = &catalog.ImageCapabilities{
+		Model: "C:/models/" + imageName + ".safetensors",
 	}
 	return model
 }
