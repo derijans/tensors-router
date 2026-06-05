@@ -35,6 +35,7 @@ type AuthConfig struct {
 type ModelsConfig struct {
 	ConfigDir    string
 	StartupModel string
+	FileRoots    []string
 }
 
 type BackendConfig struct {
@@ -105,6 +106,7 @@ func Defaults() Config {
 		},
 		Models: ModelsConfig{
 			ConfigDir: "./kcpps",
+			FileRoots: []string{},
 		},
 		Backend: BackendConfig{
 			Mode: "kobold",
@@ -185,6 +187,11 @@ func validate(cfg Config) error {
 	}
 	if cfg.Models.ConfigDir == "" {
 		return fmt.Errorf("models.config_dir is required")
+	}
+	for _, root := range cfg.Models.FileRoots {
+		if strings.TrimSpace(root) == "" {
+			return fmt.Errorf("models.file_roots cannot contain empty paths")
+		}
 	}
 	switch cfg.Backend.Mode {
 	case "kobold", "llama_sdcpp":
@@ -699,6 +706,11 @@ func setListValue(cfg *Config, section string, key string, values []string) erro
 			cfg.Auth.BearerKeys = values
 			return nil
 		}
+	case "models":
+		if key == "file_roots" {
+			cfg.Models.FileRoots = values
+			return nil
+		}
 	case "kobold":
 		if key == "extra_args" {
 			cfg.Kobold.ExtraArgs = values
@@ -733,6 +745,11 @@ func appendListValue(cfg *Config, section string, key string, value string) erro
 	case "auth":
 		if key == "bearer_keys" {
 			cfg.Auth.BearerKeys = append(cfg.Auth.BearerKeys, value)
+			return nil
+		}
+	case "models":
+		if key == "file_roots" {
+			cfg.Models.FileRoots = append(cfg.Models.FileRoots, value)
 			return nil
 		}
 	case "kobold":

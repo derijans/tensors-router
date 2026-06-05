@@ -13,6 +13,8 @@ auth:
 models:
   config_dir: "./kcpps"
   startup_model: ""
+  file_roots:
+    - "./models"
 
 backend:
   mode: "kobold"

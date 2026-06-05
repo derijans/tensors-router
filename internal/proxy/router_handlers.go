@@ -19,11 +19,27 @@ type modelControlRequest struct {
 
 func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Request) {
 	switch {
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/inventory":
+		service.handleSiteInventory(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/cook/preview":
+		service.handleSiteCookPreview(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/cook/apply":
+		service.handleSiteCookApply(w, r)
+	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/router/v1/site/cook/"):
+		service.handleSiteCookDelete(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/models":
 		service.handleRouterModels(w)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/models":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeModels(w)
+		}
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/site/inventory":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeSiteInventory(w)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/configs":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeSiteConfigs(w, r)
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/register":
 		if service.requireClusterToken(w, r) {
@@ -126,6 +142,9 @@ func (service *Service) handleRouterUnload(w http.ResponseWriter, r *http.Reques
 
 func (service *Service) loadPublicModel(ctx context.Context, publicID string) error {
 	publicID = strings.TrimSpace(publicID)
+	if handled, err := service.loadRecipe(ctx, publicID); handled || err != nil {
+		return err
+	}
 	if service.registry != nil && service.registry.HasModel(publicID) {
 		route, release, ok := service.registry.Acquire(publicID, service.textRuntime.backend.Healthy(ctx))
 		if !ok {

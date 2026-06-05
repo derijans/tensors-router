@@ -497,11 +497,11 @@ func ensureExtractionRoot(root string) error {
 }
 
 func validateRealArchiveOutputPath(root string, outputPath string, name string) error {
-	rootReal, err := filepath.EvalSymlinks(root)
+	rootReal, err := resolveArchivePath(root)
 	if err != nil {
 		return err
 	}
-	outputReal, err := filepath.EvalSymlinks(outputPath)
+	outputReal, err := resolveArchivePath(outputPath)
 	if err != nil {
 		return err
 	}
@@ -513,6 +513,22 @@ func validateRealArchiveOutputPath(root string, outputPath string, name string) 
 		return fmt.Errorf("archive entry %q escapes extraction directory", name)
 	}
 	return nil
+}
+
+func resolveArchivePath(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return resolved, nil
+	}
+	info, statErr := os.Lstat(path)
+	if statErr == nil && info.Mode()&os.ModeSymlink == 0 {
+		absolute, absErr := filepath.Abs(path)
+		if absErr != nil {
+			return "", absErr
+		}
+		return absolute, nil
+	}
+	return "", err
 }
 
 func writeExtractedFile(root string, name string, input io.Reader, mode os.FileMode) error {

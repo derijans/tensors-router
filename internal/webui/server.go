@@ -1,0 +1,207 @@
+package webui
+
+import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+)
+
+type Server struct {
+	config   Config
+	router   *RouterProcess
+	sessions *SessionManager
+	client   *http.Client
+	static   http.Handler
+}
+
+type loginRequest struct {
+	Token string `json:"token"`
+}
+
+func NewServer(config Config, router *RouterProcess, sessions *SessionManager) *Server {
+	return &Server{
+		config:   config,
+		router:   router,
+		sessions: sessions,
+		client:   &http.Client{Timeout: 0},
+		static:   http.FileServer(http.FS(AssetFS())),
+	}
+}
+
+func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		server.handleAPI(w, r)
+		return
+	}
+	if r.URL.Path == "/" {
+		r.URL.Path = "/index.html"
+	}
+	server.static.ServeHTTP(w, r)
+}
+
+func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/api/login" && r.Method == http.MethodPost {
+		server.handleLogin(w, r)
+		return
+	}
+	if !server.sessions.Authorized(r) {
+		writeWebError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	if stateChangingMethod(r.Method) && !server.sessions.ValidCSRF(r) {
+		writeWebError(w, http.StatusForbidden, "invalid csrf token")
+		return
+	}
+	switch {
+	case r.URL.Path == "/api/session" && r.Method == http.MethodGet:
+		server.handleSession(w, r)
+	case r.URL.Path == "/api/logout" && r.Method == http.MethodPost:
+		server.sessions.Logout(w, r)
+		writeWebJSON(w, http.StatusOK, map[string]any{"ok": true})
+	case r.URL.Path == "/api/router/status" && r.Method == http.MethodGet:
+		writeWebJSON(w, http.StatusOK, server.router.Status(r.Context()))
+	case r.URL.Path == "/api/router/launch" && r.Method == http.MethodPost:
+		server.handleRouterAction(w, r, "launch")
+	case r.URL.Path == "/api/router/restart" && r.Method == http.MethodPost:
+		server.handleRouterAction(w, r, "restart")
+	case r.URL.Path == "/api/router/kill" && r.Method == http.MethodPost:
+		server.handleRouterAction(w, r, "kill")
+	case r.URL.Path == "/api/inventory" && r.Method == http.MethodGet:
+		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/inventory")
+	case r.URL.Path == "/api/cook/preview" && r.Method == http.MethodPost:
+		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/cook/preview")
+	case r.URL.Path == "/api/cook/apply" && r.Method == http.MethodPost:
+		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/cook/apply")
+	case strings.HasPrefix(r.URL.Path, "/api/cook/") && r.Method == http.MethodDelete:
+		id := strings.TrimPrefix(r.URL.Path, "/api/cook/")
+		server.proxyRouter(w, r, http.MethodDelete, "/router/v1/site/cook/"+id)
+	default:
+		writeWebError(w, http.StatusNotFound, "not found")
+	}
+}
+
+func (server *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	var request loginRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeWebError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	session, ok := server.sessions.Login(w, strings.TrimSpace(request.Token))
+	if !ok {
+		writeWebError(w, http.StatusUnauthorized, "invalid token")
+		return
+	}
+	writeWebJSON(w, http.StatusOK, map[string]any{
+		"authenticated": true,
+		"csrf":          session.CSRF,
+	})
+}
+
+func (server *Server) handleSession(w http.ResponseWriter, r *http.Request) {
+	session, ok := server.sessions.Session(r)
+	if !ok {
+		writeWebError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	writeWebJSON(w, http.StatusOK, map[string]any{
+		"authenticated": true,
+		"csrf":          session.CSRF,
+	})
+}
+
+func (server *Server) handleRouterAction(w http.ResponseWriter, r *http.Request, action string) {
+	ctx := r.Context()
+	var err error
+	switch action {
+	case "launch":
+		err = server.router.Launch(ctx)
+	case "restart":
+		err = server.router.Restart(ctx)
+	case "kill":
+		err = server.router.Kill(ctx)
+	}
+	if err != nil {
+		writeWebError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeWebJSON(w, http.StatusOK, server.router.Status(ctx))
+}
+
+func (server *Server) proxyRouter(w http.ResponseWriter, r *http.Request, method string, path string) {
+	if err := server.router.EnsureStarted(r.Context()); err != nil {
+		writeWebError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	var body io.Reader
+	if r.Body != nil {
+		content, err := io.ReadAll(r.Body)
+		if err != nil {
+			writeWebError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		body = bytes.NewReader(content)
+	}
+	target := strings.TrimRight(server.router.URL(), "/") + path
+	request, err := http.NewRequestWithContext(r.Context(), method, target, body)
+	if err != nil {
+		writeWebError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	request.Header.Set("Accept", "application/json")
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	if token := strings.TrimSpace(server.config.Router.Token); token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
+	response, err := server.client.Do(request)
+	if err != nil {
+		writeWebError(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	defer response.Body.Close()
+	copyWebHeaders(w.Header(), response.Header)
+	w.WriteHeader(response.StatusCode)
+	_, _ = io.Copy(w, response.Body)
+}
+
+func stateChangingMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return false
+	default:
+		return true
+	}
+}
+
+func writeWebJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(value)
+}
+
+func writeWebError(w http.ResponseWriter, status int, message string) {
+	writeWebJSON(w, status, map[string]any{"error": message})
+}
+
+func copyWebHeaders(dst http.Header, src http.Header) {
+	for key, values := range src {
+		if strings.EqualFold(key, "Content-Length") || strings.EqualFold(key, "Transfer-Encoding") {
+			continue
+		}
+		for _, value := range values {
+			dst.Add(key, value)
+		}
+	}
+}
+
+func WebHTTPServer(bind string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr:              bind,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+}

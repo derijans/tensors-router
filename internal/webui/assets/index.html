@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>tensor-reuter-webui</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <main class="shell">
+    <section id="loginView" class="login-panel">
+      <h1>tensor-reuter-webui</h1>
+      <form id="loginForm" class="login-form">
+        <label for="tokenInput">Admin token</label>
+        <div class="inline-row">
+          <input id="tokenInput" name="token" type="password" autocomplete="current-password" required>
+          <button type="submit">Login</button>
+        </div>
+      </form>
+      <p id="loginError" class="error-text"></p>
+    </section>
+
+    <section id="appView" class="app-view hidden">
+      <header class="topbar">
+        <div>
+          <h1>tensor-reuter-webui</h1>
+          <p id="routerSummary"></p>
+        </div>
+        <div class="top-actions">
+          <button id="refreshButton" type="button">Refresh</button>
+          <button id="logoutButton" type="button">Logout</button>
+        </div>
+      </header>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Router</h2>
+          <div class="button-strip">
+            <button id="launchButton" type="button">Launch</button>
+            <button id="restartButton" type="button">Restart</button>
+            <button id="killButton" type="button">Kill</button>
+          </div>
+        </div>
+        <div id="routerStatus" class="status-grid"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Nodes</h2>
+          <span id="nodeCount" class="pill"></span>
+        </div>
+        <div id="nodesGrid" class="cards-grid"></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Models And Files</h2>
+          <input id="filterInput" type="search" placeholder="Filter models, files, nodes">
+        </div>
+        <div class="tables">
+          <div>
+            <h3>Configs</h3>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>ID</th>
+                    <th>Node</th>
+                    <th>Backend</th>
+                    <th>Capabilities</th>
+                    <th>Available</th>
+                  </tr>
+                </thead>
+                <tbody id="modelsTable"></tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <h3>Files</h3>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Node</th>
+                    <th>Role</th>
+                    <th>Size</th>
+                  </tr>
+                </thead>
+                <tbody id="filesTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Cook Models</h2>
+          <label class="overwrite-row">
+            <input id="overwriteInput" type="checkbox">
+            <span>Overwrite</span>
+          </label>
+        </div>
+        <form id="cookForm" class="cook-grid">
+          <label>
+            Config id
+            <input id="cookIdInput" type="text" required placeholder="my-mixed-model">
+          </label>
+          <label>
+            LLM
+            <select id="llmSelect"></select>
+          </label>
+          <label>
+            Image
+            <select id="imageSelect"></select>
+          </label>
+          <label>
+            Embeddings
+            <select id="embeddingSelect"></select>
+          </label>
+          <div class="cook-actions">
+            <button id="previewButton" type="button">Preview</button>
+            <button type="submit">Apply</button>
+          </div>
+        </form>
+        <pre id="cookOutput" class="output"></pre>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Master Recipes</h2>
+          <span id="recipeCount" class="pill"></span>
+        </div>
+        <div id="recipesList" class="recipe-list"></div>
+      </section>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -10,6 +10,7 @@ It exposes text configs as `/v1/models`, exposes image configs through image mod
 
 ```bash
 go build -o tensors-router ./cmd/tensors-router
+go build -o tensor-reuter-webui ./cmd/tensor-reuter-webui
 ```
 
 Linux amd64:
@@ -18,10 +19,11 @@ Linux amd64:
 make build-linux
 ```
 
-Equivalent command:
+Equivalent commands:
 
 ```bash
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-s -w" -o dist/tensors-router-linux-amd64 ./cmd/tensors-router
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-s -w" -o dist/tensor-reuter-webui-linux-amd64 ./cmd/tensor-reuter-webui
 ```
 
 ## Configure
@@ -55,6 +57,8 @@ auth:
 models:
   config_dir: "./kcpps"
   startup_model: ""
+  file_roots:
+    - "./models"
 
 backend:
   mode: "kobold"
@@ -104,6 +108,8 @@ cluster:
   health_interval: "15s"
 ```
 
+`models.file_roots` is optional and used only by the management web UI model-file inventory and cooking APIs. The scanner is limited to those roots.
+
 ## Download Backends
 
 ```bash
@@ -119,6 +125,17 @@ In `llama_sdcpp` mode this downloads both `llama.binary_path` and `sdcpp.binary_
 ```bash
 ./tensors-router serve --config config.yaml
 ```
+
+The router does not require the web UI.
+
+Optional web UI:
+
+```bash
+cp webui.example.yaml webui.yaml
+./tensor-reuter-webui --config webui.yaml
+```
+
+If `router.url` is empty, `tensor-reuter-webui` looks beside itself for `tensors-router`, launches it with `router.config_path`, and stops that managed router process when the web UI exits. If `router.url` is set, the router is treated as external and launch/restart/kill controls are disabled. The web UI serves HTTPS with a self-signed certificate from `server.state_dir` unless cert files are configured.
 
 List LLM models:
 
@@ -214,6 +231,12 @@ curl -X POST http://127.0.0.1:8080/router/v1/unload
 ```
 
 Unload restarts KoboldCpp in no-model mode and clears the router active config.
+
+## Management Web UI API
+
+Standalone and master routers expose `/router/v1/site/...` for the optional web UI. Slaves do not expose those browser-facing endpoints; they only accept cluster-token worker calls under `/router/v1/node/site/...`.
+
+The cooking flow can create normal `.kcpps` configs on one node, or store a master split recipe in `cluster.store_dir` when selected LLM, image, and embedding components live on different machines.
 
 ## Cluster Routing
 

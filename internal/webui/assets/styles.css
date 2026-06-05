@@ -1,0 +1,304 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #0c1014;
+  color: #e7edf4;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: #0c1014;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+button {
+  border: 1px solid #52616f;
+  background: #18232d;
+  color: #f5f7fa;
+  border-radius: 6px;
+  min-height: 36px;
+  padding: 0 14px;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #22303c;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+input,
+select {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid #34424f;
+  border-radius: 6px;
+  background: #101820;
+  color: #e7edf4;
+  padding: 0 10px;
+}
+
+label {
+  display: grid;
+  gap: 7px;
+  color: #aeb9c4;
+  font-size: 13px;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+}
+
+h1 {
+  font-size: 22px;
+  font-weight: 700;
+}
+
+h2 {
+  font-size: 16px;
+  font-weight: 700;
+}
+
+h3 {
+  color: #c7d0da;
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+
+.shell {
+  width: min(1440px, 100%);
+  margin: 0 auto;
+  padding: 22px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.login-panel {
+  display: grid;
+  gap: 18px;
+  width: min(460px, 100%);
+  margin: 15vh auto 0;
+  padding: 24px;
+  border: 1px solid #24313d;
+  border-radius: 8px;
+  background: #111920;
+}
+
+.login-form {
+  display: grid;
+  gap: 10px;
+}
+
+.inline-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px;
+}
+
+.error-text {
+  color: #ff8c8c;
+  min-height: 20px;
+}
+
+.app-view {
+  display: grid;
+  gap: 18px;
+}
+
+.topbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 0 4px;
+}
+
+.topbar p {
+  color: #93a0ad;
+  margin-top: 4px;
+}
+
+.top-actions,
+.button-strip,
+.cook-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.panel {
+  border: 1px solid #24313d;
+  border-radius: 8px;
+  background: #111920;
+  padding: 16px;
+}
+
+.panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.status-grid,
+.cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.status-item,
+.node-card,
+.recipe-item {
+  border: 1px solid #263542;
+  border-radius: 8px;
+  background: #0e151c;
+  padding: 12px;
+}
+
+.status-label {
+  color: #8996a3;
+  font-size: 12px;
+}
+
+.status-value {
+  margin-top: 4px;
+  overflow-wrap: anywhere;
+}
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  border: 1px solid #34424f;
+  border-radius: 999px;
+  color: #b8c4cf;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.tables {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.table-wrap {
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid #263542;
+  border-radius: 8px;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+th,
+td {
+  text-align: left;
+  border-bottom: 1px solid #263542;
+  padding: 9px 10px;
+  vertical-align: top;
+}
+
+th {
+  position: sticky;
+  top: 0;
+  background: #15202a;
+  color: #c3ced8;
+  z-index: 1;
+}
+
+td {
+  color: #d9e1e8;
+}
+
+.muted {
+  color: #8996a3;
+}
+
+.cook-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  gap: 12px;
+}
+
+.cook-actions {
+  align-items: end;
+}
+
+.overwrite-row {
+  display: flex;
+  grid-auto-flow: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.overwrite-row input {
+  width: 18px;
+  min-height: 18px;
+}
+
+.output {
+  min-height: 120px;
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid #263542;
+  border-radius: 8px;
+  background: #0a0f14;
+  color: #d7e1eb;
+  padding: 12px;
+  white-space: pre-wrap;
+}
+
+.recipe-list {
+  display: grid;
+  gap: 10px;
+}
+
+.recipe-item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+@media (max-width: 900px) {
+  .topbar,
+  .panel-head,
+  .recipe-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .tables,
+  .cook-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .inline-row {
+    grid-template-columns: 1fr;
+  }
+}

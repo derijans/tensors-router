@@ -21,6 +21,7 @@ import (
 	"tensors-router/internal/kobold"
 	"tensors-router/internal/native"
 	"tensors-router/internal/proxy"
+	"tensors-router/internal/recipes"
 	routerupdate "tensors-router/internal/update"
 )
 
@@ -85,6 +86,10 @@ func runServe(args []string) error {
 		return err
 	}
 	registry := routercluster.NewRegistry(cfg.Cluster.Role, cfg.Cluster.NodeID, cfg.Cluster.PublicURL)
+	recipeStore, err := recipes.NewStore(cfg.Cluster.StoreDir)
+	if err != nil {
+		return err
+	}
 	localSource := routercluster.SourceLocal
 	if cfg.Cluster.Role == routercluster.RoleMaster {
 		localSource = routercluster.SourceMaster
@@ -134,6 +139,13 @@ func runServe(args []string) error {
 		Registry:      registry,
 		ClusterToken:  cfg.Cluster.Token,
 		ClusterClient: clusterClient,
+		ClusterRole:   cfg.Cluster.Role,
+		NodeID:        cfg.Cluster.NodeID,
+		NodeURL:       cfg.Cluster.PublicURL,
+		SlaveURLs:     cfg.Cluster.SlaveURLs,
+		ConfigDir:     cfg.Models.ConfigDir,
+		FileRoots:     cfg.Models.FileRoots,
+		RecipeStore:   recipeStore,
 		Logger:        serveLogger,
 	})
 	routercluster.StartSync(ctx, syncConfig, registry, clusterClient, serveLogger)

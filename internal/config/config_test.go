@@ -25,6 +25,9 @@ auth:
 models:
   config_dir: "./models"
   startup_model: "alpha"
+  file_roots:
+    - "C:/models"
+    - "D:/assets"
 
 backend:
   mode: "llama_sdcpp"
@@ -104,6 +107,9 @@ cluster:
 	}
 	if cfg.Models.StartupModel != "alpha" {
 		t.Fatalf("unexpected startup model %q", cfg.Models.StartupModel)
+	}
+	if !reflect.DeepEqual(cfg.Models.FileRoots, []string{"C:/models", "D:/assets"}) {
+		t.Fatalf("unexpected file roots %#v", cfg.Models.FileRoots)
 	}
 	if cfg.Backend.Mode != "llama_sdcpp" {
 		t.Fatalf("unexpected backend mode %q", cfg.Backend.Mode)

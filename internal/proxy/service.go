@@ -18,6 +18,7 @@ import (
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
+	"tensors-router/internal/recipes"
 )
 
 type Backend interface {
@@ -46,6 +47,13 @@ type ServiceConfig struct {
 	Registry      *cluster.Registry
 	ClusterToken  string
 	ClusterClient *cluster.Client
+	ClusterRole   string
+	NodeID        string
+	NodeURL       string
+	SlaveURLs     []string
+	ConfigDir     string
+	FileRoots     []string
+	RecipeStore   *recipes.Store
 	Logger        *log.Logger
 }
 
@@ -58,6 +66,13 @@ type Service struct {
 	registry      *cluster.Registry
 	clusterToken  string
 	clusterClient *cluster.Client
+	clusterRole   string
+	nodeID        string
+	nodeURL       string
+	slaveURLs     []string
+	configDir     string
+	fileRoots     []string
+	recipeStore   *recipes.Store
 	client        *http.Client
 	logger        *log.Logger
 
@@ -132,6 +147,14 @@ func NewService(config ServiceConfig) *Service {
 	if backendMode == "" {
 		backendMode = BackendModeKobold
 	}
+	clusterRole := strings.TrimSpace(config.ClusterRole)
+	if clusterRole == "" {
+		clusterRole = cluster.RoleStandalone
+	}
+	nodeID := strings.TrimSpace(config.NodeID)
+	if nodeID == "" {
+		nodeID = "local"
+	}
 	textBackend := config.TextBackend
 	if textBackend == nil {
 		textBackend = config.Backend
@@ -151,6 +174,13 @@ func NewService(config ServiceConfig) *Service {
 		catalog:      config.Catalog,
 		registry:     config.Registry,
 		clusterToken: config.ClusterToken,
+		clusterRole:  clusterRole,
+		nodeID:       nodeID,
+		nodeURL:      strings.TrimSpace(config.NodeURL),
+		slaveURLs:    append([]string{}, config.SlaveURLs...),
+		configDir:    strings.TrimSpace(config.ConfigDir),
+		fileRoots:    append([]string{}, config.FileRoots...),
+		recipeStore:  config.RecipeStore,
 		logger:       logger,
 		client: &http.Client{
 			Timeout: 0,
@@ -310,6 +340,9 @@ func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Reques
 			return
 		}
 		if hasModel {
+			if service.handleRecipeImageRequest(w, r, body, modelID) {
+				return
+			}
 			if service.registry != nil && service.handleRegistryImageOptions(w, r, body, modelID) {
 				return
 			}
@@ -363,6 +396,9 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 
 	var model catalog.Model
 	if hasModel {
+		if service.handleRecipeImageRequest(w, r, body, modelID) {
+			return
+		}
 		if service.registry != nil && service.handleRegistryImageRequest(w, r, body, modelID) {
 			return
 		}
@@ -467,6 +503,10 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 	if requireModel && !hasModel {
 		service.logger.Printf("model missing path=%s remote=%s", r.URL.Path, r.RemoteAddr)
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "model is required")
+		return
+	}
+
+	if hasModel && service.handleRecipeModelRequest(w, r, body, modelID) {
 		return
 	}
 
