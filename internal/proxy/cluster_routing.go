@@ -168,7 +168,11 @@ func (service *Service) handleRegistryImageOptions(w http.ResponseWriter, r *htt
 }
 
 func (service *Service) forwardRemote(ctx context.Context, original *http.Request, body []byte, route cluster.Route) (*http.Response, error) {
-	target, err := url.Parse(route.NodeURL)
+	baseURL, err := service.clusterClient.AuthorizedBaseURL(route.NodeURL)
+	if err != nil {
+		return nil, err
+	}
+	target, err := url.Parse(baseURL)
 	if err != nil {
 		return nil, err
 	}

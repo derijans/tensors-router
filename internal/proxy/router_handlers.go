@@ -101,11 +101,35 @@ func (service *Service) handleNodeRegister(w http.ResponseWriter, r *http.Reques
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
+	if err := service.allowRegisteredNodeURL(snapshot.NodeURL); err != nil {
+		openai.WriteError(w, http.StatusBadRequest, "cluster_error", err.Error())
+		return
+	}
 	if err := service.registry.UpdateNode(snapshot); err != nil {
 		openai.WriteError(w, http.StatusBadRequest, "cluster_error", err.Error())
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (service *Service) allowRegisteredNodeURL(nodeURL string) error {
+	nodeURL = strings.TrimSpace(nodeURL)
+	if nodeURL == "" {
+		return nil
+	}
+	if len(service.slaveURLs) > 0 && !configuredBaseURL(nodeURL, service.slaveURLs) {
+		return fmt.Errorf("node url %q is not configured", nodeURL)
+	}
+	return service.clusterClient.AllowBaseURLs(nodeURL)
+}
+
+func configuredBaseURL(nodeURL string, configured []string) bool {
+	for _, value := range configured {
+		if cluster.BaseURLEqual(nodeURL, value) {
+			return true
+		}
+	}
+	return false
 }
 
 func (service *Service) handleRouterLoad(w http.ResponseWriter, r *http.Request) {

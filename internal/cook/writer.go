@@ -56,9 +56,9 @@ func (writer Writer) write(request NodeConfigRequest) (ConfigResult, error) {
 	}
 
 	filename := id + ".kcpps"
-	target := filepath.Join(writer.ConfigDir, filename)
-	if filename != filepath.Base(filename) {
-		return ConfigResult{}, fmt.Errorf("config filename is invalid")
+	target, err := writer.configTarget(filename)
+	if err != nil {
+		return ConfigResult{}, err
 	}
 	exists := false
 	if _, err := os.Stat(target); err == nil {
@@ -157,10 +157,11 @@ func (writer Writer) composedConfig(components []Component) (map[string]json.Raw
 		switch component.Kind {
 		case KindText:
 			if source == SourceFile {
-				if err := writer.validateRawFile(component.FilePath); err != nil {
+				filePath, err := writer.validateRawFile(component.FilePath)
+				if err != nil {
 					return nil, "", err
 				}
-				setJSONString(body, "model_param", component.FilePath)
+				setJSONString(body, "model_param", filePath)
 				setJSONBool(body, "nomodel", false)
 				continue
 			}
@@ -172,10 +173,11 @@ func (writer Writer) composedConfig(components []Component) (map[string]json.Raw
 			setJSONBool(body, "nomodel", false)
 		case KindEmbeddings:
 			if source == SourceFile {
-				if err := writer.validateRawFile(component.FilePath); err != nil {
+				filePath, err := writer.validateRawFile(component.FilePath)
+				if err != nil {
 					return nil, "", err
 				}
-				setJSONString(body, "embeddingsmodel", component.FilePath)
+				setJSONString(body, "embeddingsmodel", filePath)
 				continue
 			}
 			sourceBody, err := writer.configBody(component)
@@ -185,11 +187,12 @@ func (writer Writer) composedConfig(components []Component) (map[string]json.Raw
 			copyKeys(body, sourceBody, embeddingKeys)
 		case KindImage:
 			if source == SourceFile {
-				if err := writer.validateRawFile(component.FilePath); err != nil {
+				filePath, err := writer.validateRawFile(component.FilePath)
+				if err != nil {
 					return nil, "", err
 				}
-				setJSONString(body, "sdmodel", component.FilePath)
-				imagePath = component.FilePath
+				setJSONString(body, "sdmodel", filePath)
+				imagePath = filePath
 				continue
 			}
 			sourceBody, err := writer.configBody(component)
@@ -256,44 +259,35 @@ func (writer Writer) resolveComponentModel(component Component) (catalog.Model, 
 	}
 }
 
-func (writer Writer) validateRawFile(path string) error {
+func (writer Writer) validateRawFile(path string) (string, error) {
 	path = strings.TrimSpace(path)
 	if path == "" {
-		return fmt.Errorf("file path is required")
+		return "", fmt.Errorf("file path is required")
 	}
-	absolutePath, err := filepath.Abs(path)
+	requestedPath, err := filepath.Abs(path)
 	if err != nil {
-		return err
+		return "", err
 	}
-	info, err := os.Stat(absolutePath)
+	requestedPath = filepath.Clean(requestedPath)
+	roots, err := writer.fileRootTargets()
 	if err != nil {
-		return err
+		return "", err
 	}
-	if info.IsDir() {
-		return fmt.Errorf("file path must point to a file")
-	}
-	for _, root := range writer.FileRoots {
-		root = strings.TrimSpace(root)
-		if root == "" {
+	for _, root := range roots {
+		relative, ok := root.relativePath(requestedPath)
+		if !ok {
 			continue
 		}
-		absoluteRoot, err := filepath.Abs(root)
+		resolvedFile, info, err := root.resolveRelative(relative)
 		if err != nil {
-			return err
+			return "", err
 		}
-		resolvedRoot, err := resolveExistingPath(absoluteRoot)
-		if err != nil {
-			return err
+		if info.IsDir() {
+			return "", fmt.Errorf("file path must point to a file")
 		}
-		resolvedFile, err := resolveExistingPath(absolutePath)
-		if err != nil {
-			return err
-		}
-		if insideRoot(resolvedRoot, resolvedFile) {
-			return nil
-		}
+		return resolvedFile, nil
 	}
-	return fmt.Errorf("file path is outside configured model roots")
+	return "", fmt.Errorf("file path is outside configured model roots")
 }
 
 func normalizedComponents(components []Component) ([]Component, error) {
@@ -364,6 +358,9 @@ func SanitizedID(id string) (string, error) {
 	if id == "" {
 		return "", fmt.Errorf("id is required")
 	}
+	if filepath.IsAbs(id) || filepath.VolumeName(id) != "" || strings.ContainsAny(id, `/\`) {
+		return "", fmt.Errorf("id is invalid")
+	}
 	var builder strings.Builder
 	lastDash := false
 	for _, char := range strings.ToLower(id) {
@@ -392,6 +389,178 @@ func SanitizedID(id string) (string, error) {
 		return "", fmt.Errorf("id is invalid")
 	}
 	return result, nil
+}
+
+func (writer Writer) configTarget(filename string) (string, error) {
+	filename = strings.TrimSpace(filename)
+	if filename == "" || filename != filepath.Base(filename) || !filepath.IsLocal(filename) {
+		return "", fmt.Errorf("config filename is invalid")
+	}
+	configDir, err := filepath.Abs(strings.TrimSpace(writer.ConfigDir))
+	if err != nil {
+		return "", err
+	}
+	configDir = filepath.Clean(configDir)
+	target := filepath.Clean(filepath.Join(configDir, filename))
+	if !insideRoot(configDir, target) {
+		return "", fmt.Errorf("config filename is invalid")
+	}
+	return target, nil
+}
+
+type fileRootTarget struct {
+	absolute string
+	resolved string
+}
+
+func (writer Writer) fileRootTargets() ([]fileRootTarget, error) {
+	result := make([]fileRootTarget, 0, len(writer.FileRoots))
+	for _, root := range writer.FileRoots {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		absoluteRoot, err := filepath.Abs(root)
+		if err != nil {
+			return nil, err
+		}
+		absoluteRoot = filepath.Clean(absoluteRoot)
+		resolvedRoot, err := resolveCleanPath(absoluteRoot)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, fileRootTarget{
+			absolute: absoluteRoot,
+			resolved: filepath.Clean(resolvedRoot),
+		})
+	}
+	return result, nil
+}
+
+func (root fileRootTarget) relativePath(requestedPath string) (string, bool) {
+	for _, base := range uniquePaths(root.absolute, root.resolved) {
+		relative, err := filepath.Rel(base, requestedPath)
+		if err != nil {
+			continue
+		}
+		relative = filepath.Clean(relative)
+		if relative == "." || !filepath.IsLocal(relative) {
+			continue
+		}
+		return relative, true
+	}
+	return "", false
+}
+
+func (root fileRootTarget) resolveRelative(relative string) (string, os.FileInfo, error) {
+	relative = filepath.Clean(relative)
+	if relative == "." || !filepath.IsLocal(relative) {
+		return "", nil, fmt.Errorf("file path is outside configured model roots")
+	}
+	current := root.resolved
+	parts := localPathParts(relative)
+	var info os.FileInfo
+	for index, part := range parts {
+		entry, err := childEntry(current, part)
+		if err != nil {
+			return "", nil, err
+		}
+		next := filepath.Clean(filepath.Join(current, entry.Name()))
+		if entry.Type()&os.ModeSymlink != 0 {
+			resolved, resolvedInfo, err := resolvedChild(root.resolved, next)
+			if err != nil {
+				return "", nil, err
+			}
+			current = resolved
+			info = resolvedInfo
+		} else {
+			entryInfo, err := entry.Info()
+			if err != nil {
+				return "", nil, err
+			}
+			current = next
+			info = entryInfo
+		}
+		if index < len(parts)-1 && !info.IsDir() {
+			return "", nil, fmt.Errorf("file path was not found")
+		}
+	}
+	if info == nil {
+		return "", nil, fmt.Errorf("file path was not found")
+	}
+	if !insideRoot(root.resolved, current) {
+		return "", nil, fmt.Errorf("file path is outside configured model roots")
+	}
+	return current, info, nil
+}
+
+func childEntry(dir string, name string) (os.DirEntry, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	for _, entry := range entries {
+		if entry.Name() == name {
+			return entry, nil
+		}
+	}
+	return nil, fmt.Errorf("file path was not found")
+}
+
+func resolvedChild(root string, path string) (string, os.FileInfo, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return "", nil, err
+	}
+	resolved = filepath.Clean(resolved)
+	if !insideRoot(root, resolved) {
+		return "", nil, fmt.Errorf("file path is outside configured model roots")
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", nil, err
+	}
+	return resolved, info, nil
+}
+
+func localPathParts(relative string) []string {
+	parts := strings.Split(filepath.ToSlash(relative), "/")
+	result := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part != "" && part != "." {
+			result = append(result, part)
+		}
+	}
+	return result
+}
+
+func resolveCleanPath(path string) (string, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		return filepath.Clean(resolved), nil
+	}
+	info, statErr := os.Lstat(path)
+	if statErr == nil && info.Mode()&os.ModeSymlink == 0 {
+		return filepath.Clean(path), nil
+	}
+	return "", err
+}
+
+func uniquePaths(values ...string) []string {
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = filepath.Clean(value)
+		if value == "" {
+			continue
+		}
+		if _, ok := seen[value]; ok {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func copyKeys(dst map[string]json.RawMessage, src map[string]json.RawMessage, keys []string) {
@@ -450,22 +619,6 @@ func insideRoot(root string, path string) bool {
 		return false
 	}
 	return relative == "." || (!strings.HasPrefix(relative, ".."+string(filepath.Separator)) && relative != ".." && !filepath.IsAbs(relative))
-}
-
-func resolveExistingPath(path string) (string, error) {
-	resolved, err := filepath.EvalSymlinks(path)
-	if err == nil {
-		return resolved, nil
-	}
-	info, statErr := os.Lstat(path)
-	if statErr == nil && info.Mode()&os.ModeSymlink == 0 {
-		absolute, absErr := filepath.Abs(path)
-		if absErr != nil {
-			return "", absErr
-		}
-		return absolute, nil
-	}
-	return "", err
 }
 
 var textKeys = []string{

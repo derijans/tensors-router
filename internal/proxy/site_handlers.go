@@ -311,14 +311,21 @@ func (service *Service) cookGroups(components []cook.Component) ([]cookGroup, er
 		if component.NodeID == "" {
 			component.NodeID = service.nodeID
 		}
-		component.NodeURL = strings.TrimSpace(component.NodeURL)
+		requestedNodeURL := strings.TrimSpace(component.NodeURL)
 		if component.NodeID == service.nodeID {
+			if requestedNodeURL != "" && service.nodeURL != "" && !cluster.BaseURLEqual(requestedNodeURL, service.nodeURL) {
+				return nil, fmt.Errorf("node url for %q does not match the registered node", component.NodeID)
+			}
 			component.NodeURL = service.nodeURL
-		} else if component.NodeURL == "" {
-			component.NodeURL = nodeURLs[component.NodeID]
-		}
-		if component.NodeID != service.nodeID && component.NodeURL == "" {
-			return nil, fmt.Errorf("node url for %q is required", component.NodeID)
+		} else {
+			resolvedNodeURL := nodeURLs[component.NodeID]
+			if resolvedNodeURL == "" {
+				return nil, fmt.Errorf("node url for %q is required", component.NodeID)
+			}
+			if requestedNodeURL != "" && !cluster.BaseURLEqual(requestedNodeURL, resolvedNodeURL) {
+				return nil, fmt.Errorf("node url for %q does not match the registered node", component.NodeID)
+			}
+			component.NodeURL = resolvedNodeURL
 		}
 		group := groupsByNode[component.NodeID]
 		if group == nil {

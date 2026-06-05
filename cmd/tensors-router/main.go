@@ -97,7 +97,7 @@ func runServe(args []string) error {
 	if err := registry.UpdateLocal(routercluster.LocalModelsWithBackendMode(localModels, cfg.Cluster.NodeID, cfg.Cluster.PublicURL, localSource, cfg.Backend.Mode)); err != nil {
 		return err
 	}
-	clusterClient := routercluster.NewClient(cfg.Cluster.Token)
+	clusterClient := routercluster.NewClient(cfg.Cluster.Token, clusterClientTargets(cfg)...)
 	syncConfig := routercluster.SyncConfig{
 		Role:           cfg.Cluster.Role,
 		MasterURL:      cfg.Cluster.MasterURL,
@@ -184,6 +184,15 @@ func runServe(args []string) error {
 		}
 		return err
 	}
+}
+
+func clusterClientTargets(cfg config.Config) []string {
+	targets := []string{
+		cfg.Cluster.PublicURL,
+		cfg.Cluster.MasterURL,
+	}
+	targets = append(targets, cfg.Cluster.SlaveURLs...)
+	return targets
 }
 
 func createBackends(ctx context.Context, cfg config.Config) (proxy.Backend, proxy.Backend, []func(context.Context) error, error) {

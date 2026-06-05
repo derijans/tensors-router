@@ -68,9 +68,7 @@ func syncSlave(ctx context.Context, registry *Registry, client *Client, logger *
 		logger.Printf("cluster slave sync failed url=%s error=%v", slaveURL, err)
 		return
 	}
-	if snapshot.NodeURL == "" {
-		snapshot.NodeURL = slaveURL
-	}
+	snapshot.NodeURL = slaveURL
 	if err := registry.UpdateNode(snapshot); err != nil {
 		logger.Printf("cluster slave update failed url=%s error=%v", slaveURL, err)
 	}

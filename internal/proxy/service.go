@@ -195,7 +195,18 @@ func NewService(config ServiceConfig) *Service {
 	if config.ClusterClient != nil {
 		service.clusterClient = config.ClusterClient
 	}
+	if err := service.clusterClient.AllowBaseURLs(service.knownClusterTargets()...); err != nil {
+		service.logger.Printf("cluster target setup failed: %v", err)
+	}
 	return service
+}
+
+func (service *Service) knownClusterTargets() []string {
+	values := append([]string{service.nodeURL}, service.slaveURLs...)
+	if service.registry != nil {
+		values = append(values, service.registry.NodeURLs()...)
+	}
+	return values
 }
 
 func (service *Service) PreloadModel(ctx context.Context, modelID string) error {

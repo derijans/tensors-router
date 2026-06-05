@@ -9,21 +9,49 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
 type Client struct {
-	token  string
-	client *http.Client
+	token   string
+	client  *http.Client
+	mu      sync.RWMutex
+	allowed map[string]string
 }
 
-func NewClient(token string) *Client {
-	return &Client{
+func NewClient(token string, baseURLs ...string) *Client {
+	client := &Client{
 		token: token,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		allowed: map[string]string{},
 	}
+	_ = client.AllowBaseURLs(baseURLs...)
+	return client
+}
+
+func (client *Client) AllowBaseURLs(baseURLs ...string) error {
+	client.mu.Lock()
+	defer client.mu.Unlock()
+
+	for _, baseURL := range baseURLs {
+		baseURL = strings.TrimSpace(baseURL)
+		if baseURL == "" {
+			continue
+		}
+		normalized, err := NormalizeBaseURL(baseURL)
+		if err != nil {
+			return err
+		}
+		client.allowed[normalized] = normalized
+	}
+	return nil
+}
+
+func (client *Client) AuthorizedBaseURL(baseURL string) (string, error) {
+	return client.allowedBaseURL(baseURL)
 }
 
 func (client *Client) FetchSnapshot(ctx context.Context, nodeURL string) (Snapshot, error) {
@@ -49,7 +77,7 @@ func (client *Client) Unload(ctx context.Context, nodeURL string, modelID string
 }
 
 func (client *Client) JSON(ctx context.Context, method string, baseURL string, path string, requestBody any, responseBody any) error {
-	target, err := joinedURL(baseURL, path)
+	target, err := client.joinedAllowedURL(baseURL, path)
 	if err != nil {
 		return err
 	}
@@ -93,6 +121,28 @@ func (client *Client) JSON(ctx context.Context, method string, baseURL string, p
 	return json.Unmarshal(content, responseBody)
 }
 
+func (client *Client) joinedAllowedURL(baseURL string, path string) (string, error) {
+	allowedBaseURL, err := client.allowedBaseURL(baseURL)
+	if err != nil {
+		return "", err
+	}
+	return joinedURL(allowedBaseURL, path)
+}
+
+func (client *Client) allowedBaseURL(baseURL string) (string, error) {
+	normalized, err := NormalizeBaseURL(baseURL)
+	if err != nil {
+		return "", err
+	}
+	client.mu.RLock()
+	allowed, ok := client.allowed[normalized]
+	client.mu.RUnlock()
+	if !ok {
+		return "", fmt.Errorf("cluster target %q is not allowed", normalized)
+	}
+	return allowed, nil
+}
+
 func joinedURL(baseURL string, path string) (string, error) {
 	parsed, err := url.Parse(baseURL)
 	if err != nil {
@@ -101,4 +151,29 @@ func joinedURL(baseURL string, path string) (string, error) {
 	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/" + strings.TrimLeft(path, "/")
 	parsed.RawQuery = ""
 	return parsed.String(), nil
+}
+
+func NormalizeBaseURL(baseURL string) (string, error) {
+	parsed, err := url.Parse(strings.TrimSpace(baseURL))
+	if err != nil {
+		return "", err
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("cluster target scheme must be http or https")
+	}
+	if parsed.Host == "" || parsed.User != nil {
+		return "", fmt.Errorf("cluster target host is invalid")
+	}
+	parsed.Scheme = strings.ToLower(parsed.Scheme)
+	parsed.Host = strings.ToLower(parsed.Host)
+	parsed.RawQuery = ""
+	parsed.Fragment = ""
+	parsed.Path = strings.TrimRight(parsed.Path, "/")
+	return parsed.String(), nil
+}
+
+func BaseURLEqual(left string, right string) bool {
+	normalizedLeft, leftErr := NormalizeBaseURL(left)
+	normalizedRight, rightErr := NormalizeBaseURL(right)
+	return leftErr == nil && rightErr == nil && normalizedLeft == normalizedRight
 }

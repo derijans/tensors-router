@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"tensors-router/internal/catalog"
@@ -99,6 +100,78 @@ func TestWriterRejectsConflictWithoutOverwrite(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatalf("expected conflict error")
+	}
+}
+
+func TestWriterRejectsRawFileTraversal(t *testing.T) {
+	base := packageTempDir(t)
+	root := filepath.Join(base, "root")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configDir := filepath.Join(base, "configs")
+	outsidePath := filepath.Join(base, "outside.gguf")
+	if err := os.WriteFile(outsidePath, []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	writer := Writer{ConfigDir: configDir, FileRoots: []string{root}, Catalog: catalog.New(configDir), NodeID: "node-a"}
+	_, err := writer.Preview(NodeConfigRequest{
+		ID: "made",
+		Components: []Component{
+			{Kind: KindText, Source: SourceFile, FilePath: filepath.Join(root, "..", "outside.gguf")},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "outside configured model roots") {
+		t.Fatalf("expected root escape rejection, got %v", err)
+	}
+}
+
+func TestWriterRejectsRawFileSymlinkEscape(t *testing.T) {
+	base := packageTempDir(t)
+	root := filepath.Join(base, "root")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	configDir := filepath.Join(base, "configs")
+	outsidePath := filepath.Join(base, "outside.gguf")
+	if err := os.WriteFile(outsidePath, []byte("outside"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	linkPath := filepath.Join(root, "outside.gguf")
+	if err := os.Symlink(outsidePath, linkPath); err != nil {
+		t.Skipf("symlink unavailable: %v", err)
+	}
+
+	writer := Writer{ConfigDir: configDir, FileRoots: []string{root}, Catalog: catalog.New(configDir), NodeID: "node-a"}
+	_, err := writer.Preview(NodeConfigRequest{
+		ID: "made",
+		Components: []Component{
+			{Kind: KindText, Source: SourceFile, FilePath: linkPath},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "outside configured model roots") {
+		t.Fatalf("expected symlink escape rejection, got %v", err)
+	}
+}
+
+func TestWriterRejectsPathLikeConfigID(t *testing.T) {
+	dir := packageTempDir(t)
+	root := packageTempDir(t)
+	textPath := filepath.Join(root, "text.gguf")
+	if err := os.WriteFile(textPath, []byte("text"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	writer := Writer{ConfigDir: dir, FileRoots: []string{root}, Catalog: catalog.New(dir), NodeID: "node-a"}
+	_, err := writer.Preview(NodeConfigRequest{
+		ID: "../made",
+		Components: []Component{
+			{Kind: KindText, Source: SourceFile, FilePath: textPath},
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected path-like id rejection")
 	}
 }
 

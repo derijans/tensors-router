@@ -102,6 +102,26 @@ func (registry *Registry) Models() []Model {
 	return cloneModels(registry.view)
 }
 
+func (registry *Registry) NodeURLs() []string {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+
+	values := map[string]struct{}{}
+	addNodeURL(values, registry.localURL)
+	for _, snapshot := range registry.nodes {
+		addNodeURL(values, snapshot.NodeURL)
+	}
+	for _, model := range registry.view {
+		addNodeURL(values, model.NodeURL)
+	}
+	result := make([]string, 0, len(values))
+	for value := range values {
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
+}
+
 func (registry *Registry) HasModel(publicID string) bool {
 	_, ok := registry.Model(publicID)
 	return ok
@@ -366,4 +386,10 @@ func cloneModels(models []Model) []Model {
 	cloned := make([]Model, len(models))
 	copy(cloned, models)
 	return cloned
+}
+
+func addNodeURL(values map[string]struct{}, value string) {
+	if value != "" {
+		values[value] = struct{}{}
+	}
 }

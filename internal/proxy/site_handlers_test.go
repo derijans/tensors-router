@@ -9,9 +9,11 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"tensors-router/internal/catalog"
+	"tensors-router/internal/cluster"
 	"tensors-router/internal/recipes"
 )
 
@@ -87,6 +89,7 @@ func TestSplitRecipeRoutesTextAndImageToDifferentNodes(t *testing.T) {
 		Catalog:      catalog.New(t.TempDir()),
 		ClusterToken: "secret",
 		NodeID:       "master",
+		SlaveURLs:    []string{textNode.URL, imageNode.URL},
 		RecipeStore:  store,
 		Logger:       log.New(io.Discard, "", 0),
 	})
@@ -117,6 +120,53 @@ func TestSplitRecipeRoutesTextAndImageToDifferentNodes(t *testing.T) {
 	}
 	if !strings.Contains(imageRecorder.Body.String(), `"model":"mixed-dream"`) {
 		t.Fatalf("image response was not rewritten: %s", imageRecorder.Body.String())
+	}
+}
+
+func TestSiteCookRejectsNodeURLOverride(t *testing.T) {
+	var attackerHits atomic.Int64
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attackerHits.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer attacker.Close()
+
+	slave := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer slave.Close()
+
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
+	if err := registry.UpdateNode(cluster.Snapshot{
+		NodeID:  "slave-a",
+		NodeURL: slave.URL,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	backendURL, err := url.Parse("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(ServiceConfig{
+		Backend:      &fakeBackend{url: backendURL, healthy: true},
+		Catalog:      catalog.New(t.TempDir()),
+		Registry:     registry,
+		ClusterRole:  cluster.RoleMaster,
+		NodeID:       "master",
+		NodeURL:      "http://master",
+		ClusterToken: "secret",
+		Logger:       log.New(io.Discard, "", 0),
+	})
+
+	body := `{"id":"mixed","components":[{"kind":"text","node_id":"slave-a","node_url":"` + attacker.URL + `","source":"config","model_id":"llm"}]}`
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/router/v1/site/cook/preview", strings.NewReader(body))
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected rejected node url override, got %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if attackerHits.Load() != 0 {
+		t.Fatalf("attacker target was reached %d times", attackerHits.Load())
 	}
 }
 
