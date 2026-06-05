@@ -14,6 +14,9 @@ func TestLoadConfigParsesSeparateWebUIConfig(t *testing.T) {
 server:
   bind: "0.0.0.0:9443"
   state_dir: "./state"
+  cert_hosts:
+    - "webui.local"
+    - "172.81.90.24"
   admin_token: "secret"
 
 router:
@@ -36,6 +39,9 @@ router:
 	}
 	if cfg.Server.Bind != "0.0.0.0:9443" || cfg.Server.AdminToken != "secret" {
 		t.Fatalf("unexpected server config %#v", cfg.Server)
+	}
+	if !reflect.DeepEqual(cfg.Server.CertHosts, []string{"webui.local", "172.81.90.24"}) {
+		t.Fatalf("unexpected cert hosts %#v", cfg.Server.CertHosts)
 	}
 	if cfg.Router.URL != "https://router.local:8080" || cfg.Router.Token != "router-secret" {
 		t.Fatalf("unexpected router config %#v", cfg.Router)

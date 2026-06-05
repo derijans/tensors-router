@@ -18,6 +18,7 @@ type ServerConfig struct {
 	StateDir   string
 	CertFile   string
 	KeyFile    string
+	CertHosts  []string
 	AdminToken string
 }
 
@@ -207,6 +208,10 @@ func setWebUIListValue(cfg *Config, section string, key string, values []string)
 	if values == nil {
 		values = []string{}
 	}
+	if section == "server" && key == "cert_hosts" {
+		cfg.Server.CertHosts = values
+		return nil
+	}
 	if section == "router" && key == "args" {
 		cfg.Router.Args = values
 		return nil
@@ -215,6 +220,10 @@ func setWebUIListValue(cfg *Config, section string, key string, values []string)
 }
 
 func appendWebUIListValue(cfg *Config, section string, key string, value string) error {
+	if section == "server" && key == "cert_hosts" {
+		cfg.Server.CertHosts = append(cfg.Server.CertHosts, value)
+		return nil
+	}
 	if section == "router" && key == "args" {
 		cfg.Router.Args = append(cfg.Router.Args, value)
 		return nil

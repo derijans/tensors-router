@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-const sessionCookieName = "tensor_reuter_webui_session"
+const sessionCookieName = "tensor_router_webui_session"
 
 type SessionManager struct {
 	mu       sync.Mutex

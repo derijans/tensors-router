@@ -10,7 +10,7 @@ It exposes text configs as `/v1/models`, exposes image configs through image mod
 
 ```bash
 go build -o tensors-router ./cmd/tensors-router
-go build -o tensor-reuter-webui ./cmd/tensor-reuter-webui
+go build -o tensor-router-webui ./cmd/tensor-router-webui
 ```
 
 Linux amd64:
@@ -23,7 +23,7 @@ Equivalent commands:
 
 ```bash
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-s -w" -o dist/tensors-router-linux-amd64 ./cmd/tensors-router
-GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-s -w" -o dist/tensor-reuter-webui-linux-amd64 ./cmd/tensor-reuter-webui
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-s -w" -o dist/tensor-router-webui-linux-amd64 ./cmd/tensor-router-webui
 ```
 
 ## Configure
@@ -132,10 +132,10 @@ Optional web UI:
 
 ```bash
 cp webui.example.yaml webui.yaml
-./tensor-reuter-webui --config webui.yaml
+./tensor-router-webui --config webui.yaml
 ```
 
-If `router.url` is empty, `tensor-reuter-webui` looks beside itself for `tensors-router`, launches it with `router.config_path`, and stops that managed router process when the web UI exits. If `router.url` is set, the router is treated as external and launch/restart/kill controls are disabled. The web UI serves HTTPS with a self-signed certificate from `server.state_dir` unless cert files are configured.
+If `router.url` is empty, `tensor-router-webui` looks beside itself for `tensors-router`, launches it with `router.config_path`, and stops that managed router process when the web UI exits. If `router.url` is set, the router is treated as external and launch/restart/kill controls are disabled. The web UI serves HTTPS with a self-signed certificate from `server.state_dir` unless cert files are configured. Generated certificates include localhost, loopback IPs, and local interface IPs for wildcard binds. Set `server.cert_hosts` for browser-facing DNS names or public/NAT IPs the process cannot infer.
 
 List LLM models:
 

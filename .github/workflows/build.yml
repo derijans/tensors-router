@@ -42,32 +42,32 @@ jobs:
             goos: linux
             goarch: amd64
             binary: tensors-router-linux-amd64
-            webui_binary: tensor-reuter-webui-linux-amd64
+            webui_binary: tensor-router-webui-linux-amd64
             archive: tensors-router-linux-amd64.tar.gz
           - name: linux-arm64
             goos: linux
             goarch: arm64
             binary: tensors-router-linux-arm64
-            webui_binary: tensor-reuter-webui-linux-arm64
+            webui_binary: tensor-router-webui-linux-arm64
             archive: tensors-router-linux-arm64.tar.gz
           - name: linux-armv7
             goos: linux
             goarch: arm
             goarm: "7"
             binary: tensors-router-linux-armv7
-            webui_binary: tensor-reuter-webui-linux-armv7
+            webui_binary: tensor-router-webui-linux-armv7
             archive: tensors-router-linux-armv7.tar.gz
           - name: windows-amd64
             goos: windows
             goarch: amd64
             binary: tensors-router-windows-amd64.exe
-            webui_binary: tensor-reuter-webui-windows-amd64.exe
+            webui_binary: tensor-router-webui-windows-amd64.exe
             archive: tensors-router-windows-amd64.zip
           - name: windows-arm64
             goos: windows
             goarch: arm64
             binary: tensors-router-windows-arm64.exe
-            webui_binary: tensor-reuter-webui-windows-arm64.exe
+            webui_binary: tensor-router-webui-windows-arm64.exe
             archive: tensors-router-windows-arm64.zip
 
     steps:
@@ -94,7 +94,7 @@ jobs:
             export GOARM="$TARGET_GOARM"
           fi
           go build -buildvcs=false -trimpath -ldflags "-s -w" -o "$OUTPUT" ./cmd/tensors-router
-          go build -buildvcs=false -trimpath -ldflags "-s -w" -o "$WEBUI_OUTPUT" ./cmd/tensor-reuter-webui
+          go build -buildvcs=false -trimpath -ldflags "-s -w" -o "$WEBUI_OUTPUT" ./cmd/tensor-router-webui
 
       - name: Package
         env:

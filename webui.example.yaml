@@ -3,6 +3,7 @@ server:
   state_dir: "./webui-state"
   cert_file: ""
   key_file: ""
+  cert_hosts: []
   admin_token: "change-me"
 
 router:

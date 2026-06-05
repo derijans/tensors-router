@@ -27,7 +27,7 @@ func main() {
 }
 
 func run(args []string) error {
-	flags := flag.NewFlagSet("tensor-reuter-webui", flag.ContinueOnError)
+	flags := flag.NewFlagSet("tensor-router-webui", flag.ContinueOnError)
 	configPath := flags.String("config", "webui.yaml", "webui config file")
 	bind := flags.String("bind", "", "https bind address")
 	routerURL := flags.String("router-url", "", "router url")
@@ -68,7 +68,7 @@ func run(args []string) error {
 	server := webui.WebHTTPServer(cfg.Server.Bind, handler)
 	errs := make(chan error, 1)
 	go func() {
-		log.Printf("tensor-reuter-webui listening on https://%s", cfg.Server.Bind)
+		log.Printf("tensor-router-webui listening on https://%s", cfg.Server.Bind)
 		errs <- server.ListenAndServeTLS(certFile, keyFile)
 	}()
 
@@ -99,8 +99,8 @@ type tokenValue struct {
 func webUIToken(cfg webui.Config) tokenValue {
 	for _, value := range []string{
 		cfg.Server.AdminToken,
-		os.Getenv("TENSOR_REUTER_WEBUI_TOKEN"),
 		os.Getenv("TENSORS_ROUTER_WEBUI_TOKEN"),
+		os.Getenv("TENSOR_ROUTER_WEBUI_TOKEN"),
 	} {
 		value = strings.TrimSpace(value)
 		if value != "" {

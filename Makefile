@@ -1,7 +1,7 @@
 APP_NAME := tensors-router
 CMD := ./cmd/tensors-router
-WEBUI_NAME := tensor-reuter-webui
-WEBUI_CMD := ./cmd/tensor-reuter-webui
+WEBUI_NAME := tensor-router-webui
+WEBUI_CMD := ./cmd/tensor-router-webui
 DIST_DIR := dist
 GO ?= go
 GOOS ?= linux
