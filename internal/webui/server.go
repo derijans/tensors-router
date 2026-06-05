@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"net/http"
 	"strings"
 	"time"
@@ -15,6 +16,7 @@ type Server struct {
 	sessions *SessionManager
 	client   *http.Client
 	static   http.Handler
+	assets   fs.FS
 }
 
 type loginRequest struct {
@@ -22,12 +24,14 @@ type loginRequest struct {
 }
 
 func NewServer(config Config, router *RouterProcess, sessions *SessionManager) *Server {
+	assets := AssetFS()
 	return &Server{
 		config:   config,
 		router:   router,
 		sessions: sessions,
 		client:   &http.Client{Timeout: 0},
-		static:   http.FileServer(http.FS(AssetFS())),
+		static:   http.FileServer(http.FS(assets)),
+		assets:   assets,
 	}
 }
 
@@ -37,9 +41,21 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Path == "/" {
-		r.URL.Path = "/index.html"
+		server.serveIndex(w)
+		return
 	}
 	server.static.ServeHTTP(w, r)
+}
+
+func (server *Server) serveIndex(w http.ResponseWriter) {
+	content, err := fs.ReadFile(server.assets, "index.html")
+	if err != nil {
+		writeWebError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(content)
 }
 
 func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
