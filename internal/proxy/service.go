@@ -17,6 +17,7 @@ import (
 
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
+	"tensors-router/internal/hardware"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/recipes"
 )
@@ -54,6 +55,7 @@ type ServiceConfig struct {
 	ConfigDir     string
 	FileRoots     []string
 	RecipeStore   *recipes.Store
+	Hardware      hardware.Source
 	Logger        *log.Logger
 }
 
@@ -73,6 +75,7 @@ type Service struct {
 	configDir     string
 	fileRoots     []string
 	recipeStore   *recipes.Store
+	hardware      hardware.Source
 	client        *http.Client
 	logger        *log.Logger
 
@@ -181,6 +184,7 @@ func NewService(config ServiceConfig) *Service {
 		configDir:    strings.TrimSpace(config.ConfigDir),
 		fileRoots:    append([]string{}, config.FileRoots...),
 		recipeStore:  config.RecipeStore,
+		hardware:     config.Hardware,
 		logger:       logger,
 		client: &http.Client{
 			Timeout: 0,
@@ -191,6 +195,9 @@ func NewService(config ServiceConfig) *Service {
 	}
 	if service.clusterClient == nil {
 		service.clusterClient = cluster.NewClient(config.ClusterToken)
+	}
+	if service.hardware == nil {
+		service.hardware = hardware.NewCache()
 	}
 	if config.ClusterClient != nil {
 		service.clusterClient = config.ClusterClient

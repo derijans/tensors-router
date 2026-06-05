@@ -32,6 +32,7 @@ type Model struct {
 	ModelHash      string
 	ConfigHash     string
 	Capabilities   Capabilities
+	Options        map[string]json.RawMessage
 }
 
 func New(dir string) *Catalog {
@@ -189,6 +190,12 @@ func (catalog *Catalog) withMetadata(model Model) Model {
 		model.Capabilities = capabilitiesFromMetadata(configMetadata{}, model.HasLLM, false, false, false)
 		return model
 	}
+	var options map[string]json.RawMessage
+	if err := json.Unmarshal(content, &options); err != nil {
+		model.Capabilities = capabilitiesFromMetadata(configMetadata{}, model.HasLLM, false, false, false)
+		return model
+	}
+	model.Options = options
 	var metadata configMetadata
 	if err := json.Unmarshal(content, &metadata); err != nil {
 		model.Capabilities = capabilitiesFromMetadata(configMetadata{}, model.HasLLM, false, false, false)

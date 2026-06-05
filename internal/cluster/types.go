@@ -1,6 +1,10 @@
 package cluster
 
-import "tensors-router/internal/catalog"
+import (
+	"encoding/json"
+
+	"tensors-router/internal/catalog"
+)
 
 const (
 	RoleStandalone = "standalone"
@@ -25,24 +29,25 @@ const (
 )
 
 type Model struct {
-	PublicID      string               `json:"public_id"`
-	LocalID       string               `json:"local_id"`
-	ImageID       string               `json:"image_id,omitempty"`
-	PublicImageID string               `json:"public_image_id,omitempty"`
-	Filename      string               `json:"filename"`
-	Created       int64                `json:"created"`
-	HasLLM        bool                 `json:"has_llm"`
-	HasImage      bool                 `json:"has_image"`
-	HasEmbeddings bool                 `json:"has_embeddings"`
-	HasMultimodal bool                 `json:"has_multimodal"`
-	ModelHash     string               `json:"model_hash"`
-	ConfigHash    string               `json:"config_hash"`
-	Capabilities  catalog.Capabilities `json:"capabilities"`
-	BackendMode   string               `json:"backend_mode"`
-	Source        string               `json:"source"`
-	NodeID        string               `json:"node_id"`
-	NodeURL       string               `json:"node_url,omitempty"`
-	Available     bool                 `json:"available"`
+	PublicID      string                     `json:"public_id"`
+	LocalID       string                     `json:"local_id"`
+	ImageID       string                     `json:"image_id,omitempty"`
+	PublicImageID string                     `json:"public_image_id,omitempty"`
+	Filename      string                     `json:"filename"`
+	Created       int64                      `json:"created"`
+	HasLLM        bool                       `json:"has_llm"`
+	HasImage      bool                       `json:"has_image"`
+	HasEmbeddings bool                       `json:"has_embeddings"`
+	HasMultimodal bool                       `json:"has_multimodal"`
+	ModelHash     string                     `json:"model_hash"`
+	ConfigHash    string                     `json:"config_hash"`
+	Capabilities  catalog.Capabilities       `json:"capabilities"`
+	Options       map[string]json.RawMessage `json:"options,omitempty"`
+	BackendMode   string                     `json:"backend_mode"`
+	Source        string                     `json:"source"`
+	NodeID        string                     `json:"node_id"`
+	NodeURL       string                     `json:"node_url,omitempty"`
+	Available     bool                       `json:"available"`
 }
 
 type Snapshot struct {
@@ -87,6 +92,7 @@ func LocalModelsWithBackendMode(models []catalog.Model, nodeID string, nodeURL s
 			ModelHash:     model.ModelHash,
 			ConfigHash:    model.ConfigHash,
 			Capabilities:  model.Capabilities,
+			Options:       model.Options,
 			BackendMode:   backendMode,
 			Source:        source,
 			NodeID:        nodeID,

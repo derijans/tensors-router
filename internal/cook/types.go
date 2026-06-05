@@ -1,5 +1,7 @@
 package cook
 
+import "encoding/json"
+
 const (
 	SourceConfig = "config"
 	SourceFile   = "file"
@@ -26,6 +28,7 @@ type NodeConfigRequest struct {
 	Overwrite  bool        `json:"overwrite"`
 	DryRun     bool        `json:"dry_run"`
 	Components []Component `json:"components"`
+	Options    Options     `json:"options,omitempty"`
 }
 
 type ConfigResult struct {
@@ -45,4 +48,25 @@ type Plan struct {
 	PublicImageID        string         `json:"public_image_id,omitempty"`
 	RequiresMasterRecipe bool           `json:"requires_master_recipe"`
 	Configs              []ConfigResult `json:"configs"`
+}
+
+type Options map[string]json.RawMessage
+
+type ValidationIssue struct {
+	Severity string `json:"severity"`
+	Code     string `json:"code"`
+	Message  string `json:"message"`
+	NodeID   string `json:"node_id,omitempty"`
+	Field    string `json:"field,omitempty"`
+}
+
+type OptionDefinition struct {
+	Key        string   `json:"key"`
+	Name       string   `json:"name"`
+	Lane       string   `json:"lane"`
+	ValueType  string   `json:"value_type"`
+	Backends   []string `json:"backends"`
+	NativeFlag string   `json:"native_flag,omitempty"`
+	CUDAOnly   bool     `json:"cuda_only,omitempty"`
+	Known      bool     `json:"known"`
 }

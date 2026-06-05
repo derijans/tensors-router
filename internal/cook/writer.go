@@ -45,14 +45,20 @@ func (writer Writer) write(request NodeConfigRequest) (ConfigResult, error) {
 	if err != nil {
 		return ConfigResult{}, err
 	}
-	components, err := normalizedComponents(request.Components)
+	components, err := NormalizedComponents(request.Components)
 	if err != nil {
 		return ConfigResult{}, err
 	}
-	if reusable, result, err := writer.reusableConfig(components); err != nil {
+	options, err := NormalizedOptions(request.Options)
+	if err != nil {
 		return ConfigResult{}, err
-	} else if reusable {
-		return result, nil
+	}
+	if len(options) == 0 {
+		if reusable, result, err := writer.reusableConfig(components); err != nil {
+			return ConfigResult{}, err
+		} else if reusable {
+			return result, nil
+		}
 	}
 
 	filename := id + ".kcpps"
@@ -70,7 +76,7 @@ func (writer Writer) write(request NodeConfigRequest) (ConfigResult, error) {
 		return ConfigResult{}, fmt.Errorf("config %q already exists", filename)
 	}
 
-	body, imagePath, err := writer.composedConfig(components)
+	body, imagePath, err := writer.composedConfig(components, options)
 	if err != nil {
 		return ConfigResult{}, err
 	}
@@ -135,7 +141,7 @@ func (writer Writer) reusableConfig(components []Component) (bool, ConfigResult,
 	}, nil
 }
 
-func (writer Writer) composedConfig(components []Component) (map[string]json.RawMessage, string, error) {
+func (writer Writer) composedConfig(components []Component, options Options) (map[string]json.RawMessage, string, error) {
 	body := map[string]json.RawMessage{}
 	for _, component := range components {
 		if componentSource(component) != SourceConfig {
@@ -210,9 +216,8 @@ func (writer Writer) composedConfig(components []Component) (map[string]json.Raw
 	if !hasKind(components, KindText) {
 		setJSONBool(body, "nomodel", true)
 	}
-	if imagePath == "" {
-		imagePath = rawJSONString(body["sdmodel"])
-	}
+	applyOptions(body, options)
+	imagePath = rawJSONString(body["sdmodel"])
 	return body, imagePath, nil
 }
 
@@ -290,7 +295,7 @@ func (writer Writer) validateRawFile(path string) (string, error) {
 	return "", fmt.Errorf("file path is outside configured model roots")
 }
 
-func normalizedComponents(components []Component) ([]Component, error) {
+func NormalizedComponents(components []Component) ([]Component, error) {
 	if len(components) == 0 {
 		return nil, fmt.Errorf("at least one component is required")
 	}
@@ -312,6 +317,11 @@ func normalizedComponents(components []Component) ([]Component, error) {
 		default:
 			return nil, fmt.Errorf("component kind %q is invalid", component.Kind)
 		}
+		switch component.Source {
+		case SourceConfig, SourceFile:
+		default:
+			return nil, fmt.Errorf("%s source %q is invalid", component.Kind, component.Source)
+		}
 		if component.Source == SourceFile && component.FilePath == "" {
 			return nil, fmt.Errorf("%s file path is required", component.Kind)
 		}
@@ -320,6 +330,24 @@ func normalizedComponents(components []Component) ([]Component, error) {
 		}
 		seen[component.Kind] = struct{}{}
 		result = append(result, component)
+	}
+	return result, nil
+}
+
+func NormalizedOptions(options Options) (Options, error) {
+	if len(options) == 0 {
+		return nil, nil
+	}
+	result := Options{}
+	for key, value := range options {
+		key = strings.TrimSpace(key)
+		if key == "" {
+			return nil, fmt.Errorf("option key is required")
+		}
+		if len(value) > 0 && !json.Valid(value) {
+			return nil, fmt.Errorf("option %q must be valid json", key)
+		}
+		result[key] = cloneRaw(value)
 	}
 	return result, nil
 }
@@ -587,6 +615,20 @@ func setJSONString(body map[string]json.RawMessage, key string, value string) {
 func setJSONBool(body map[string]json.RawMessage, key string, value bool) {
 	content, _ := json.Marshal(value)
 	body[key] = content
+}
+
+func applyOptions(body map[string]json.RawMessage, options Options) {
+	for key, value := range options {
+		if isJSONNull(value) {
+			delete(body, key)
+			continue
+		}
+		body[key] = cloneRaw(value)
+	}
+}
+
+func isJSONNull(value json.RawMessage) bool {
+	return strings.EqualFold(strings.TrimSpace(string(value)), "null")
 }
 
 func rawJSONString(value json.RawMessage) string {

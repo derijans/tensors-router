@@ -14,6 +14,7 @@ import (
 
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
+	"tensors-router/internal/hardware"
 	"tensors-router/internal/recipes"
 )
 
@@ -224,6 +225,71 @@ func TestNodeSiteConfigRequiresClusterToken(t *testing.T) {
 	service.ServeHTTP(authorized, request)
 	if authorized.Code != http.StatusOK {
 		t.Fatalf("expected authorized config preview, got %d body %s", authorized.Code, authorized.Body.String())
+	}
+}
+
+func TestSiteCookRejectsKoboldImageEmbeddingsMix(t *testing.T) {
+	dir := packageTempDir(t)
+	if err := os.WriteFile(filepath.Join(dir, "image.kcpps"), []byte(`{"nomodel":true,"sdmodel":"dream.safetensors"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "embed.kcpps"), []byte(`{"nomodel":true,"embeddingsmodel":"embed.gguf"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	backendURL, err := url.Parse("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(ServiceConfig{
+		Backend: &fakeBackend{url: backendURL, healthy: true},
+		Catalog: catalog.New(dir),
+		NodeID:  "node-a",
+		Hardware: hardware.NewStatic(hardware.Info{
+			MaxThreads: 32,
+			GPUBackend: hardware.GPUBackendCPU,
+		}),
+		Logger: log.New(io.Discard, "", 0),
+	})
+
+	body := `{"id":"mixed","components":[{"kind":"image","source":"config","image_id":"image-dream"},{"kind":"embeddings","source":"config","model_id":"embed"}]}`
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/v1/site/cook/preview", strings.NewReader(body)))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected validation failure, got %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "kobold_image_embeddings_mix") {
+		t.Fatalf("missing validation code: %s", recorder.Body.String())
+	}
+}
+
+func TestSiteCookRejectsThreadBudgetOverflow(t *testing.T) {
+	dir := packageTempDir(t)
+	if err := os.WriteFile(filepath.Join(dir, "text.kcpps"), []byte(`{"model_param":"text.gguf","threads":12}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	backendURL, err := url.Parse("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(ServiceConfig{
+		Backend: &fakeBackend{url: backendURL, healthy: true},
+		Catalog: catalog.New(dir),
+		NodeID:  "node-a",
+		Hardware: hardware.NewStatic(hardware.Info{
+			MaxThreads: 4,
+			GPUBackend: hardware.GPUBackendCPU,
+		}),
+		Logger: log.New(io.Discard, "", 0),
+	})
+
+	body := `{"id":"too-hot","components":[{"kind":"text","source":"config","model_id":"text"}]}`
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/v1/site/cook/preview", strings.NewReader(body)))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected validation failure, got %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "thread_budget_exceeded") {
+		t.Fatalf("missing validation code: %s", recorder.Body.String())
 	}
 }
 

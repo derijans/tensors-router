@@ -103,6 +103,46 @@ func TestWriterRejectsConflictWithoutOverwrite(t *testing.T) {
 	}
 }
 
+func TestWriterAppliesOptionOverrides(t *testing.T) {
+	dir := packageTempDir(t)
+	if err := os.WriteFile(filepath.Join(dir, "image.kcpps"), []byte(`{
+		"nomodel":true,
+		"sdmodel":"C:/models/dream.safetensors",
+		"sdthreads":4
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	writer := Writer{ConfigDir: dir, Catalog: catalog.New(dir), NodeID: "node-a"}
+	result, err := writer.Apply(NodeConfigRequest{
+		ID: "override",
+		Components: []Component{
+			{Kind: KindImage, Source: SourceConfig, ImageID: "image-dream"},
+		},
+		Options: Options{
+			"sdmodel":   json.RawMessage(`"D:/models/neon.safetensors"`),
+			"sdthreads": json.RawMessage(`9`),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.ImageID != "override-neon" {
+		t.Fatalf("unexpected image id %#v", result)
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "override.kcpps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(content, &body); err != nil {
+		t.Fatal(err)
+	}
+	if body["sdmodel"] != "D:/models/neon.safetensors" || body["sdthreads"].(float64) != 9 {
+		t.Fatalf("override options were not applied: %#v", body)
+	}
+}
+
 func TestWriterRejectsRawFileTraversal(t *testing.T) {
 	base := packageTempDir(t)
 	root := filepath.Join(base, "root")

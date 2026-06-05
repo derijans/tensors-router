@@ -31,8 +31,8 @@ func (service *Service) handleSiteInventory(w http.ResponseWriter, r *http.Reque
 	openai.WriteJSON(w, http.StatusOK, response)
 }
 
-func (service *Service) handleNodeSiteInventory(w http.ResponseWriter) {
-	node, err := service.localNodeInventory()
+func (service *Service) handleNodeSiteInventory(w http.ResponseWriter, r *http.Request) {
+	node, err := service.localNodeInventory(r.Context())
 	if err != nil {
 		openai.WriteError(w, http.StatusInternalServerError, "site_error", err.Error())
 		return
@@ -52,6 +52,10 @@ func (service *Service) handleSiteCookPreview(w http.ResponseWriter, r *http.Req
 	}
 	response, err := service.planCook(r.Context(), request, true)
 	if err != nil {
+		if issues, ok := validationIssues(err); ok {
+			openai.WriteJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error(), "validation": issues})
+			return
+		}
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
@@ -70,6 +74,10 @@ func (service *Service) handleSiteCookApply(w http.ResponseWriter, r *http.Reque
 	}
 	response, err := service.planCook(r.Context(), request, false)
 	if err != nil {
+		if issues, ok := validationIssues(err); ok {
+			openai.WriteJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error(), "validation": issues})
+			return
+		}
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
@@ -99,8 +107,12 @@ func (service *Service) handleNodeSiteConfigs(w http.ResponseWriter, r *http.Req
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
-	result, err := service.writeLocalCookConfig(request)
+	result, err := service.writeLocalCookConfig(r.Context(), request)
 	if err != nil {
+		if issues, ok := validationIssues(err); ok {
+			openai.WriteJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error(), "validation": issues})
+			return
+		}
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
@@ -114,7 +126,7 @@ func (service *Service) handleNodeSiteConfigs(w http.ResponseWriter, r *http.Req
 }
 
 func (service *Service) siteInventory(ctx context.Context) (siteapi.InventoryResponse, error) {
-	localNode, err := service.localNodeInventory()
+	localNode, err := service.localNodeInventory(ctx)
 	if err != nil {
 		return siteapi.InventoryResponse{}, err
 	}
@@ -146,16 +158,18 @@ func (service *Service) siteInventory(ctx context.Context) (siteapi.InventoryRes
 		}
 	}
 	return siteapi.InventoryResponse{
-		Role:    service.clusterRole,
-		NodeID:  service.nodeID,
-		NodeURL: service.nodeURL,
-		Nodes:   nodes,
-		Models:  models,
-		Recipes: recipesList,
+		Role:            service.clusterRole,
+		NodeID:          service.nodeID,
+		NodeURL:         service.nodeURL,
+		Nodes:           nodes,
+		Models:          models,
+		Recipes:         recipesList,
+		OptionCatalog:   cook.OptionCatalog(),
+		ObservedOptions: observedOptions(nodes, models),
 	}, nil
 }
 
-func (service *Service) localNodeInventory() (siteapi.NodeInventory, error) {
+func (service *Service) localNodeInventory(ctx context.Context) (siteapi.NodeInventory, error) {
 	models, err := service.localClusterModels()
 	if err != nil {
 		return siteapi.NodeInventory{}, err
@@ -171,6 +185,7 @@ func (service *Service) localNodeInventory() (siteapi.NodeInventory, error) {
 		Role:        service.clusterRole,
 		BackendMode: service.backendMode,
 		Available:   true,
+		Hardware:    service.hardware.Info(ctx),
 		Models:      models,
 		Files:       files,
 	}, nil
@@ -235,7 +250,16 @@ func (service *Service) planCook(ctx context.Context, request siteapi.CookReques
 	if err != nil {
 		return siteapi.CookResponse{}, err
 	}
+	options, err := cook.NormalizedOptions(request.Options)
+	if err != nil {
+		return siteapi.CookResponse{}, err
+	}
+	request.Options = options
 	groups, err := service.cookGroups(request.Components)
+	if err != nil {
+		return siteapi.CookResponse{}, err
+	}
+	validation, err := service.validateCookGroups(ctx, groups, request.Options)
 	if err != nil {
 		return siteapi.CookResponse{}, err
 	}
@@ -255,6 +279,7 @@ func (service *Service) planCook(ctx context.Context, request siteapi.CookReques
 			Overwrite:  request.Overwrite,
 			DryRun:     dryRun,
 			Components: group.components,
+			Options:    cook.FilterOptionsForKinds(request.Options, group.components),
 		}
 		result, err := service.writeCookGroup(ctx, group, nodeRequest)
 		if err != nil {
@@ -290,7 +315,7 @@ func (service *Service) planCook(ctx context.Context, request siteapi.CookReques
 			return siteapi.CookResponse{}, err
 		}
 	}
-	return siteapi.CookResponse{Plan: plan, Recipe: recipe}, nil
+	return siteapi.CookResponse{Plan: plan, Recipe: recipe, Validation: validation}, nil
 }
 
 type cookGroup struct {
@@ -301,12 +326,13 @@ type cookGroup struct {
 }
 
 func (service *Service) cookGroups(components []cook.Component) ([]cookGroup, error) {
-	if len(components) == 0 {
-		return nil, fmt.Errorf("at least one component is required")
+	normalized, err := cook.NormalizedComponents(components)
+	if err != nil {
+		return nil, err
 	}
 	nodeURLs := service.nodeURLByID()
 	groupsByNode := map[string]*cookGroup{}
-	for _, component := range components {
+	for _, component := range normalized {
 		component.NodeID = strings.TrimSpace(component.NodeID)
 		if component.NodeID == "" {
 			component.NodeID = service.nodeID
@@ -350,7 +376,7 @@ func (service *Service) cookGroups(components []cook.Component) ([]cookGroup, er
 
 func (service *Service) writeCookGroup(ctx context.Context, group cookGroup, request cook.NodeConfigRequest) (cook.ConfigResult, error) {
 	if group.local {
-		return service.writeLocalCookConfig(request)
+		return service.writeLocalCookConfig(ctx, request)
 	}
 	var result cook.ConfigResult
 	if err := service.clusterClient.JSON(ctx, http.MethodPost, group.nodeURL, "/router/v1/node/site/configs", request, &result); err != nil {
@@ -359,7 +385,26 @@ func (service *Service) writeCookGroup(ctx context.Context, group cookGroup, req
 	return result, nil
 }
 
-func (service *Service) writeLocalCookConfig(request cook.NodeConfigRequest) (cook.ConfigResult, error) {
+func (service *Service) writeLocalCookConfig(ctx context.Context, request cook.NodeConfigRequest) (cook.ConfigResult, error) {
+	components, err := cook.NormalizedComponents(request.Components)
+	if err != nil {
+		return cook.ConfigResult{}, err
+	}
+	options, err := cook.NormalizedOptions(request.Options)
+	if err != nil {
+		return cook.ConfigResult{}, err
+	}
+	request.Components = components
+	request.Options = options
+	group := cookGroup{
+		nodeID:     service.nodeID,
+		nodeURL:    service.nodeURL,
+		local:      true,
+		components: components,
+	}
+	if _, err := service.validateCookGroups(ctx, []cookGroup{group}, request.Options); err != nil {
+		return cook.ConfigResult{}, err
+	}
 	writer := cook.Writer{
 		ConfigDir: service.configDir,
 		FileRoots: service.fileRoots,

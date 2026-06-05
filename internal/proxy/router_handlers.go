@@ -35,7 +35,7 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		}
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/site/inventory":
 		if service.requireClusterToken(w, r) {
-			service.handleNodeSiteInventory(w)
+			service.handleNodeSiteInventory(w, r)
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/configs":
 		if service.requireClusterToken(w, r) {
