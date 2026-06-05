@@ -261,34 +261,66 @@ func TestDownloadSplitModeExtractsArchivedBinaries(t *testing.T) {
 	}
 }
 
-func TestExtractZipPayloadRejectsUnsafeSymlinkTarget(t *testing.T) {
+func TestExtractZipPayloadRejectsSymlink(t *testing.T) {
 	dir := t.TempDir()
 	archivePath := filepath.Join(dir, "payload.zip")
-	if err := os.WriteFile(archivePath, zipSymlinkPayload(t, "link", "C:/outside"), 0o644); err != nil {
+	if err := os.WriteFile(archivePath, zipSymlinkPayload(t, "link", "target"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	err := extractZipPayload(archivePath, filepath.Join(dir, "out"), downloadTarget{})
 	if err == nil {
-		t.Fatalf("expected unsafe symlink target rejection")
+		t.Fatalf("expected symlink rejection")
 	}
-	if !strings.Contains(err.Error(), "safe relative target") {
+	if !strings.Contains(err.Error(), "not supported") {
 		t.Fatalf("unexpected error %v", err)
 	}
 }
 
-func TestExtractTarGzPayloadRejectsUnsafeSymlinkTarget(t *testing.T) {
+func TestExtractTarGzPayloadRejectsSymlink(t *testing.T) {
 	dir := t.TempDir()
 	archivePath := filepath.Join(dir, "payload.tar.gz")
-	if err := os.WriteFile(archivePath, tarGzSymlinkPayload(t, "link", "C:/outside"), 0o644); err != nil {
+	if err := os.WriteFile(archivePath, tarGzSymlinkPayload(t, "link", "target"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	err := extractTarGzPayload(archivePath, filepath.Join(dir, "out"), downloadTarget{})
 	if err == nil {
-		t.Fatalf("expected unsafe symlink target rejection")
+		t.Fatalf("expected symlink rejection")
 	}
-	if !strings.Contains(err.Error(), "safe relative target") {
+	if !strings.Contains(err.Error(), "not supported") {
+		t.Fatalf("unexpected error %v", err)
+	}
+}
+
+func TestExtractZipPayloadRejectsTraversalEntryName(t *testing.T) {
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, "payload.zip")
+	if err := os.WriteFile(archivePath, zipPayload(t, []archiveFile{{Name: "../evil", Content: "evil"}}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := extractZipPayload(archivePath, filepath.Join(dir, "out"), downloadTarget{})
+	if err == nil {
+		t.Fatalf("expected traversal entry rejection")
+	}
+	if !strings.Contains(err.Error(), "safe relative path") {
+		t.Fatalf("unexpected error %v", err)
+	}
+}
+
+func TestExtractTarGzPayloadRejectsTraversalEntryName(t *testing.T) {
+	dir := t.TempDir()
+	archivePath := filepath.Join(dir, "payload.tar.gz")
+	if err := os.WriteFile(archivePath, tarGzPayload(t, []archiveFile{{Name: "../evil", Content: "evil"}}), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := extractTarGzPayload(archivePath, filepath.Join(dir, "out"), downloadTarget{})
+	if err == nil {
+		t.Fatalf("expected traversal entry rejection")
+	}
+	if !strings.Contains(err.Error(), "safe relative path") {
 		t.Fatalf("unexpected error %v", err)
 	}
 }

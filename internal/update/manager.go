@@ -310,7 +310,13 @@ func extractZipPayload(archivePath string, outputDir string, target downloadTarg
 
 	for _, file := range reader.File {
 		info := file.FileInfo()
-		if !info.IsDir() && !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+		if strings.Contains(file.Name, "..") {
+			return fmt.Errorf("archive entry %q is not a safe relative path", file.Name)
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("archive symlink %q is not supported", file.Name)
+		}
+		if !info.IsDir() && !info.Mode().IsRegular() {
 			continue
 		}
 		outputName, ok, err := archiveEntryOutputName(file.Name)
@@ -322,24 +328,6 @@ func extractZipPayload(archivePath string, outputDir string, target downloadTarg
 		}
 		if info.IsDir() {
 			if _, err := ensureExtractedDirectory(outputDir, outputName, 0o755); err != nil {
-				return err
-			}
-			continue
-		}
-		if info.Mode()&os.ModeSymlink != 0 {
-			input, err := file.Open()
-			if err != nil {
-				return err
-			}
-			linkTarget, err := io.ReadAll(input)
-			closeErr := input.Close()
-			if err != nil {
-				return err
-			}
-			if closeErr != nil {
-				return closeErr
-			}
-			if err := writeExtractedSymlink(outputDir, outputName, string(linkTarget)); err != nil {
 				return err
 			}
 			continue
@@ -398,8 +386,14 @@ func extractTarGzPayload(archivePath string, outputDir string, target downloadTa
 		if err != nil {
 			return err
 		}
-		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA && header.Typeflag != tar.TypeDir && header.Typeflag != tar.TypeSymlink {
+		if header.Typeflag == tar.TypeSymlink {
+			return fmt.Errorf("archive symlink %q is not supported", header.Name)
+		}
+		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA && header.Typeflag != tar.TypeDir {
 			continue
+		}
+		if strings.Contains(header.Name, "..") {
+			return fmt.Errorf("archive entry %q is not a safe relative path", header.Name)
 		}
 		outputName, ok, err := archiveEntryOutputName(header.Name)
 		if err != nil {
@@ -410,12 +404,6 @@ func extractTarGzPayload(archivePath string, outputDir string, target downloadTa
 		}
 		if header.Typeflag == tar.TypeDir {
 			if _, err := ensureExtractedDirectory(outputDir, outputName, normalizedArchiveMode(header.FileInfo().Mode())); err != nil {
-				return err
-			}
-			continue
-		}
-		if header.Typeflag == tar.TypeSymlink {
-			if err := writeExtractedSymlink(outputDir, outputName, header.Linkname); err != nil {
 				return err
 			}
 			continue
@@ -553,27 +541,6 @@ func writeExtractedFile(root string, name string, input io.Reader, mode os.FileM
 	return os.Chmod(outputPath, mode)
 }
 
-func writeExtractedSymlink(root string, name string, linkTarget string) error {
-	cleanTarget, ok := cleanArchiveSymlinkTarget(linkTarget)
-	if !ok {
-		return fmt.Errorf("archive symlink %q is not a safe relative target", linkTarget)
-	}
-	if _, err := archiveOutputPath(root, path.Join(path.Dir(name), cleanTarget)); err != nil {
-		return err
-	}
-	outputPath, err := archiveOutputPath(root, name)
-	if err != nil {
-		return err
-	}
-	if _, err := ensureExtractedDirectory(root, path.Dir(name), 0o755); err != nil {
-		return err
-	}
-	if err := removeExtractedOutput(outputPath, name); err != nil {
-		return err
-	}
-	return os.Symlink(filepath.FromSlash(cleanTarget), outputPath)
-}
-
 func removeExtractedOutput(outputPath string, name string) error {
 	info, err := os.Lstat(outputPath)
 	if os.IsNotExist(err) {
@@ -605,14 +572,6 @@ func cleanArchiveEntryName(entryName string) (string, bool) {
 		return "", false
 	}
 	return cleanName, true
-}
-
-func cleanArchiveSymlinkTarget(linkTarget string) (string, bool) {
-	cleanTarget := path.Clean(strings.ReplaceAll(linkTarget, "\\", "/"))
-	if cleanTarget == "." || !archiveRelativePathIsSafe(cleanTarget) {
-		return "", false
-	}
-	return cleanTarget, true
 }
 
 func archiveRelativePathIsSafe(cleanName string) bool {
