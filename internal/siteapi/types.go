@@ -45,6 +45,25 @@ type CookResponse struct {
 	Validation []cook.ValidationIssue `json:"validation,omitempty"`
 }
 
+type ConfigFileRequest struct {
+	NodeID    string       `json:"node_id,omitempty"`
+	NodeURL   string       `json:"node_url,omitempty"`
+	ID        string       `json:"id,omitempty"`
+	Filename  string       `json:"filename,omitempty"`
+	Overwrite bool         `json:"overwrite"`
+	Options   cook.Options `json:"options"`
+}
+
+type ConfigFileResponse struct {
+	NodeID         string       `json:"node_id"`
+	NodeURL        string       `json:"node_url,omitempty"`
+	ID             string       `json:"id"`
+	Filename       string       `json:"filename"`
+	WouldOverwrite bool         `json:"would_overwrite,omitempty"`
+	Deleted        bool         `json:"deleted,omitempty"`
+	Options        cook.Options `json:"options,omitempty"`
+}
+
 type RouterProcessStatus struct {
 	Managed bool   `json:"managed"`
 	Running bool   `json:"running"`

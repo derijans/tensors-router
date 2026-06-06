@@ -9,14 +9,28 @@ import {
   renderConstructor,
   removeOption,
   toggleInspectorList,
+  updateLaneTarget,
   updateOptionInput
 } from "./constructor.js";
 import {
   applyAdvancedCook,
-  applyCook,
   previewAdvancedCook,
-  previewCook
 } from "./cook-actions.js";
+import {
+  addSelectedSimpleField,
+  applySimpleCook,
+  copySimpleConfig,
+  deleteSimpleConfig,
+  newSimpleConfig,
+  previewSimpleCook,
+  removeSimpleField,
+  renderSimpleCook,
+  selectSimpleConfig,
+  selectSimpleNode,
+  showSimpleFieldValues,
+  updateSimpleField,
+  updateSimpleFieldFilter
+} from "./simple-cook.js";
 import {
   renderInventory,
   renderRecipes,
@@ -123,10 +137,40 @@ elements.killButton.addEventListener("click", async () => {
   renderRouterStatus();
 });
 
-elements.previewButton.addEventListener("click", previewCook);
+elements.previewButton.addEventListener("click", previewSimpleCook);
 elements.cookForm.addEventListener("submit", async event => {
   event.preventDefault();
-  await applyCook(refreshInventory);
+  await applySimpleCook(refreshInventory);
+});
+elements.simpleNodeSelect.addEventListener("change", () => selectSimpleNode(elements.simpleNodeSelect.value));
+elements.simpleConfigSelect.addEventListener("change", () => selectSimpleConfig(elements.simpleConfigSelect.value));
+elements.simpleFieldFilter.addEventListener("input", () => updateSimpleFieldFilter(elements.simpleFieldFilter.value));
+elements.simpleAddFieldButton.addEventListener("click", addSelectedSimpleField);
+elements.simpleNewButton.addEventListener("click", newSimpleConfig);
+elements.simpleCopyButton.addEventListener("click", copySimpleConfig);
+elements.simpleDeleteButton.addEventListener("click", () => deleteSimpleConfig(refreshInventory));
+elements.simpleConfigEditor.addEventListener("change", event => updateSimpleField(event.target));
+elements.simpleConfigEditor.addEventListener("click", event => {
+  const fieldKey = event.target?.dataset?.fieldValues;
+  if (fieldKey) {
+    showSimpleFieldValues(fieldKey, "field");
+    return;
+  }
+  const modelFieldKey = event.target?.dataset?.fieldModelValues;
+  if (modelFieldKey) {
+    showSimpleFieldValues(modelFieldKey, "model");
+    return;
+  }
+  const removeKey = event.target?.dataset?.removeSimpleField;
+  if (removeKey) {
+    removeSimpleField(removeKey);
+  }
+});
+elements.simpleFieldSidebar.addEventListener("click", event => {
+  if (event.target?.dataset?.closeFieldSidebar !== undefined) {
+    state.simpleCook.sidebar = null;
+    renderSimpleCook();
+  }
 });
 
 elements.advancedPreviewButton.addEventListener("click", previewAdvancedCook);
@@ -183,6 +227,7 @@ elements.constructorLanes.addEventListener("click", event => {
     clearLane(lane);
   }
 });
+elements.constructorLanes.addEventListener("change", event => updateLaneTarget(event.target));
 
 elements.selectedOptionsList.addEventListener("input", event => updateOptionInput(event.target));
 elements.selectedOptionsList.addEventListener("click", event => {

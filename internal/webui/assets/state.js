@@ -5,8 +5,18 @@ export const state = {
   activeTab: "router",
   activeCookMode: "quick",
   activePalette: "configs",
+  simpleCook: {
+    nodeID: "",
+    configID: "",
+    fields: {},
+    cleanFields: {},
+    mode: "edit",
+    fieldFilter: "",
+    sidebar: null
+  },
   constructor: {
     lanes: emptyLanes(),
+    targetNodes: emptyLaneTargets(),
     options: {},
     showUsedAll: false,
     showOptionsAll: false
@@ -19,5 +29,13 @@ export function emptyLanes() {
     text: null,
     image: null,
     embeddings: null
+  };
+}
+
+export function emptyLaneTargets() {
+  return {
+    text: "",
+    image: "",
+    embeddings: ""
   };
 }

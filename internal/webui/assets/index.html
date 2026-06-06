@@ -133,32 +133,55 @@
         </div>
 
         <div class="mode-tabs" aria-label="Cook mode">
-          <button class="mode-button active" type="button" data-cook-mode="quick">Quick Cook</button>
-          <button class="mode-button" type="button" data-cook-mode="constructor">Constructor</button>
+          <button class="mode-button active" type="button" data-cook-mode="quick">Simple Cook</button>
+          <button class="mode-button" type="button" data-cook-mode="constructor">Advanced Cook</button>
         </div>
 
         <section class="cook-mode active" data-cook-panel="quick">
-          <form id="cookForm" class="quick-cook">
-            <label>
-              Config id
-              <input id="cookIdInput" type="text" required placeholder="my-mixed-model">
-            </label>
-            <label>
-              LLM
-              <select id="llmSelect"></select>
-            </label>
-            <label>
-              Image
-              <select id="imageSelect"></select>
-            </label>
-            <label>
-              Embeddings
-              <select id="embeddingSelect"></select>
-            </label>
-            <div class="cook-actions">
-              <button id="previewButton" type="button">Preview</button>
-              <button type="submit">Apply</button>
+          <form id="cookForm" class="simple-cook">
+            <aside class="simple-controls">
+              <label>
+                Node
+                <select id="simpleNodeSelect"></select>
+              </label>
+              <label>
+                Config
+                <select id="simpleConfigSelect"></select>
+              </label>
+              <label>
+                Config id
+                <input id="cookIdInput" type="text" required placeholder="my-model">
+              </label>
+              <label>
+                Filter
+                <input id="simpleFieldFilter" type="search" placeholder="Field or value">
+              </label>
+              <label>
+                Add field
+                <select id="simpleAddFieldSelect"></select>
+              </label>
+              <div class="button-strip">
+                <button id="simpleAddFieldButton" type="button">Add</button>
+                <button id="simpleNewButton" type="button">New</button>
+                <button id="simpleCopyButton" type="button">Copy</button>
+                <button id="simpleDeleteButton" type="button">Delete</button>
+              </div>
+              <div class="cook-actions">
+                <button id="previewButton" type="button">Preview</button>
+                <button type="submit">Save</button>
+              </div>
+            </aside>
+
+            <div class="config-workspace">
+              <div class="comparison-legend">
+                <span><i class="legend-dot compare-none"></i>No comparable values</span>
+                <span><i class="legend-dot compare-same"></i>Same for model cohort</span>
+                <span><i class="legend-dot compare-different"></i>Different values exist</span>
+              </div>
+              <div id="simpleConfigEditor" class="config-editor"></div>
             </div>
+
+            <aside id="simpleFieldSidebar" class="field-sidebar"></aside>
           </form>
         </section>
 

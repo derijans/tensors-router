@@ -27,6 +27,12 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		service.handleSiteCookApply(w, r)
 	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/router/v1/site/cook/"):
 		service.handleSiteCookDelete(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/config-file/preview":
+		service.handleSiteConfigFilePreview(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/config-file/apply":
+		service.handleSiteConfigFileApply(w, r)
+	case r.Method == http.MethodDelete && r.URL.Path == "/router/v1/site/config-file":
+		service.handleSiteConfigFileDelete(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/models":
 		service.handleRouterModels(w)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/models":
@@ -40,6 +46,18 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/configs":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeSiteConfigs(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/config-file/preview":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeConfigFilePreview(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/config-file/apply":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeConfigFileApply(w, r)
+		}
+	case r.Method == http.MethodDelete && r.URL.Path == "/router/v1/node/site/config-file":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeConfigFileDelete(w, r)
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/register":
 		if service.requireClusterToken(w, r) {

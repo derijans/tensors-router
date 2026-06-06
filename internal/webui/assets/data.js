@@ -67,7 +67,8 @@ export function selectedOptionsForNode(nodeID, components, options) {
   const selected = {};
   for (const component of components) {
     const item = state.constructor.lanes[component.kind];
-    if (!item || (item.component.node_id || "") !== (nodeID || "")) {
+    const targetNodeID = state.constructor.targetNodes[component.kind] || item?.component?.node_id || "";
+    if (!item || (targetNodeID || "") !== (nodeID || "")) {
       continue;
     }
     Object.assign(selected, item.model?.options || {});
@@ -169,7 +170,7 @@ function componentThreadValue(nodeID, components, key, kinds) {
     }
     const selected = Object.values(state.constructor.lanes)
       .filter(Boolean)
-      .find(item => item.component.kind === component.kind && (item.component.node_id || "") === (nodeID || ""));
+      .find(item => item.component.kind === component.kind && ((state.constructor.targetNodes[item.component.kind] || item.component.node_id || "") === (nodeID || "")));
     const value = numberOption(selected?.model?.options?.[key]);
     if (value) {
       return value;

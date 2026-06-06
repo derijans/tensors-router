@@ -159,13 +159,6 @@ func validateOptionSupport(group cookGroup, fact cookNodeFacts, options cook.Opt
 	for key := range selectedOptions(group, fact, options) {
 		definition, ok := cook.OptionDefinitionForKey(key)
 		if !ok || !definition.Known {
-			issues = append(issues, cook.ValidationIssue{
-				Severity: "warning",
-				Code:     "unverified_option",
-				Message:  fmt.Sprintf("Option %q is not in the local option catalog.", key),
-				NodeID:   group.nodeID,
-				Field:    key,
-			})
 			continue
 		}
 		if len(definition.Backends) > 0 && !backendSupported(fact.backendMode, definition.Backends) {

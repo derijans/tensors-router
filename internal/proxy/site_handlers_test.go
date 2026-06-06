@@ -228,6 +228,69 @@ func TestNodeSiteConfigRequiresClusterToken(t *testing.T) {
 	}
 }
 
+func TestSiteConfigFileApplyAndDelete(t *testing.T) {
+	dir := packageTempDir(t)
+	backendURL, err := url.Parse("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(ServiceConfig{
+		Backend:   &fakeBackend{url: backendURL, healthy: true},
+		Catalog:   catalog.New(dir),
+		ConfigDir: dir,
+		NodeID:    "node-a",
+		Logger:    log.New(io.Discard, "", 0),
+	})
+
+	body := `{"id":"edited","overwrite":true,"options":{"baseconfig":"base.kcpps","quiet":true}}`
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/v1/site/config-file/apply", strings.NewReader(body)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected config save, got %d body %s", recorder.Code, recorder.Body.String())
+	}
+	content, err := os.ReadFile(filepath.Join(dir, "edited.kcpps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), `"baseconfig": "base.kcpps"`) {
+		t.Fatalf("saved config missing body: %s", string(content))
+	}
+
+	deleteBody := `{"id":"edited"}`
+	deleteRecorder := httptest.NewRecorder()
+	service.ServeHTTP(deleteRecorder, httptest.NewRequest(http.MethodDelete, "/router/v1/site/config-file", strings.NewReader(deleteBody)))
+	if deleteRecorder.Code != http.StatusOK {
+		t.Fatalf("expected config delete, got %d body %s", deleteRecorder.Code, deleteRecorder.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "edited.kcpps")); !os.IsNotExist(err) {
+		t.Fatalf("expected config file removed, got %v", err)
+	}
+}
+
+func TestSiteConfigFileRejectsPathLikeID(t *testing.T) {
+	dir := packageTempDir(t)
+	backendURL, err := url.Parse("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(ServiceConfig{
+		Backend:   &fakeBackend{url: backendURL, healthy: true},
+		Catalog:   catalog.New(dir),
+		ConfigDir: dir,
+		NodeID:    "node-a",
+		Logger:    log.New(io.Discard, "", 0),
+	})
+
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/v1/site/config-file/apply", strings.NewReader(`{"id":"../bad","options":{}}`)))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected path-like id rejection, got %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if _, err := os.Stat(filepath.Join(dir, "bad.kcpps")); !os.IsNotExist(err) {
+		t.Fatalf("unexpected config file created, got %v", err)
+	}
+}
+
 func TestSiteCookRejectsKoboldImageEmbeddingsMix(t *testing.T) {
 	dir := packageTempDir(t)
 	if err := os.WriteFile(filepath.Join(dir, "image.kcpps"), []byte(`{"nomodel":true,"sdmodel":"dream.safetensors"}`), 0o644); err != nil {

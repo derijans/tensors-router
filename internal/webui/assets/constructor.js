@@ -1,5 +1,5 @@
 import { elements } from "./elements.js";
-import { emptyLanes, state } from "./state.js";
+import { emptyLanes, emptyLaneTargets, state } from "./state.js";
 import {
   configPaletteEntries,
   filePaletteEntries,
@@ -34,14 +34,19 @@ export function renderConstructor() {
 }
 
 export function advancedCookRequest() {
-  const components = Object.values(state.constructor.lanes)
-    .filter(Boolean)
-    .map(selected => selected.component);
+  const selectedLanes = Object.entries(state.constructor.lanes)
+    .filter(([, selected]) => Boolean(selected));
+  const components = selectedLanes.map(([lane, selected]) => componentForAdvancedLane(lane, selected));
+  const options = {};
+  for (const [lane, selected] of selectedLanes) {
+    Object.assign(options, sectionOptionsForLane(lane, selected.model?.options || {}));
+  }
+  Object.assign(options, state.constructor.options);
   return {
     id: elements.advancedCookIdInput.value.trim(),
     overwrite: elements.overwriteInput.checked,
     components,
-    options: {...state.constructor.options}
+    options
   };
 }
 
@@ -85,7 +90,6 @@ export function localValidation() {
     for (const [key, value] of Object.entries(selected)) {
       const definition = optionDefinition(key);
       if (!definition?.known) {
-        issues.push(issue("warning", "unverified_option", `${key} is observed but not verified.`, key));
         continue;
       }
       if (definition.backends?.length > 0 && !definition.backends.includes(backend)) {
@@ -128,6 +132,7 @@ export function addOption(key) {
 
 export function clearConstructor() {
   state.constructor.lanes = emptyLanes();
+  state.constructor.targetNodes = emptyLaneTargets();
   state.constructor.options = {};
   renderConstructor();
 }
@@ -204,6 +209,10 @@ function renderLanes() {
         <strong>${escapeHTML(selected.label)}</strong>
         <div class="muted">${escapeHTML(selected.subtitle)}</div>
         <div class="palette-meta">${selected.meta.map(item => chip(item, "")).join("")}</div>
+        <label>
+          Target node
+          <select data-lane-target="${escapeAttribute(lane)}">${targetNodeOptions(lane, selected)}</select>
+        </label>
       </article>
     `;
   }
@@ -307,4 +316,96 @@ function defaultOptionValue(definition) {
     default:
       return "";
   }
+}
+
+export function updateLaneTarget(target) {
+  const lane = target?.dataset?.laneTarget;
+  if (!lane) {
+    return;
+  }
+  state.constructor.targetNodes[lane] = target.value;
+  renderConstructor();
+}
+
+function componentForAdvancedLane(lane, selected) {
+  const targetNodeID = state.constructor.targetNodes[lane] || selected.component.node_id || "";
+  const targetNode = nodeByID(targetNodeID);
+  const component = {
+    ...selected.component,
+    node_id: targetNodeID,
+    node_url: targetNode?.node_url || selected.component.node_url || ""
+  };
+  if (targetNodeID && selected.component.node_id && targetNodeID !== selected.component.node_id) {
+    const filePath = modelPathForLane(lane, selected);
+    if (filePath) {
+      component.source = "file";
+      component.file_path = filePath;
+      delete component.model_id;
+      delete component.image_id;
+    }
+  }
+  return component;
+}
+
+function sectionOptionsForLane(lane, options) {
+  const section = laneSection(lane);
+  const result = {};
+  for (const [key, value] of Object.entries(options || {})) {
+    const definition = optionDefinition(key);
+    if (!definition || definition.section === "runtime" || definition.section === section) {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
+function laneSection(lane) {
+  if (lane === "image") {
+    return "image";
+  }
+  if (lane === "embeddings") {
+    return "embed";
+  }
+  return "llm";
+}
+
+function modelPathForLane(lane, selected) {
+  const options = selected.model?.options || {};
+  if (lane === "image") {
+    return stringOption(options.sdmodel) || selected.file?.path || "";
+  }
+  if (lane === "embeddings") {
+    return stringOption(options.embeddingsmodel) || selected.file?.path || "";
+  }
+  return stringOption(options.model_param) || firstStringOption(options.model) || selected.file?.path || "";
+}
+
+function stringOption(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function firstStringOption(value) {
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      if (typeof item === "string" && item.trim()) {
+        return item.trim();
+      }
+    }
+  }
+  return "";
+}
+
+function targetNodeOptions(lane, selected) {
+  const nodes = (state.inventory?.nodes || []);
+  const current = state.constructor.targetNodes[lane] || selected.component.node_id || nodes[0]?.node_id || "";
+  if (!state.constructor.targetNodes[lane]) {
+    state.constructor.targetNodes[lane] = current;
+  }
+  return nodes.map(node => {
+    const selectedAttribute = node.node_id === current ? " selected" : "";
+    return `<option value="${escapeAttribute(node.node_id)}"${selectedAttribute}>${escapeHTML(node.node_id || "node")}</option>`;
+  }).join("");
 }

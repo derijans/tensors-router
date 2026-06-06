@@ -1,11 +1,8 @@
 import { state } from "./state.js";
 import { elements } from "./elements.js";
 import { renderConstructor } from "./constructor.js";
+import { renderSimpleCook } from "./simple-cook.js";
 import {
-  allNodeFiles,
-  allNodeModels,
-  componentOption,
-  fileOption,
   filteredFiles,
   filteredModels
 } from "./data.js";
@@ -33,7 +30,7 @@ export function showApp() {
 export function renderInventory() {
   renderNodes();
   renderTables();
-  renderCookSelectors();
+  renderSimpleCook();
   renderConstructor();
   renderRecipes();
 }
@@ -110,36 +107,4 @@ function renderNodes() {
       </article>
     `;
   }).join("");
-}
-
-function renderCookSelectors() {
-  const models = allNodeModels();
-  const files = allNodeFiles();
-  fillSelect(elements.llmSelect, [
-    optionValue("", "None"),
-    ...models.filter(model => model.has_llm).map(model => componentOption("text", model)),
-    ...files.filter(file => fileRoles(file).includes("llm")).map(file => fileOption("text", file))
-  ]);
-  fillSelect(elements.imageSelect, [
-    optionValue("", "None"),
-    ...models.filter(model => model.has_image).map(model => componentOption("image", model)),
-    ...files.filter(file => fileRoles(file).includes("image")).map(file => fileOption("image", file))
-  ]);
-  fillSelect(elements.embeddingSelect, [
-    optionValue("", "None"),
-    ...models.filter(model => model.has_embeddings).map(model => componentOption("embeddings", model)),
-    ...files.filter(file => fileRoles(file).includes("embeddings")).map(file => fileOption("embeddings", file))
-  ]);
-}
-
-function fillSelect(select, options) {
-  const selected = select.value;
-  select.innerHTML = options.map(option => `<option value="${escapeAttribute(option.value)}">${escapeHTML(option.label)}</option>`).join("");
-  if ([...select.options].some(option => option.value === selected)) {
-    select.value = selected;
-  }
-}
-
-function optionValue(value, label) {
-  return {value, label};
 }

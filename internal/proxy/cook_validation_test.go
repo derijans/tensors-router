@@ -92,18 +92,52 @@ func TestValidateOptionSupportIncludesSourceConfigOptions(t *testing.T) {
 	}
 
 	issues := validateOptionSupport(group, fact, nil)
-	if len(issues) != 2 {
-		t.Fatalf("expected two issues, got %d", len(issues))
+	if len(issues) != 1 {
+		t.Fatalf("expected one issue, got %d", len(issues))
 	}
 
 	gotCodes := map[string]bool{}
 	for _, issue := range issues {
 		gotCodes[issue.Code] = true
 	}
-	if !gotCodes["unverified_option"] {
-		t.Fatal("expected unverified_option issue")
+	if gotCodes["unverified_option"] {
+		t.Fatal("unknown observed options should not emit unverified_option")
 	}
 	if !gotCodes["unsupported_option"] {
 		t.Fatal("expected unsupported_option issue")
+	}
+}
+
+func TestValidateOptionSupportCatalogsDocumentedBackendOptions(t *testing.T) {
+	group := cookGroup{
+		components: []cook.Component{{
+			Kind:    cook.KindImage,
+			Source:  cook.SourceConfig,
+			ModelID: "image-model",
+		}},
+	}
+	fact := cookNodeFacts{
+		backendMode: "kobold",
+		hardware: hardware.Info{
+			GPUBackend: hardware.GPUBackendCUDA,
+			GPUCount:   1,
+		},
+		models: []cluster.Model{{
+			LocalID: "image-model",
+			Options: map[string]json.RawMessage{
+				"baseconfig":      json.RawMessage(`"base.kcpps"`),
+				"sdvaedevice":     json.RawMessage(`"main"`),
+				"sdmaingpu":       json.RawMessage(`"0"`),
+				"ttsmodel":        json.RawMessage(`"voice.gguf"`),
+				"sampling_method": json.RawMessage(`"euler"`),
+			},
+		}},
+	}
+
+	issues := validateOptionSupport(group, fact, nil)
+	for _, issue := range issues {
+		if issue.Code == "unverified_option" {
+			t.Fatalf("documented option emitted unverified warning: %#v", issue)
+		}
 	}
 }

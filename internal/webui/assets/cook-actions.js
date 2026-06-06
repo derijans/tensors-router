@@ -2,27 +2,6 @@ import { api } from "./api.js";
 import { elements } from "./elements.js";
 import { advancedCookRequest, localValidation, renderConstructor } from "./constructor.js";
 
-export function cookRequest() {
-  const components = [elements.llmSelect, elements.imageSelect, elements.embeddingSelect]
-    .map(select => select.value)
-    .filter(Boolean)
-    .map(value => JSON.parse(value));
-  return {
-    id: elements.cookIdInput.value.trim(),
-    overwrite: elements.overwriteInput.checked,
-    components
-  };
-}
-
-export async function previewCook() {
-  await submitCook("/api/cook/preview", cookRequest());
-}
-
-export async function applyCook(refreshInventory) {
-  await submitCook("/api/cook/apply", cookRequest());
-  await refreshInventory();
-}
-
 export async function previewAdvancedCook() {
   await submitCook("/api/cook/preview", advancedCookRequest());
 }

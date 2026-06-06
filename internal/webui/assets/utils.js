@@ -135,7 +135,11 @@ export function parseOptionInput(definition, value) {
       if (!trimmed) {
         return {};
       }
-      return JSON.parse(trimmed);
+      try {
+        return JSON.parse(trimmed);
+      } catch {
+        return value;
+      }
     default:
       return value;
   }

@@ -94,6 +94,12 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	case strings.HasPrefix(r.URL.Path, "/api/cook/") && r.Method == http.MethodDelete:
 		id := strings.TrimPrefix(r.URL.Path, "/api/cook/")
 		server.proxyRouter(w, r, http.MethodDelete, "/router/v1/site/cook/"+id)
+	case r.URL.Path == "/api/config-file/preview" && r.Method == http.MethodPost:
+		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/config-file/preview")
+	case r.URL.Path == "/api/config-file/apply" && r.Method == http.MethodPost:
+		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/config-file/apply")
+	case r.URL.Path == "/api/config-file" && r.Method == http.MethodDelete:
+		server.proxyRouter(w, r, http.MethodDelete, "/router/v1/site/config-file")
 	default:
 		writeWebError(w, http.StatusNotFound, "not found")
 	}

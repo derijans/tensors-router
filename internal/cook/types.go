@@ -64,9 +64,14 @@ type OptionDefinition struct {
 	Key        string   `json:"key"`
 	Name       string   `json:"name"`
 	Lane       string   `json:"lane"`
+	Section    string   `json:"section,omitempty"`
 	ValueType  string   `json:"value_type"`
+	Choices    []string `json:"choices,omitempty"`
 	Backends   []string `json:"backends"`
 	NativeFlag string   `json:"native_flag,omitempty"`
 	CUDAOnly   bool     `json:"cuda_only,omitempty"`
+	ModelRole  string   `json:"model_role,omitempty"`
+	Default    string   `json:"default,omitempty"`
+	Source     string   `json:"source,omitempty"`
 	Known      bool     `json:"known"`
 }
