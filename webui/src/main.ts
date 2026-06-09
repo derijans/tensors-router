@@ -1,0 +1,319 @@
+import {
+  deleteRecipe,
+  getInventory,
+  getRouterStatus,
+  getSession,
+  killRouter,
+  launchRouter,
+  login,
+  logout,
+  restartRouter
+} from "./api";
+import { closestElement, elementTarget, queryElements } from "./dom";
+import { elements } from "./elements";
+import { state } from "./state";
+import {
+  addOption,
+  addPayload,
+  clearConstructor,
+  clearLane,
+  removeOption,
+  renderConstructor,
+  toggleInspectorList,
+  updateLaneTarget,
+  updateOptionInput
+} from "./constructor";
+import {
+  applyAdvancedCook,
+  previewAdvancedCook
+} from "./cook-actions";
+import {
+  addSelectedSimpleField,
+  applySimpleCook,
+  copySimpleConfig,
+  deleteSimpleConfig,
+  newSimpleConfig,
+  previewSimpleCook,
+  removeSimpleField,
+  renderSimpleCook,
+  selectSimpleConfig,
+  selectSimpleNode,
+  showSimpleFieldValues,
+  updateSimpleField,
+  updateSimpleFieldFilter
+} from "./simple-cook";
+import {
+  renderInventory,
+  renderRecipes,
+  renderRouterStatus,
+  renderTables,
+  showApp,
+  showLogin
+} from "./render-dashboard";
+import type { CookMode, PaletteName } from "./types";
+
+async function bootstrap(): Promise<void> {
+  try {
+    const session = await getSession();
+    state.csrf = session.csrf;
+    showApp();
+    await refreshAll();
+  } catch {
+    showLogin();
+  }
+}
+
+async function refreshAll(): Promise<void> {
+  await refreshRouterStatus();
+  await refreshInventory();
+}
+
+async function refreshRouterStatus(): Promise<void> {
+  state.router = await getRouterStatus();
+  renderRouterStatus();
+}
+
+async function refreshInventory(): Promise<void> {
+  state.inventory = await getInventory();
+  renderInventory();
+}
+
+function activateTab(name: string): void {
+  state.activeTab = name;
+  queryElements("[data-tab]", HTMLButtonElement).forEach(tab => tab.classList.toggle("active", tab.dataset.tab === name));
+  queryElements("[data-panel]", HTMLElement).forEach(panel => panel.classList.toggle("active", panel.dataset.panel === name));
+}
+
+function activateCookMode(name: string | undefined): void {
+  if (!isCookMode(name)) {
+    return;
+  }
+  state.activeCookMode = name;
+  queryElements("[data-cook-mode]", HTMLButtonElement).forEach(tab => tab.classList.toggle("active", tab.dataset.cookMode === name));
+  queryElements("[data-cook-panel]", HTMLElement).forEach(panel => panel.classList.toggle("active", panel.dataset.cookPanel === name));
+}
+
+function activatePalette(name: string | undefined): void {
+  if (!isPaletteName(name)) {
+    return;
+  }
+  state.activePalette = name;
+  queryElements("[data-palette]", HTMLButtonElement).forEach(tab => tab.classList.toggle("active", tab.dataset.palette === name));
+  renderConstructor();
+}
+
+queryElements("[data-tab]", HTMLButtonElement).forEach(button => {
+  button.addEventListener("click", () => activateTab(button.dataset.tab || ""));
+});
+
+queryElements("[data-cook-mode]", HTMLButtonElement).forEach(button => {
+  button.addEventListener("click", () => activateCookMode(button.dataset.cookMode));
+});
+
+queryElements("[data-palette]", HTMLButtonElement).forEach(button => {
+  button.addEventListener("click", () => activatePalette(button.dataset.palette));
+});
+
+elements.loginForm.addEventListener("submit", event => {
+  event.preventDefault();
+  void submitLogin();
+});
+
+elements.logoutButton.addEventListener("click", () => runTask(handleLogout));
+
+elements.refreshButton.addEventListener("click", () => runTask(refreshAll));
+elements.filterInput.addEventListener("input", renderTables);
+elements.constructorFilterInput.addEventListener("input", renderConstructor);
+
+elements.launchButton.addEventListener("click", () => runTask(handleLaunchRouter));
+
+elements.restartButton.addEventListener("click", () => runTask(handleRestartRouter));
+
+elements.killButton.addEventListener("click", () => runTask(handleKillRouter));
+
+elements.previewButton.addEventListener("click", () => runTask(previewSimpleCook));
+elements.cookForm.addEventListener("submit", event => {
+  event.preventDefault();
+  void applySimpleCook(refreshInventory);
+});
+elements.simpleNodeSelect.addEventListener("change", () => selectSimpleNode(elements.simpleNodeSelect.value));
+elements.simpleConfigSelect.addEventListener("change", () => selectSimpleConfig(elements.simpleConfigSelect.value));
+elements.simpleFieldFilter.addEventListener("input", () => updateSimpleFieldFilter(elements.simpleFieldFilter.value));
+elements.simpleAddFieldButton.addEventListener("click", addSelectedSimpleField);
+elements.simpleNewButton.addEventListener("click", newSimpleConfig);
+elements.simpleCopyButton.addEventListener("click", copySimpleConfig);
+elements.simpleDeleteButton.addEventListener("click", () => runTask(() => deleteSimpleConfig(refreshInventory)));
+elements.simpleConfigEditor.addEventListener("change", event => updateSimpleField(event.target));
+elements.simpleConfigEditor.addEventListener("click", event => {
+  const target = elementTarget(event);
+  const fieldKey = target?.dataset.fieldValues;
+  if (fieldKey) {
+    showSimpleFieldValues(fieldKey, "field");
+    return;
+  }
+  const modelFieldKey = target?.dataset.fieldModelValues;
+  if (modelFieldKey) {
+    showSimpleFieldValues(modelFieldKey, "model");
+    return;
+  }
+  const removeKey = target?.dataset.removeSimpleField;
+  if (removeKey) {
+    removeSimpleField(removeKey);
+  }
+});
+elements.simpleFieldSidebar.addEventListener("click", event => {
+  const target = elementTarget(event);
+  if (target?.dataset.closeFieldSidebar !== undefined) {
+    state.simpleCook.sidebar = null;
+    renderSimpleCook();
+  }
+});
+
+elements.advancedPreviewButton.addEventListener("click", () => runTask(previewAdvancedCook));
+elements.advancedApplyButton.addEventListener("click", () => runTask(() => applyAdvancedCook(refreshInventory)));
+elements.clearConstructorButton.addEventListener("click", clearConstructor);
+
+elements.paletteList.addEventListener("dragstart", event => {
+  if (!(event instanceof DragEvent)) {
+    return;
+  }
+  const payloadID = closestElement(event.target, "[data-drag-payload]", HTMLElement)?.dataset.dragPayload;
+  if (!payloadID || !event.dataTransfer) {
+    return;
+  }
+  event.dataTransfer.setData("text/plain", payloadID);
+  event.dataTransfer.effectAllowed = "copy";
+});
+
+elements.paletteList.addEventListener("click", event => {
+  const target = elementTarget(event);
+  const optionKey = target?.dataset.addOption;
+  if (optionKey) {
+    addOption(optionKey);
+    return;
+  }
+  const payloadID = target?.dataset.selectPayload;
+  if (payloadID) {
+    addPayload(state.palettePayloads[payloadID]);
+  }
+});
+
+elements.constructorLanes.addEventListener("dragover", event => {
+  const drop = closestElement(event.target, "[data-drop-lane]", HTMLElement);
+  if (!drop) {
+    return;
+  }
+  event.preventDefault();
+  drop.classList.add("drag-over");
+});
+
+elements.constructorLanes.addEventListener("dragleave", event => {
+  closestElement(event.target, "[data-drop-lane]", HTMLElement)?.classList.remove("drag-over");
+});
+
+elements.constructorLanes.addEventListener("drop", event => {
+  if (!(event instanceof DragEvent)) {
+    return;
+  }
+  const drop = closestElement(event.target, "[data-drop-lane]", HTMLElement);
+  if (!drop || !event.dataTransfer) {
+    return;
+  }
+  event.preventDefault();
+  drop.classList.remove("drag-over");
+  addPayload(state.palettePayloads[event.dataTransfer.getData("text/plain")], drop.dataset.dropLane);
+});
+
+elements.constructorLanes.addEventListener("click", event => {
+  const lane = elementTarget(event)?.dataset.clearLane;
+  if (lane) {
+    clearLane(lane);
+  }
+});
+elements.constructorLanes.addEventListener("change", event => updateLaneTarget(event.target));
+
+elements.selectedOptionsList.addEventListener("input", event => updateOptionInput(event.target));
+elements.selectedOptionsList.addEventListener("click", event => {
+  const target = elementTarget(event);
+  const removeKey = target?.dataset.removeOption;
+  if (removeKey) {
+    removeOption(removeKey);
+    return;
+  }
+  const toggle = target?.dataset.toggleList;
+  if (toggle) {
+    toggleInspectorList(toggle);
+  }
+});
+
+elements.usedModelsList.addEventListener("click", event => {
+  const toggle = elementTarget(event)?.dataset.toggleList;
+  if (toggle) {
+    toggleInspectorList(toggle);
+  }
+});
+
+elements.recipesList.addEventListener("click", event => {
+  void handleRecipeClick(event);
+});
+
+void bootstrap();
+
+async function submitLogin(): Promise<void> {
+  elements.loginError.textContent = "";
+  try {
+    const session = await login(elements.tokenInput.value);
+    state.csrf = session.csrf;
+    showApp();
+    await refreshAll();
+  } catch (error) {
+    elements.loginError.textContent = errorMessage(error);
+  }
+}
+
+async function handleLogout(): Promise<void> {
+  await logout();
+  state.csrf = "";
+  showLogin();
+}
+
+async function handleLaunchRouter(): Promise<void> {
+  state.router = await launchRouter();
+  renderRouterStatus();
+}
+
+async function handleRestartRouter(): Promise<void> {
+  state.router = await restartRouter();
+  renderRouterStatus();
+}
+
+async function handleKillRouter(): Promise<void> {
+  state.router = await killRouter();
+  renderRouterStatus();
+}
+
+async function handleRecipeClick(event: Event): Promise<void> {
+  const id = elementTarget(event)?.dataset.deleteRecipe;
+  if (!id) {
+    return;
+  }
+  await deleteRecipe(id);
+  await refreshInventory();
+  renderRecipes();
+}
+
+function runTask(task: () => Promise<void>): void {
+  void task();
+}
+
+function isCookMode(value: string | undefined): value is CookMode {
+  return value === "quick" || value === "constructor";
+}
+
+function isPaletteName(value: string | undefined): value is PaletteName {
+  return value === "configs" || value === "files" || value === "options";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}

@@ -1,7 +1,7 @@
-import { api } from "./api.js";
-import { elements } from "./elements.js";
-import { state } from "./state.js";
-import { allOptionDefinitions, optionDefinition } from "./data.js";
+import { deleteConfigFile, errorBody, previewConfigFile, applyConfigFile } from "./api";
+import { elements } from "./elements";
+import { state } from "./state";
+import { allOptionDefinitions, optionDefinition, optionValue } from "./data";
 import {
   cloneValue,
   comparisonClass,
@@ -12,7 +12,6 @@ import {
   fieldRenderContext,
   groupedFieldKeys,
   nodeLabel,
-  optionValue,
   safeID,
   sectionLabels,
   sectionModelKeys,
@@ -20,16 +19,19 @@ import {
   selectedNode,
   sidebarValueRows,
   suggestedConfigID
-} from "./simple-cook-data.js";
+} from "./simple-cook-data";
 import {
   escapeAttribute,
   escapeHTML,
   optionInputValue,
   optionValueLabel,
   parseOptionInput
-} from "./utils.js";
+} from "./utils";
+import type { ConfigFileRequest, ConfigFileResponse, JsonValue, Model, RefreshInventory, SelectChoice } from "./types";
 
-export function renderSimpleCook() {
+type ConfigSubmitter = (request: ConfigFileRequest) => Promise<ConfigFileResponse>;
+
+export function renderSimpleCook(): void {
   syncSimpleCookSelection();
   renderSimpleSelectors();
   renderAddFieldSelect();
@@ -37,27 +39,27 @@ export function renderSimpleCook() {
   renderFieldSidebar();
 }
 
-export function selectSimpleNode(nodeID) {
+export function selectSimpleNode(nodeID: string): void {
   state.simpleCook.nodeID = nodeID;
   const node = selectedNode();
-  const model = (node?.models || [])[0] || null;
+  const model = (node?.models ?? [])[0] ?? null;
   loadSimpleConfig(model);
   renderSimpleCook();
 }
 
-export function selectSimpleConfig(configID) {
+export function selectSimpleConfig(configID: string): void {
   const node = selectedNode();
-  const model = (node?.models || []).find(item => item.local_id === configID) || null;
+  const model = (node?.models ?? []).find(item => item.local_id === configID) ?? null;
   loadSimpleConfig(model);
   renderSimpleCook();
 }
 
-export function updateSimpleFieldFilter(value) {
+export function updateSimpleFieldFilter(value: string): void {
   state.simpleCook.fieldFilter = value;
   renderConfigEditor();
 }
 
-export function newSimpleConfig() {
+export function newSimpleConfig(): void {
   const node = selectedNode();
   state.simpleCook.configID = "";
   state.simpleCook.mode = "new";
@@ -67,7 +69,7 @@ export function newSimpleConfig() {
   renderSimpleCook();
 }
 
-export function copySimpleConfig() {
+export function copySimpleConfig(): void {
   const config = selectedConfig();
   state.simpleCook.mode = "copy";
   state.simpleCook.configID = "";
@@ -77,7 +79,7 @@ export function copySimpleConfig() {
   renderSimpleCook();
 }
 
-export function addSelectedSimpleField() {
+export function addSelectedSimpleField(): void {
   const key = elements.simpleAddFieldSelect.value;
   if (!key || Object.hasOwn(state.simpleCook.fields, key)) {
     return;
@@ -87,8 +89,11 @@ export function addSelectedSimpleField() {
   renderSimpleCook();
 }
 
-export function updateSimpleField(target) {
-  const key = target?.dataset?.simpleField;
+export function updateSimpleField(target: EventTarget | null): void {
+  if (!(target instanceof HTMLInputElement)) {
+    return;
+  }
+  const key = target.dataset.simpleField;
   if (!key) {
     return;
   }
@@ -96,7 +101,7 @@ export function updateSimpleField(target) {
   renderSimpleCook();
 }
 
-export function removeSimpleField(key) {
+export function removeSimpleField(key: string): void {
   delete state.simpleCook.fields[key];
   if (state.simpleCook.sidebar?.key === key) {
     state.simpleCook.sidebar = null;
@@ -104,28 +109,28 @@ export function removeSimpleField(key) {
   renderSimpleCook();
 }
 
-export function showSimpleFieldValues(key, type) {
+export function showSimpleFieldValues(key: string, type: "field" | "model"): void {
   state.simpleCook.sidebar = {key, type};
   renderFieldSidebar();
 }
 
-export async function previewSimpleCook() {
-  await submitSimpleConfig("/api/config-file/preview");
+export async function previewSimpleCook(): Promise<void> {
+  await submitSimpleConfig(previewConfigFile);
 }
 
-export async function applySimpleCook(refreshInventory) {
-  const result = await submitSimpleConfig("/api/config-file/apply");
+export async function applySimpleCook(refreshInventory: RefreshInventory): Promise<void> {
+  const result = await submitSimpleConfig(applyConfigFile);
   if (!result) {
     return;
   }
   state.simpleCook.mode = "edit";
-  state.simpleCook.configID = result?.id || "";
-  state.simpleCook.fields = cloneValue(result?.options || state.simpleCook.fields);
+  state.simpleCook.configID = result.id || "";
+  state.simpleCook.fields = cloneValue(result.options ?? state.simpleCook.fields);
   state.simpleCook.cleanFields = cloneValue(state.simpleCook.fields);
   await refreshInventory();
 }
 
-export async function deleteSimpleConfig(refreshInventory) {
+export async function deleteSimpleConfig(refreshInventory: RefreshInventory): Promise<void> {
   const config = selectedConfig();
   if (!config) {
     return;
@@ -134,14 +139,13 @@ export async function deleteSimpleConfig(refreshInventory) {
     return;
   }
   try {
-    await api("/api/config-file", {
-      method: "DELETE",
-      body: JSON.stringify({
-        node_id: state.simpleCook.nodeID,
-        node_url: selectedNode()?.node_url || "",
-        id: config.local_id,
-        filename: config.filename
-      })
+    await deleteConfigFile({
+      node_id: state.simpleCook.nodeID,
+      node_url: selectedNode()?.node_url || "",
+      id: config.local_id,
+      filename: config.filename,
+      overwrite: false,
+      options: {}
     });
     await refreshInventory();
   } catch (error) {
@@ -149,8 +153,8 @@ export async function deleteSimpleConfig(refreshInventory) {
   }
 }
 
-function syncSimpleCookSelection() {
-  const nodes = state.inventory?.nodes || [];
+function syncSimpleCookSelection(): void {
+  const nodes = state.inventory?.nodes ?? [];
   if (nodes.length === 0) {
     state.simpleCook.nodeID = "";
     state.simpleCook.configID = "";
@@ -159,24 +163,26 @@ function syncSimpleCookSelection() {
     return;
   }
   if (!nodes.some(node => node.node_id === state.simpleCook.nodeID)) {
-    state.simpleCook.nodeID = nodes[0].node_id;
-    loadSimpleConfig((nodes[0].models || [])[0] || null);
+    const firstNode = nodes[0];
+    state.simpleCook.nodeID = firstNode?.node_id ?? "";
+    loadSimpleConfig((firstNode?.models ?? [])[0] ?? null);
     return;
   }
   if (state.simpleCook.mode !== "edit") {
     return;
   }
   const config = selectedConfig();
-  if (!config && (selectedNode()?.models || []).length > 0) {
-    loadSimpleConfig((selectedNode().models || [])[0]);
+  const currentNode = selectedNode();
+  if (!config && (currentNode?.models ?? []).length > 0) {
+    loadSimpleConfig((currentNode?.models ?? [])[0] ?? null);
   }
 }
 
-function renderSimpleSelectors() {
-  const nodes = state.inventory?.nodes || [];
+function renderSimpleSelectors(): void {
+  const nodes = state.inventory?.nodes ?? [];
   fillSelect(elements.simpleNodeSelect, nodes.map(node => optionValue(node.node_id, nodeLabel(node))));
   elements.simpleNodeSelect.value = state.simpleCook.nodeID;
-  const configs = selectedNode()?.models || [];
+  const configs = selectedNode()?.models ?? [];
   fillSelect(elements.simpleConfigSelect, configs.map(model => optionValue(model.local_id, configLabel(model))));
   elements.simpleConfigSelect.value = state.simpleCook.configID;
   elements.simpleConfigSelect.disabled = configs.length === 0;
@@ -185,7 +191,7 @@ function renderSimpleSelectors() {
   elements.simpleFieldFilter.value = state.simpleCook.fieldFilter;
 }
 
-function renderAddFieldSelect() {
+function renderAddFieldSelect(): void {
   const fields = state.simpleCook.fields || {};
   const options = allOptionDefinitions()
     .filter(definition => !Object.hasOwn(fields, definition.key))
@@ -196,7 +202,7 @@ function renderAddFieldSelect() {
   }).join("");
 }
 
-function renderConfigEditor() {
+function renderConfigEditor(): void {
   const fields = state.simpleCook.fields || {};
   const query = state.simpleCook.fieldFilter.trim().toLowerCase();
   const context = fieldRenderContext();
@@ -220,7 +226,7 @@ function renderConfigEditor() {
   elements.simpleConfigEditor.innerHTML = groups.join("") || `<div class="detail-empty">No fields</div>`;
 }
 
-function renderFieldSidebar() {
+function renderFieldSidebar(): void {
   const sidebar = state.simpleCook.sidebar;
   if (!sidebar) {
     elements.simpleFieldSidebar.innerHTML = `<div class="detail-empty">Field values</div>`;
@@ -241,7 +247,7 @@ function renderFieldSidebar() {
   `;
 }
 
-function fieldRow(key, value, section, context) {
+function fieldRow(key: string, value: JsonValue | undefined, section: string, context: ReturnType<typeof fieldRenderContext>): string {
   const definition = optionDefinition(key);
   const datalistID = `field-values-${safeID(key)}`;
   const choices = fieldChoices(key, definition, context);
@@ -270,7 +276,7 @@ function fieldRow(key, value, section, context) {
   `;
 }
 
-function sidebarValueRow(row) {
+function sidebarValueRow(row: { value: string; config: string }): string {
   return `
     <div class="sidebar-value">
       <strong>${escapeHTML(row.value)}</strong>
@@ -279,12 +285,9 @@ function sidebarValueRow(row) {
   `;
 }
 
-async function submitSimpleConfig(path) {
+async function submitSimpleConfig(submitter: ConfigSubmitter): Promise<ConfigFileResponse | null> {
   try {
-    const result = await api(path, {
-      method: "POST",
-      body: JSON.stringify(simpleConfigRequest())
-    });
+    const result = await submitter(simpleConfigRequest());
     elements.cookOutput.textContent = JSON.stringify(result, null, 2);
     return result;
   } catch (error) {
@@ -293,10 +296,10 @@ async function submitSimpleConfig(path) {
   }
 }
 
-function simpleConfigRequest() {
+function simpleConfigRequest(): ConfigFileRequest {
   const config = selectedConfig();
   const requestedID = elements.cookIdInput.value.trim();
-  const editingSameConfig = config && requestedID === config.local_id;
+  const editingSameConfig = Boolean(config && requestedID === config.local_id);
   return {
     node_id: state.simpleCook.nodeID,
     node_url: selectedNode()?.node_url || "",
@@ -307,24 +310,27 @@ function simpleConfigRequest() {
   };
 }
 
-function loadSimpleConfig(model) {
+function loadSimpleConfig(model: Model | null): void {
   state.simpleCook.mode = "edit";
   state.simpleCook.configID = model?.local_id || "";
-  state.simpleCook.fields = cloneValue(model?.options || {});
-  state.simpleCook.cleanFields = cloneValue(model?.options || {});
+  state.simpleCook.fields = cloneValue(model?.options ?? {});
+  state.simpleCook.cleanFields = cloneValue(model?.options ?? {});
   state.simpleCook.sidebar = null;
   elements.cookIdInput.value = model?.local_id || suggestedConfigID(selectedNode(), "new-config");
 }
 
-function fillSelect(select, options) {
+function fillSelect(select: HTMLSelectElement, options: SelectChoice[]): void {
   const selected = select.value;
   select.innerHTML = options.map(option => `<option value="${escapeAttribute(option.value)}">${escapeHTML(option.label)}</option>`).join("");
-  if ([...select.options].some(option => option.value === selected)) {
+  if (Array.from(select.options).some(option => option.value === selected)) {
     select.value = selected;
   }
 }
 
-function showSimpleCookError(error) {
-  const body = error.data?.validation ? {error: error.message, validation: error.data.validation} : {error: error.message};
-  elements.cookOutput.textContent = JSON.stringify(body, null, 2);
+function showSimpleCookError(error: unknown): void {
+  elements.cookOutput.textContent = JSON.stringify(errorBody(error), null, 2);
+}
+
+function sectionForDefinition(definition: { section?: string }): string {
+  return definition.section || "other";
 }

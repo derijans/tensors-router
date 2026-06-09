@@ -1,107 +1,34 @@
-import { elements } from "./elements.js";
-import { emptyLanes, emptyLaneTargets, state } from "./state.js";
+import { elements } from "./elements";
+import { isLaneKind, laneKinds } from "./constants";
+import { emptyLanes, emptyLaneTargets, state } from "./state";
 import {
   configPaletteEntries,
   filePaletteEntries,
-  groupComponentsByNode,
   optionDefinition,
   optionPaletteEntries,
-  nodeByID,
   selectedOptionsForInspector,
-  selectedOptionsForNode,
-  selectedThreadFieldsForNode,
   usedPaths
-} from "./data.js";
+} from "./data";
+import { localValidation } from "./constructor-data";
 import {
   chip,
   escapeAttribute,
   escapeHTML,
-  gpuOptionKey,
-  hasKind,
-  issue,
   kindColor,
   optionInputValue,
   optionValueLabel,
   parseOptionInput,
-  renderIssue,
-  truthy
-} from "./utils.js";
+  renderIssue
+} from "./utils";
+import type { JsonValue, LaneKind, OptionDefinition, PaletteComponentPayload, PaletteEntry, PalettePayload } from "./types";
 
-export function renderConstructor() {
+export function renderConstructor(): void {
   renderPalette();
   renderLanes();
   renderInspector();
 }
 
-export function advancedCookRequest() {
-  const selectedLanes = Object.entries(state.constructor.lanes)
-    .filter(([, selected]) => Boolean(selected));
-  const components = selectedLanes.map(([lane, selected]) => componentForAdvancedLane(lane, selected));
-  const options = {};
-  for (const [lane, selected] of selectedLanes) {
-    Object.assign(options, sectionOptionsForLane(lane, selected.model?.options || {}));
-  }
-  Object.assign(options, state.constructor.options);
-  return {
-    id: elements.advancedCookIdInput.value.trim(),
-    overwrite: elements.overwriteInput.checked,
-    components,
-    options
-  };
-}
-
-export function localValidation() {
-  const issues = [];
-  const request = advancedCookRequest();
-  if (!request.id) {
-    issues.push(issue("warning", "id_missing", "Config id is empty.", "id"));
-  }
-  if (request.components.length === 0) {
-    issues.push(issue("warning", "empty_constructor", "No lanes selected.", ""));
-  }
-  for (const [nodeID, components] of groupComponentsByNode(request.components)) {
-    const node = nodeByID(nodeID);
-    const backend = node?.backend_mode || "kobold";
-    if (backend === "kobold" && hasKind(components, "image") && hasKind(components, "embeddings")) {
-      issues.push(issue("error", "kobold_image_embeddings_mix", "Kobold cannot cook image and embeddings into the same config.", nodeID));
-    }
-    const maxThreads = node?.hardware?.max_threads || 0;
-    for (const field of selectedThreadFieldsForNode(nodeID, components, request.options)) {
-      if (maxThreads > 0 && field.value > maxThreads) {
-        issues.push(issue("error", "thread_budget_exceeded", `${field.key} uses ${field.value} threads on a node with ${maxThreads} logical CPUs.`, field.key));
-      }
-    }
-    const selected = selectedOptionsForNode(nodeID, components, request.options);
-    if (node?.hardware?.gpu_backend === "rocm") {
-      for (const [key, value] of Object.entries(selected)) {
-        if (optionDefinition(key)?.cuda_only && truthy(value)) {
-          issues.push(issue("error", "cuda_on_rocm", `${key} is CUDA-only on a ROCm node.`, key));
-        }
-      }
-    }
-    if (!node?.hardware?.gpu_backend || node.hardware.gpu_backend === "unknown") {
-      for (const [key, value] of Object.entries(selected)) {
-        if (gpuOptionKey(key) && truthy(value)) {
-          issues.push(issue("warning", "gpu_backend_unknown", "GPU backend could not be inferred.", nodeID));
-          break;
-        }
-      }
-    }
-
-    for (const [key, value] of Object.entries(selected)) {
-      const definition = optionDefinition(key);
-      if (!definition?.known) {
-        continue;
-      }
-      if (definition.backends?.length > 0 && !definition.backends.includes(backend)) {
-        issues.push(issue("warning", "unsupported_option", `${key} is not marked as supported by ${backend}.`, key));
-      }
-    }
-  }
-  return issues;
-}
-
-export function addPayload(payload, lane) {
+export function addPayload(payload: PalettePayload | undefined, lane?: string): void {
   if (!payload) {
     return;
   }
@@ -109,10 +36,7 @@ export function addPayload(payload, lane) {
     addOption(payload.key);
     return;
   }
-  if (payload.type !== "component") {
-    return;
-  }
-  const targetLane = lane || payload.lane;
+  const targetLane = isLaneKind(lane) ? lane : payload.lane;
   if (targetLane !== payload.lane) {
     return;
   }
@@ -120,7 +44,7 @@ export function addPayload(payload, lane) {
   renderConstructor();
 }
 
-export function addOption(key) {
+export function addOption(key: string): void {
   const definition = optionDefinition(key);
   if (!definition) {
     return;
@@ -131,20 +55,26 @@ export function addOption(key) {
   renderConstructor();
 }
 
-export function clearConstructor() {
+export function clearConstructor(): void {
   state.constructor.lanes = emptyLanes();
   state.constructor.targetNodes = emptyLaneTargets();
   state.constructor.options = {};
   renderConstructor();
 }
 
-export function clearLane(lane) {
+export function clearLane(lane: string): void {
+  if (!isLaneKind(lane)) {
+    return;
+  }
   state.constructor.lanes[lane] = null;
   renderConstructor();
 }
 
-export function updateOptionInput(target) {
-  const key = target?.dataset?.optionInput;
+export function updateOptionInput(target: EventTarget | null): void {
+  if (!(target instanceof HTMLInputElement)) {
+    return;
+  }
+  const key = target.dataset.optionInput;
   if (!key) {
     return;
   }
@@ -158,12 +88,12 @@ export function updateOptionInput(target) {
   }
 }
 
-export function removeOption(key) {
+export function removeOption(key: string): void {
   delete state.constructor.options[key];
   renderConstructor();
 }
 
-export function toggleInspectorList(target) {
+export function toggleInspectorList(target: string): void {
   if (target === "used") {
     state.constructor.showUsedAll = !state.constructor.showUsedAll;
   }
@@ -173,7 +103,19 @@ export function toggleInspectorList(target) {
   renderInspector();
 }
 
-function renderPalette() {
+export function updateLaneTarget(target: EventTarget | null): void {
+  if (!(target instanceof HTMLSelectElement)) {
+    return;
+  }
+  const lane = target.dataset.laneTarget;
+  if (!isLaneKind(lane)) {
+    return;
+  }
+  state.constructor.targetNodes[lane] = target.value;
+  renderConstructor();
+}
+
+function renderPalette(): void {
   const query = elements.constructorFilterInput.value.trim().toLowerCase();
   const entries = paletteEntries().filter(entry => !query || JSON.stringify(entry).toLowerCase().includes(query));
   state.palettePayloads = {};
@@ -197,9 +139,12 @@ function renderPalette() {
   }).join("") || `<div class="detail-empty">No items</div>`;
 }
 
-function renderLanes() {
-  for (const lane of ["text", "image", "embeddings"]) {
+function renderLanes(): void {
+  for (const lane of laneKinds) {
     const drop = document.querySelector(`[data-drop-lane="${lane}"]`);
+    if (!(drop instanceof HTMLElement)) {
+      continue;
+    }
     const selected = state.constructor.lanes[lane];
     if (!selected) {
       drop.innerHTML = `<div class="lane-empty">Drop ${escapeHTML(lane)} here</div>`;
@@ -219,7 +164,7 @@ function renderLanes() {
   }
 }
 
-function renderInspector() {
+function renderInspector(): void {
   renderValidation();
   const used = usedModelRows();
   elements.usedModelsList.innerHTML = limitedRows(used, state.constructor.showUsedAll, "used").join("") || `<div class="detail-empty">No models selected</div>`;
@@ -227,14 +172,14 @@ function renderInspector() {
   elements.selectedOptionsList.innerHTML = limitedRows(options, state.constructor.showOptionsAll, "options").join("") || `<div class="detail-empty">No options selected</div>`;
 }
 
-function renderValidation() {
+function renderValidation(): void {
   const validation = localValidation();
   elements.validationList.innerHTML = validation.length
     ? validation.map(renderIssue).join("")
     : `<div class="detail-empty">Clean</div>`;
 }
 
-function paletteEntries() {
+function paletteEntries(): PaletteEntry[] {
   if (state.activePalette === "files") {
     return filePaletteEntries();
   }
@@ -244,9 +189,9 @@ function paletteEntries() {
   return configPaletteEntries();
 }
 
-function usedModelRows() {
-  const rows = [];
-  for (const lane of ["text", "image", "embeddings"]) {
+function usedModelRows(): string[] {
+  const rows: string[] = [];
+  for (const lane of laneKinds) {
     const selected = state.constructor.lanes[lane];
     if (!selected) {
       continue;
@@ -264,8 +209,8 @@ function usedModelRows() {
   return rows;
 }
 
-function selectedOptionRows() {
-  const rows = [];
+function selectedOptionRows(): string[] {
+  const rows: string[] = [];
   const merged = selectedOptionsForInspector();
   for (const [key, value] of Object.entries(merged).sort(([left], [right]) => left.localeCompare(right))) {
     if (Object.hasOwn(state.constructor.options, key)) {
@@ -282,7 +227,7 @@ function selectedOptionRows() {
   return rows;
 }
 
-function optionEditorRow(key, value) {
+function optionEditorRow(key: string, value: JsonValue | undefined): string {
   return `
     <div class="option-editor">
       <span>${escapeHTML(key)}</span>
@@ -292,7 +237,7 @@ function optionEditorRow(key, value) {
   `;
 }
 
-function limitedRows(rows, showAll, target) {
+function limitedRows(rows: string[], showAll: boolean, target: string): string[] {
   const limit = 9;
   if (rows.length <= limit || showAll) {
     if (rows.length > limit) {
@@ -306,7 +251,7 @@ function limitedRows(rows, showAll, target) {
   ];
 }
 
-function defaultOptionValue(definition) {
+function defaultOptionValue(definition: OptionDefinition): JsonValue {
   switch (definition.value_type) {
     case "bool":
       return false;
@@ -319,88 +264,8 @@ function defaultOptionValue(definition) {
   }
 }
 
-export function updateLaneTarget(target) {
-  const lane = target?.dataset?.laneTarget;
-  if (!lane) {
-    return;
-  }
-  state.constructor.targetNodes[lane] = target.value;
-  renderConstructor();
-}
-
-function componentForAdvancedLane(lane, selected) {
-  const targetNodeID = state.constructor.targetNodes[lane] || selected.component.node_id || "";
-  const targetNode = nodeByID(targetNodeID);
-  const component = {
-    ...selected.component,
-    node_id: targetNodeID,
-    node_url: targetNode?.node_url || selected.component.node_url || ""
-  };
-  if (targetNodeID && selected.component.node_id && targetNodeID !== selected.component.node_id) {
-    const filePath = modelPathForLane(lane, selected);
-    if (filePath) {
-      component.source = "file";
-      component.file_path = filePath;
-      delete component.model_id;
-      delete component.image_id;
-    }
-  }
-  return component;
-}
-
-function sectionOptionsForLane(lane, options) {
-  const section = laneSection(lane);
-  const result = {};
-  for (const [key, value] of Object.entries(options || {})) {
-    const definition = optionDefinition(key);
-    if (!definition || definition.section === "runtime" || definition.section === section) {
-      result[key] = value;
-    }
-  }
-  return result;
-}
-
-function laneSection(lane) {
-  if (lane === "image") {
-    return "image";
-  }
-  if (lane === "embeddings") {
-    return "embed";
-  }
-  return "llm";
-}
-
-function modelPathForLane(lane, selected) {
-  const options = selected.model?.options || {};
-  if (lane === "image") {
-    return stringOption(options.sdmodel) || selected.file?.path || "";
-  }
-  if (lane === "embeddings") {
-    return stringOption(options.embeddingsmodel) || selected.file?.path || "";
-  }
-  return stringOption(options.model_param) || firstStringOption(options.model) || selected.file?.path || "";
-}
-
-function stringOption(value) {
-  return typeof value === "string" ? value.trim() : "";
-}
-
-function firstStringOption(value) {
-  if (typeof value === "string") {
-    return value.trim();
-  }
-  if (Array.isArray(value)) {
-    for (const item of value) {
-      if (typeof item === "string" && item.trim()) {
-        return item.trim();
-      }
-    }
-  }
-  return "";
-}
-
-function targetNodeOptions(lane, selected) {
-  const nodes = (state.inventory?.nodes || []);
+function targetNodeOptions(lane: LaneKind, selected: PaletteComponentPayload): string {
+  const nodes = state.inventory?.nodes ?? [];
   const current = state.constructor.targetNodes[lane] || selected.component.node_id || nodes[0]?.node_id || "";
   if (!state.constructor.targetNodes[lane]) {
     state.constructor.targetNodes[lane] = current;

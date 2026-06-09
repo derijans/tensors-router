@@ -1,11 +1,11 @@
-import { state } from "./state.js";
-import { elements } from "./elements.js";
-import { renderConstructor } from "./constructor.js";
-import { renderSimpleCook } from "./simple-cook.js";
+import { state } from "./state";
+import { elements } from "./elements";
+import { renderConstructor } from "./constructor";
+import { renderSimpleCook } from "./simple-cook";
 import {
   filteredFiles,
   filteredModels
-} from "./data.js";
+} from "./data";
 import {
   capabilities,
   chip,
@@ -15,19 +15,19 @@ import {
   formatBytes,
   optionSummary,
   statusItem
-} from "./utils.js";
+} from "./utils";
 
-export function showLogin() {
+export function showLogin(): void {
   elements.loginView.classList.remove("hidden");
   elements.appView.classList.add("hidden");
 }
 
-export function showApp() {
+export function showApp(): void {
   elements.loginView.classList.add("hidden");
   elements.appView.classList.remove("hidden");
 }
 
-export function renderInventory() {
+export function renderInventory(): void {
   renderNodes();
   renderTables();
   renderSimpleCook();
@@ -35,22 +35,22 @@ export function renderInventory() {
   renderRecipes();
 }
 
-export function renderRouterStatus() {
-  const router = state.router || {};
-  elements.routerSummary.textContent = `${router.url || ""} ${router.running ? "running" : "stopped"}`;
-  elements.launchButton.disabled = !router.managed || router.running;
-  elements.restartButton.disabled = !router.managed;
-  elements.killButton.disabled = !router.managed || !router.running;
+export function renderRouterStatus(): void {
+  const router = state.router;
+  elements.routerSummary.textContent = `${router?.url || ""} ${router?.running ? "running" : "stopped"}`;
+  elements.launchButton.disabled = !router?.managed || Boolean(router?.running);
+  elements.restartButton.disabled = !router?.managed;
+  elements.killButton.disabled = !router?.managed || !router?.running;
   elements.routerStatus.innerHTML = [
-    statusItem("Managed", router.managed ? "yes" : "no"),
-    statusItem("Running", router.running ? "yes" : "no"),
-    statusItem("URL", router.url || "unknown"),
-    statusItem("PID", router.pid || "none"),
-    statusItem("Last error", router.error || "none")
+    statusItem("Managed", router?.managed ? "yes" : "no"),
+    statusItem("Running", router?.running ? "yes" : "no"),
+    statusItem("URL", router?.url || "unknown"),
+    statusItem("PID", router?.pid ? String(router.pid) : "none"),
+    statusItem("Last error", router?.error || "none")
   ].join("");
 }
 
-export function renderTables() {
+export function renderTables(): void {
   const query = elements.filterInput.value.trim().toLowerCase();
   const models = filteredModels(query);
   const files = filteredFiles(query);
@@ -74,8 +74,8 @@ export function renderTables() {
   `).join("");
 }
 
-export function renderRecipes() {
-  const recipes = state.inventory?.recipes || [];
+export function renderRecipes(): void {
+  const recipes = state.inventory?.recipes ?? [];
   elements.recipeCount.textContent = `${recipes.length} recipes`;
   elements.recipesList.innerHTML = recipes.map(recipe => `
     <article class="recipe-item">
@@ -88,11 +88,11 @@ export function renderRecipes() {
   `).join("");
 }
 
-function renderNodes() {
-  const nodes = state.inventory?.nodes || [];
+function renderNodes(): void {
+  const nodes = state.inventory?.nodes ?? [];
   elements.nodeCount.textContent = `${nodes.length} nodes`;
   elements.nodesGrid.innerHTML = nodes.map(node => {
-    const hardware = node.hardware || {};
+    const hardware = node.hardware;
     return `
       <article class="node-card">
         <strong>${escapeHTML(node.node_id || node.node_url || "unknown")}</strong>

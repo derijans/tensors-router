@@ -2,23 +2,31 @@ APP_NAME := tensors-router
 CMD := ./cmd/tensors-router
 WEBUI_NAME := tensor-router-webui
 WEBUI_CMD := ./cmd/tensor-router-webui
+WEBUI_DIR := webui
 DIST_DIR := dist
 GO ?= go
+NPM ?= npm
 GOOS ?= linux
 GOARCH ?= amd64
 CGO_ENABLED ?= 0
 
-.PHONY: test build build-router build-webui build-linux build-linux-router build-linux-webui clean install-user-service uninstall-user-service
+.PHONY: test webui-build webui-check build build-router build-webui build-linux build-linux-router build-linux-webui clean install-user-service uninstall-user-service
 
-test:
+test: webui-build
 	$(GO) test ./...
+
+webui-build:
+	cd $(WEBUI_DIR) && $(NPM) run build
+
+webui-check:
+	cd $(WEBUI_DIR) && $(NPM) run check
 
 build: build-router build-webui
 
 build-router:
 	$(GO) build -o $(APP_NAME) $(CMD)
 
-build-webui:
+build-webui: webui-build
 	$(GO) build -o $(WEBUI_NAME) $(WEBUI_CMD)
 
 build-linux: build-linux-router build-linux-webui
@@ -27,7 +35,7 @@ build-linux-router:
 	mkdir -p $(DIST_DIR)
 	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=$(CGO_ENABLED) $(GO) build -buildvcs=false -trimpath -ldflags "-s -w" -o $(DIST_DIR)/$(APP_NAME)-$(GOOS)-$(GOARCH) $(CMD)
 
-build-linux-webui:
+build-linux-webui: webui-build
 	mkdir -p $(DIST_DIR)
 	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=$(CGO_ENABLED) $(GO) build -buildvcs=false -trimpath -ldflags "-s -w" -o $(DIST_DIR)/$(WEBUI_NAME)-$(GOOS)-$(GOARCH) $(WEBUI_CMD)
 

@@ -9,6 +9,7 @@ It exposes text configs as `/v1/models`, exposes image configs through image mod
 ## Build
 
 ```bash
+cd webui && npm ci && npm run build && cd ..
 go build -o tensors-router ./cmd/tensors-router
 go build -o tensor-router-webui ./cmd/tensor-router-webui
 ```
@@ -16,12 +17,14 @@ go build -o tensor-router-webui ./cmd/tensor-router-webui
 Linux amd64:
 
 ```bash
+cd webui && npm ci
 make build-linux
 ```
 
 Equivalent commands:
 
 ```bash
+cd webui && npm run build && cd ..
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-s -w" -o dist/tensors-router-linux-amd64 ./cmd/tensors-router
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-s -w" -o dist/tensor-router-webui-linux-amd64 ./cmd/tensor-router-webui
 ```

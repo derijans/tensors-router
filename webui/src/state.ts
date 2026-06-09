@@ -1,4 +1,22 @@
-export const state = {
+import type { AppState, LaneKind, PaletteComponentPayload } from "./types";
+
+export function emptyLanes(): Record<LaneKind, PaletteComponentPayload | null> {
+  return {
+    text: null,
+    image: null,
+    embeddings: null
+  };
+}
+
+export function emptyLaneTargets(): Record<LaneKind, string> {
+  return {
+    text: "",
+    image: "",
+    embeddings: ""
+  };
+}
+
+export const state: AppState = {
   csrf: "",
   inventory: null,
   router: null,
@@ -23,19 +41,3 @@ export const state = {
   },
   palettePayloads: {}
 };
-
-export function emptyLanes() {
-  return {
-    text: null,
-    image: null,
-    embeddings: null
-  };
-}
-
-export function emptyLaneTargets() {
-  return {
-    text: "",
-    image: "",
-    embeddings: ""
-  };
-}

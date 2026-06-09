@@ -26,3 +26,5 @@ config.smoke.yaml
 *.test
 *.out
 coverage.out
+
+webui/node_modules/
