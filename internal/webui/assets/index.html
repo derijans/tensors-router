@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>tensor-router-webui</title>
-  <script type="module" crossorigin src="/assets/index-H8n88w1L.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-CKpSxD6R.css">
+  <script type="module" crossorigin src="/assets/index-WQIqqypj.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-D5TzMO0D.css">
 </head>
 <body>
   <main class="shell">
@@ -134,7 +134,7 @@
         </div>
 
         <div class="mode-tabs" aria-label="Cook mode">
-          <button class="mode-button active" type="button" data-cook-mode="quick">Simple Cook</button>
+          <button class="mode-button active" type="button" data-cook-mode="quick">Quick Cook</button>
           <button class="mode-button" type="button" data-cook-mode="constructor">Advanced Cook</button>
         </div>
 
@@ -203,54 +203,37 @@
             </div>
           </div>
 
-          <div class="constructor-grid">
-            <aside class="palette">
-              <div class="palette-tabs">
-                <button class="palette-tab active" type="button" data-palette="configs">Configs</button>
-                <button class="palette-tab" type="button" data-palette="files">Files</button>
-                <button class="palette-tab" type="button" data-palette="options">Options</button>
-              </div>
-              <div id="paletteList" class="palette-list"></div>
-            </aside>
-
-            <div class="lanes" id="constructorLanes">
-              <section class="lane" data-lane="text">
-                <div class="lane-head">
-                  <h3>Text</h3>
-                  <button type="button" data-clear-lane="text">Clear</button>
-                </div>
-                <div class="lane-drop" data-drop-lane="text"></div>
-              </section>
-              <section class="lane" data-lane="image">
-                <div class="lane-head">
-                  <h3>Image</h3>
-                  <button type="button" data-clear-lane="image">Clear</button>
-                </div>
-                <div class="lane-drop" data-drop-lane="image"></div>
-              </section>
-              <section class="lane" data-lane="embeddings">
-                <div class="lane-head">
-                  <h3>Embeddings</h3>
-                  <button type="button" data-clear-lane="embeddings">Clear</button>
-                </div>
-                <div class="lane-drop" data-drop-lane="embeddings"></div>
-              </section>
+          <div class="constructor-console">
+            <div class="constructor-board">
+              <div class="lanes" id="constructorLanes"></div>
             </div>
 
-            <aside class="inspector">
-              <div class="inspector-section">
-                <h3>Validation</h3>
+            <div class="constructor-workpanels">
+              <details class="work-panel palette" open>
+                <summary>Palette</summary>
+                <div class="palette-tabs">
+                  <button class="palette-tab active" type="button" data-palette="configs">Configs</button>
+                  <button class="palette-tab" type="button" data-palette="files">Files</button>
+                  <button class="palette-tab" type="button" data-palette="options">Options</button>
+                </div>
+                <div id="paletteList" class="palette-list"></div>
+              </details>
+
+              <details class="work-panel" open>
+                <summary>Validation</summary>
                 <div id="validationList" class="issue-list"></div>
-              </div>
-              <div class="inspector-section">
-                <h3>Used Models</h3>
+              </details>
+
+              <details class="work-panel">
+                <summary>Used Models</summary>
                 <div id="usedModelsList" class="detail-list"></div>
-              </div>
-              <div class="inspector-section">
-                <h3>Options</h3>
+              </details>
+
+              <details class="work-panel">
+                <summary>Selected Options</summary>
                 <div id="selectedOptionsList" class="detail-list"></div>
-              </div>
-            </aside>
+              </details>
+            </div>
           </div>
         </section>
 
@@ -269,5 +252,10 @@
       </section>
     </section>
   </main>
+
+  <dialog id="constructorFieldDialog" class="field-dialog">
+    <div id="constructorFieldDialogBody" class="field-dialog-body"></div>
+  </dialog>
+
 </body>
 </html>

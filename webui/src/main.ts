@@ -17,12 +17,18 @@ import {
   addPayload,
   clearConstructor,
   clearLane,
+  editLaneFields,
   removeOption,
   renderConstructor,
   toggleInspectorList,
   updateLaneTarget,
   updateOptionInput
 } from "./constructor";
+import {
+  closeFieldEditor,
+  handleFieldEditorClick,
+  handleFieldEditorInput
+} from "./constructor-field-editor";
 import {
   applyAdvancedCook,
   previewAdvancedCook
@@ -225,12 +231,29 @@ elements.constructorLanes.addEventListener("drop", event => {
 });
 
 elements.constructorLanes.addEventListener("click", event => {
-  const lane = elementTarget(event)?.dataset.clearLane;
-  if (lane) {
-    clearLane(lane);
+  const target = elementTarget(event);
+  const clearLaneName = target?.dataset.clearLane;
+  if (clearLaneName) {
+    clearLane(clearLaneName);
+    return;
+  }
+  const editLaneName = target?.dataset.editLaneFields;
+  if (editLaneName) {
+    editLaneFields(editLaneName);
   }
 });
 elements.constructorLanes.addEventListener("change", event => updateLaneTarget(event.target));
+
+elements.constructorFieldDialog.addEventListener("cancel", event => {
+  event.preventDefault();
+  closeFieldEditor();
+});
+elements.constructorFieldDialog.addEventListener("click", event => {
+  handleFieldEditorClick(event.target, renderConstructor);
+});
+elements.constructorFieldDialog.addEventListener("change", event => {
+  handleFieldEditorInput(event.target);
+});
 
 elements.selectedOptionsList.addEventListener("input", event => updateOptionInput(event.target));
 elements.selectedOptionsList.addEventListener("click", event => {

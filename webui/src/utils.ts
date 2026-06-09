@@ -52,6 +52,10 @@ export function kindColor(kind: string): string {
       return "magenta";
     case "embeddings":
       return "lime";
+    case "voice":
+      return "amber";
+    case "music":
+      return "violet";
     default:
       return "cyan";
   }
@@ -63,6 +67,8 @@ export function capabilities(model: Model): string {
   if (model.has_image) values.push("image");
   if (model.has_embeddings) values.push("embeddings");
   if (model.has_multimodal) values.push("multimodal");
+  if (model.has_voice) values.push("voice");
+  if (model.has_music) values.push("music");
   return values.join(", ") || "none";
 }
 

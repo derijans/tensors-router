@@ -1,6 +1,6 @@
 import type { Options } from "./json";
 
-export type LaneKind = "text" | "image" | "embeddings";
+export type LaneKind = "text" | "image" | "embeddings" | "voice" | "music";
 
 export interface SessionResponse {
   authenticated: boolean;
@@ -53,11 +53,29 @@ export interface MultimodalCapability {
   max_tokens?: number;
 }
 
+export interface VoiceCapability {
+  whisper_model?: string;
+  tts_model?: string;
+  wav_tokenizer?: string;
+  directory?: string;
+  gpu?: boolean;
+}
+
+export interface MusicCapability {
+  llm?: string;
+  embeddings?: string;
+  diffusion?: string;
+  vae?: string;
+  low_vram?: boolean;
+}
+
 export interface Capabilities {
   llm?: boolean;
   image?: ImageCapabilities;
   embeddings?: EmbeddingCapability;
   multimodal?: MultimodalCapability;
+  voice?: VoiceCapability;
+  music?: MusicCapability;
   context?: number;
 }
 
@@ -72,6 +90,8 @@ export interface Model {
   has_image: boolean;
   has_embeddings: boolean;
   has_multimodal: boolean;
+  has_voice: boolean;
+  has_music: boolean;
   model_hash: string;
   config_hash: string;
   capabilities: Capabilities;
@@ -125,6 +145,8 @@ export interface Recipe {
   text?: RecipeComponent;
   image?: RecipeComponent;
   embeddings?: RecipeComponent;
+  voice?: RecipeComponent;
+  music?: RecipeComponent;
 }
 
 export interface OptionDefinition {
@@ -162,6 +184,7 @@ export interface CookComponent {
   model_id?: string;
   image_id?: string;
   file_path?: string;
+  option_key?: string;
 }
 
 export interface CookRequest {

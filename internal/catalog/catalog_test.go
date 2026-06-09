@@ -160,7 +160,17 @@ func TestCapabilitiesIncludeImageEmbeddingsMultimodalAndContext(t *testing.T) {
 		"mmproj":"C:/models/mmproj.gguf",
 		"visionmaxres":1024,
 		"visionmintokens":32,
-		"visionmaxtokens":512
+		"visionmaxtokens":512,
+		"whispermodel":"C:/models/whisper.gguf",
+		"ttsmodel":"C:/models/tts.gguf",
+		"ttswavtokenizer":"C:/models/tokenizer.gguf",
+		"ttsdir":"C:/voices",
+		"ttsgpu":true,
+		"musicllm":"C:/music/llm.gguf",
+		"musicembeddings":"C:/music/embed.gguf",
+		"musicdiffusion":"C:/music/diffusion.gguf",
+		"musicvae":"C:/music/vae.gguf",
+		"musiclowvram":true
 	}`)
 
 	models, err := New(dir).List()
@@ -168,7 +178,7 @@ func TestCapabilitiesIncludeImageEmbeddingsMultimodalAndContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	model := models[0]
-	if !model.HasLLM || !model.HasImage || !model.HasEmbeddings || !model.HasMultimodal {
+	if !model.HasLLM || !model.HasImage || !model.HasEmbeddings || !model.HasMultimodal || !model.HasVoice || !model.HasMusic {
 		t.Fatalf("unexpected capability booleans %#v", model)
 	}
 	if model.Capabilities.Context != 8192 {
@@ -182,6 +192,12 @@ func TestCapabilitiesIncludeImageEmbeddingsMultimodalAndContext(t *testing.T) {
 	}
 	if model.Capabilities.Multimodal == nil || model.Capabilities.Multimodal.VisionMaxRes != 1024 {
 		t.Fatalf("missing multimodal details %#v", model.Capabilities.Multimodal)
+	}
+	if model.Capabilities.Voice == nil || model.Capabilities.Voice.TTSModel != "C:/models/tts.gguf" || !model.Capabilities.Voice.GPU {
+		t.Fatalf("missing voice details %#v", model.Capabilities.Voice)
+	}
+	if model.Capabilities.Music == nil || model.Capabilities.Music.Diffusion != "C:/music/diffusion.gguf" || !model.Capabilities.Music.LowVRAM {
+		t.Fatalf("missing music details %#v", model.Capabilities.Music)
 	}
 }
 

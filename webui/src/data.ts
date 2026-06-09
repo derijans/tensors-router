@@ -91,6 +91,7 @@ export function selectedOptionsForNode(nodeID: string, components: CookComponent
       continue;
     }
     Object.assign(selected, item.model?.options ?? {});
+    Object.assign(selected, state.constructor.laneOptions[component.kind] ?? {});
   }
   Object.assign(selected, options);
   return selected;
@@ -100,6 +101,7 @@ export function selectedOptionsForInspector(): Options {
   const selected: Options = {};
   for (const item of selectedConstructorPayloads()) {
     Object.assign(selected, item.model?.options ?? {});
+    Object.assign(selected, state.constructor.laneOptions[item.lane] ?? {});
   }
   Object.assign(selected, state.constructor.options);
   return selected;
@@ -108,7 +110,26 @@ export function selectedOptionsForInspector(): Options {
 export function usedPaths(selected: PaletteComponentPayload): string[] {
   const options = selected.model?.options ?? {};
   const values: string[] = [];
-  for (const key of ["model_param", "model", "sdmodel", "embeddingsmodel", "mmproj", "sdvae", "sdt5xxl", "sdclipl", "sdclipg", "sdupscaler"]) {
+  for (const key of [
+    "model_param",
+    "model",
+    "sdmodel",
+    "embeddingsmodel",
+    "mmproj",
+    "sdvae",
+    "sdt5xxl",
+    "sdclipl",
+    "sdclipg",
+    "sdupscaler",
+    "whispermodel",
+    "ttsmodel",
+    "ttswavtokenizer",
+    "ttsdir",
+    "musicllm",
+    "musicembeddings",
+    "musicdiffusion",
+    "musicvae"
+  ]) {
     const value = options[key];
     if (typeof value === "string" && value.trim()) {
       values.push(`${key}: ${value}`);
@@ -132,6 +153,8 @@ export function configPaletteEntries(): PaletteEntry[] {
     if (model.has_llm) entries.push(modelEntry("text", model));
     if (model.has_image) entries.push(modelEntry("image", model));
     if (model.has_embeddings) entries.push(modelEntry("embeddings", model));
+    if (model.has_voice) entries.push(modelEntry("voice", model));
+    if (model.has_music) entries.push(modelEntry("music", model));
     return entries;
   });
 }
@@ -142,6 +165,8 @@ export function filePaletteEntries(): PaletteEntry[] {
     if (fileRoles(file).includes("llm")) entries.push(fileEntry("text", file));
     if (fileRoles(file).includes("image")) entries.push(fileEntry("image", file));
     if (fileRoles(file).includes("embeddings")) entries.push(fileEntry("embeddings", file));
+    if (fileRoles(file).includes("voice")) entries.push(fileEntry("voice", file));
+    if (fileRoles(file).includes("music")) entries.push(fileEntry("music", file));
     return entries;
   });
 }

@@ -213,17 +213,27 @@ function renderConfigEditor(): void {
         .map(key => fieldRow(key, fields[key], group.section, context))
         .join("");
       if (!rows) {
-        return "";
+        return null;
       }
-      return `
+      return {
+        section: group.section,
+        html: `
         <section class="config-section">
           <h3>${escapeHTML(sectionLabels[group.section] || group.section)}</h3>
           <div class="config-fields">${rows}</div>
         </section>
-      `;
+      `
+      };
     })
-    .filter(Boolean);
-  elements.simpleConfigEditor.innerHTML = groups.join("") || `<div class="detail-empty">No fields</div>`;
+    .filter((group): group is { section: string; html: string } => group !== null);
+  const primary = groups.filter(group => ["llm", "image", "embed", "voice", "music"].includes(group.section));
+  const secondary = groups.filter(group => !["llm", "image", "embed", "voice", "music"].includes(group.section));
+  elements.simpleConfigEditor.innerHTML = groups.length
+    ? `
+      <div class="quick-section-grid primary">${primary.map(group => group.html).join("")}</div>
+      <div class="quick-section-grid secondary">${secondary.map(group => group.html).join("")}</div>
+    `
+    : `<div class="detail-empty">No fields</div>`;
 }
 
 function renderFieldSidebar(): void {

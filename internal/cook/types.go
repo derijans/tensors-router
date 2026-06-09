@@ -11,16 +11,19 @@ const (
 	KindText       = "text"
 	KindImage      = "image"
 	KindEmbeddings = "embeddings"
+	KindVoice      = "voice"
+	KindMusic      = "music"
 )
 
 type Component struct {
-	Kind     string `json:"kind"`
-	NodeID   string `json:"node_id"`
-	NodeURL  string `json:"node_url,omitempty"`
-	Source   string `json:"source"`
-	ModelID  string `json:"model_id,omitempty"`
-	ImageID  string `json:"image_id,omitempty"`
-	FilePath string `json:"file_path,omitempty"`
+	Kind      string `json:"kind"`
+	NodeID    string `json:"node_id"`
+	NodeURL   string `json:"node_url,omitempty"`
+	Source    string `json:"source"`
+	ModelID   string `json:"model_id,omitempty"`
+	ImageID   string `json:"image_id,omitempty"`
+	FilePath  string `json:"file_path,omitempty"`
+	OptionKey string `json:"option_key,omitempty"`
 }
 
 type NodeConfigRequest struct {

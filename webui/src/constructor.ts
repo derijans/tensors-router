@@ -1,6 +1,8 @@
 import { elements } from "./elements";
-import { isLaneKind, laneKinds } from "./constants";
-import { emptyLanes, emptyLaneTargets, state } from "./state";
+import { isLaneKind, laneKinds, laneMetadata } from "./constants";
+import { requiresOptionAssignment } from "./constructor-field-data";
+import { emptyLaneOptions, emptyLanes, emptyLaneTargets, state } from "./state";
+import { openFieldEditor, renderFieldEditor } from "./constructor-field-editor";
 import {
   configPaletteEntries,
   filePaletteEntries,
@@ -26,6 +28,7 @@ export function renderConstructor(): void {
   renderPalette();
   renderLanes();
   renderInspector();
+  renderFieldEditor();
 }
 
 export function addPayload(payload: PalettePayload | undefined, lane?: string): void {
@@ -38,6 +41,10 @@ export function addPayload(payload: PalettePayload | undefined, lane?: string): 
   }
   const targetLane = isLaneKind(lane) ? lane : payload.lane;
   if (targetLane !== payload.lane) {
+    return;
+  }
+  if (requiresOptionAssignment(payload, targetLane)) {
+    openFieldEditor(targetLane, payload);
     return;
   }
   state.constructor.lanes[targetLane] = payload;
@@ -58,7 +65,9 @@ export function addOption(key: string): void {
 export function clearConstructor(): void {
   state.constructor.lanes = emptyLanes();
   state.constructor.targetNodes = emptyLaneTargets();
+  state.constructor.laneOptions = emptyLaneOptions();
   state.constructor.options = {};
+  state.constructor.fieldEditor = null;
   renderConstructor();
 }
 
@@ -67,7 +76,15 @@ export function clearLane(lane: string): void {
     return;
   }
   state.constructor.lanes[lane] = null;
+  state.constructor.laneOptions[lane] = {};
   renderConstructor();
+}
+
+export function editLaneFields(lane: string): void {
+  if (!isLaneKind(lane) || !state.constructor.lanes[lane]) {
+    return;
+  }
+  openFieldEditor(lane);
 }
 
 export function updateOptionInput(target: EventTarget | null): void {
@@ -140,6 +157,7 @@ function renderPalette(): void {
 }
 
 function renderLanes(): void {
+  elements.constructorLanes.innerHTML = laneKinds.map(laneShell).join("");
   for (const lane of laneKinds) {
     const drop = document.querySelector(`[data-drop-lane="${lane}"]`);
     if (!(drop instanceof HTMLElement)) {
@@ -147,18 +165,24 @@ function renderLanes(): void {
     }
     const selected = state.constructor.lanes[lane];
     if (!selected) {
-      drop.innerHTML = `<div class="lane-empty">Drop ${escapeHTML(lane)} here</div>`;
+      drop.innerHTML = `<div class="lane-empty">${escapeHTML(laneMetadata[lane].dropLabel)}</div>`;
       continue;
     }
+    const overrideCount = Object.keys(state.constructor.laneOptions[lane] ?? {}).length;
     drop.innerHTML = `
       <article class="selected-card">
         <strong>${escapeHTML(selected.label)}</strong>
         <div class="muted">${escapeHTML(selected.subtitle)}</div>
         <div class="palette-meta">${selected.meta.map(item => chip(item, "")).join("")}</div>
+        ${selected.component.option_key ? `<div class="muted">Assigned to ${escapeHTML(selected.component.option_key)}</div>` : ""}
         <label>
           Target node
           <select data-lane-target="${escapeAttribute(lane)}">${targetNodeOptions(lane, selected)}</select>
         </label>
+        <div class="lane-card-actions">
+          <button type="button" data-edit-lane-fields="${escapeAttribute(lane)}">Edit fields</button>
+          ${overrideCount ? chip(`${overrideCount} overrides`, laneMetadata[lane].accent) : ""}
+        </div>
       </article>
     `;
   }
@@ -198,7 +222,7 @@ function usedModelRows(): string[] {
     }
     rows.push(`
       <div class="used-row">
-        ${chip(lane, kindColor(lane))}
+        ${chip(laneMetadata[lane].shortLabel, kindColor(lane))}
         <span>${escapeHTML(selected.label)}</span>
       </div>
     `);
@@ -215,6 +239,15 @@ function selectedOptionRows(): string[] {
   for (const [key, value] of Object.entries(merged).sort(([left], [right]) => left.localeCompare(right))) {
     if (Object.hasOwn(state.constructor.options, key)) {
       rows.push(optionEditorRow(key, state.constructor.options[key]));
+    } else if (laneOverrideForKey(key)) {
+      const lane = laneOverrideForKey(key);
+      rows.push(`
+        <div class="option-row">
+          ${chip(key, "")}
+          ${lane ? chip(`${laneMetadata[lane].shortLabel} override`, laneMetadata[lane].accent) : ""}
+          <span class="muted">${escapeHTML(optionValueLabel(value))}</span>
+        </div>
+      `);
     } else {
       rows.push(`
         <div class="option-row">
@@ -225,6 +258,26 @@ function selectedOptionRows(): string[] {
     }
   }
   return rows;
+}
+
+function laneShell(lane: LaneKind): string {
+  const metadata = laneMetadata[lane];
+  return `
+    <section class="lane ${escapeAttribute(metadata.accent)}" data-lane="${escapeAttribute(lane)}">
+      <div class="lane-head">
+        <div>
+          <h3>${escapeHTML(metadata.label)}</h3>
+          <span>${escapeHTML(metadata.section)}</span>
+        </div>
+        <button type="button" data-clear-lane="${escapeAttribute(lane)}">Clear</button>
+      </div>
+      <div class="lane-drop" data-drop-lane="${escapeAttribute(lane)}"></div>
+    </section>
+  `;
+}
+
+function laneOverrideForKey(key: string): LaneKind | null {
+  return laneKinds.find(lane => Object.hasOwn(state.constructor.laneOptions[lane] ?? {}, key)) ?? null;
 }
 
 function optionEditorRow(key: string, value: JsonValue | undefined): string {

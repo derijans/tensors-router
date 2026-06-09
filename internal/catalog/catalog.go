@@ -26,6 +26,8 @@ type Model struct {
 	HasImage       bool
 	HasEmbeddings  bool
 	HasMultimodal  bool
+	HasVoice       bool
+	HasMusic       bool
 	ImageID        string
 	ImageModelName string
 	ImageModelPath string
@@ -187,31 +189,33 @@ func (catalog *Catalog) withMetadata(model Model) Model {
 	model.HasLLM = true
 	content, err := os.ReadFile(model.Path)
 	if err != nil {
-		model.Capabilities = capabilitiesFromMetadata(configMetadata{}, model.HasLLM, false, false, false)
+		model.Capabilities = capabilitiesFromMetadata(configMetadata{}, model.HasLLM, false, false, false, false, false)
 		return model
 	}
 	var options map[string]json.RawMessage
 	if err := json.Unmarshal(content, &options); err != nil {
-		model.Capabilities = capabilitiesFromMetadata(configMetadata{}, model.HasLLM, false, false, false)
+		model.Capabilities = capabilitiesFromMetadata(configMetadata{}, model.HasLLM, false, false, false, false, false)
 		return model
 	}
 	model.Options = options
 	var metadata configMetadata
 	if err := json.Unmarshal(content, &metadata); err != nil {
-		model.Capabilities = capabilitiesFromMetadata(configMetadata{}, model.HasLLM, false, false, false)
+		model.Capabilities = capabilitiesFromMetadata(configMetadata{}, model.HasLLM, false, false, false, false, false)
 		return model
 	}
 
 	model.HasImage = strings.TrimSpace(metadata.SDModel) != ""
 	model.HasEmbeddings = strings.TrimSpace(metadata.EmbeddingsModel) != ""
 	model.HasMultimodal = modelHasValue(metadata.MMProj)
+	model.HasVoice = hasVoiceModel(metadata)
+	model.HasMusic = hasMusicModel(metadata)
 	model.HasLLM = hasLLMModel(metadata)
 	if model.HasImage {
 		model.ImageModelPath = strings.TrimSpace(metadata.SDModel)
 		model.ImageModelName = filenameStem(model.ImageModelPath)
 		model.ImageID = model.ID + "-" + model.ImageModelName
 	}
-	model.Capabilities = capabilitiesFromMetadata(metadata, model.HasLLM, model.HasImage, model.HasEmbeddings, model.HasMultimodal)
+	model.Capabilities = capabilitiesFromMetadata(metadata, model.HasLLM, model.HasImage, model.HasEmbeddings, model.HasMultimodal, model.HasVoice, model.HasMusic)
 	model.ConfigHash = ConfigHash(content)
 	if catalog.hashStore != nil {
 		model.ModelHash = catalog.hashStore.ModelHash(content)
@@ -229,6 +233,20 @@ func hasLLMModel(metadata configMetadata) bool {
 		return true
 	}
 	return !metadata.NoModel && strings.TrimSpace(metadata.SDModel) == ""
+}
+
+func hasVoiceModel(metadata configMetadata) bool {
+	return strings.TrimSpace(metadata.WhisperModel) != "" ||
+		strings.TrimSpace(metadata.TTSModel) != "" ||
+		strings.TrimSpace(metadata.TTSWAVTokenizer) != "" ||
+		strings.TrimSpace(metadata.TTSDir) != ""
+}
+
+func hasMusicModel(metadata configMetadata) bool {
+	return strings.TrimSpace(metadata.MusicLLM) != "" ||
+		strings.TrimSpace(metadata.MusicEmbeddings) != "" ||
+		strings.TrimSpace(metadata.MusicDiffusion) != "" ||
+		strings.TrimSpace(metadata.MusicVAE) != ""
 }
 
 func modelHasValue(value any) bool {

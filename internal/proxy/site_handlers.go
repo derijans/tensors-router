@@ -500,6 +500,10 @@ func buildRecipe(id string, groups []cookGroup, results []cook.ConfigResult) rec
 				if result.ImageID != "" {
 					recipe.PublicImageID = id + "-" + imageSuffix(result.ModelID, result.ImageID)
 				}
+			case cook.KindVoice:
+				recipe.Voice = &recipeComponent
+			case cook.KindMusic:
+				recipe.Music = &recipeComponent
 			}
 		}
 	}

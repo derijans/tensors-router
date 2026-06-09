@@ -23,6 +23,8 @@ const (
 	RoleT5         = "t5"
 	RoleUpscaler   = "upscaler"
 	RoleLoRA       = "lora"
+	RoleVoice      = "voice"
+	RoleMusic      = "music"
 )
 
 type FileRecord struct {
@@ -185,6 +187,18 @@ func referencesByPath(models []cluster.Model) map[string][]pathReference {
 			for _, lora := range model.Capabilities.Image.LoRA {
 				addReference(references, lora, RoleLoRA, modelName)
 			}
+		}
+		if model.Capabilities.Voice != nil {
+			addReference(references, model.Capabilities.Voice.WhisperModel, RoleVoice, modelName)
+			addReference(references, model.Capabilities.Voice.TTSModel, RoleVoice, modelName)
+			addReference(references, model.Capabilities.Voice.WAVTokenizer, RoleVoice, modelName)
+			addReference(references, model.Capabilities.Voice.Directory, RoleVoice, modelName)
+		}
+		if model.Capabilities.Music != nil {
+			addReference(references, model.Capabilities.Music.LLM, RoleMusic, modelName)
+			addReference(references, model.Capabilities.Music.Embeddings, RoleMusic, modelName)
+			addReference(references, model.Capabilities.Music.Diffusion, RoleMusic, modelName)
+			addReference(references, model.Capabilities.Music.VAE, RoleMusic, modelName)
 		}
 	}
 	return references

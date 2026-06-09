@@ -8,7 +8,9 @@ describe("advanced cook option filtering", () => {
     state.inventory = testInventory([
       optionDefinition("quiet", "bool", "runtime"),
       optionDefinition("model_param", "string", "llm"),
-      optionDefinition("sdmodel", "string", "image")
+      optionDefinition("sdmodel", "string", "image"),
+      optionDefinition("whispermodel", "string", "voice"),
+      optionDefinition("musicdiffusion", "string", "music")
     ], []);
   });
 
@@ -22,6 +24,30 @@ describe("advanced cook option filtering", () => {
       quiet: true,
       mystery_backend_key: "custom",
       model_param: "text.gguf"
+    });
+  });
+
+  it("keeps only voice section options for voice lanes", () => {
+    expect(advancedLaneOptions("voice", {
+      quiet: true,
+      whispermodel: "whisper.gguf",
+      musicdiffusion: "music-diffusion.gguf",
+      sdmodel: "image.safetensors"
+    })).toEqual({
+      quiet: true,
+      whispermodel: "whisper.gguf"
+    });
+  });
+
+  it("keeps only music section options for music lanes", () => {
+    expect(advancedLaneOptions("music", {
+      quiet: true,
+      whispermodel: "whisper.gguf",
+      musicdiffusion: "music-diffusion.gguf",
+      model_param: "text.gguf"
+    })).toEqual({
+      quiet: true,
+      musicdiffusion: "music-diffusion.gguf"
     });
   });
 });

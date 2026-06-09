@@ -272,6 +272,10 @@ func lanesForComponents(components []Component) map[string]bool {
 		case KindEmbeddings:
 			allowed[LaneEmbeddings] = true
 			allowed[LaneText] = true
+		case KindVoice:
+			allowed[LaneVoice] = true
+		case KindMusic:
+			allowed[LaneMusic] = true
 		}
 	}
 	return allowed
@@ -405,11 +409,13 @@ var optionMetadataByKey = map[string]optionMetadata{
 	"whispermodel":               meta(nil, "voice", "", SourceKoboldCPP, ""),
 	"ttsmodel":                   meta(nil, "voice", "", SourceKoboldCPP, ""),
 	"ttswavtokenizer":            meta(nil, "voice", "", SourceKoboldCPP, ""),
+	"ttsdir":                     meta(nil, "voice", "", SourceKoboldCPP, ""),
 	"ttsgpu":                     meta(boolChoices(), "", "", SourceKoboldCPP, ""),
-	"musicllm":                   meta(nil, "llm", "", SourceKoboldCPP, ""),
-	"musicembeddings":            meta(nil, "embeddings", "", SourceKoboldCPP, ""),
-	"musicdiffusion":             meta(nil, "image", "", SourceKoboldCPP, ""),
-	"musicvae":                   meta(nil, "vae", "", SourceKoboldCPP, ""),
+	"ttsthreads":                 meta(values("-1", "1", "2", "4", "8", "16", "32"), "", "-1", SourceKoboldCPP, ""),
+	"musicllm":                   meta(nil, "music", "", SourceKoboldCPP, ""),
+	"musicembeddings":            meta(nil, "music", "", SourceKoboldCPP, ""),
+	"musicdiffusion":             meta(nil, "music", "", SourceKoboldCPP, ""),
+	"musicvae":                   meta(nil, "music", "", SourceKoboldCPP, ""),
 	"musiclowvram":               meta(boolChoices(), "", "", SourceKoboldCPP, ""),
 }
 

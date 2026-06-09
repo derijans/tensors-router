@@ -46,6 +46,18 @@ type RuntimeConfig struct {
 	VisionMaxRes     int    `json:"visionmaxres"`
 	VisionMinTokens  int    `json:"visionmintokens"`
 	VisionMaxTokens  int    `json:"visionmaxtokens"`
+	WhisperModel     string `json:"whispermodel"`
+	TTSModel         string `json:"ttsmodel"`
+	TTSWAVTokenizer  string `json:"ttswavtokenizer"`
+	TTSDir           string `json:"ttsdir"`
+	TTSGPU           bool   `json:"ttsgpu"`
+	TTSMaxLen        int    `json:"ttsmaxlen"`
+	TTSThreads       int    `json:"ttsthreads"`
+	MusicLLM         string `json:"musicllm"`
+	MusicEmbeddings  string `json:"musicembeddings"`
+	MusicDiffusion   string `json:"musicdiffusion"`
+	MusicVAE         string `json:"musicvae"`
+	MusicLowVRAM     bool   `json:"musiclowvram"`
 }
 
 type configMetadata = RuntimeConfig
@@ -55,6 +67,8 @@ type Capabilities struct {
 	Image      *ImageCapabilities    `json:"image,omitempty"`
 	Embeddings *EmbeddingCapability  `json:"embeddings,omitempty"`
 	Multimodal *MultimodalCapability `json:"multimodal,omitempty"`
+	Voice      *VoiceCapabilities    `json:"voice,omitempty"`
+	Music      *MusicCapabilities    `json:"music,omitempty"`
 	Context    int                   `json:"context,omitempty"`
 }
 
@@ -88,6 +102,24 @@ type MultimodalCapability struct {
 	VisionMaxRes int    `json:"vision_max_res,omitempty"`
 	MinTokens    int    `json:"min_tokens,omitempty"`
 	MaxTokens    int    `json:"max_tokens,omitempty"`
+}
+
+type VoiceCapabilities struct {
+	WhisperModel string `json:"whisper_model,omitempty"`
+	TTSModel     string `json:"tts_model,omitempty"`
+	WAVTokenizer string `json:"wav_tokenizer,omitempty"`
+	Directory    string `json:"directory,omitempty"`
+	GPU          bool   `json:"gpu,omitempty"`
+	MaxLen       int    `json:"max_len,omitempty"`
+	Threads      int    `json:"threads,omitempty"`
+}
+
+type MusicCapabilities struct {
+	LLM        string `json:"llm,omitempty"`
+	Embeddings string `json:"embeddings,omitempty"`
+	Diffusion  string `json:"diffusion,omitempty"`
+	VAE        string `json:"vae,omitempty"`
+	LowVRAM    bool   `json:"low_vram,omitempty"`
 }
 
 func LoadRuntimeConfig(path string) (RuntimeConfig, error) {
@@ -128,7 +160,7 @@ func (metadata RuntimeConfig) TensorSplitValue() string {
 	return strings.Join(values, ",")
 }
 
-func capabilitiesFromMetadata(metadata configMetadata, hasLLM bool, hasImage bool, hasEmbeddings bool, hasMultimodal bool) Capabilities {
+func capabilitiesFromMetadata(metadata configMetadata, hasLLM bool, hasImage bool, hasEmbeddings bool, hasMultimodal bool, hasVoice bool, hasMusic bool) Capabilities {
 	capabilities := Capabilities{
 		LLM:     hasLLM,
 		Context: metadata.ContextSize,
@@ -166,6 +198,26 @@ func capabilitiesFromMetadata(metadata configMetadata, hasLLM bool, hasImage boo
 			VisionMaxRes: metadata.VisionMaxRes,
 			MinTokens:    metadata.VisionMinTokens,
 			MaxTokens:    metadata.VisionMaxTokens,
+		}
+	}
+	if hasVoice {
+		capabilities.Voice = &VoiceCapabilities{
+			WhisperModel: strings.TrimSpace(metadata.WhisperModel),
+			TTSModel:     strings.TrimSpace(metadata.TTSModel),
+			WAVTokenizer: strings.TrimSpace(metadata.TTSWAVTokenizer),
+			Directory:    strings.TrimSpace(metadata.TTSDir),
+			GPU:          metadata.TTSGPU,
+			MaxLen:       metadata.TTSMaxLen,
+			Threads:      metadata.TTSThreads,
+		}
+	}
+	if hasMusic {
+		capabilities.Music = &MusicCapabilities{
+			LLM:        strings.TrimSpace(metadata.MusicLLM),
+			Embeddings: strings.TrimSpace(metadata.MusicEmbeddings),
+			Diffusion:  strings.TrimSpace(metadata.MusicDiffusion),
+			VAE:        strings.TrimSpace(metadata.MusicVAE),
+			LowVRAM:    metadata.MusicLowVRAM,
 		}
 	}
 	return capabilities

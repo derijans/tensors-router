@@ -12,6 +12,7 @@ import (
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
+	"tensors-router/internal/recipes"
 )
 
 func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string) {
@@ -167,6 +168,49 @@ func (service *Service) handleRegistryImageOptions(w http.ResponseWriter, r *htt
 	return true
 }
 
+func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string, lane string) {
+	route, release, ok := service.acquireRegistryAudioRoute(r, publicID, lane)
+	if !ok {
+		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("model %q has no available replicas", publicID))
+		return
+	}
+
+	requestBody := body
+	if requestBodyLooksJSON(body, r) {
+		requestBody = rewriteRequestModel(body, route.LocalID)
+	}
+	var response *http.Response
+	var err error
+	if route.Remote {
+		response, err = service.forwardRemote(r.Context(), r, requestBody, route)
+	} else {
+		response, err = service.forwardWithFallback(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readinessText)
+	}
+	if err != nil {
+		release()
+		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		return
+	}
+	response = responseWithRelease(response, release)
+	if err := writeProxyResponse(w, response, publicID, false); err != nil {
+		return
+	}
+}
+
+func (service *Service) acquireRegistryAudioRoute(r *http.Request, publicID string, lane string) (cluster.Route, func(), bool) {
+	if lane == recipes.KindMusic {
+		return service.registry.AcquireMusic(publicID, service.textRuntime.backend.Healthy(r.Context()))
+	}
+	return service.registry.AcquireVoice(publicID, service.textRuntime.backend.Healthy(r.Context()))
+}
+
+func (service *Service) registryHasAudioModel(publicID string, lane string) bool {
+	if lane == recipes.KindMusic {
+		return service.registry.HasMusicModel(publicID)
+	}
+	return service.registry.HasVoiceModel(publicID)
+}
+
 func (service *Service) forwardRemote(ctx context.Context, original *http.Request, body []byte, route cluster.Route) (*http.Response, error) {
 	baseURL, err := service.clusterClient.AuthorizedBaseURL(route.NodeURL)
 	if err != nil {
@@ -316,6 +360,13 @@ func modelSupportsOpenAIPath(model catalog.Model, path string) bool {
 		return model.HasLLM
 	}
 	return modelSupportsTextLane(model)
+}
+
+func modelSupportsAudioLane(model catalog.Model, lane string) bool {
+	if lane == recipes.KindMusic {
+		return model.HasMusic
+	}
+	return model.HasVoice
 }
 
 func modelSupportsTextLane(model catalog.Model) bool {

@@ -44,5 +44,7 @@ export const elements = {
   constructorLanes: getRequiredElement("constructorLanes", HTMLElement),
   validationList: getRequiredElement("validationList", HTMLElement),
   usedModelsList: getRequiredElement("usedModelsList", HTMLElement),
-  selectedOptionsList: getRequiredElement("selectedOptionsList", HTMLElement)
+  selectedOptionsList: getRequiredElement("selectedOptionsList", HTMLElement),
+  constructorFieldDialog: getRequiredElement("constructorFieldDialog", HTMLDialogElement),
+  constructorFieldDialogBody: getRequiredElement("constructorFieldDialogBody", HTMLElement)
 };

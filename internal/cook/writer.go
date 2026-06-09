@@ -151,9 +151,7 @@ func (writer Writer) composedConfig(components []Component, options Options) (ma
 		if err != nil {
 			return nil, "", err
 		}
-		for key, value := range source {
-			body[key] = value
-		}
+		copySharedKeys(body, source)
 		break
 	}
 
@@ -209,6 +207,34 @@ func (writer Writer) composedConfig(components []Component, options Options) (ma
 			if raw := strings.TrimSpace(rawJSONString(sourceBody["sdmodel"])); raw != "" {
 				imagePath = raw
 			}
+		case KindVoice:
+			if source == SourceFile {
+				filePath, err := writer.validateRawFile(component.FilePath)
+				if err != nil {
+					return nil, "", err
+				}
+				setJSONString(body, component.OptionKey, filePath)
+				continue
+			}
+			sourceBody, err := writer.configBody(component)
+			if err != nil {
+				return nil, "", err
+			}
+			copyKeys(body, sourceBody, voiceKeys)
+		case KindMusic:
+			if source == SourceFile {
+				filePath, err := writer.validateRawFile(component.FilePath)
+				if err != nil {
+					return nil, "", err
+				}
+				setJSONString(body, component.OptionKey, filePath)
+				continue
+			}
+			sourceBody, err := writer.configBody(component)
+			if err != nil {
+				return nil, "", err
+			}
+			copyKeys(body, sourceBody, musicKeys)
 		default:
 			return nil, "", fmt.Errorf("component kind %q is invalid", component.Kind)
 		}
@@ -249,7 +275,7 @@ func (writer Writer) resolveComponentModel(component Component) (catalog.Model, 
 			return model, err
 		}
 		return catalog.Model{}, fmt.Errorf("image model %q was not found", imageID)
-	case KindText, KindEmbeddings:
+	case KindText, KindEmbeddings, KindVoice, KindMusic:
 		modelID := strings.TrimSpace(component.ModelID)
 		if modelID == "" {
 			return catalog.Model{}, fmt.Errorf("%s model id is required", component.Kind)
@@ -309,11 +335,12 @@ func NormalizedComponents(components []Component) ([]Component, error) {
 		component.ModelID = strings.TrimSpace(component.ModelID)
 		component.ImageID = strings.TrimSpace(component.ImageID)
 		component.FilePath = strings.TrimSpace(component.FilePath)
+		component.OptionKey = strings.TrimSpace(component.OptionKey)
 		if _, ok := seen[component.Kind]; ok {
 			return nil, fmt.Errorf("duplicate %s component", component.Kind)
 		}
 		switch component.Kind {
-		case KindText, KindImage, KindEmbeddings:
+		case KindText, KindImage, KindEmbeddings, KindVoice, KindMusic:
 		default:
 			return nil, fmt.Errorf("component kind %q is invalid", component.Kind)
 		}
@@ -324,6 +351,9 @@ func NormalizedComponents(components []Component) ([]Component, error) {
 		}
 		if component.Source == SourceFile && component.FilePath == "" {
 			return nil, fmt.Errorf("%s file path is required", component.Kind)
+		}
+		if component.Source == SourceFile && (component.Kind == KindVoice || component.Kind == KindMusic) && !validRawFileOptionKey(component.Kind, component.OptionKey) {
+			return nil, fmt.Errorf("%s option key %q is invalid", component.Kind, component.OptionKey)
 		}
 		if component.Source == SourceConfig && component.ModelID == "" && component.ImageID == "" {
 			return nil, fmt.Errorf("%s model id is required", component.Kind)
@@ -379,6 +409,26 @@ func hasKind(components []Component, kind string) bool {
 		}
 	}
 	return false
+}
+
+func validRawFileOptionKey(kind string, key string) bool {
+	for _, value := range rawFileOptionKeys(kind) {
+		if key == value {
+			return true
+		}
+	}
+	return false
+}
+
+func rawFileOptionKeys(kind string) []string {
+	switch kind {
+	case KindVoice:
+		return voiceFileKeys
+	case KindMusic:
+		return musicFileKeys
+	default:
+		return nil
+	}
 }
 
 func SanitizedID(id string) (string, error) {
@@ -599,6 +649,15 @@ func copyKeys(dst map[string]json.RawMessage, src map[string]json.RawMessage, ke
 	}
 }
 
+func copySharedKeys(dst map[string]json.RawMessage, src map[string]json.RawMessage) {
+	for key, value := range src {
+		definition, known := catalogByKey[key]
+		if !known || definition.Lane == LaneRuntime || definition.Lane == LaneCommon {
+			dst[key] = value
+		}
+	}
+}
+
 func copyPrefix(dst map[string]json.RawMessage, src map[string]json.RawMessage, prefix string) {
 	for key, value := range src {
 		if strings.HasPrefix(key, prefix) {
@@ -687,4 +746,36 @@ var embeddingKeys = []string{
 	"embeddingsmodel",
 	"embeddingsmaxctx",
 	"embeddingsgpu",
+}
+
+var voiceKeys = []string{
+	"whispermodel",
+	"ttsmodel",
+	"ttswavtokenizer",
+	"ttsdir",
+	"ttsgpu",
+	"ttsmaxlen",
+	"ttsthreads",
+}
+
+var musicKeys = []string{
+	"musicllm",
+	"musicembeddings",
+	"musicdiffusion",
+	"musicvae",
+	"musiclowvram",
+}
+
+var voiceFileKeys = []string{
+	"whispermodel",
+	"ttsmodel",
+	"ttswavtokenizer",
+	"ttsdir",
+}
+
+var musicFileKeys = []string{
+	"musicllm",
+	"musicembeddings",
+	"musicdiffusion",
+	"musicvae",
 }

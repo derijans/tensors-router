@@ -46,6 +46,19 @@ export interface SimpleCookSidebar {
   type: SidebarValueType;
 }
 
+export interface FieldPreset {
+  name: string;
+  backendMode: string;
+  section: string;
+  values: Options;
+}
+
+export interface ConstructorFieldEditor {
+  lane: LaneKind;
+  draft: Options;
+  pendingPayload?: PaletteComponentPayload;
+}
+
 export interface FieldRenderContext {
   node: NodeInventory | null;
   nodeFiles: FileRecord[];
@@ -83,7 +96,10 @@ export interface AppState {
   constructor: {
     lanes: Record<LaneKind, PaletteComponentPayload | null>;
     targetNodes: Record<LaneKind, string>;
+    laneOptions: Record<LaneKind, Options>;
     options: Options;
+    fieldEditor: ConstructorFieldEditor | null;
+    fieldPresets: FieldPreset[];
     showUsedAll: boolean;
     showOptionsAll: boolean;
   };

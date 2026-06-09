@@ -97,6 +97,29 @@ func TestRegistryKeepsSplitImageLaneLocalWhenTextLaneBusy(t *testing.T) {
 	releaseImage()
 }
 
+func TestRegistryAcquiresVoiceAndMusicLanes(t *testing.T) {
+	registry := NewRegistry(RoleMaster, "master", "http://master")
+	model := testModel("audio", "master", "mhash", "chash", SourceMaster)
+	model.HasLLM = false
+	model.HasVoice = true
+	model.HasMusic = true
+	if err := registry.UpdateLocal([]Model{model}); err != nil {
+		t.Fatal(err)
+	}
+
+	voiceRoute, releaseVoice, ok := registry.AcquireVoice("audio", true)
+	if !ok || voiceRoute.Lane != RouteLaneVoice {
+		t.Fatalf("expected voice route %#v ok=%t", voiceRoute, ok)
+	}
+	defer releaseVoice()
+
+	musicRoute, releaseMusic, ok := registry.AcquireMusic("audio", true)
+	if !ok || musicRoute.Lane != RouteLaneMusic {
+		t.Fatalf("expected music route %#v ok=%t", musicRoute, ok)
+	}
+	releaseMusic()
+}
+
 func TestRegistryMarksSlaveURLUnhealthy(t *testing.T) {
 	registry := NewRegistry(RoleMaster, "master", "http://master")
 	for _, nodeID := range []string{"slave-a", "slave-b"} {

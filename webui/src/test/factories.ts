@@ -22,6 +22,8 @@ export function testModel(id: string, options: Options = {}): Model {
     has_image: false,
     has_embeddings: false,
     has_multimodal: false,
+    has_voice: false,
+    has_music: false,
     model_hash: "",
     config_hash: "",
     capabilities: {},

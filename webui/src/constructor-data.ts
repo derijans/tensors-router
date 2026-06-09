@@ -18,6 +18,7 @@ export function advancedCookRequest(): CookRequest {
   const options: Options = {};
   for (const [lane, selected] of selectedLanes) {
     Object.assign(options, advancedLaneOptions(lane, selected.model?.options ?? {}));
+    Object.assign(options, state.constructor.laneOptions[lane] ?? {});
   }
   Object.assign(options, state.constructor.options);
   return {
@@ -87,10 +88,15 @@ export function componentForAdvancedLane(lane: LaneKind, selected: PaletteCompon
     node_url: targetNode?.node_url || selected.component.node_url || ""
   };
   if (targetNodeID && selected.component.node_id && targetNodeID !== selected.component.node_id) {
-    const filePath = modelPathForLane(lane, selected);
-    if (filePath) {
+    const file = modelFileForLane(lane, selected);
+    if (file.path) {
       component.source = "file";
-      component.file_path = filePath;
+      component.file_path = file.path;
+      if (file.optionKey) {
+        component.option_key = file.optionKey;
+      } else {
+        delete component.option_key;
+      }
       delete component.model_id;
       delete component.image_id;
     }
@@ -98,15 +104,41 @@ export function componentForAdvancedLane(lane: LaneKind, selected: PaletteCompon
   return component;
 }
 
-function modelPathForLane(lane: LaneKind, selected: PaletteComponentPayload): string {
+interface LaneModelFile {
+  path: string;
+  optionKey?: string;
+}
+
+function modelFileForLane(lane: LaneKind, selected: PaletteComponentPayload): LaneModelFile {
   const options = selected.model?.options ?? {};
   if (lane === "image") {
-    return stringOption(options.sdmodel) || selected.file?.path || "";
+    return {path: stringOption(options.sdmodel) || selected.file?.path || ""};
   }
   if (lane === "embeddings") {
-    return stringOption(options.embeddingsmodel) || selected.file?.path || "";
+    return {path: stringOption(options.embeddingsmodel) || selected.file?.path || ""};
   }
-  return stringOption(options.model_param) || firstStringOption(options.model) || selected.file?.path || "";
+  if (lane === "voice") {
+    return firstModelFile(options, ["whispermodel", "ttsmodel", "ttswavtokenizer", "ttsdir"], selected.file?.path);
+  }
+  if (lane === "music") {
+    return firstModelFile(options, ["musicllm", "musicembeddings", "musicdiffusion", "musicvae"], selected.file?.path);
+  }
+  return {path: stringOption(options.model_param) || firstStringOption(options.model) || selected.file?.path || ""};
+}
+
+function firstModelFile(options: Options, keys: string[], fallback: string | undefined): LaneModelFile {
+  for (const key of keys) {
+    const path = stringOption(options[key]);
+    if (path) {
+      return {path, optionKey: key};
+    }
+  }
+  const fallbackPath = fallback || "";
+  if (!fallbackPath) {
+    return {path: ""};
+  }
+  const optionKey = keys[0];
+  return optionKey ? {path: fallbackPath, optionKey} : {path: fallbackPath};
 }
 
 function stringOption(value: JsonValue | undefined): string {

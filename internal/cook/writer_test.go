@@ -143,6 +143,96 @@ func TestWriterAppliesOptionOverrides(t *testing.T) {
 	}
 }
 
+func TestWriterComposesVoiceMusicRawFilesWithOptionKeys(t *testing.T) {
+	dir := packageTempDir(t)
+	root := packageTempDir(t)
+	voicePath := filepath.Join(root, "voice.gguf")
+	musicPath := filepath.Join(root, "musicvae.gguf")
+	if err := os.WriteFile(voicePath, []byte("voice"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(musicPath, []byte("music"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	writer := Writer{ConfigDir: dir, FileRoots: []string{root}, Catalog: catalog.New(dir), NodeID: "node-a"}
+	_, err := writer.Apply(NodeConfigRequest{
+		ID: "audio",
+		Components: []Component{
+			{Kind: KindVoice, Source: SourceFile, FilePath: voicePath, OptionKey: "ttsmodel"},
+			{Kind: KindMusic, Source: SourceFile, FilePath: musicPath, OptionKey: "musicvae"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := readConfigBody(t, filepath.Join(dir, "audio.kcpps"))
+	if body["ttsmodel"] != voicePath || body["musicvae"] != musicPath || body["nomodel"] != true {
+		t.Fatalf("unexpected audio body %#v", body)
+	}
+}
+
+func TestWriterRejectsVoiceMusicRawFileWithoutOptionKey(t *testing.T) {
+	dir := packageTempDir(t)
+	root := packageTempDir(t)
+	voicePath := filepath.Join(root, "voice.gguf")
+	if err := os.WriteFile(voicePath, []byte("voice"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	writer := Writer{ConfigDir: dir, FileRoots: []string{root}, Catalog: catalog.New(dir), NodeID: "node-a"}
+	_, err := writer.Preview(NodeConfigRequest{
+		ID: "audio",
+		Components: []Component{
+			{Kind: KindVoice, Source: SourceFile, FilePath: voicePath},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), `voice option key "" is invalid`) {
+		t.Fatalf("expected option key validation error, got %v", err)
+	}
+}
+
+func TestWriterCopiesOnlySelectedVoiceMusicAndSharedConfigKeys(t *testing.T) {
+	dir := packageTempDir(t)
+	if err := os.WriteFile(filepath.Join(dir, "voice.kcpps"), []byte(`{
+		"quiet":true,
+		"custom_backend_key":"keep",
+		"model_param":"text.gguf",
+		"sdmodel":"image.safetensors",
+		"whispermodel":"whisper.gguf"
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "music.kcpps"), []byte(`{
+		"sdmodel":"other-image.safetensors",
+		"musicdiffusion":"music-diffusion.gguf"
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	writer := Writer{ConfigDir: dir, Catalog: catalog.New(dir), NodeID: "node-a"}
+	_, err := writer.Apply(NodeConfigRequest{
+		ID: "audio-shared",
+		Components: []Component{
+			{Kind: KindVoice, Source: SourceConfig, ModelID: "voice"},
+			{Kind: KindMusic, Source: SourceConfig, ModelID: "music"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := readConfigBody(t, filepath.Join(dir, "audio-shared.kcpps"))
+	if body["quiet"] != true || body["custom_backend_key"] != "keep" || body["whispermodel"] != "whisper.gguf" || body["musicdiffusion"] != "music-diffusion.gguf" || body["nomodel"] != true {
+		t.Fatalf("unexpected shared audio body %#v", body)
+	}
+	if _, ok := body["model_param"]; ok {
+		t.Fatalf("text option leaked into audio body %#v", body)
+	}
+	if _, ok := body["sdmodel"]; ok {
+		t.Fatalf("image option leaked into audio body %#v", body)
+	}
+}
+
 func TestWriterRejectsRawFileTraversal(t *testing.T) {
 	base := packageTempDir(t)
 	root := filepath.Join(base, "root")
@@ -213,6 +303,19 @@ func TestWriterRejectsPathLikeConfigID(t *testing.T) {
 	if err == nil {
 		t.Fatalf("expected path-like id rejection")
 	}
+}
+
+func readConfigBody(t *testing.T, path string) map[string]any {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body map[string]any
+	if err := json.Unmarshal(content, &body); err != nil {
+		t.Fatal(err)
+	}
+	return body
 }
 
 func packageTempDir(t *testing.T) string {

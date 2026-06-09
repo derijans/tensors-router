@@ -14,6 +14,8 @@ const (
 	KindText       = "text"
 	KindImage      = "image"
 	KindEmbeddings = "embeddings"
+	KindVoice      = "voice"
+	KindMusic      = "music"
 )
 
 type Component struct {
@@ -33,6 +35,8 @@ type Recipe struct {
 	Text          *Component `json:"text,omitempty"`
 	Image         *Component `json:"image,omitempty"`
 	Embeddings    *Component `json:"embeddings,omitempty"`
+	Voice         *Component `json:"voice,omitempty"`
+	Music         *Component `json:"music,omitempty"`
 }
 
 type Store struct {
@@ -155,6 +159,14 @@ func (store *Store) Image(publicImageID string) (Recipe, Component, bool) {
 	return Recipe{}, Component{}, false
 }
 
+func (store *Store) Voice(id string) (Recipe, Component, bool) {
+	return store.component(id, KindVoice)
+}
+
+func (store *Store) Music(id string) (Recipe, Component, bool) {
+	return store.component(id, KindMusic)
+}
+
 func (store *Store) component(id string, kind string) (Recipe, Component, bool) {
 	if store == nil || strings.TrimSpace(id) == "" {
 		return Recipe{}, Component{}, false
@@ -183,6 +195,10 @@ func recipeComponent(recipe Recipe, kind string) *Component {
 		return recipe.Image
 	case KindEmbeddings:
 		return recipe.Embeddings
+	case KindVoice:
+		return recipe.Voice
+	case KindMusic:
+		return recipe.Music
 	default:
 		return nil
 	}
@@ -225,10 +241,10 @@ func validateRecipe(recipe Recipe) error {
 	if strings.TrimSpace(recipe.ID) == "" || recipe.ID != filepath.Base(recipe.ID) {
 		return fmt.Errorf("recipe id is invalid")
 	}
-	if recipe.Text == nil && recipe.Image == nil && recipe.Embeddings == nil {
+	if recipe.Text == nil && recipe.Image == nil && recipe.Embeddings == nil && recipe.Voice == nil && recipe.Music == nil {
 		return fmt.Errorf("recipe has no components")
 	}
-	for _, component := range []*Component{recipe.Text, recipe.Image, recipe.Embeddings} {
+	for _, component := range []*Component{recipe.Text, recipe.Image, recipe.Embeddings, recipe.Voice, recipe.Music} {
 		if component == nil {
 			continue
 		}

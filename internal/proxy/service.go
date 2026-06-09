@@ -9,6 +9,8 @@ import (
 	"html"
 	"io"
 	"log"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
@@ -274,6 +276,11 @@ func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if isVoicePath(r.URL.Path) || isMusicPath(r.URL.Path) {
+		service.handleAudioRequest(w, r)
+		return
+	}
+
 	if isImagePath(r.URL.Path) {
 		service.handleImageRequest(w, r)
 		return
@@ -449,6 +456,72 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 	}
 
 	if err := writeProxyResponse(w, response, model.ImageID, hasModel); err != nil {
+		return
+	}
+}
+
+func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Request) {
+	if service.backendMode == BackendModeLlamaSDCPP {
+		openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", "Voice and music routes require a Kobold backend.")
+		return
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		service.logger.Printf("request body read failed path=%s remote=%s error=%v", r.URL.Path, r.RemoteAddr, err)
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "request body could not be read")
+		return
+	}
+	defer r.Body.Close()
+
+	lane := audioRouteKind(r.URL.Path)
+	modelID, hasModel, err := audioModelFromRequest(body, r)
+	if err != nil {
+		service.logger.Printf("audio model parse failed path=%s remote=%s error=%v", r.URL.Path, r.RemoteAddr, err)
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+
+	if hasModel && service.handleRecipeAudioRequest(w, r, body, modelID, lane) {
+		return
+	}
+	if hasModel && service.registry != nil && service.registryHasAudioModel(modelID, lane) {
+		service.handleRegistryAudioRequest(w, r, body, modelID, lane)
+		return
+	}
+
+	configFilename := ""
+	backendModelID := modelID
+	if hasModel {
+		model, ok, err := service.catalog.Resolve(modelID)
+		if err != nil {
+			service.logger.Printf("audio model catalog check failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
+			openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+			return
+		}
+		if !ok {
+			service.logger.Printf("audio model not handled by router path=%s remote=%s model=%q", r.URL.Path, r.RemoteAddr, modelID)
+			hasModel = false
+			backendModelID = ""
+		} else if !modelSupportsAudioLane(model, lane) {
+			service.logger.Printf("unsupported audio model requested path=%s remote=%s model=%q", r.URL.Path, r.RemoteAddr, modelID)
+			openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", modelID))
+			return
+		} else {
+			configFilename = model.Filename
+			backendModelID = model.ID
+		}
+	}
+
+	requestBody := body
+	if hasModel && requestBodyLooksJSON(body, r) && backendModelID != modelID {
+		requestBody = rewriteRequestModel(body, backendModelID)
+	}
+	response, err := service.forwardWithFallback(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readinessText)
+	if err != nil {
+		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		return
+	}
+	if err := writeProxyResponse(w, response, modelID, false); err != nil {
 		return
 	}
 }
@@ -1218,6 +1291,58 @@ func modelFromRequest(body []byte, r *http.Request) (string, bool, error) {
 	return openai.ModelFromJSON(body)
 }
 
+func audioModelFromRequest(body []byte, r *http.Request) (string, bool, error) {
+	if len(body) > 0 && requestBodyLooksJSON(body, r) {
+		modelID, ok, err := openai.ModelFromJSON(body)
+		if err != nil || ok {
+			return modelID, ok, err
+		}
+	}
+	if modelID, ok, err := multipartModelFromRequest(body, r); err != nil || ok {
+		return modelID, ok, err
+	}
+	if modelID := strings.TrimSpace(r.URL.Query().Get("model")); modelID != "" {
+		return modelID, true, nil
+	}
+	if modelID := strings.TrimSpace(r.Header.Get("X-Tensors-Model")); modelID != "" {
+		return modelID, true, nil
+	}
+	return "", false, nil
+}
+
+func multipartModelFromRequest(body []byte, r *http.Request) (string, bool, error) {
+	contentType := r.Header.Get("Content-Type")
+	mediaType, params, err := mime.ParseMediaType(contentType)
+	if err != nil || !strings.HasPrefix(strings.ToLower(mediaType), "multipart/") {
+		return "", false, nil
+	}
+	boundary := params["boundary"]
+	if boundary == "" {
+		return "", false, fmt.Errorf("multipart boundary is required")
+	}
+	reader := multipart.NewReader(bytes.NewReader(body), boundary)
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			return "", false, nil
+		}
+		if err != nil {
+			return "", false, err
+		}
+		if part.FormName() != "model" {
+			_ = part.Close()
+			continue
+		}
+		value, err := io.ReadAll(io.LimitReader(part, 1024))
+		_ = part.Close()
+		if err != nil {
+			return "", false, err
+		}
+		modelID := strings.TrimSpace(string(value))
+		return modelID, modelID != "", nil
+	}
+}
+
 func imageModelFromRequest(body []byte, r *http.Request) (string, bool, error) {
 	if len(body) > 0 && requestBodyLooksJSON(body, r) {
 		modelID, ok, err := imageModelFromJSON(body)
@@ -1589,6 +1714,28 @@ func isCorePath(path string) bool {
 
 func isEmbeddingsPath(path string) bool {
 	return path == "/v1/embeddings"
+}
+
+func isVoicePath(path string) bool {
+	switch path {
+	case "/v1/audio/speech", "/v1/audio/transcriptions", "/v1/audio/translations", "/api/extra/tts", "/api/extra/transcribe":
+		return true
+	default:
+		return false
+	}
+}
+
+func isMusicPath(path string) bool {
+	return path == "/musicui" ||
+		strings.HasPrefix(path, "/musicui/") ||
+		strings.HasPrefix(path, "/api/extra/music/")
+}
+
+func audioRouteKind(path string) string {
+	if isMusicPath(path) {
+		return recipes.KindMusic
+	}
+	return recipes.KindVoice
 }
 
 func isOpenAIPath(path string) bool {

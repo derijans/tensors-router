@@ -55,6 +55,42 @@ func TestScanClassifiesReferencedFiles(t *testing.T) {
 	}
 }
 
+func TestScanInfersVoiceAndMusicRolesFromConfigReferences(t *testing.T) {
+	root := t.TempDir()
+	voicePath := filepath.Join(root, "tts.gguf")
+	musicPath := filepath.Join(root, "music-diffusion.gguf")
+	if err := os.WriteFile(voicePath, []byte("voice"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(musicPath, []byte("music"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := Scan([]string{root}, []cluster.Model{{
+		PublicID: "audio",
+		Capabilities: catalog.Capabilities{
+			Voice: &catalog.VoiceCapabilities{
+				TTSModel: voicePath,
+			},
+			Music: &catalog.MusicCapabilities{
+				Diffusion: musicPath,
+			},
+		},
+	}}, "node-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	voice := findFileRecord(files, voicePath)
+	if voice == nil || !hasRole(voice.Roles, RoleVoice) || len(voice.ReferencedBy) != 1 || voice.ReferencedBy[0] != "audio" {
+		t.Fatalf("missing voice role/reference %#v", voice)
+	}
+	music := findFileRecord(files, musicPath)
+	if music == nil || !hasRole(music.Roles, RoleMusic) || len(music.ReferencedBy) != 1 || music.ReferencedBy[0] != "audio" {
+		t.Fatalf("missing music role/reference %#v", music)
+	}
+}
+
 func TestScanSkipsSymlinkEscapes(t *testing.T) {
 	root := packageTempDir(t)
 	outside := packageTempDir(t)
@@ -76,6 +112,25 @@ func TestScanSkipsSymlinkEscapes(t *testing.T) {
 			t.Fatalf("symlink escape was scanned: %#v", files)
 		}
 	}
+}
+
+func findFileRecord(files []FileRecord, path string) *FileRecord {
+	clean := filepath.Clean(path)
+	for index := range files {
+		if files[index].Path == clean {
+			return &files[index]
+		}
+	}
+	return nil
+}
+
+func hasRole(roles []string, role string) bool {
+	for _, value := range roles {
+		if value == role {
+			return true
+		}
+	}
+	return false
 }
 
 func packageTempDir(t *testing.T) string {

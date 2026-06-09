@@ -1,10 +1,12 @@
-import type { AppState, LaneKind, PaletteComponentPayload } from "./types";
+import type { AppState, LaneKind, Options, PaletteComponentPayload } from "./types";
 
 export function emptyLanes(): Record<LaneKind, PaletteComponentPayload | null> {
   return {
     text: null,
     image: null,
-    embeddings: null
+    embeddings: null,
+    voice: null,
+    music: null
   };
 }
 
@@ -12,7 +14,19 @@ export function emptyLaneTargets(): Record<LaneKind, string> {
   return {
     text: "",
     image: "",
-    embeddings: ""
+    embeddings: "",
+    voice: "",
+    music: ""
+  };
+}
+
+export function emptyLaneOptions(): Record<LaneKind, Options> {
+  return {
+    text: {},
+    image: {},
+    embeddings: {},
+    voice: {},
+    music: {}
   };
 }
 
@@ -35,7 +49,10 @@ export const state: AppState = {
   constructor: {
     lanes: emptyLanes(),
     targetNodes: emptyLaneTargets(),
+    laneOptions: emptyLaneOptions(),
     options: {},
+    fieldEditor: null,
+    fieldPresets: [],
     showUsedAll: false,
     showOptionsAll: false
   },

@@ -1,3 +1,4 @@
+import { laneMetadata } from "./constants";
 import { optionDefinition } from "./data";
 import type { LaneKind, Options } from "./types";
 
@@ -13,12 +14,6 @@ export function advancedLaneOptions(lane: LaneKind, options: Options): Options {
   return result;
 }
 
-function laneSection(lane: LaneKind): string {
-  if (lane === "image") {
-    return "image";
-  }
-  if (lane === "embeddings") {
-    return "embed";
-  }
-  return "llm";
+export function laneSection(lane: LaneKind): string {
+  return laneMetadata[lane].section;
 }

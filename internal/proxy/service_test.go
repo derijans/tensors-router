@@ -132,6 +132,102 @@ func TestOpenAIBaseEndpointIsForwarded(t *testing.T) {
 	}
 }
 
+func TestAudioSpeechRoutesKnownVoiceConfig(t *testing.T) {
+	service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/audio/speech" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		content, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(content), `"model":"voice"`) {
+			t.Fatalf("request model was not preserved: %s", string(content))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}), map[string]string{
+		"voice": `{"ttsmodel":"voice.gguf"}`,
+	})
+	service.backendRetryAttempts = 2
+	service.backendRetryDelay = 0
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/audio/speech", strings.NewReader(`{"model":"voice","input":"hello","voice":"alloy"}`))
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if backend.reloads.Load() != 1 || backend.lastReload != "voice.kcpps" {
+		t.Fatalf("expected voice reload, got count=%d config=%q", backend.reloads.Load(), backend.lastReload)
+	}
+}
+
+func TestAudioSpeechPassesUnknownModelWithoutConfigReload(t *testing.T) {
+	service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/audio/speech" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		content, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(content), `"model":"tts-1"`) {
+			t.Fatalf("request body changed unexpectedly: %s", string(content))
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}), map[string]string{})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/audio/speech", strings.NewReader(`{"model":"tts-1","input":"hello","voice":"alloy"}`))
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if backend.reloads.Load() != 0 {
+		t.Fatalf("unknown audio model should pass through without reload, got %d", backend.reloads.Load())
+	}
+}
+
+func TestMusicUIPathPassesThrough(t *testing.T) {
+	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/musicui" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		_, _ = w.Write([]byte("music ui"))
+	}), map[string]string{})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/musicui", nil)
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "music ui" {
+		t.Fatalf("unexpected musicui response %d %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestSplitModeRejectsAudioRoutes(t *testing.T) {
+	service, textBackend, imageBackend := newSplitTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("text backend should not receive split audio route")
+	}), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("image backend should not receive split audio route")
+	}), map[string]string{})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/audio/speech", strings.NewReader(`{"model":"voice","input":"hello"}`))
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotImplemented {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if textBackend.reloads.Load() != 0 || imageBackend.reloads.Load() != 0 {
+		t.Fatalf("split audio should not reload backends text=%d image=%d", textBackend.reloads.Load(), imageBackend.reloads.Load())
+	}
+}
+
 func TestUnknownCoreModelReturnsOpenAIError(t *testing.T) {
 	service, _ := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 

@@ -44,4 +44,22 @@ describe("simple cook option data", () => {
     ]);
     expect(comparisonClass("sampling_method", "image", fieldRenderContext())).toBe("compare-none");
   });
+
+  it("offers music capability files for music option fields", () => {
+    const definition = {
+      ...optionDefinition("musicvae", "string", "music"),
+      model_role: "music"
+    };
+    state.inventory = testInventory([definition], [], [
+      {
+        ...testModel("active"),
+        capabilities: {
+          music: {
+            vae: "music-vae.gguf"
+          }
+        }
+      }
+    ]);
+    expect(fieldChoices("musicvae", definition, fieldRenderContext())).toContain("music-vae.gguf");
+  });
 });

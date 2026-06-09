@@ -30,8 +30,8 @@ export const sectionModelKeys: Record<string, string[]> = {
   llm: ["model_param", "model"],
   image: ["sdmodel"],
   embed: ["embeddingsmodel", "mmproj"],
-  voice: ["ttsmodel", "whispermodel"],
-  music: ["musicllm", "musicdiffusion"]
+  voice: ["whispermodel", "ttsmodel", "ttswavtokenizer", "ttsdir"],
+  music: ["musicllm", "musicembeddings", "musicdiffusion", "musicvae"]
 };
 
 export function selectedNode(): NodeInventory | null {
@@ -243,6 +243,7 @@ function roleMatchesDefinition(roles: string[], role: string): boolean {
   if (role === "upscaler") return roles.includes("upscaler");
   if (role === "lora") return roles.includes("lora");
   if (role === "voice") return roles.includes("voice");
+  if (role === "music") return roles.includes("music");
   return true;
 }
 
@@ -275,6 +276,22 @@ function modelPathsForRole(model: Model, role: string): string[] {
   }
   if (role === "lora") {
     values.push(...(capabilities.image?.lora ?? []));
+  }
+  if (role === "voice") {
+    values.push(
+      capabilities.voice?.whisper_model,
+      capabilities.voice?.tts_model,
+      capabilities.voice?.wav_tokenizer,
+      capabilities.voice?.directory
+    );
+  }
+  if (role === "music") {
+    values.push(
+      capabilities.music?.llm,
+      capabilities.music?.embeddings,
+      capabilities.music?.diffusion,
+      capabilities.music?.vae
+    );
   }
   return values.filter((value): value is string => Boolean(value));
 }

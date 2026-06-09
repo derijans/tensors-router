@@ -68,7 +68,9 @@ func (service *Service) loadRecipe(ctx context.Context, publicID string) (bool, 
 	recipe, text, hasText := service.recipeStore.Text(publicID)
 	_, embeddings, hasEmbeddings := service.recipeStore.Embeddings(publicID)
 	_, image, hasImage := service.recipeStore.Image(recipe.PublicImageID)
-	if !hasText && !hasEmbeddings && !hasImage {
+	_, voice, hasVoice := service.recipeStore.Voice(publicID)
+	_, music, hasMusic := service.recipeStore.Music(publicID)
+	if !hasText && !hasEmbeddings && !hasImage && !hasVoice && !hasMusic {
 		return false, nil
 	}
 	if hasText {
@@ -83,6 +85,16 @@ func (service *Service) loadRecipe(ctx context.Context, publicID string) (bool, 
 	}
 	if hasImage {
 		if err := service.loadRecipeComponent(ctx, recipe, image, readinessImage); err != nil {
+			return true, err
+		}
+	}
+	if hasVoice && !sameRecipeComponent(text, voice) && !sameRecipeComponent(embeddings, voice) {
+		if err := service.loadRecipeComponent(ctx, recipe, voice, readinessText); err != nil {
+			return true, err
+		}
+	}
+	if hasMusic && !sameRecipeComponent(text, music) && !sameRecipeComponent(embeddings, music) && !sameRecipeComponent(voice, music) {
+		if err := service.loadRecipeComponent(ctx, recipe, music, readinessText); err != nil {
 			return true, err
 		}
 	}
@@ -122,6 +134,44 @@ func (service *Service) recipeImageComponent(publicImageID string) (recipes.Reci
 	return service.recipeStore.Image(publicImageID)
 }
 
+func (service *Service) handleRecipeAudioRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string, lane string) bool {
+	recipe, component, ok := service.recipeAudioComponent(publicID, lane)
+	if !ok {
+		return false
+	}
+	route := routeFromRecipeComponent(recipe, component, false, audioClusterLane(lane))
+	requestBody := body
+	if requestBodyLooksJSON(body, r) {
+		requestBody = rewriteRequestModel(body, component.ModelID)
+	}
+	var response *http.Response
+	var err error
+	if component.NodeID != service.nodeID {
+		route.Remote = true
+		response, err = service.forwardRemote(r.Context(), r, requestBody, route)
+	} else {
+		response, err = service.forwardWithFallback(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readinessText)
+	}
+	if err != nil {
+		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		return true
+	}
+	if err := writeProxyResponse(w, response, publicID, false); err != nil {
+		return true
+	}
+	return true
+}
+
+func (service *Service) recipeAudioComponent(publicID string, lane string) (recipes.Recipe, recipes.Component, bool) {
+	if service.recipeStore == nil {
+		return recipes.Recipe{}, recipes.Component{}, false
+	}
+	if lane == recipes.KindMusic {
+		return service.recipeStore.Music(publicID)
+	}
+	return service.recipeStore.Voice(publicID)
+}
+
 func routeFromRecipeComponent(recipe recipes.Recipe, component recipes.Component, remote bool, lane string) cluster.Route {
 	return cluster.Route{
 		PublicID:      recipe.PublicID,
@@ -141,6 +191,13 @@ func routeLaneForReadiness(readiness backendReadiness) string {
 		return cluster.RouteLaneImage
 	}
 	return cluster.RouteLaneText
+}
+
+func audioClusterLane(lane string) string {
+	if lane == recipes.KindMusic {
+		return cluster.RouteLaneMusic
+	}
+	return cluster.RouteLaneVoice
 }
 
 func sameRecipeComponent(left recipes.Component, right recipes.Component) bool {

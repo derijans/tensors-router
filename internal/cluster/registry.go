@@ -137,6 +137,16 @@ func (registry *Registry) HasImageModel(publicImageID string, activeConfigFilena
 	return ok
 }
 
+func (registry *Registry) HasVoiceModel(publicID string) bool {
+	_, ok := registry.VoiceModel(publicID)
+	return ok
+}
+
+func (registry *Registry) HasMusicModel(publicID string) bool {
+	_, ok := registry.MusicModel(publicID)
+	return ok
+}
+
 func (registry *Registry) Model(publicID string) (Model, bool) {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
@@ -173,6 +183,30 @@ func (registry *Registry) ImageModel(publicImageID string, activeConfigFilename 
 	return Model{}, false
 }
 
+func (registry *Registry) VoiceModel(publicID string) (Model, bool) {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+
+	for _, model := range registry.view {
+		if model.PublicID == publicID && model.HasVoice {
+			return model, true
+		}
+	}
+	return Model{}, false
+}
+
+func (registry *Registry) MusicModel(publicID string) (Model, bool) {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+
+	for _, model := range registry.view {
+		if model.PublicID == publicID && model.HasMusic {
+			return model, true
+		}
+	}
+	return Model{}, false
+}
+
 func (registry *Registry) Acquire(publicID string, localHealthy bool) (Route, func(), bool) {
 	registry.mu.Lock()
 	route, ok := registry.selectRouteLocked(publicID, registry.replicasLocked(publicID), localHealthy, RouteLaneText)
@@ -196,6 +230,26 @@ func (registry *Registry) AcquireEmbedding(publicID string, localHealthy bool) (
 func (registry *Registry) AcquireImage(publicImageID string, localHealthy bool, activeConfigFilename string) (Route, func(), bool) {
 	registry.mu.Lock()
 	route, ok := registry.selectRouteLocked(publicImageID, registry.imageReplicasLocked(publicImageID, activeConfigFilename), localHealthy, RouteLaneImage)
+	if !ok {
+		registry.mu.Unlock()
+		return Route{}, func() {}, false
+	}
+	return registry.acquireRouteLocked(route)
+}
+
+func (registry *Registry) AcquireVoice(publicID string, localHealthy bool) (Route, func(), bool) {
+	registry.mu.Lock()
+	route, ok := registry.selectRouteLocked(publicID, registry.voiceReplicasLocked(publicID), localHealthy, RouteLaneVoice)
+	if !ok {
+		registry.mu.Unlock()
+		return Route{}, func() {}, false
+	}
+	return registry.acquireRouteLocked(route)
+}
+
+func (registry *Registry) AcquireMusic(publicID string, localHealthy bool) (Route, func(), bool) {
+	registry.mu.Lock()
+	route, ok := registry.selectRouteLocked(publicID, registry.musicReplicasLocked(publicID), localHealthy, RouteLaneMusic)
 	if !ok {
 		registry.mu.Unlock()
 		return Route{}, func() {}, false
@@ -329,6 +383,32 @@ func (registry *Registry) imageReplicasLocked(publicImageID string, activeConfig
 	replicas := make([]Model, 0)
 	for _, model := range registry.view {
 		if model.PublicImageID == publicImageID && registry.imageModelSelectableLocked(model, activeConfigFilename) {
+			replicas = append(replicas, model)
+		}
+	}
+	sort.Slice(replicas, func(left, right int) bool {
+		return routeSortKey(replicas[left]) < routeSortKey(replicas[right])
+	})
+	return replicas
+}
+
+func (registry *Registry) voiceReplicasLocked(publicID string) []Model {
+	replicas := make([]Model, 0)
+	for _, model := range registry.view {
+		if model.PublicID == publicID && model.HasVoice {
+			replicas = append(replicas, model)
+		}
+	}
+	sort.Slice(replicas, func(left, right int) bool {
+		return routeSortKey(replicas[left]) < routeSortKey(replicas[right])
+	})
+	return replicas
+}
+
+func (registry *Registry) musicReplicasLocked(publicID string) []Model {
+	replicas := make([]Model, 0)
+	for _, model := range registry.view {
+		if model.PublicID == publicID && model.HasMusic {
 			replicas = append(replicas, model)
 		}
 	}

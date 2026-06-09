@@ -26,6 +26,8 @@ const (
 const (
 	RouteLaneText  = "text"
 	RouteLaneImage = "image"
+	RouteLaneVoice = "voice"
+	RouteLaneMusic = "music"
 )
 
 type Model struct {
@@ -39,6 +41,8 @@ type Model struct {
 	HasImage      bool                       `json:"has_image"`
 	HasEmbeddings bool                       `json:"has_embeddings"`
 	HasMultimodal bool                       `json:"has_multimodal"`
+	HasVoice      bool                       `json:"has_voice"`
+	HasMusic      bool                       `json:"has_music"`
 	ModelHash     string                     `json:"model_hash"`
 	ConfigHash    string                     `json:"config_hash"`
 	Capabilities  catalog.Capabilities       `json:"capabilities"`
@@ -89,6 +93,8 @@ func LocalModelsWithBackendMode(models []catalog.Model, nodeID string, nodeURL s
 			HasImage:      model.HasImage,
 			HasEmbeddings: model.HasEmbeddings,
 			HasMultimodal: model.HasMultimodal,
+			HasVoice:      model.HasVoice,
+			HasMusic:      model.HasMusic,
 			ModelHash:     model.ModelHash,
 			ConfigHash:    model.ConfigHash,
 			Capabilities:  model.Capabilities,
