@@ -9,7 +9,7 @@ import {
   nodeByID,
   selectedOptionsForInspector,
   selectedOptionsForNode,
-  selectedThreadsForNode,
+  selectedThreadFieldsForNode,
   usedPaths
 } from "./data.js";
 import {
@@ -65,10 +65,11 @@ export function localValidation() {
     if (backend === "kobold" && hasKind(components, "image") && hasKind(components, "embeddings")) {
       issues.push(issue("error", "kobold_image_embeddings_mix", "Kobold cannot cook image and embeddings into the same config.", nodeID));
     }
-    const threads = selectedThreadsForNode(nodeID, components, request.options);
     const maxThreads = node?.hardware?.max_threads || 0;
-    if (threads > 0 && maxThreads > 0 && threads > maxThreads) {
-      issues.push(issue("error", "thread_budget_exceeded", `${threads} selected threads exceed ${maxThreads} logical CPUs.`, nodeID));
+    for (const field of selectedThreadFieldsForNode(nodeID, components, request.options)) {
+      if (maxThreads > 0 && field.value > maxThreads) {
+        issues.push(issue("error", "thread_budget_exceeded", `${field.key} uses ${field.value} threads on a node with ${maxThreads} logical CPUs.`, field.key));
+      }
     }
     const selected = selectedOptionsForNode(nodeID, components, request.options);
     if (node?.hardware?.gpu_backend === "rocm") {

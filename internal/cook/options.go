@@ -93,7 +93,7 @@ var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option("quantkv", "KV Cache Quant", LaneText, ValueString, "--cache-type-k", false, "kobold", "llama_sdcpp"),
 	option("cache_type_k", "Cache Type K", LaneText, ValueString, "--cache-type-k", false, "llama_sdcpp"),
 	option("cache_type_v", "Cache Type V", LaneText, ValueString, "--cache-type-v", false, "llama_sdcpp"),
-	option("usecuda", "Use CUDA", LaneText, ValueBool, "", true, "kobold"),
+	option("usecuda", "Use CUDA", LaneText, ValueBool, "", false, "kobold"),
 	option("usecublas", "Use cuBLAS", LaneText, ValueBool, "", true, "kobold"),
 	option("usevulkan", "Use Vulkan", LaneText, ValueBool, "", false, "kobold"),
 	option("usecpu", "Use CPU", LaneText, ValueBool, "", false, "kobold"),

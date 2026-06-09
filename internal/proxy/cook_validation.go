@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"sort"
 	"strings"
 
 	"tensors-router/internal/cluster"
@@ -110,29 +111,34 @@ func validateKoboldMix(group cookGroup, fact cookNodeFacts) []cook.ValidationIss
 }
 
 func validateThreadBudget(group cookGroup, fact cookNodeFacts, options cook.Options) []cook.ValidationIssue {
-	threads := selectedThreadCount(group, fact, options)
-	if threads <= 0 {
-		return nil
-	}
-	if fact.hardware.MaxThreads <= 0 {
-		return []cook.ValidationIssue{{
-			Severity: "warning",
-			Code:     "thread_budget_unknown",
-			Message:  "Thread budget could not be inferred for this node.",
+	threadFields := selectedThreadFields(group, fact, options)
+	issues := make([]cook.ValidationIssue, 0, len(threadFields))
+	for _, field := range threadFields {
+		if field.value <= 0 {
+			continue
+		}
+		if fact.hardware.MaxThreads <= 0 {
+			issues = append(issues, cook.ValidationIssue{
+				Severity: "warning",
+				Code:     "thread_budget_unknown",
+				Message:  fmt.Sprintf("Thread budget for %q could not be inferred for this node.", field.key),
+				NodeID:   group.nodeID,
+				Field:    field.key,
+			})
+			continue
+		}
+		if field.value <= fact.hardware.MaxThreads {
+			continue
+		}
+		issues = append(issues, cook.ValidationIssue{
+			Severity: "error",
+			Code:     "thread_budget_exceeded",
+			Message:  fmt.Sprintf("Selected %q assigns %d threads on a node with %d logical CPUs.", field.key, field.value, fact.hardware.MaxThreads),
 			NodeID:   group.nodeID,
-			Field:    "threads",
-		}}
+			Field:    field.key,
+		})
 	}
-	if threads <= fact.hardware.MaxThreads {
-		return nil
-	}
-	return []cook.ValidationIssue{{
-		Severity: "error",
-		Code:     "thread_budget_exceeded",
-		Message:  fmt.Sprintf("Selected configs assign %d threads on a node with %d logical CPUs.", threads, fact.hardware.MaxThreads),
-		NodeID:   group.nodeID,
-		Field:    "threads",
-	}}
+	return issues
 }
 
 func validateCUDAOptions(group cookGroup, fact cookNodeFacts, options cook.Options) []cook.ValidationIssue {
@@ -213,42 +219,25 @@ func validateUnknownGPUCount(group cookGroup, fact cookNodeFacts, options cook.O
 	return nil
 }
 
-func selectedThreadCount(group cookGroup, fact cookNodeFacts, options cook.Options) int {
-	total := 0
-	if groupHasKind(group, cook.KindText) || groupHasKind(group, cook.KindEmbeddings) {
-		if value, ok := rawInt(options["threads"]); ok {
-			total += value
-		} else if value, ok := componentOptionInt(group, fact, "threads", cook.KindText, cook.KindEmbeddings); ok {
-			total += value
-		}
-	}
-	if groupHasKind(group, cook.KindImage) {
-		if value, ok := rawInt(options["sdthreads"]); ok {
-			total += value
-		} else if value, ok := componentOptionInt(group, fact, "sdthreads", cook.KindImage); ok {
-			total += value
-		}
-	}
-	return total
+type selectedThreadField struct {
+	key   string
+	value int
 }
 
-func componentOptionInt(group cookGroup, fact cookNodeFacts, key string, kinds ...string) (int, bool) {
-	for _, kind := range kinds {
-		for _, component := range group.components {
-			if component.Kind != kind || component.Source != cook.SourceConfig {
-				continue
-			}
-			model, ok := componentModel(fact.models, component)
-			if !ok {
-				continue
-			}
-			value, ok := rawInt(model.Options[key])
-			if ok {
-				return value, true
-			}
+func selectedThreadFields(group cookGroup, fact cookNodeFacts, options cook.Options) []selectedThreadField {
+	fields := make([]selectedThreadField, 0, 4)
+	for key, value := range selectedOptions(group, fact, options) {
+		if !threadCountOption(key) {
+			continue
+		}
+		if count, ok := rawInt(value); ok {
+			fields = append(fields, selectedThreadField{key: key, value: count})
 		}
 	}
-	return 0, false
+	sort.Slice(fields, func(left, right int) bool {
+		return fields[left].key < fields[right].key
+	})
+	return fields
 }
 
 func selectedOptions(group cookGroup, fact cookNodeFacts, options cook.Options) cook.Options {
@@ -351,6 +340,14 @@ func backendSupported(backend string, values []string) bool {
 		}
 	}
 	return false
+}
+
+func threadCountOption(key string) bool {
+	definition, ok := cook.OptionDefinitionForKey(key)
+	if ok {
+		return definition.ValueType == cook.ValueNumber && strings.HasSuffix(definition.Key, "threads")
+	}
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(key)), "threads")
 }
 
 func gpuOptionKey(key string) bool {

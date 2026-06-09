@@ -120,7 +120,7 @@ export function defaultConfigForNode(node) {
     usemlock: false,
     gpulayers: hardware.gpu_backend && hardware.gpu_backend !== "cpu" && hardware.gpu_backend !== "unknown" ? "auto" : "0"
   };
-  if (hardware.gpu_backend === "cuda") {
+  if (hardware.gpu_backend === "cuda" || hardware.gpu_backend === "rocm") {
     values.usecuda = true;
   }
   if (hardware.gpu_backend === "vulkan") {

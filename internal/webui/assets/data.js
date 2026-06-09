@@ -52,15 +52,18 @@ export function groupComponentsByNode(components) {
   return groups;
 }
 
-export function selectedThreadsForNode(nodeID, components, options) {
-  let total = 0;
-  if (components.some(component => component.kind === "text" || component.kind === "embeddings")) {
-    total += numberOption(options.threads) || componentThreadValue(nodeID, components, "threads", ["text", "embeddings"]);
+export function selectedThreadFieldsForNode(nodeID, components, options) {
+  const fields = [];
+  for (const [key, value] of Object.entries(selectedOptionsForNode(nodeID, components, options))) {
+    if (!threadCountOption(key)) {
+      continue;
+    }
+    const count = numberOption(value);
+    if (count > 0) {
+      fields.push({key, value: count});
+    }
   }
-  if (components.some(component => component.kind === "image")) {
-    total += numberOption(options.sdthreads) || componentThreadValue(nodeID, components, "sdthreads", ["image"]);
-  }
-  return total;
+  return fields.sort((left, right) => left.key.localeCompare(right.key));
 }
 
 export function selectedOptionsForNode(nodeID, components, options) {
@@ -163,20 +166,12 @@ export function optionPaletteEntries() {
   }));
 }
 
-function componentThreadValue(nodeID, components, key, kinds) {
-  for (const component of components) {
-    if (!kinds.includes(component.kind)) {
-      continue;
-    }
-    const selected = Object.values(state.constructor.lanes)
-      .filter(Boolean)
-      .find(item => item.component.kind === component.kind && ((state.constructor.targetNodes[item.component.kind] || item.component.node_id || "") === (nodeID || "")));
-    const value = numberOption(selected?.model?.options?.[key]);
-    if (value) {
-      return value;
-    }
+function threadCountOption(key) {
+  const definition = optionDefinition(key);
+  if (definition) {
+    return definition.value_type === "number" && definition.key.endsWith("threads");
   }
-  return 0;
+  return String(key || "").trim().toLowerCase().endsWith("threads");
 }
 
 function modelEntry(kind, model) {

@@ -141,3 +141,109 @@ func TestValidateOptionSupportCatalogsDocumentedBackendOptions(t *testing.T) {
 		}
 	}
 }
+
+func TestValidateCUDAOptionsAllowsUseCUDAOnROCm(t *testing.T) {
+	if cook.IsCUDAOnlyOption("usecuda") {
+		t.Fatal("usecuda should not be limited to CUDA because ROCm uses the same field")
+	}
+	group := cookGroup{
+		components: []cook.Component{{
+			Kind:    cook.KindText,
+			Source:  cook.SourceConfig,
+			ModelID: "text-model",
+		}},
+	}
+	fact := cookNodeFacts{
+		backendMode: "kobold",
+		hardware: hardware.Info{
+			GPUBackend: hardware.GPUBackendROCm,
+			GPUCount:   1,
+		},
+		models: []cluster.Model{{
+			LocalID: "text-model",
+			Options: map[string]json.RawMessage{
+				"usecuda": json.RawMessage("true"),
+			},
+		}},
+	}
+
+	issues := validateCUDAOptions(group, fact, nil)
+	if len(issues) != 0 {
+		t.Fatalf("expected no issue for usecuda on ROCm, got %#v", issues)
+	}
+}
+
+func TestValidateThreadBudgetChecksThreadFieldsIndividually(t *testing.T) {
+	group := cookGroup{
+		components: []cook.Component{
+			{
+				Kind:    cook.KindText,
+				Source:  cook.SourceConfig,
+				ModelID: "text-model",
+			},
+			{
+				Kind:    cook.KindImage,
+				Source:  cook.SourceConfig,
+				ImageID: "image-model",
+			},
+		},
+	}
+	fact := cookNodeFacts{
+		backendMode: "kobold",
+		hardware: hardware.Info{
+			MaxThreads: 12,
+			GPUBackend: hardware.GPUBackendCPU,
+		},
+		models: []cluster.Model{
+			{
+				LocalID: "text-model",
+				Options: map[string]json.RawMessage{
+					"threads":     json.RawMessage("8"),
+					"blasthreads": json.RawMessage("8"),
+				},
+			},
+			{
+				ImageID: "image-model",
+				Options: map[string]json.RawMessage{
+					"sdthreads": json.RawMessage("8"),
+				},
+			},
+		},
+	}
+
+	issues := validateThreadBudget(group, fact, nil)
+	if len(issues) != 0 {
+		t.Fatalf("expected separate thread fields to fit, got %#v", issues)
+	}
+}
+
+func TestValidateThreadBudgetReportsOverflowField(t *testing.T) {
+	group := cookGroup{
+		components: []cook.Component{{
+			Kind:    cook.KindText,
+			Source:  cook.SourceConfig,
+			ModelID: "text-model",
+		}},
+	}
+	fact := cookNodeFacts{
+		backendMode: "kobold",
+		hardware: hardware.Info{
+			MaxThreads: 12,
+			GPUBackend: hardware.GPUBackendCPU,
+		},
+		models: []cluster.Model{{
+			LocalID: "text-model",
+			Options: map[string]json.RawMessage{
+				"blasthreads": json.RawMessage("16"),
+			},
+		}},
+	}
+
+	issues := validateThreadBudget(group, fact, nil)
+	if len(issues) != 1 {
+		t.Fatalf("expected one issue, got %#v", issues)
+	}
+	if issues[0].Field != "blasthreads" {
+		t.Fatalf("expected blasthreads field, got %q", issues[0].Field)
+	}
+}
