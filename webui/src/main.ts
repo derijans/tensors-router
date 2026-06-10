@@ -46,7 +46,8 @@ import {
   selectSimpleNode,
   showSimpleFieldValues,
   updateSimpleField,
-  updateSimpleFieldFilter
+  updateSimpleFieldFilter,
+  updateSimpleSectionOpen
 } from "./simple-cook";
 import {
   renderInventory,
@@ -150,6 +151,7 @@ elements.simpleNewButton.addEventListener("click", newSimpleConfig);
 elements.simpleCopyButton.addEventListener("click", copySimpleConfig);
 elements.simpleDeleteButton.addEventListener("click", () => runTask(() => deleteSimpleConfig(refreshInventory)));
 elements.simpleConfigEditor.addEventListener("change", event => updateSimpleField(event.target));
+elements.simpleConfigEditor.addEventListener("toggle", event => updateSimpleSectionOpen(event.target), true);
 elements.simpleConfigEditor.addEventListener("click", event => {
   const target = elementTarget(event);
   const fieldKey = target?.dataset.fieldValues;

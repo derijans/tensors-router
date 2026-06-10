@@ -91,6 +91,7 @@ export interface AppState {
     cleanFields: Options;
     mode: SimpleCookMode;
     fieldFilter: string;
+    openSections: string[];
     sidebar: SimpleCookSidebar | null;
   };
   constructor: {

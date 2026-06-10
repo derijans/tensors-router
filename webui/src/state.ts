@@ -44,6 +44,7 @@ export const state: AppState = {
     cleanFields: {},
     mode: "edit",
     fieldFilter: "",
+    openSections: [],
     sidebar: null
   },
   constructor: {

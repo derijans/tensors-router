@@ -59,12 +59,30 @@ export function updateSimpleFieldFilter(value: string): void {
   renderConfigEditor();
 }
 
+export function updateSimpleSectionOpen(target: EventTarget | null): void {
+  if (!(target instanceof HTMLDetailsElement)) {
+    return;
+  }
+  const section = target.dataset.simpleSection;
+  if (!section) {
+    return;
+  }
+  const openSections = new Set(state.simpleCook.openSections);
+  if (target.open) {
+    openSections.add(section);
+  } else {
+    openSections.delete(section);
+  }
+  state.simpleCook.openSections = Array.from(openSections);
+}
+
 export function newSimpleConfig(): void {
   const node = selectedNode();
   state.simpleCook.configID = "";
   state.simpleCook.mode = "new";
   state.simpleCook.fields = defaultConfigForNode(node);
   state.simpleCook.cleanFields = {};
+  state.simpleCook.openSections = [];
   elements.cookIdInput.value = suggestedConfigID(node, "new-config");
   renderSimpleCook();
 }
@@ -75,6 +93,7 @@ export function copySimpleConfig(): void {
   state.simpleCook.configID = "";
   state.simpleCook.fields = cloneValue(state.simpleCook.fields);
   state.simpleCook.cleanFields = {};
+  state.simpleCook.openSections = [];
   elements.cookIdInput.value = suggestedConfigID(selectedNode(), `${config?.local_id || "config"}-copy`);
   renderSimpleCook();
 }
@@ -160,6 +179,7 @@ function syncSimpleCookSelection(): void {
     state.simpleCook.configID = "";
     state.simpleCook.fields = {};
     state.simpleCook.cleanFields = {};
+    state.simpleCook.openSections = [];
     return;
   }
   if (!nodes.some(node => node.node_id === state.simpleCook.nodeID)) {
@@ -206,33 +226,34 @@ function renderConfigEditor(): void {
   const fields = state.simpleCook.fields || {};
   const query = state.simpleCook.fieldFilter.trim().toLowerCase();
   const context = fieldRenderContext();
+  const openSections = new Set(state.simpleCook.openSections);
   const groups = groupedFieldKeys(fields, optionDefinition)
     .map(group => {
-      const rows = group.keys
-        .filter(key => !query || `${key} ${optionValueLabel(fields[key])}`.toLowerCase().includes(query))
+      const keys = group.keys
+        .filter(key => !query || `${key} ${optionValueLabel(fields[key])}`.toLowerCase().includes(query));
+      const rows = keys
         .map(key => fieldRow(key, fields[key], group.section, context))
         .join("");
       if (!rows) {
         return null;
       }
+      const sectionLabel = sectionLabels[group.section] || group.section;
       return {
         section: group.section,
         html: `
-        <section class="config-section">
-          <h3>${escapeHTML(sectionLabels[group.section] || group.section)}</h3>
+        <details class="config-section" data-simple-section="${escapeAttribute(group.section)}"${openSections.has(group.section) ? " open" : ""}>
+          <summary>
+            <span>${escapeHTML(sectionLabel)}</span>
+            <span class="section-count">${escapeHTML(fieldCountLabel(keys.length))}</span>
+          </summary>
           <div class="config-fields">${rows}</div>
-        </section>
+        </details>
       `
       };
     })
     .filter((group): group is { section: string; html: string } => group !== null);
-  const primary = groups.filter(group => ["llm", "image", "embed", "voice", "music"].includes(group.section));
-  const secondary = groups.filter(group => !["llm", "image", "embed", "voice", "music"].includes(group.section));
   elements.simpleConfigEditor.innerHTML = groups.length
-    ? `
-      <div class="quick-section-grid primary">${primary.map(group => group.html).join("")}</div>
-      <div class="quick-section-grid secondary">${secondary.map(group => group.html).join("")}</div>
-    `
+    ? groups.map(group => group.html).join("")
     : `<div class="detail-empty">No fields</div>`;
 }
 
@@ -326,6 +347,7 @@ function loadSimpleConfig(model: Model | null): void {
   state.simpleCook.fields = cloneValue(model?.options ?? {});
   state.simpleCook.cleanFields = cloneValue(model?.options ?? {});
   state.simpleCook.sidebar = null;
+  state.simpleCook.openSections = [];
   elements.cookIdInput.value = model?.local_id || suggestedConfigID(selectedNode(), "new-config");
 }
 
@@ -343,4 +365,8 @@ function showSimpleCookError(error: unknown): void {
 
 function sectionForDefinition(definition: { section?: string }): string {
   return definition.section || "other";
+}
+
+function fieldCountLabel(count: number): string {
+  return count === 1 ? "1 field" : `${count} fields`;
 }
