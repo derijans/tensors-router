@@ -32,6 +32,8 @@ body {
   min-height: 100vh;
   overflow-x: hidden;
   background:
+    repeating-linear-gradient(180deg, rgba(255, 255, 255, .012) 0 1px, transparent 1px 13px),
+    linear-gradient(180deg, transparent 0 58%, rgba(2, 3, 7, .84) 100%),
     linear-gradient(130deg, rgba(33, 240, 208, .12), transparent 34%, rgba(255, 138, 42, .12) 67%, rgba(155, 92, 255, .08) 78%, transparent 88%),
     linear-gradient(180deg, #03050a, #070912 48%, #020308);
 }
@@ -46,31 +48,66 @@ body::after {
 }
 
 body::before {
-  inset: -12%;
+  inset: -18%;
   background:
-    repeating-radial-gradient(circle at 72% 42%, transparent 0 46px, rgba(33, 240, 208, .24) 47px 49px, transparent 50px 92px),
-    repeating-radial-gradient(circle at 72% 42%, transparent 0 118px, rgba(255, 138, 42, .18) 119px 121px, transparent 122px 176px),
-    linear-gradient(104deg, transparent 0 46%, rgba(247, 243, 91, .16) 47% 48%, transparent 49%),
-    linear-gradient(146deg, transparent 0 17%, rgba(155, 92, 255, .16) 18% 19%, transparent 20%);
-  opacity: .92;
-  animation: reactorTurn 18s linear infinite;
+    repeating-radial-gradient(circle at 76% 42%, transparent 0 44px, rgba(33, 240, 208, .34) 45px 48px, transparent 49px 88px),
+    repeating-radial-gradient(circle at 76% 42%, transparent 0 112px, rgba(255, 138, 42, .24) 113px 116px, transparent 117px 164px),
+    repeating-radial-gradient(circle at 76% 42%, transparent 0 188px, rgba(155, 92, 255, .2) 189px 192px, transparent 193px 264px);
+  opacity: .66;
+  transform-origin: 76% 42%;
+  animation: reactorRingsPulse 3.4s cubic-bezier(.42, 0, .2, 1) infinite;
+  will-change: transform, opacity;
 }
 
 body::after {
   background:
-    linear-gradient(116deg, transparent 0 12%, rgba(155, 92, 255, .13) 13% 14%, transparent 15% 72%, rgba(155, 92, 255, .1) 73% 74%, transparent 75%),
-    linear-gradient(90deg, rgba(33, 240, 208, .14) 0 1px, transparent 1px 26%, rgba(255, 138, 42, .12) 27% 28%, transparent 29%),
-    repeating-linear-gradient(180deg, rgba(255, 255, 255, .04) 0 1px, transparent 1px 7px),
-    linear-gradient(180deg, transparent 0 58%, rgba(2, 3, 7, .84) 100%);
+    linear-gradient(104deg, transparent 0 46%, rgba(247, 243, 91, .2) 47% 48%, transparent 49%),
+    linear-gradient(146deg, transparent 0 17%, rgba(155, 92, 255, .22) 18% 19%, transparent 20%),
+    linear-gradient(116deg, transparent 0 12%, rgba(155, 92, 255, .18) 13% 14%, transparent 15% 72%, rgba(155, 92, 255, .16) 73% 74%, transparent 75%),
+    linear-gradient(90deg, rgba(33, 240, 208, .2) 0 1px, transparent 1px 26%, rgba(255, 138, 42, .18) 27% 28%, transparent 29%);
+  opacity: .42;
+  animation: reactorLinesPulse 3.8s ease-in-out infinite;
+  will-change: opacity;
 }
 
-@keyframes reactorTurn {
-  from {
-    transform: rotate(0deg) scale(1.04);
+@keyframes reactorRingsPulse {
+  0%,
+  100% {
+    opacity: .44;
+    transform: scale(.955);
   }
 
-  to {
-    transform: rotate(360deg) scale(1.04);
+  44% {
+    opacity: .92;
+    transform: scale(1.035);
+  }
+
+  72% {
+    opacity: .68;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes reactorLinesPulse {
+  0%,
+  100% {
+    opacity: .22;
+  }
+
+  48% {
+    opacity: .82;
+  }
+
+  72% {
+    opacity: .48;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body::before,
+  body::after {
+    animation: none;
+    will-change: auto;
   }
 }
 
