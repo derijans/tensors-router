@@ -50,12 +50,12 @@ body::after {
 body::before {
   inset: -18%;
   background:
-    repeating-radial-gradient(circle at 76% 42%, transparent 0 44px, rgba(33, 240, 208, .34) 45px 48px, transparent 49px 88px),
-    repeating-radial-gradient(circle at 76% 42%, transparent 0 112px, rgba(255, 138, 42, .24) 113px 116px, transparent 117px 164px),
-    repeating-radial-gradient(circle at 76% 42%, transparent 0 188px, rgba(155, 92, 255, .2) 189px 192px, transparent 193px 264px);
+    repeating-radial-gradient(circle at 76% 42%, transparent 0 44px, rgba(33, 240, 208, .34) 45px 46px, transparent 47px 88px),
+    repeating-radial-gradient(circle at 76% 42%, transparent 0 112px, rgba(255, 138, 42, .24) 113px 114px, transparent 115px 164px),
+    repeating-radial-gradient(circle at 76% 42%, transparent 0 188px, rgba(155, 92, 255, .2) 189px 190px, transparent 191px 264px);
   opacity: .66;
   transform-origin: 76% 42%;
-  animation: reactorRingsPulse 3.4s cubic-bezier(.42, 0, .2, 1) infinite;
+  animation: reactorRingsGrow 6.8s linear infinite;
   will-change: transform, opacity;
 }
 
@@ -70,21 +70,23 @@ body::after {
   will-change: opacity;
 }
 
-@keyframes reactorRingsPulse {
-  0%,
+@keyframes reactorRingsGrow {
+  0% {
+    opacity: 0;
+    transform: scale(.72);
+  }
+
+  12% {
+    opacity: .66;
+  }
+
+  82% {
+    opacity: .66;
+  }
+
   100% {
-    opacity: .44;
-    transform: scale(.955);
-  }
-
-  44% {
-    opacity: .92;
-    transform: scale(1.035);
-  }
-
-  72% {
-    opacity: .68;
-    transform: scale(1.06);
+    opacity: 0;
+    transform: scale(1.36);
   }
 }
 
