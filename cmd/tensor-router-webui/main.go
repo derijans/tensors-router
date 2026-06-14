@@ -75,7 +75,8 @@ func run(args []string) error {
 	server := webui.WebHTTPServer(cfg.Server.Bind, handler)
 	errs := make(chan error, 1)
 	go func() {
-		log.Printf("tensor-router-webui listening on https://%s", cfg.Server.Bind)
+		addr := webui.NormalizeBind(cfg.Server.Bind)
+		log.Printf("tensor-router-webui listening on https://%s", addr)
 		errs <- server.ListenAndServeTLS(certFile, keyFile)
 	}()
 

@@ -230,9 +230,25 @@ func copyWebHeaders(dst http.Header, src http.Header) {
 }
 
 func WebHTTPServer(bind string, handler http.Handler) *http.Server {
+	// Normalize bind to a TCP address. Accept values like
+	// "0.0.0.0:8443" or with a scheme like "https://0.0.0.0:8443" and
+	// strip any scheme so net.Listen gets a valid host:port.
+	addr := NormalizeBind(bind)
 	return &http.Server{
-		Addr:              bind,
+		Addr:              addr,
 		Handler:           handler,
 		ReadHeaderTimeout: 10 * time.Second,
 	}
+}
+
+func NormalizeBind(bind string) string {
+	b := strings.TrimSpace(bind)
+	b = strings.TrimSuffix(b, "/")
+	if strings.HasPrefix(b, "http://") {
+		return strings.TrimPrefix(b, "http://")
+	}
+	if strings.HasPrefix(b, "https://") {
+		return strings.TrimPrefix(b, "https://")
+	}
+	return b
 }
