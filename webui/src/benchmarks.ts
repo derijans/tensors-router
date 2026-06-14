@@ -118,7 +118,7 @@ function renderBenchmarkHistory(): void {
     <article class="benchmark-row">
       <div>
         <strong>${escapeHTML(summary.section)} / ${escapeHTML(summary.status)}</strong>
-        <div class="muted">${formatDate(summary.finished_at)} · ${summary.duration_ms || 0}ms</div>
+        <div class="muted">${formatDate(summary.finished_at)} / ${summary.duration_ms || 0}ms</div>
       </div>
       <div class="change-list">${optionChanges(summary)}</div>
     </article>
@@ -130,13 +130,33 @@ function summaryCard(title: string, summary: BenchmarkSummary): string {
     <article class="benchmark-card">
       <strong>${escapeHTML(title)}</strong>
       <div class="benchmark-status ${escapeAttribute(summary.status)}">${escapeHTML(summary.status)}</div>
-      <div class="muted">${summary.duration_ms || 0}ms · ${formatDate(summary.finished_at)}</div>
+      <div class="muted">${summary.duration_ms || 0}ms / ${formatDate(summary.finished_at)}</div>
       ${summary.error ? `<div class="error-text">${escapeHTML(summary.error)}</div>` : ""}
       <div class="metric-list">${(summary.metrics ?? []).map(metric => `
-        <span>${escapeHTML(metric.name)}: ${escapeHTML(metric.status)}${metric.duration_ms ? ` ${metric.duration_ms}ms` : ""}</span>
+        <span>${escapeHTML(metric.name)}: ${escapeHTML(formatMetricValue(metric))}</span>
       `).join("")}</div>
     </article>
   `;
+}
+
+function formatMetricValue(metric: NonNullable<BenchmarkSummary["metrics"]>[number]): string {
+  if (metric.duration_ms) {
+    return `${metric.duration_ms}ms`;
+  }
+  if (metric.value !== undefined && metric.unit) {
+    return `${formatNumber(metric.value)} ${metric.unit}`;
+  }
+  if (metric.value !== undefined) {
+    return formatNumber(metric.value);
+  }
+  return metric.status;
+}
+
+function formatNumber(value: number): string {
+  if (Number.isInteger(value)) {
+    return value.toString();
+  }
+  return value.toFixed(2);
 }
 
 function optionChanges(summary: BenchmarkSummary): string {

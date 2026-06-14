@@ -188,12 +188,70 @@ func aggregateSummary(runType string, sections []Summary) Summary {
 		latest.Status = StatusSkipped
 	}
 	latest.Metrics = []Metric{
-		countMetric("sections_total", len(sections)),
-		countMetric("sections_success", success),
-		countMetric("sections_failed", failed),
-		countMetric("sections_skipped", skipped),
+		durationMetric(MetricTotalRunMS, latest.DurationMS),
+		countMetric(MetricSectionsTotal, len(sections)),
+		countMetric(MetricSectionsSuccess, success),
+		countMetric(MetricSectionsFailed, failed),
+		countMetric(MetricSectionsSkipped, skipped),
 	}
+	latest.Metrics = append(latest.Metrics, aggregateStartupMetrics(sections)...)
 	return latest
+}
+
+func aggregateStartupMetrics(sections []Summary) []Metric {
+	loadMS, hasLoad := sectionMetricDuration(sections, SectionRuntime, MetricModelLoadMS)
+	firstCompletionMS, hasFirstCompletion := sectionMetricDuration(sections, SectionLLM, MetricRequestMS)
+	metrics := []Metric{}
+	if hasLoad {
+		metrics = append(metrics, durationMetric(MetricModelLoadMS, loadMS))
+	}
+	if hasFirstCompletion {
+		metrics = append(metrics, durationMetric(MetricFirstCompletionMS, firstCompletionMS))
+	}
+	if hasLoad && hasFirstCompletion {
+		metrics = append(metrics, durationMetric(MetricTotalStartMS, loadMS+firstCompletionMS))
+	}
+	if tokensPerSecond, ok := sectionMetricValue(sections, SectionLLM, MetricTokensPerSecond); ok {
+		metrics = append(metrics, valueMetric(MetricTokensPerSecond, tokensPerSecond, "tokens/s"))
+	}
+	return metrics
+}
+
+func sectionMetricDuration(sections []Summary, section string, name string) (int64, bool) {
+	for _, summary := range sections {
+		if summary.Section != section {
+			continue
+		}
+		for _, metric := range summary.Metrics {
+			if metric.Name == name && metric.Status == StatusSuccess {
+				return metric.DurationMS, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func sectionMetricValue(sections []Summary, section string, name string) (float64, bool) {
+	for _, summary := range sections {
+		if summary.Section != section {
+			continue
+		}
+		for _, metric := range summary.Metrics {
+			if metric.Name == name && metric.Status == StatusSuccess {
+				return metric.Value, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func durationMetric(name string, durationMS int64) Metric {
+	return Metric{
+		Name:       name,
+		Status:     StatusSuccess,
+		DurationMS: durationMS,
+		Unit:       "ms",
+	}
 }
 
 func countMetric(name string, value int) Metric {
@@ -202,6 +260,15 @@ func countMetric(name string, value int) Metric {
 		Status: StatusSuccess,
 		Value:  float64(value),
 		Unit:   "count",
+	}
+}
+
+func valueMetric(name string, value float64, unit string) Metric {
+	return Metric{
+		Name:   name,
+		Status: StatusSuccess,
+		Value:  value,
+		Unit:   unit,
 	}
 }
 

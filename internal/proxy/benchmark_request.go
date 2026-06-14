@@ -95,7 +95,7 @@ func benchmarkTimeout(seconds int) time.Duration {
 }
 
 func textBenchmarkBody(modelID string) string {
-	return fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"Say ok."}],"max_tokens":1,"stream":false}`, modelID)
+	return fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"Count from one upward using comma separated numbers."}],"max_tokens":64,"temperature":0,"stream":false}`, modelID)
 }
 
 func embeddingsBenchmarkBody(modelID string) string {

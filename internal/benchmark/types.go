@@ -21,6 +21,22 @@ const (
 	StatusRunning = "running"
 )
 
+const (
+	MetricRequestMS             = "request_ms"
+	MetricModelLoadMS           = "model_load_ms"
+	MetricTotalRunMS            = "total_run_ms"
+	MetricTotalStartMS          = "total_start_ms"
+	MetricFirstCompletionMS     = "first_completion_ms"
+	MetricTokensPerSecond       = "tokens_per_second"
+	MetricPromptTokensPerSecond = "prompt_tokens_per_second"
+	MetricCompletionTokens      = "completion_tokens"
+	MetricPromptTokens          = "prompt_tokens"
+	MetricSectionsTotal         = "sections_total"
+	MetricSectionsSuccess       = "sections_success"
+	MetricSectionsFailed        = "sections_failed"
+	MetricSectionsSkipped       = "sections_skipped"
+)
+
 var OrderedSections = []string{
 	SectionRuntime,
 	SectionLLM,

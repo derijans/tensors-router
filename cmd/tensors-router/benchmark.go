@@ -114,19 +114,54 @@ func executeBenchmarkCommand(ctx context.Context, command benchmarkCommand) (rou
 
 func printBenchmarkRecord(record routerbenchmark.Record) {
 	if record.Latest != nil {
-		fmt.Printf("benchmark %s/%s %s in %dms\n", record.NodeID, record.ModelID, record.Latest.Status, record.Latest.DurationMS)
+		fmt.Printf("benchmark %s/%s %s %s\n", record.NodeID, record.ModelID, record.Latest.Status, benchmarkMetricLine(*record.Latest))
 	}
 	for _, section := range routerbenchmark.OrderedSections {
 		summary, ok := record.Sections[section]
 		if !ok {
 			continue
 		}
-		fmt.Printf("  %s: %s %dms", section, summary.Status, summary.DurationMS)
+		fmt.Printf("  %s: %s %s", section, summary.Status, benchmarkMetricLine(summary))
 		if summary.Error != "" {
 			fmt.Printf(" %s", summary.Error)
 		}
 		fmt.Println()
 	}
+}
+
+func benchmarkMetricLine(summary routerbenchmark.Summary) string {
+	parts := []string{fmt.Sprintf("duration=%dms", summary.DurationMS)}
+	for _, name := range []string{
+		routerbenchmark.MetricModelLoadMS,
+		routerbenchmark.MetricTotalStartMS,
+		routerbenchmark.MetricTokensPerSecond,
+		routerbenchmark.MetricCompletionTokens,
+		routerbenchmark.MetricRequestMS,
+	} {
+		if metric, ok := benchmarkMetricByName(summary, name); ok {
+			parts = append(parts, formatBenchmarkMetric(metric))
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
+func benchmarkMetricByName(summary routerbenchmark.Summary, name string) (routerbenchmark.Metric, bool) {
+	for _, metric := range summary.Metrics {
+		if metric.Name == name {
+			return metric, true
+		}
+	}
+	return routerbenchmark.Metric{}, false
+}
+
+func formatBenchmarkMetric(metric routerbenchmark.Metric) string {
+	if metric.Unit == "ms" || metric.DurationMS > 0 {
+		return fmt.Sprintf("%s=%dms", metric.Name, metric.DurationMS)
+	}
+	if metric.Unit != "" {
+		return fmt.Sprintf("%s=%.2f %s", metric.Name, metric.Value, metric.Unit)
+	}
+	return fmt.Sprintf("%s=%.2f", metric.Name, metric.Value)
 }
 
 func splitBenchmarkSections(value string) []string {

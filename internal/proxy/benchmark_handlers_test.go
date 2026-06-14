@@ -8,8 +8,10 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	routerbenchmark "tensors-router/internal/benchmark"
 	"tensors-router/internal/catalog"
@@ -48,6 +50,85 @@ func TestBenchmarkRunRecordsFailedAndSkippedSections(t *testing.T) {
 	}
 	if record.Sections[routerbenchmark.SectionImage].Status != routerbenchmark.StatusSkipped {
 		t.Fatalf("expected skipped image section %#v", record.Sections)
+	}
+}
+
+func TestBenchmarkRecordsLoadTimeAndTokensPerSecond(t *testing.T) {
+	service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/chat/completions" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"chatcmpl-test","object":"chat.completion","choices":[{"message":{"role":"assistant","content":"one, two, three"}}],"usage":{"prompt_tokens":9,"completion_tokens":32},"timings":{"predicted_per_second":128.5,"prompt_per_second":256}}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}), map[string]string{
+		"a": `{"model_param":"text.gguf"}`,
+	})
+	service.benchmarkStore = newBenchmarkStoreForTest(t)
+
+	body := `{"model_id":"a","type":"section","sections":["runtime","llm"],"iterations":1,"timeout_seconds":30}`
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/v1/benchmarks/run", strings.NewReader(body)))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	var record routerbenchmark.Record
+	if err := json.Unmarshal(recorder.Body.Bytes(), &record); err != nil {
+		t.Fatal(err)
+	}
+	if backend.reloads.Load() == 0 {
+		t.Fatal("expected benchmark to load the model config")
+	}
+	runtimeMetric, ok := benchmarkMetricForTest(record.Sections[routerbenchmark.SectionRuntime], routerbenchmark.MetricModelLoadMS)
+	if !ok || runtimeMetric.Status != routerbenchmark.StatusSuccess {
+		t.Fatalf("missing model load metric %#v", record.Sections[routerbenchmark.SectionRuntime].Metrics)
+	}
+	llmMetric, ok := benchmarkMetricForTest(record.Sections[routerbenchmark.SectionLLM], routerbenchmark.MetricTokensPerSecond)
+	if !ok || llmMetric.Value != 128.5 {
+		t.Fatalf("missing tokens/sec metric %#v", record.Sections[routerbenchmark.SectionLLM].Metrics)
+	}
+	startMetric, ok := benchmarkMetricForTest(*record.Latest, routerbenchmark.MetricTotalStartMS)
+	if !ok || startMetric.DurationMS < runtimeMetric.DurationMS {
+		t.Fatalf("missing total start metric %#v", record.Latest.Metrics)
+	}
+}
+
+func TestBenchmarkRunsSerializePerNode(t *testing.T) {
+	var active atomic.Int64
+	var maxActive atomic.Int64
+	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/v1/chat/completions" {
+			current := active.Add(1)
+			trackMaxActive(&maxActive, current)
+			time.Sleep(50 * time.Millisecond)
+			active.Add(-1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"usage":{"completion_tokens":8}}`))
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}), map[string]string{
+		"a": `{"model_param":"text.gguf"}`,
+	})
+	service.benchmarkStore = newBenchmarkStoreForTest(t)
+
+	var wait sync.WaitGroup
+	for index := 0; index < 2; index++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			body := `{"model_id":"a","type":"section","sections":["llm"],"iterations":1,"timeout_seconds":30}`
+			recorder := httptest.NewRecorder()
+			service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/v1/benchmarks/run", strings.NewReader(body)))
+			if recorder.Code != http.StatusOK {
+				t.Errorf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+			}
+		}()
+	}
+	wait.Wait()
+	if maxActive.Load() != 1 {
+		t.Fatalf("expected serialized benchmark execution, max active requests was %d", maxActive.Load())
 	}
 }
 
@@ -225,4 +306,22 @@ func TestNodeBenchmarkRunPersistsLocalRecord(t *testing.T) {
 	if _, ok, err := service.benchmarkStore.Record(service.nodeID, "a"); err != nil || !ok {
 		t.Fatalf("expected stored record ok=%t err=%v", ok, err)
 	}
+}
+
+func trackMaxActive(maxActive *atomic.Int64, current int64) {
+	for {
+		previous := maxActive.Load()
+		if current <= previous || maxActive.CompareAndSwap(previous, current) {
+			return
+		}
+	}
+}
+
+func benchmarkMetricForTest(summary routerbenchmark.Summary, name string) (routerbenchmark.Metric, bool) {
+	for _, metric := range summary.Metrics {
+		if metric.Name == name {
+			return metric, true
+		}
+	}
+	return routerbenchmark.Metric{}, false
 }

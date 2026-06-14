@@ -72,6 +72,15 @@ func successMetric(name string, durationMS int64) routerbenchmark.Metric {
 	}
 }
 
+func successValueMetric(name string, value float64, unit string) routerbenchmark.Metric {
+	return routerbenchmark.Metric{
+		Name:   name,
+		Status: routerbenchmark.StatusSuccess,
+		Value:  value,
+		Unit:   unit,
+	}
+}
+
 func skippedMetric(name string, reason string) routerbenchmark.Metric {
 	return routerbenchmark.Metric{
 		Name:   name,
@@ -88,4 +97,46 @@ func failedMetric(name string, message string, durationMS int64) routerbenchmark
 		Unit:       "ms",
 		Error:      message,
 	}
+}
+
+func metricsStatus(metrics []routerbenchmark.Metric) string {
+	success := 0
+	failed := 0
+	skipped := 0
+	for _, metric := range metrics {
+		switch metric.Status {
+		case routerbenchmark.StatusSuccess:
+			success++
+		case routerbenchmark.StatusFailed:
+			failed++
+		default:
+			skipped++
+		}
+	}
+	switch {
+	case failed == 0 && success > 0:
+		return routerbenchmark.StatusSuccess
+	case failed > 0 && success > 0:
+		return routerbenchmark.StatusPartial
+	case failed > 0:
+		return routerbenchmark.StatusFailed
+	case skipped > 0:
+		return routerbenchmark.StatusSkipped
+	default:
+		return routerbenchmark.StatusSkipped
+	}
+}
+
+func metricsError(metrics []routerbenchmark.Metric) string {
+	for _, metric := range metrics {
+		if metric.Status == routerbenchmark.StatusFailed && strings.TrimSpace(metric.Error) != "" {
+			return metric.Error
+		}
+	}
+	for _, metric := range metrics {
+		if metric.Status == routerbenchmark.StatusSkipped && strings.TrimSpace(metric.Error) != "" {
+			return metric.Error
+		}
+	}
+	return ""
 }

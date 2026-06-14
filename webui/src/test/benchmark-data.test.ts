@@ -17,10 +17,11 @@ describe("benchmark data helpers", () => {
         status: "success",
         started_at: 1,
         finished_at: 2,
-        duration_ms: 42
+        duration_ms: 42,
+        metrics: [{ name: "tokens_per_second", status: "success", value: 99.5, unit: "tokens/s" }]
       }
     };
-    expect(benchmarkCompactLabel(model)).toBe("success 42ms");
+    expect(benchmarkCompactLabel(model)).toBe("success 99.5 tok/s");
     expect(benchmarkCompactLabel(testModel("beta"))).toBe("none");
   });
 });

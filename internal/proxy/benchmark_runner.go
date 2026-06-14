@@ -100,47 +100,47 @@ func (service *Service) runBenchmarkSection(ctx context.Context, runID string, r
 		Status:    routerbenchmark.StatusRunning,
 		StartedAt: started.UnixMilli(),
 	}
-	metric := service.benchmarkMetric(ctx, request, model, section)
-	summary.Metrics = []routerbenchmark.Metric{metric}
+	metrics := service.benchmarkMetrics(ctx, request, model, section)
+	summary.Metrics = metrics
 	finished := time.Now()
 	summary.FinishedAt = finished.UnixMilli()
 	summary.DurationMS = finished.Sub(started).Milliseconds()
-	summary.Status = metric.Status
-	summary.Error = metric.Error
+	summary.Status = metricsStatus(metrics)
+	summary.Error = metricsError(metrics)
 	return summary
 }
 
-func (service *Service) benchmarkMetric(ctx context.Context, request routerbenchmark.RunRequest, model catalog.Model, section string) routerbenchmark.Metric {
+func (service *Service) benchmarkMetrics(ctx context.Context, request routerbenchmark.RunRequest, model catalog.Model, section string) []routerbenchmark.Metric {
 	switch section {
 	case routerbenchmark.SectionRuntime:
-		return service.runtimeBenchmarkMetric(ctx, model)
+		return []routerbenchmark.Metric{service.runtimeBenchmarkMetric(ctx, model)}
 	case routerbenchmark.SectionLLM:
 		if !model.HasLLM {
-			return skippedMetric(section, "model has no llm lane")
+			return []routerbenchmark.Metric{skippedMetric(section, "model has no llm lane")}
 		}
-		return service.requestBenchmarkMetric(ctx, section, "/v1/chat/completions", textBenchmarkBody(model.ID), request.Iterations)
+		return service.textBenchmarkMetrics(ctx, "/v1/chat/completions", textBenchmarkBody(model.ID), request.Iterations)
 	case routerbenchmark.SectionEmbed:
 		if !model.HasEmbeddings && !model.HasLLM {
-			return skippedMetric(section, "model has no embedding lane")
+			return []routerbenchmark.Metric{skippedMetric(section, "model has no embedding lane")}
 		}
-		return service.requestBenchmarkMetric(ctx, section, "/v1/embeddings", embeddingsBenchmarkBody(model.ID), request.Iterations)
+		return service.requestBenchmarkMetrics(ctx, "/v1/embeddings", embeddingsBenchmarkBody(model.ID), request.Iterations)
 	case routerbenchmark.SectionImage:
 		if !model.HasImage {
-			return skippedMetric(section, "model has no image lane")
+			return []routerbenchmark.Metric{skippedMetric(section, "model has no image lane")}
 		}
-		return service.requestBenchmarkMetric(ctx, section, "/v1/images/generations", imageBenchmarkBody(model.ImageID), request.Iterations)
+		return service.requestBenchmarkMetrics(ctx, "/v1/images/generations", imageBenchmarkBody(model.ImageID), request.Iterations)
 	case routerbenchmark.SectionVoice:
 		if !model.HasVoice {
-			return skippedMetric(section, "model has no voice lane")
+			return []routerbenchmark.Metric{skippedMetric(section, "model has no voice lane")}
 		}
-		return service.requestBenchmarkMetric(ctx, section, "/v1/audio/speech", voiceBenchmarkBody(model.ID), request.Iterations)
+		return service.requestBenchmarkMetrics(ctx, "/v1/audio/speech", voiceBenchmarkBody(model.ID), request.Iterations)
 	case routerbenchmark.SectionMusic:
 		if !model.HasMusic {
-			return skippedMetric(section, "model has no music lane")
+			return []routerbenchmark.Metric{skippedMetric(section, "model has no music lane")}
 		}
-		return service.requestBenchmarkMetric(ctx, section, "/api/extra/music/generate", musicBenchmarkBody(model.ID), request.Iterations)
+		return service.requestBenchmarkMetrics(ctx, "/api/extra/music/generate", musicBenchmarkBody(model.ID), request.Iterations)
 	default:
-		return failedMetric(section, fmt.Sprintf("unknown benchmark section %q", section), 0)
+		return []routerbenchmark.Metric{failedMetric(section, fmt.Sprintf("unknown benchmark section %q", section), 0)}
 	}
 }
 
@@ -149,12 +149,12 @@ func (service *Service) runtimeBenchmarkMetric(ctx context.Context, model catalo
 	err := service.loadLocalModel(ctx, model.ID, model.ID)
 	duration := time.Since(started).Milliseconds()
 	if err != nil {
-		return failedMetric(routerbenchmark.SectionRuntime, err.Error(), duration)
+		return failedMetric(routerbenchmark.MetricModelLoadMS, err.Error(), duration)
 	}
-	return successMetric(routerbenchmark.SectionRuntime, duration)
+	return successMetric(routerbenchmark.MetricModelLoadMS, duration)
 }
 
-func (service *Service) requestBenchmarkMetric(ctx context.Context, section string, path string, body string, iterations int) routerbenchmark.Metric {
+func (service *Service) requestBenchmarkMetrics(ctx context.Context, path string, body string, iterations int) []routerbenchmark.Metric {
 	var total time.Duration
 	for index := 0; index < iterations; index++ {
 		started := time.Now()
@@ -162,16 +162,16 @@ func (service *Service) requestBenchmarkMetric(ctx context.Context, section stri
 		duration := time.Since(started)
 		total += duration
 		if err != nil {
-			return failedMetric(section, err.Error(), duration.Milliseconds())
+			return []routerbenchmark.Metric{failedMetric(routerbenchmark.MetricRequestMS, err.Error(), duration.Milliseconds())}
 		}
 		if status < 200 || status >= 300 {
 			message := strings.TrimSpace(preview)
 			if message == "" {
 				message = fmt.Sprintf("request failed with status %d", status)
 			}
-			return failedMetric(section, message, duration.Milliseconds())
+			return []routerbenchmark.Metric{failedMetric(routerbenchmark.MetricRequestMS, message, duration.Milliseconds())}
 		}
 	}
 	average := total / time.Duration(iterations)
-	return successMetric(section, average.Milliseconds())
+	return []routerbenchmark.Metric{successMetric(routerbenchmark.MetricRequestMS, average.Milliseconds())}
 }
