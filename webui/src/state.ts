@@ -59,6 +59,8 @@ export const state: AppState = {
     lanes: emptyLanes(),
     targetNodes: emptyLaneTargets(),
     laneOptions: emptyLaneOptions(),
+    backendMode: "kobold",
+    backendTouched: false,
     options: {},
     fieldEditor: null,
     fieldPresets: [],

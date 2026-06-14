@@ -1,11 +1,12 @@
 import { elements } from "./elements";
-import { isLaneKind, laneKinds, laneMetadata } from "./constants";
+import { backendModeKey, backendModeLabels, backendModes, isLaneKind, laneKinds, laneMetadata, type BackendMode } from "./constants";
 import { requiresOptionAssignment } from "./constructor-field-data";
 import { emptyLaneOptions, emptyLanes, emptyLaneTargets, state } from "./state";
 import { openFieldEditor, renderFieldEditor } from "./constructor-field-editor";
 import {
   configPaletteEntries,
   filePaletteEntries,
+  nodeByID,
   optionDefinition,
   optionPaletteEntries,
   selectedOptionsForInspector,
@@ -25,6 +26,7 @@ import {
 import type { JsonValue, LaneKind, OptionDefinition, PaletteComponentPayload, PaletteEntry, PalettePayload } from "./types";
 
 export function renderConstructor(): void {
+  renderBackendSelector();
   renderPalette();
   renderLanes();
   renderInspector();
@@ -66,6 +68,8 @@ export function clearConstructor(): void {
   state.constructor.lanes = emptyLanes();
   state.constructor.targetNodes = emptyLaneTargets();
   state.constructor.laneOptions = emptyLaneOptions();
+  state.constructor.backendMode = "kobold";
+  state.constructor.backendTouched = false;
   state.constructor.options = {};
   state.constructor.fieldEditor = null;
   renderConstructor();
@@ -130,6 +134,24 @@ export function updateLaneTarget(target: EventTarget | null): void {
   }
   state.constructor.targetNodes[lane] = target.value;
   renderConstructor();
+}
+
+export function updateConstructorBackendMode(value: string): void {
+  if (!backendModes.includes(value as BackendMode)) {
+    return;
+  }
+  state.constructor.backendMode = value;
+  state.constructor.backendTouched = true;
+  renderConstructor();
+}
+
+function renderBackendSelector(): void {
+  const value = constructorBackendModeValue();
+  elements.advancedBackendSelect.innerHTML = backendModes.map(mode => {
+    const selected = mode === value ? " selected" : "";
+    return `<option value="${escapeAttribute(mode)}"${selected}>${escapeHTML(backendModeLabels[mode])}</option>`;
+  }).join("");
+  elements.advancedBackendSelect.classList.toggle("virtual-backend-select", !state.constructor.backendTouched);
 }
 
 function renderPalette(): void {
@@ -327,4 +349,30 @@ function targetNodeOptions(lane: LaneKind, selected: PaletteComponentPayload): s
     const selectedAttribute = node.node_id === current ? " selected" : "";
     return `<option value="${escapeAttribute(node.node_id)}"${selectedAttribute}>${escapeHTML(node.node_id || "node")}</option>`;
   }).join("");
+}
+
+function constructorBackendModeValue(): string {
+  if (state.constructor.backendTouched && backendModes.includes(state.constructor.backendMode as BackendMode)) {
+    return state.constructor.backendMode;
+  }
+  for (const lane of laneKinds) {
+    const selected = state.constructor.lanes[lane];
+    const sourceBackend = selected?.model?.options?.[backendModeKey];
+    if (typeof sourceBackend === "string" && backendModes.includes(sourceBackend as BackendMode)) {
+      return sourceBackend;
+    }
+  }
+  for (const lane of laneKinds) {
+    const selected = state.constructor.lanes[lane];
+    if (!selected) {
+      continue;
+    }
+    const nodeID = state.constructor.targetNodes[lane] || selected.component.node_id || "";
+    const nodeBackend = nodeByID(nodeID)?.backend_mode || "";
+    if (backendModes.includes(nodeBackend as BackendMode)) {
+      return nodeBackend;
+    }
+  }
+  const fallback = state.inventory?.nodes?.[0]?.backend_mode || "kobold";
+  return backendModes.includes(fallback as BackendMode) ? fallback : "kobold";
 }

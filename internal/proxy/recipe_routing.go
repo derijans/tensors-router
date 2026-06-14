@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
@@ -23,7 +24,12 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 		route.Remote = true
 		response, err = service.forwardRemote(r.Context(), r, requestBody, route)
 	} else {
-		response, err = service.forwardWithFallback(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readinessText)
+		backendMode, modeErr := service.recipeComponentBackendMode(component)
+		if modeErr != nil {
+			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", modeErr.Error())
+			return true
+		}
+		response, err = service.forwardWithFallback(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readinessText, backendMode)
 	}
 	if err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
@@ -49,7 +55,18 @@ func (service *Service) handleRecipeImageRequest(w http.ResponseWriter, r *http.
 		route.Remote = true
 		response, err = service.forwardRemote(r.Context(), request, requestBody, route)
 	} else {
-		response, err = service.forwardWithFallback(r.Context(), request, requestBody, component.ImageID, component.ConfigFilename, true, readinessImage)
+		backendMode, modeErr := service.recipeComponentBackendMode(component)
+		if modeErr != nil {
+			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", modeErr.Error())
+			return true
+		}
+		if backendMode == BackendModeLlamaSDCPP && component.ModelID != "" {
+			if err := service.loadLocalRuntimeForRequest(r.Context(), backendMode, component.ModelID, component.ConfigFilename, readinessText); err != nil {
+				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+				return true
+			}
+		}
+		response, err = service.forwardWithFallback(r.Context(), request, requestBody, component.ImageID, component.ConfigFilename, true, readinessImage, backendMode)
 	}
 	if err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
@@ -106,12 +123,15 @@ func (service *Service) loadRecipeComponent(ctx context.Context, recipe recipes.
 	if route.Remote {
 		return service.clusterClient.Load(ctx, route.NodeURL, route.LocalID)
 	}
-	runtime := service.runtimeForReadiness(readiness)
+	backendMode, err := service.recipeComponentBackendMode(component)
+	if err != nil {
+		return err
+	}
 	modelID := component.ModelID
 	if readiness == readinessImage {
 		modelID = component.ImageID
 	}
-	return service.loadLocalConfig(ctx, runtime, modelID, component.ConfigFilename, readiness)
+	return service.loadLocalConfig(ctx, backendMode, modelID, component.ConfigFilename, readiness)
 }
 
 func (service *Service) recipeModelComponent(publicID string, path string) (recipes.Recipe, recipes.Component, bool) {
@@ -150,7 +170,16 @@ func (service *Service) handleRecipeAudioRequest(w http.ResponseWriter, r *http.
 		route.Remote = true
 		response, err = service.forwardRemote(r.Context(), r, requestBody, route)
 	} else {
-		response, err = service.forwardWithFallback(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readinessText)
+		backendMode, modeErr := service.recipeComponentBackendMode(component)
+		if modeErr != nil {
+			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", modeErr.Error())
+			return true
+		}
+		if backendMode == BackendModeLlamaSDCPP {
+			openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", "Voice and music routes require a Kobold backend.")
+			return true
+		}
+		response, err = service.forwardWithFallback(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readinessText, backendMode)
 	}
 	if err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
@@ -184,6 +213,26 @@ func routeFromRecipeComponent(recipe recipes.Recipe, component recipes.Component
 		Remote:        remote,
 		Lane:          lane,
 	}
+}
+
+func (service *Service) recipeComponentBackendMode(component recipes.Component) (string, error) {
+	models, err := service.catalog.List()
+	if err != nil {
+		return "", err
+	}
+	modelID := component.ModelID
+	if component.Kind == recipes.KindImage && strings.TrimSpace(component.ImageID) != "" {
+		modelID = component.ImageID
+	}
+	for _, model := range models {
+		if model.Filename != component.ConfigFilename {
+			continue
+		}
+		if model.ID == modelID || model.ImageID == modelID || strings.TrimSpace(modelID) == "" {
+			return service.catalogModelBackendMode(model)
+		}
+	}
+	return service.resolveBackendMode("")
 }
 
 func routeLaneForReadiness(readiness backendReadiness) string {

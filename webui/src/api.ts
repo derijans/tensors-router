@@ -9,6 +9,7 @@ import type {
   CookResponse,
   ErrorResponse,
   InventoryResponse,
+  LoadConfigRequest,
   RouterProcessStatus,
   SessionResponse,
   ValidationIssue
@@ -78,6 +79,13 @@ export function getBenchmarkRecord(nodeID: string, modelID: string): Promise<Ben
 
 export function runBenchmark(request: BenchmarkRunRequest): Promise<BenchmarkRecord> {
   return api<BenchmarkRecord>("/api/benchmarks/run", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function loadModelConfig(request: LoadConfigRequest): Promise<{ ok: boolean }> {
+  return api<{ ok: boolean }>("/api/load", {
     method: "POST",
     body: JSON.stringify(request)
   });

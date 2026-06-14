@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>tensor-router-webui</title>
-  <script type="module" crossorigin src="/assets/index-CKnYrnMQ.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-B70bH0cT.css">
+  <script type="module" crossorigin src="/assets/index-DCY1wsQd.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-CEt_4Jkq.css">
 </head>
 <body>
   <main class="shell">
@@ -82,7 +82,10 @@
             <h2>Models And Files</h2>
             <p class="muted">configs, model files, and capabilities</p>
           </div>
-          <input id="filterInput" type="search" placeholder="Filter models, files, nodes">
+          <div class="models-panel-actions">
+            <input id="filterInput" type="search" placeholder="Filter models, files, nodes">
+            <p id="modelsActionStatus" class="action-status"></p>
+          </div>
         </div>
         <div class="tables">
           <div>
@@ -98,6 +101,7 @@
                     <th>Options</th>
                     <th>Benchmark</th>
                     <th>Available</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody id="modelsTable"></tbody>
@@ -223,6 +227,13 @@
 
         <section class="cook-mode" data-cook-panel="constructor">
           <div class="constructor-toolbar">
+            <label class="virtual-backend-label">
+              Backend
+              <select id="advancedBackendSelect">
+                <option value="kobold">Kobold</option>
+                <option value="llama_sdcpp">llama/sd.cpp</option>
+              </select>
+            </label>
             <label>
               Config id
               <input id="advancedCookIdInput" type="text" placeholder="neon-mix">

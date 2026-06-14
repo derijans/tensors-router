@@ -1,6 +1,7 @@
 import { deleteConfigFile, errorBody, previewConfigFile, applyConfigFile } from "./api";
 import { elements } from "./elements";
 import { state } from "./state";
+import { backendModeKey, backendModeLabels, backendModes, type BackendMode } from "./constants";
 import { allOptionDefinitions, optionDefinition, optionValue } from "./data";
 import {
   cloneValue,
@@ -27,7 +28,7 @@ import {
   optionValueLabel,
   parseOptionInput
 } from "./utils";
-import type { ConfigFileRequest, ConfigFileResponse, JsonValue, Model, RefreshInventory, SelectChoice } from "./types";
+import type { ConfigFileRequest, ConfigFileResponse, JsonValue, Model, Options, RefreshInventory, SelectChoice } from "./types";
 
 type ConfigSubmitter = (request: ConfigFileRequest) => Promise<ConfigFileResponse>;
 
@@ -109,7 +110,12 @@ export function addSelectedSimpleField(): void {
 }
 
 export function updateSimpleField(target: EventTarget | null): void {
-  if (!(target instanceof HTMLInputElement)) {
+  if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLSelectElement)) {
+    return;
+  }
+  if (target instanceof HTMLSelectElement && target.dataset.simpleBackendMode !== undefined) {
+    state.simpleCook.fields[backendModeKey] = target.value;
+    renderSimpleCook();
     return;
   }
   const key = target.dataset.simpleField;
@@ -214,7 +220,7 @@ function renderSimpleSelectors(): void {
 function renderAddFieldSelect(): void {
   const fields = state.simpleCook.fields || {};
   const options = allOptionDefinitions()
-    .filter(definition => !Object.hasOwn(fields, definition.key))
+    .filter(definition => definition.key !== backendModeKey && !Object.hasOwn(fields, definition.key))
     .sort((left, right) => `${sectionForDefinition(left)}:${left.key}`.localeCompare(`${sectionForDefinition(right)}:${right.key}`));
   elements.simpleAddFieldSelect.innerHTML = options.map(definition => {
     const label = `${sectionLabels[sectionForDefinition(definition)] || "Other"} / ${definition.key}`;
@@ -227,12 +233,12 @@ function renderConfigEditor(): void {
   const query = state.simpleCook.fieldFilter.trim().toLowerCase();
   const context = fieldRenderContext();
   const openSections = new Set(state.simpleCook.openSections);
-  const groups = groupedFieldKeys(fields, optionDefinition)
+  const groups = simpleCookFieldGroups(fields)
     .map(group => {
       const keys = group.keys
-        .filter(key => !query || `${key} ${optionValueLabel(fields[key])}`.toLowerCase().includes(query));
+        .filter(key => !query || `${key} ${optionValueLabel(fieldValue(key))}`.toLowerCase().includes(query));
       const rows = keys
-        .map(key => fieldRow(key, fields[key], group.section, context))
+        .map(key => fieldRow(key, fieldValue(key), group.section, context, key === backendModeKey && !Object.hasOwn(fields, backendModeKey)))
         .join("");
       if (!rows) {
         return null;
@@ -278,32 +284,46 @@ function renderFieldSidebar(): void {
   `;
 }
 
-function fieldRow(key: string, value: JsonValue | undefined, section: string, context: ReturnType<typeof fieldRenderContext>): string {
+function fieldRow(key: string, value: JsonValue | undefined, section: string, context: ReturnType<typeof fieldRenderContext>, virtual = false): string {
   const definition = optionDefinition(key);
   const datalistID = `field-values-${safeID(key)}`;
   const choices = fieldChoices(key, definition, context);
   const compareClass = comparisonClass(key, section, context);
+  const input = key === backendModeKey
+    ? backendModeSelect(simpleBackendModeValue(), virtual)
+    : `
+        <input data-simple-field="${escapeAttribute(key)}" list="${escapeAttribute(datalistID)}" value="${escapeAttribute(optionInputValue(value))}">
+        <datalist id="${escapeAttribute(datalistID)}">
+          ${choices.map(choice => `<option value="${escapeAttribute(choice)}"></option>`).join("")}
+        </datalist>
+      `;
   const modelButton = sectionModelKeys[section]
     ? `<button class="icon-button" type="button" title="Same model values" data-field-model-values="${escapeAttribute(key)}">M</button>`
     : "";
   return `
-    <div class="config-field ${compareClass}">
+    <div class="config-field ${compareClass}${virtual ? " backend-virtual" : ""}">
       <div class="field-label">
         <span>${escapeHTML(definition?.name || key)}</span>
         <code>${escapeHTML(key)}</code>
       </div>
       <div class="field-control">
-        <input data-simple-field="${escapeAttribute(key)}" list="${escapeAttribute(datalistID)}" value="${escapeAttribute(optionInputValue(value))}">
-        <datalist id="${escapeAttribute(datalistID)}">
-          ${choices.map(choice => `<option value="${escapeAttribute(choice)}"></option>`).join("")}
-        </datalist>
+        ${input}
       </div>
       <div class="field-buttons">
         <button class="icon-button" type="button" title="Other config values" data-field-values="${escapeAttribute(key)}">V</button>
         ${modelButton}
-        <button class="icon-button" type="button" title="Remove field" data-remove-simple-field="${escapeAttribute(key)}">x</button>
+        ${virtual ? "" : `<button class="icon-button" type="button" title="Remove field" data-remove-simple-field="${escapeAttribute(key)}">x</button>`}
       </div>
     </div>
+  `;
+}
+
+function backendModeSelect(value: string, virtual: boolean): string {
+  const selectedValue = backendModes.includes(value as BackendMode) ? value : "kobold";
+  return `
+    <select data-simple-backend-mode class="${virtual ? "virtual-backend-select" : ""}">
+      ${backendModes.map(mode => `<option value="${escapeAttribute(mode)}"${mode === selectedValue ? " selected" : ""}>${escapeHTML(backendModeLabels[mode])}</option>`).join("")}
+    </select>
   `;
 }
 
@@ -339,6 +359,35 @@ function simpleConfigRequest(): ConfigFileRequest {
     overwrite: editingSameConfig || elements.overwriteInput.checked,
     options: cloneValue(state.simpleCook.fields)
   };
+}
+
+function simpleCookFieldGroups(fields: Options) {
+  const groups = groupedFieldKeys(fields, optionDefinition);
+  if (Object.hasOwn(fields, backendModeKey)) {
+    return groups;
+  }
+  const runtimeGroup = groups.find(group => group.section === "runtime");
+  if (runtimeGroup) {
+    runtimeGroup.keys = [backendModeKey, ...runtimeGroup.keys];
+    return groups;
+  }
+  return [...groups, {section: "runtime", keys: [backendModeKey]}];
+}
+
+function fieldValue(key: string): JsonValue | undefined {
+  if (key === backendModeKey && !Object.hasOwn(state.simpleCook.fields, backendModeKey)) {
+    return simpleBackendModeValue();
+  }
+  return state.simpleCook.fields[key];
+}
+
+function simpleBackendModeValue(): string {
+  const value = state.simpleCook.fields[backendModeKey];
+  if (typeof value === "string" && backendModes.includes(value as BackendMode)) {
+    return value;
+  }
+  const fallback = selectedConfig()?.backend_mode || selectedNode()?.backend_mode || "kobold";
+  return backendModes.includes(fallback as BackendMode) ? fallback : "kobold";
 }
 
 function loadSimpleConfig(model: Model | null): void {

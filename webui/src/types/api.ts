@@ -68,6 +68,10 @@ export interface BenchmarkRunRequest {
   timeout_seconds?: number;
 }
 
+export interface LoadConfigRequest {
+  model: string;
+}
+
 export interface HardwareInfo {
   max_threads: number;
   gpu_backend: string;

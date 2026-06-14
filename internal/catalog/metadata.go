@@ -8,6 +8,7 @@ import (
 )
 
 type RuntimeConfig struct {
+	BackendMode      string `json:"backend_mode"`
 	Model            any    `json:"model"`
 	ModelParam       string `json:"model_param"`
 	NoModel          bool   `json:"nomodel"`

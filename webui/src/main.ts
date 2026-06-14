@@ -29,6 +29,7 @@ import {
   removeOption,
   renderConstructor,
   toggleInspectorList,
+  updateConstructorBackendMode,
   updateLaneTarget,
   updateOptionInput
 } from "./constructor";
@@ -41,6 +42,7 @@ import {
   applyAdvancedCook,
   previewAdvancedCook
 } from "./cook-actions";
+import { loadSelectedConfig } from "./model-actions";
 import {
   addSelectedSimpleField,
   applySimpleCook,
@@ -138,6 +140,12 @@ elements.logoutButton.addEventListener("click", () => runTask(handleLogout));
 
 elements.refreshButton.addEventListener("click", () => runTask(refreshAll));
 elements.filterInput.addEventListener("input", renderTables);
+elements.modelsTable.addEventListener("click", event => {
+  const modelID = elementTarget(event)?.dataset.loadConfig;
+  if (modelID) {
+    runTask(() => loadSelectedConfig(modelID, refreshInventory));
+  }
+});
 elements.benchmarkModelSelect.addEventListener("change", () => {
   selectBenchmarkModel(elements.benchmarkModelSelect.value);
   runTask(loadSelectedBenchmark);
@@ -199,6 +207,7 @@ elements.simpleFieldSidebar.addEventListener("click", event => {
 elements.advancedPreviewButton.addEventListener("click", () => runTask(previewAdvancedCook));
 elements.advancedApplyButton.addEventListener("click", () => runTask(() => applyAdvancedCook(refreshInventory)));
 elements.clearConstructorButton.addEventListener("click", clearConstructor);
+elements.advancedBackendSelect.addEventListener("change", () => updateConstructorBackendMode(elements.advancedBackendSelect.value));
 
 elements.paletteList.addEventListener("dragstart", event => {
   if (!(event instanceof DragEvent)) {

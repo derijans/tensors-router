@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"tensors-router/internal/backendmode"
 	routerbenchmark "tensors-router/internal/benchmark"
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
@@ -33,6 +34,13 @@ type Backend interface {
 	Healthy(ctx context.Context) bool
 }
 
+type BackendFamilyConfig struct {
+	TextBackend  Backend
+	ImageBackend Backend
+	Start        func(context.Context) error
+	Stop         func(context.Context) error
+}
+
 type ModelCatalog interface {
 	List() ([]catalog.Model, error)
 	ListLLM() ([]catalog.Model, error)
@@ -43,47 +51,50 @@ type ModelCatalog interface {
 }
 
 type ServiceConfig struct {
-	Backend        Backend
-	TextBackend    Backend
-	ImageBackend   Backend
-	BackendMode    string
-	Catalog        ModelCatalog
-	Registry       *cluster.Registry
-	ClusterToken   string
-	ClusterClient  *cluster.Client
-	ClusterRole    string
-	NodeID         string
-	NodeURL        string
-	SlaveURLs      []string
-	ConfigDir      string
-	FileRoots      []string
-	RecipeStore    *recipes.Store
-	BenchmarkStore *routerbenchmark.Store
-	Hardware       hardware.Source
-	Logger         *log.Logger
+	Backend         Backend
+	TextBackend     Backend
+	ImageBackend    Backend
+	BackendMode     string
+	BackendFamilies map[string]BackendFamilyConfig
+	Catalog         ModelCatalog
+	Registry        *cluster.Registry
+	ClusterToken    string
+	ClusterClient   *cluster.Client
+	ClusterRole     string
+	NodeID          string
+	NodeURL         string
+	SlaveURLs       []string
+	ConfigDir       string
+	FileRoots       []string
+	RecipeStore     *recipes.Store
+	BenchmarkStore  *routerbenchmark.Store
+	Hardware        hardware.Source
+	Logger          *log.Logger
 }
 
 type Service struct {
-	backend        Backend
-	textRuntime    *backendRuntime
-	imageRuntime   *backendRuntime
-	backendMode    string
-	catalog        ModelCatalog
-	registry       *cluster.Registry
-	clusterToken   string
-	clusterClient  *cluster.Client
-	clusterRole    string
-	nodeID         string
-	nodeURL        string
-	slaveURLs      []string
-	configDir      string
-	fileRoots      []string
-	recipeStore    *recipes.Store
-	benchmarkStore *routerbenchmark.Store
-	hardware       hardware.Source
-	client         *http.Client
-	logger         *log.Logger
-	benchmarkMu    sync.Mutex
+	backend         Backend
+	textRuntime     *backendRuntime
+	imageRuntime    *backendRuntime
+	backendMode     string
+	backendFamilies map[string]*backendFamily
+	backendSwitch   *backendFamilySwitchState
+	catalog         ModelCatalog
+	registry        *cluster.Registry
+	clusterToken    string
+	clusterClient   *cluster.Client
+	clusterRole     string
+	nodeID          string
+	nodeURL         string
+	slaveURLs       []string
+	configDir       string
+	fileRoots       []string
+	recipeStore     *recipes.Store
+	benchmarkStore  *routerbenchmark.Store
+	hardware        hardware.Source
+	client          *http.Client
+	logger          *log.Logger
+	benchmarkMu     sync.Mutex
 
 	backendRetryAttempts int
 	backendRetryDelay    time.Duration
@@ -96,8 +107,8 @@ const (
 	defaultBackendRetryMaxDelay = 2 * time.Second
 	backendErrorBodyLimit       = 1024
 	modelOperationTimeout       = 15 * time.Minute
-	BackendModeKobold           = "kobold"
-	BackendModeLlamaSDCPP       = "llama_sdcpp"
+	BackendModeKobold           = backendmode.Kobold
+	BackendModeLlamaSDCPP       = backendmode.LlamaSDCPP
 )
 
 type backendReadiness string
@@ -113,6 +124,21 @@ type backendRetryResult struct {
 	status   int
 	err      error
 	body     string
+}
+
+type backendFamily struct {
+	mode         string
+	textRuntime  *backendRuntime
+	imageRuntime *backendRuntime
+	start        func(context.Context) error
+	stop         func(context.Context) error
+}
+
+type backendFamilySwitchState struct {
+	mu        sync.Mutex
+	changed   chan struct{}
+	mode      string
+	switching bool
 }
 
 type replayReadCloser struct {
@@ -152,8 +178,8 @@ func NewService(config ServiceConfig) *Service {
 	if logger == nil {
 		logger = log.Default()
 	}
-	backendMode := strings.TrimSpace(config.BackendMode)
-	if backendMode == "" {
+	backendMode, err := backendmode.Resolve("", config.BackendMode)
+	if err != nil {
 		backendMode = BackendModeKobold
 	}
 	clusterRole := strings.TrimSpace(config.ClusterRole)
@@ -164,22 +190,35 @@ func NewService(config ServiceConfig) *Service {
 	if nodeID == "" {
 		nodeID = "local"
 	}
-	textBackend := config.TextBackend
-	if textBackend == nil {
-		textBackend = config.Backend
+	backendFamilies := backendFamiliesFromConfig(config, backendMode)
+	defaultFamily := backendFamilies[backendMode]
+	if defaultFamily == nil {
+		for mode, family := range backendFamilies {
+			backendMode = mode
+			defaultFamily = family
+			break
+		}
 	}
-	imageBackend := config.ImageBackend
-	sharedState := newActiveConfigState()
-	textRuntime := &backendRuntime{backend: textBackend, state: sharedState, name: "text"}
-	imageRuntime := textRuntime
-	if imageBackend != nil && backendMode == BackendModeLlamaSDCPP {
-		imageRuntime = &backendRuntime{backend: imageBackend, state: newActiveConfigState(), name: "image"}
+	textRuntime := (*backendRuntime)(nil)
+	imageRuntime := (*backendRuntime)(nil)
+	if defaultFamily != nil {
+		textRuntime = defaultFamily.textRuntime
+		imageRuntime = defaultFamily.imageRuntime
+	}
+	var textBackend Backend
+	if textRuntime != nil {
+		textBackend = textRuntime.backend
 	}
 	service := &Service{
-		backend:        textBackend,
-		textRuntime:    textRuntime,
-		imageRuntime:   imageRuntime,
-		backendMode:    backendMode,
+		backend:         textBackend,
+		textRuntime:     textRuntime,
+		imageRuntime:    imageRuntime,
+		backendMode:     backendMode,
+		backendFamilies: backendFamilies,
+		backendSwitch: &backendFamilySwitchState{
+			changed: make(chan struct{}),
+			mode:    backendMode,
+		},
 		catalog:        config.Catalog,
 		registry:       config.Registry,
 		clusterToken:   config.ClusterToken,
@@ -215,6 +254,60 @@ func NewService(config ServiceConfig) *Service {
 	return service
 }
 
+func backendFamiliesFromConfig(config ServiceConfig, defaultMode string) map[string]*backendFamily {
+	configs := map[string]BackendFamilyConfig{}
+	for mode, family := range config.BackendFamilies {
+		normalizedMode := backendmode.Normalize(mode)
+		if !backendmode.Valid(normalizedMode) {
+			continue
+		}
+		configs[normalizedMode] = family
+	}
+	if len(configs) == 0 {
+		textBackend := config.TextBackend
+		if textBackend == nil {
+			textBackend = config.Backend
+		}
+		configs[defaultMode] = BackendFamilyConfig{
+			TextBackend:  textBackend,
+			ImageBackend: config.ImageBackend,
+		}
+	}
+
+	families := map[string]*backendFamily{}
+	for mode, familyConfig := range configs {
+		family := newBackendFamily(mode, familyConfig)
+		if family != nil {
+			families[mode] = family
+		}
+	}
+	return families
+}
+
+func newBackendFamily(mode string, config BackendFamilyConfig) *backendFamily {
+	textBackend := config.TextBackend
+	if textBackend == nil {
+		return nil
+	}
+	imageBackend := config.ImageBackend
+	if imageBackend == nil || mode != BackendModeLlamaSDCPP {
+		imageBackend = textBackend
+	}
+	sharedState := newActiveConfigState()
+	textRuntime := &backendRuntime{backend: textBackend, state: sharedState, name: mode + "-text"}
+	imageRuntime := textRuntime
+	if mode == BackendModeLlamaSDCPP && config.ImageBackend != nil {
+		imageRuntime = &backendRuntime{backend: imageBackend, state: newActiveConfigState(), name: mode + "-image"}
+	}
+	return &backendFamily{
+		mode:         mode,
+		textRuntime:  textRuntime,
+		imageRuntime: imageRuntime,
+		start:        config.Start,
+		stop:         config.Stop,
+	}
+}
+
 func (service *Service) knownClusterTargets() []string {
 	values := append([]string{service.nodeURL}, service.slaveURLs...)
 	if service.registry != nil {
@@ -238,11 +331,15 @@ func (service *Service) PreloadModel(ctx context.Context, modelID string) error 
 	if !modelSupportsTextLane(model) {
 		return fmt.Errorf("startup model %q is not a text-lane model", modelID)
 	}
+	modelBackendMode, err := service.catalogModelBackendMode(model)
+	if err != nil {
+		return err
+	}
 
 	modelContext, cancelModelContext := context.WithTimeout(ctx, modelOperationTimeout)
 	defer cancelModelContext()
 
-	release, _, err := service.acquireModelConfig(service.textRuntime, modelContext, model.ID, model.Filename, readinessText, false)
+	_, release, _, err := service.acquireModelConfigForBackendMode(modelBackendMode, modelContext, model.ID, model.Filename, readinessText, false)
 	if err != nil {
 		return err
 	}
@@ -319,40 +416,30 @@ func (service *Service) handleImageModels(w http.ResponseWriter) {
 		return
 	}
 
-	models, err := service.catalog.ListImages(service.imageCatalogConfigSelector())
+	models, err := service.catalog.List()
 	if err != nil {
 		openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
 		return
 	}
-
-	response := make([]imageModelObject, 0, len(models))
-	for _, model := range models {
-		response = append(response, imageModelObject{
-			Title:     model.ImageID,
-			ModelName: model.ImageID,
-			Hash:      "",
-			SHA256:    "",
-			Filename:  model.ImageModelPath,
-			Config:    model.Filename,
-		})
-	}
-	openai.WriteJSON(w, http.StatusOK, response)
+	openai.WriteJSON(w, http.StatusOK, clusterImageModelObjects(cluster.LocalModelsWithBackendMode(models, service.nodeID, service.nodeURL, service.localSource(), service.backendMode), service.imageCatalogConfigSelector()))
 }
 
 func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		model, ok, err := service.catalog.ResolveActiveImage(service.currentImageConfigFilename())
+		model, err := service.activeImageModel(r)
 		if err != nil {
+			if lookupErr, ok := err.(imageModelLookupError); ok && lookupErr.status == http.StatusBadRequest {
+				openai.WriteJSON(w, http.StatusOK, map[string]any{
+					"sd_model_checkpoint": "",
+				})
+				return
+			}
 			openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
 			return
 		}
-		checkpoint := ""
-		if ok {
-			checkpoint = model.ImageID
-		}
 		openai.WriteJSON(w, http.StatusOK, map[string]any{
-			"sd_model_checkpoint": checkpoint,
+			"sd_model_checkpoint": model.ImageID,
 		})
 	case http.MethodPost:
 		body, err := io.ReadAll(r.Body)
@@ -376,26 +463,25 @@ func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Reques
 			if service.registry != nil && service.handleRegistryImageOptions(w, r, body, modelID) {
 				return
 			}
-			model, ok, err := service.catalog.ResolveImage(modelID, service.imageCatalogConfigSelector())
+			model, err := service.resolveImageModel(r, modelID)
 			if err != nil {
-				service.logger.Printf("image model catalog check failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
-				openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+				writeImageModelError(service, w, r, modelID, err)
 				return
 			}
-			if !ok {
-				service.logger.Printf("unknown image model requested path=%s remote=%s model=%q", r.URL.Path, r.RemoteAddr, modelID)
-				openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("image model %q was not found", modelID))
+			modelBackendMode, err := service.catalogModelBackendMode(model)
+			if err != nil {
+				openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 				return
 			}
-			if service.backendMode == BackendModeLlamaSDCPP && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
-				if err := service.loadLocalRuntimeForRequest(r.Context(), service.textRuntime, model.ID, model.Filename, readinessText); err != nil {
+			if modelBackendMode == BackendModeLlamaSDCPP && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
+				if err := service.loadLocalRuntimeForRequest(r.Context(), modelBackendMode, model.ID, model.Filename, readinessText); err != nil {
 					openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 					return
 				}
 			}
 			modelContext, cancelModelContext := context.WithTimeout(context.WithoutCancel(r.Context()), modelOperationTimeout)
 			defer cancelModelContext()
-			release, _, err := service.acquireModelConfig(service.imageRuntime, modelContext, model.ImageID, model.Filename, readinessImage, false)
+			_, release, _, err := service.acquireModelConfigForBackendMode(modelBackendMode, modelContext, model.ImageID, model.Filename, readinessImage, false)
 			if err != nil {
 				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 				return
@@ -446,15 +532,20 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 		modelID = model.ImageID
 		hasModel = true
 	}
+	modelBackendMode, err := service.catalogModelBackendMode(model)
+	if err != nil {
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
 
-	if service.backendMode == BackendModeLlamaSDCPP && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
-		if err := service.loadLocalRuntimeForRequest(r.Context(), service.textRuntime, model.ID, model.Filename, readinessText); err != nil {
+	if modelBackendMode == BackendModeLlamaSDCPP && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
+		if err := service.loadLocalRuntimeForRequest(r.Context(), modelBackendMode, model.ID, model.Filename, readinessText); err != nil {
 			openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 			return
 		}
 	}
 
-	response, err := service.forwardWithFallback(r.Context(), r, body, model.ImageID, model.Filename, hasModel, readinessImage)
+	response, err := service.forwardWithFallback(r.Context(), r, body, model.ImageID, model.Filename, hasModel, readinessImage, modelBackendMode)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
@@ -466,10 +557,6 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 }
 
 func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Request) {
-	if service.backendMode == BackendModeLlamaSDCPP {
-		openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", "Voice and music routes require a Kobold backend.")
-		return
-	}
 	body, err := io.ReadAll(r.Body)
 	if err != nil {
 		service.logger.Printf("request body read failed path=%s remote=%s error=%v", r.URL.Path, r.RemoteAddr, err)
@@ -496,6 +583,11 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 
 	configFilename := ""
 	backendModelID := modelID
+	selectedBackendMode, err := service.resolveBackendMode("")
+	if err != nil {
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
 	if hasModel {
 		model, ok, err := service.catalog.Resolve(modelID)
 		if err != nil {
@@ -512,16 +604,25 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 			openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", modelID))
 			return
 		} else {
+			selectedBackendMode, err = service.catalogModelBackendMode(model)
+			if err != nil {
+				openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+				return
+			}
 			configFilename = model.Filename
 			backendModelID = model.ID
 		}
+	}
+	if selectedBackendMode == BackendModeLlamaSDCPP {
+		openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", "Voice and music routes require a Kobold backend.")
+		return
 	}
 
 	requestBody := body
 	if hasModel && requestBodyLooksJSON(body, r) && backendModelID != modelID {
 		requestBody = rewriteRequestModel(body, backendModelID)
 	}
-	response, err := service.forwardWithFallback(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readinessText)
+	response, err := service.forwardWithFallback(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readinessText, selectedBackendMode)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
@@ -541,7 +642,7 @@ func (err imageModelLookupError) Error() string {
 }
 
 func (service *Service) resolveImageModel(r *http.Request, modelID string) (catalog.Model, error) {
-	model, ok, err := service.catalog.ResolveImage(modelID, service.imageCatalogConfigSelector())
+	model, ok, err := service.resolveVisibleImageModel(modelID)
 	if err != nil {
 		service.logger.Printf("image model catalog check failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
 		return catalog.Model{}, err
@@ -557,7 +658,7 @@ func (service *Service) resolveImageModel(r *http.Request, modelID string) (cata
 }
 
 func (service *Service) activeImageModel(r *http.Request) (catalog.Model, error) {
-	model, ok, err := service.catalog.ResolveActiveImage(service.currentImageConfigFilename())
+	model, ok, err := service.resolveActiveImageModel()
 	if err != nil {
 		service.logger.Printf("active image model catalog check failed path=%s error=%v", r.URL.Path, err)
 		return catalog.Model{}, err
@@ -570,6 +671,70 @@ func (service *Service) activeImageModel(r *http.Request) (catalog.Model, error)
 		}
 	}
 	return model, nil
+}
+
+func (service *Service) resolveVisibleImageModel(modelID string) (catalog.Model, bool, error) {
+	modelID = strings.TrimSpace(modelID)
+	models, err := service.catalog.List()
+	if err != nil {
+		return catalog.Model{}, false, err
+	}
+	activeConfigFilename := service.currentImageConfigFilename()
+	for _, model := range models {
+		if strings.TrimSpace(model.ImageID) != modelID {
+			continue
+		}
+		visible, err := service.catalogImageModelVisible(model, activeConfigFilename)
+		if err != nil {
+			return catalog.Model{}, false, err
+		}
+		if visible {
+			return model, true, nil
+		}
+	}
+	return catalog.Model{}, false, nil
+}
+
+func (service *Service) resolveActiveImageModel() (catalog.Model, bool, error) {
+	activeConfigFilename := service.currentImageConfigFilename()
+	if strings.TrimSpace(activeConfigFilename) == "" {
+		return catalog.Model{}, false, nil
+	}
+	models, err := service.catalog.List()
+	if err != nil {
+		return catalog.Model{}, false, err
+	}
+	activeBackendMode := service.currentBackendMode()
+	for _, model := range models {
+		if !model.HasImage || strings.TrimSpace(model.ImageID) == "" || model.Filename != activeConfigFilename {
+			continue
+		}
+		modelBackendMode, err := service.catalogModelBackendMode(model)
+		if err != nil {
+			return catalog.Model{}, false, err
+		}
+		if modelBackendMode == activeBackendMode {
+			return model, true, nil
+		}
+	}
+	return catalog.Model{}, false, nil
+}
+
+func (service *Service) catalogImageModelVisible(model catalog.Model, activeConfigFilename string) (bool, error) {
+	if !model.HasImage || strings.TrimSpace(model.ImageID) == "" {
+		return false, nil
+	}
+	if !model.HasLLM {
+		return true, nil
+	}
+	modelBackendMode, err := service.catalogModelBackendMode(model)
+	if err != nil {
+		return false, err
+	}
+	if modelBackendMode == BackendModeLlamaSDCPP {
+		return true, nil
+	}
+	return model.Filename == activeConfigFilename, nil
 }
 
 func writeImageModelError(service *Service, w http.ResponseWriter, r *http.Request, modelID string, err error) {
@@ -613,6 +778,11 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 
 	configFilename := ""
 	backendModelID := modelID
+	selectedBackendMode, err := service.resolveBackendMode("")
+	if err != nil {
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
 	var selectedModel catalog.Model
 	if hasModel {
 		model, ok, err := service.resolveCatalogModelForOpenAIPath(modelID, r.URL.Path)
@@ -634,10 +804,15 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 		configFilename = model.Filename
 		backendModelID = model.ID
 		selectedModel = model
+		selectedBackendMode, err = service.catalogModelBackendMode(model)
+		if err != nil {
+			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
 	}
 
-	if hasModel && service.backendMode == BackendModeLlamaSDCPP && selectedModel.HasImage && !isEmbeddingsPath(r.URL.Path) {
-		if err := service.loadLocalRuntimeForRequest(r.Context(), service.imageRuntime, selectedModel.ImageID, selectedModel.Filename, readinessImage); err != nil {
+	if hasModel && selectedBackendMode == BackendModeLlamaSDCPP && selectedModel.HasImage && !isEmbeddingsPath(r.URL.Path) {
+		if err := service.loadLocalRuntimeForRequest(r.Context(), selectedBackendMode, selectedModel.ImageID, selectedModel.Filename, readinessImage); err != nil {
 			openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 			return
 		}
@@ -648,7 +823,7 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 		requestBody = rewriteRequestModel(body, backendModelID)
 	}
 
-	response, err := service.forwardWithFallback(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readinessText)
+	response, err := service.forwardWithFallback(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readinessText, selectedBackendMode)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
@@ -664,7 +839,7 @@ func (service *Service) resolveCatalogModelForOpenAIPath(modelID string, path st
 	if err != nil || ok || !isEmbeddingsPath(path) {
 		return model, ok, err
 	}
-	model, ok, err = service.catalog.ResolveImage(modelID, service.imageCatalogConfigSelector())
+	model, ok, err = service.resolveVisibleImageModel(modelID)
 	if err != nil || !ok {
 		return catalog.Model{}, ok, err
 	}
@@ -672,6 +847,21 @@ func (service *Service) resolveCatalogModelForOpenAIPath(modelID string, path st
 		return model, true, nil
 	}
 	return catalog.Model{}, false, nil
+}
+
+func (service *Service) catalogModelBackendMode(model catalog.Model) (string, error) {
+	return backendmode.Resolve(model.BackendMode, service.backendMode)
+}
+
+func (service *Service) clusterModelBackendMode(model cluster.Model) (string, error) {
+	return service.resolveBackendMode(model.BackendMode)
+}
+
+func (service *Service) clusterRouteBackendMode(route cluster.Route, model cluster.Model) (string, error) {
+	if strings.TrimSpace(route.BackendMode) != "" {
+		return service.resolveBackendMode(route.BackendMode)
+	}
+	return service.clusterModelBackendMode(model)
 }
 
 func writeModelProxyResponse(w http.ResponseWriter, response *http.Response, virtualModelID string, rewriteModel bool) error {
@@ -685,8 +875,11 @@ func writeModelProxyResponse(w http.ResponseWriter, response *http.Response, vir
 	return writeJSONResponseWithVirtualModel(w, response, virtualModelID)
 }
 
-func (service *Service) forwardWithFallback(ctx context.Context, original *http.Request, body []byte, modelID string, configFilename string, hasModel bool, readiness backendReadiness) (*http.Response, error) {
-	runtime := service.runtimeForReadiness(readiness)
+func (service *Service) forwardWithFallback(ctx context.Context, original *http.Request, body []byte, modelID string, configFilename string, hasModel bool, readiness backendReadiness, mode string) (*http.Response, error) {
+	runtime, err := service.runtimeForBackendMode(mode, readiness)
+	if err != nil {
+		return nil, err
+	}
 	loadedFresh := false
 	modelContext := ctx
 	cancelModelContext := func() {}
@@ -695,8 +888,16 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 		modelContext, cancelModelContext = context.WithTimeout(context.WithoutCancel(ctx), modelOperationTimeout)
 		defer cancelModelContext()
 
-		var err error
-		releaseModel, loadedFresh, err = service.acquireModelConfig(runtime, modelContext, modelID, configFilename, readiness, false)
+		var acquireErr error
+		runtime, releaseModel, loadedFresh, acquireErr = service.acquireModelConfigForBackendMode(mode, modelContext, modelID, configFilename, readiness, false)
+		if acquireErr != nil {
+			return nil, acquireErr
+		}
+	} else {
+		if err := service.ensureBackendFamily(ctx, mode); err != nil {
+			return nil, err
+		}
+		runtime, err = service.runtimeForBackendMode(mode, readiness)
 		if err != nil {
 			return nil, err
 		}
@@ -1057,22 +1258,188 @@ func backendRetryExhaustedError(status int, err error, body string) error {
 	return fmt.Errorf("backend unavailable after retries")
 }
 
+func (service *Service) ensureBackendFamily(ctx context.Context, mode string) error {
+	resolvedMode, err := service.resolveBackendMode(mode)
+	if err != nil {
+		return err
+	}
+	family, ok := service.backendFamilies[resolvedMode]
+	if !ok || family == nil {
+		return fmt.Errorf("backend mode %q is not configured", resolvedMode)
+	}
+	state := service.backendSwitch
+	for {
+		state.mu.Lock()
+		if !state.switching && state.mode == resolvedMode {
+			state.mu.Unlock()
+			return family.startBackend(ctx)
+		}
+		if state.switching {
+			changed := state.changed
+			state.mu.Unlock()
+			if err := waitForActiveConfigChange(ctx, changed); err != nil {
+				return err
+			}
+			continue
+		}
+		oldMode := state.mode
+		state.switching = true
+		state.mu.Unlock()
+
+		nextMode := oldMode
+		if oldMode != "" && oldMode != resolvedMode {
+			if err := service.stopBackendFamily(ctx, oldMode); err != nil {
+				service.finishBackendFamilySwitch(nextMode)
+				return err
+			}
+			nextMode = ""
+		}
+		if err := family.startBackend(ctx); err != nil {
+			service.finishBackendFamilySwitch(nextMode)
+			return err
+		}
+		service.finishBackendFamilySwitch(resolvedMode)
+		return nil
+	}
+}
+
+func (service *Service) finishBackendFamilySwitch(mode string) {
+	state := service.backendSwitch
+	state.mu.Lock()
+	state.mode = mode
+	state.switching = false
+	close(state.changed)
+	state.changed = make(chan struct{})
+	state.mu.Unlock()
+}
+
+func (service *Service) stopBackendFamily(ctx context.Context, mode string) error {
+	family := service.backendFamilies[mode]
+	if family == nil {
+		return nil
+	}
+	runtimes := uniqueBackendRuntimes(family)
+	releases := make([]func(), 0, len(runtimes))
+	for _, runtime := range runtimes {
+		release, err := lockRuntimeForBackendStop(ctx, runtime)
+		if err != nil {
+			for index := len(releases) - 1; index >= 0; index-- {
+				releases[index]()
+			}
+			return err
+		}
+		releases = append(releases, release)
+	}
+	err := family.stopBackend(ctx)
+	for index := len(releases) - 1; index >= 0; index-- {
+		releases[index]()
+	}
+	return err
+}
+
+func uniqueBackendRuntimes(family *backendFamily) []*backendRuntime {
+	if family == nil || family.textRuntime == nil {
+		return nil
+	}
+	if family.imageRuntime == nil || family.imageRuntime == family.textRuntime {
+		return []*backendRuntime{family.textRuntime}
+	}
+	return []*backendRuntime{family.textRuntime, family.imageRuntime}
+}
+
+func (family *backendFamily) startBackend(ctx context.Context) error {
+	if family.start == nil {
+		return nil
+	}
+	return family.start(ctx)
+}
+
+func (family *backendFamily) stopBackend(ctx context.Context) error {
+	if family.stop != nil {
+		return family.stop(ctx)
+	}
+	var firstErr error
+	for _, runtime := range uniqueBackendRuntimes(family) {
+		if err := runtime.backend.Unload(ctx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+func (service *Service) resolveBackendMode(mode string) (string, error) {
+	return backendmode.Resolve(mode, service.backendMode)
+}
+
+func (service *Service) currentBackendMode() string {
+	state := service.backendSwitch
+	state.mu.Lock()
+	mode := state.mode
+	state.mu.Unlock()
+	if mode == "" {
+		mode = service.backendMode
+	}
+	return mode
+}
+
+func (service *Service) runtimeForBackendMode(mode string, readiness backendReadiness) (*backendRuntime, error) {
+	resolvedMode, err := service.resolveBackendMode(mode)
+	if err != nil {
+		return nil, err
+	}
+	family := service.backendFamilies[resolvedMode]
+	if family == nil {
+		return nil, fmt.Errorf("backend mode %q is not configured", resolvedMode)
+	}
+	if readiness == readinessImage {
+		return family.imageRuntime, nil
+	}
+	return family.textRuntime, nil
+}
+
+func (service *Service) localBackendAvailableForRoute(ctx context.Context, mode string, readiness backendReadiness) bool {
+	resolvedMode, err := service.resolveBackendMode(mode)
+	if err != nil {
+		return false
+	}
+	runtime, err := service.runtimeForBackendMode(resolvedMode, readiness)
+	if err != nil || runtime == nil {
+		return false
+	}
+	if service.currentBackendMode() != resolvedMode {
+		return true
+	}
+	return runtime.backend.Healthy(ctx)
+}
+
 func (service *Service) currentConfigFilename() string {
-	return currentRuntimeConfigFilename(service.textRuntime)
+	runtime, err := service.runtimeForBackendMode(service.currentBackendMode(), readinessText)
+	if err != nil || runtime == nil {
+		return ""
+	}
+	return currentRuntimeConfigFilename(runtime)
 }
 
 func (service *Service) currentImageConfigFilename() string {
-	return currentRuntimeConfigFilename(service.imageRuntime)
+	runtime, err := service.runtimeForBackendMode(service.currentBackendMode(), readinessImage)
+	if err != nil || runtime == nil {
+		return ""
+	}
+	return currentRuntimeConfigFilename(runtime)
 }
 
 func (service *Service) imageCatalogConfigSelector() string {
-	if service.backendMode == BackendModeLlamaSDCPP {
+	if service.currentBackendMode() == BackendModeLlamaSDCPP {
 		return catalog.AllImageConfigs
 	}
 	return service.currentImageConfigFilename()
 }
 
 func (service *Service) runtimeForReadiness(readiness backendReadiness) *backendRuntime {
+	runtime, err := service.runtimeForBackendMode(service.currentBackendMode(), readiness)
+	if err == nil && runtime != nil {
+		return runtime
+	}
 	if readiness == readinessImage {
 		return service.imageRuntime
 	}

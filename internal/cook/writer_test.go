@@ -143,6 +143,34 @@ func TestWriterAppliesOptionOverrides(t *testing.T) {
 	}
 }
 
+func TestWriterPreservesAndOverridesBackendMode(t *testing.T) {
+	dir := packageTempDir(t)
+	if err := os.WriteFile(filepath.Join(dir, "native.kcpps"), []byte(`{
+		"backend_mode":"llama_sdcpp",
+		"model_param":"text.gguf"
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writer := Writer{ConfigDir: dir, Catalog: catalog.New(dir), NodeID: "node-a"}
+	components := []Component{{Kind: KindText, Source: SourceConfig, ModelID: "native"}}
+
+	body, _, err := writer.composedConfig(components, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body["backend_mode"]) != `"llama_sdcpp"` {
+		t.Fatalf("source backend_mode was not preserved: %s", body["backend_mode"])
+	}
+
+	body, _, err = writer.composedConfig(components, Options{"backend_mode": rawJSON(t, "kobold")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body["backend_mode"]) != `"kobold"` {
+		t.Fatalf("backend_mode override was not applied: %s", body["backend_mode"])
+	}
+}
+
 func TestWriterComposesVoiceMusicRawFilesWithOptionKeys(t *testing.T) {
 	dir := packageTempDir(t)
 	root := packageTempDir(t)

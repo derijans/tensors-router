@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"tensors-router/internal/backendmode"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/cook"
 	"tensors-router/internal/hardware"
@@ -47,6 +48,11 @@ func (service *Service) validateCookGroups(ctx context.Context, groups []cookGro
 	for _, group := range groups {
 		fact := facts[group.nodeID]
 		groupOptions := cook.FilterOptionsForKinds(options, group.components)
+		groupBackendMode, err := effectiveGroupBackendMode(group, fact, groupOptions)
+		if err != nil {
+			return nil, err
+		}
+		fact.backendMode = groupBackendMode
 		issues = append(issues, validateKoboldMix(group, fact)...)
 		issues = append(issues, validateThreadBudget(group, fact, groupOptions)...)
 		issues = append(issues, validateCUDAOptions(group, fact, groupOptions)...)
@@ -58,6 +64,17 @@ func (service *Service) validateCookGroups(ctx context.Context, groups []cookGro
 		return issues, cookValidationError{message: validationMessage(issues), issues: issues}
 	}
 	return issues, nil
+}
+
+func effectiveGroupBackendMode(group cookGroup, fact cookNodeFacts, options cook.Options) (string, error) {
+	mode, ok, err := cook.BackendModeOption(selectedOptions(group, fact, options))
+	if err != nil {
+		return "", err
+	}
+	if ok {
+		return mode, nil
+	}
+	return backendmode.Resolve("", fact.backendMode)
 }
 
 func (service *Service) cookNodeFacts(ctx context.Context, groups []cookGroup) (map[string]cookNodeFacts, error) {

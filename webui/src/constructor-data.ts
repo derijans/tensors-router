@@ -8,6 +8,7 @@ import {
 } from "./data";
 import { state } from "./state";
 import { advancedLaneOptions } from "./constructor-options";
+import { backendModeKey, backendModes, type BackendMode } from "./constants";
 import { gpuOptionKey, hasKind, issue, truthy } from "./utils";
 import type { CookComponent, CookRequest, JsonValue, LaneKind, Options, PaletteComponentPayload, ValidationIssue } from "./types";
 
@@ -21,6 +22,9 @@ export function advancedCookRequest(): CookRequest {
     Object.assign(options, state.constructor.laneOptions[lane] ?? {});
   }
   Object.assign(options, state.constructor.options);
+  if (state.constructor.backendTouched) {
+    options[backendModeKey] = state.constructor.backendMode;
+  }
   return {
     id: elements.advancedCookIdInput.value.trim(),
     overwrite: elements.overwriteInput.checked,
@@ -40,7 +44,8 @@ export function localValidation(): ValidationIssue[] {
   }
   for (const [nodeID, components] of groupComponentsByNode(request.components)) {
     const node = nodeByID(nodeID);
-    const backend = node?.backend_mode || "kobold";
+    const selected = selectedOptionsForNode(nodeID, components, request.options ?? {});
+    const backend = backendModeForOptions(selected, node?.backend_mode || "kobold");
     if (backend === "kobold" && hasKind(components, "image") && hasKind(components, "embeddings")) {
       issues.push(issue("error", "kobold_image_embeddings_mix", "Kobold cannot cook image and embeddings into the same config.", nodeID));
     }
@@ -50,7 +55,6 @@ export function localValidation(): ValidationIssue[] {
         issues.push(issue("error", "thread_budget_exceeded", `${field.key} uses ${field.value} threads on a node with ${maxThreads} logical CPUs.`, field.key));
       }
     }
-    const selected = selectedOptionsForNode(nodeID, components, request.options ?? {});
     if (node?.hardware?.gpu_backend === "rocm") {
       for (const [key, value] of Object.entries(selected)) {
         if (optionDefinition(key)?.cuda_only && truthy(value)) {
@@ -77,6 +81,14 @@ export function localValidation(): ValidationIssue[] {
     }
   }
   return issues;
+}
+
+function backendModeForOptions(options: Options, fallback: string): string {
+  const value = options[backendModeKey];
+  if (typeof value === "string" && backendModes.includes(value as BackendMode)) {
+    return value;
+  }
+  return backendModes.includes(fallback as BackendMode) ? fallback : "kobold";
 }
 
 export function componentForAdvancedLane(lane: LaneKind, selected: PaletteComponentPayload): CookComponent {

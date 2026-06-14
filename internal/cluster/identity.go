@@ -111,6 +111,7 @@ func routeFromModel(model Model, remote bool, lane string) Route {
 		NodeURL:       model.NodeURL,
 		Remote:        remote,
 		Lane:          lane,
+		BackendMode:   model.BackendMode,
 	}
 }
 

@@ -24,6 +24,18 @@ func newActiveConfigState() *activeConfigState {
 	return &activeConfigState{changed: make(chan struct{})}
 }
 
+func (service *Service) acquireModelConfigForBackendMode(mode string, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (*backendRuntime, func(), bool, error) {
+	if err := service.ensureBackendFamily(ctx, mode); err != nil {
+		return nil, nil, false, err
+	}
+	runtime, err := service.runtimeForBackendMode(mode, readiness)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	release, loadedFresh, err := service.acquireModelConfig(runtime, ctx, modelID, configFilename, readiness, force)
+	return runtime, release, loadedFresh, err
+}
+
 func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (func(), bool, error) {
 	waitingSwitch := false
 	state := runtime.state
@@ -128,6 +140,51 @@ func (service *Service) unloadRuntime(ctx context.Context, runtime *backendRunti
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
 		return err
+	}
+}
+
+func lockRuntimeForBackendStop(ctx context.Context, runtime *backendRuntime) (func(), error) {
+	if runtime == nil {
+		return func() {}, nil
+	}
+	waitingSwitch := false
+	state := runtime.state
+	for {
+		state.mu.Lock()
+		if !waitingSwitch && state.switchWaiters > 0 {
+			changed := state.changed
+			state.mu.Unlock()
+			if err := waitForActiveConfigChange(ctx, changed); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if !waitingSwitch {
+			state.switchWaiters++
+			waitingSwitch = true
+		}
+		if state.switching || state.users > 0 {
+			changed := state.changed
+			state.mu.Unlock()
+			if err := waitForActiveConfigChange(ctx, changed); err != nil {
+				cancelConfigSwitchWaiter(state)
+				return nil, err
+			}
+			continue
+		}
+
+		state.switchWaiters--
+		state.switching = true
+		state.filename = ""
+		notifyActiveConfigLocked(state)
+		state.mu.Unlock()
+
+		return func() {
+			state.mu.Lock()
+			state.switching = false
+			notifyActiveConfigLocked(state)
+			state.mu.Unlock()
+		}, nil
 	}
 }
 

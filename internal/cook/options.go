@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+
+	"tensors-router/internal/backendmode"
 )
 
 const (
@@ -43,6 +45,7 @@ const (
 )
 
 var optionCatalog = enrichOptionCatalog([]OptionDefinition{
+	option(backendmode.Key, "Backend", LaneRuntime, ValueString, "", false, backendmode.Kobold, backendmode.LlamaSDCPP),
 	option("baseconfig", "Base Config", LaneRuntime, ValueString, "", false, "kobold"),
 	option("config", "Config", LaneRuntime, ValueString, "", false, "kobold", "llama_sdcpp"),
 	option("host", "Host", LaneRuntime, ValueString, "--host", false, "kobold", "llama_sdcpp"),
@@ -260,6 +263,26 @@ func IsCUDAOnlyOption(key string) bool {
 	return ok && definition.CUDAOnly
 }
 
+func BackendModeOption(options Options) (string, bool, error) {
+	value, ok := options[backendmode.Key]
+	if !ok || len(value) == 0 || strings.EqualFold(strings.TrimSpace(string(value)), "null") {
+		return "", false, nil
+	}
+	var mode string
+	if err := json.Unmarshal(value, &mode); err != nil {
+		return "", true, err
+	}
+	mode = backendmode.Normalize(mode)
+	if mode == "" {
+		return "", false, nil
+	}
+	if !backendmode.Valid(mode) {
+		_, err := backendmode.Resolve(mode, "")
+		return "", true, err
+	}
+	return mode, true, nil
+}
+
 func lanesForComponents(components []Component) map[string]bool {
 	allowed := map[string]bool{}
 	for _, component := range components {
@@ -317,6 +340,7 @@ func enrichOptionCatalog(values []OptionDefinition) []OptionDefinition {
 }
 
 var optionMetadataByKey = map[string]optionMetadata{
+	"backend_mode":               meta(values(backendmode.Kobold, backendmode.LlamaSDCPP), "", "", "", ""),
 	"baseconfig":                 meta(nil, "config", "", SourceKoboldCPP, ""),
 	"config":                     meta(nil, "config", "", SourceLlamaCPPServer, ""),
 	"host":                       meta(nil, "", "127.0.0.1", SourceLlamaCPPServer, ""),

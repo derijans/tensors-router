@@ -33,13 +33,18 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 	if route.Remote {
 		response, err = service.forwardRemote(r.Context(), r, requestBody, route)
 	} else {
-		if service.backendMode == BackendModeLlamaSDCPP && model.HasImage && !isEmbeddingsPath(r.URL.Path) {
-			if err := service.loadLocalRuntimeForRequest(r.Context(), service.imageRuntime, route.PublicImageID, route.Filename, readinessImage); err != nil {
+		routeBackendMode, err := service.clusterRouteBackendMode(route, model)
+		if err != nil {
+			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
+		if routeBackendMode == BackendModeLlamaSDCPP && model.HasImage && !isEmbeddingsPath(r.URL.Path) {
+			if err := service.loadLocalRuntimeForRequest(r.Context(), routeBackendMode, route.PublicImageID, route.Filename, readinessImage); err != nil {
 				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 				return
 			}
 		}
-		response, err = service.forwardWithFallback(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readinessText)
+		response, err = service.forwardWithFallback(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readinessText, routeBackendMode)
 	}
 	if err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
@@ -58,14 +63,22 @@ func (service *Service) acquireRegistryModelRoute(r *http.Request, publicID stri
 		if !ok {
 			return cluster.Model{}, cluster.Route{}, func() {}, false
 		}
-		route, release, ok := service.registry.AcquireEmbedding(publicID, service.textRuntime.backend.Healthy(r.Context()))
+		modelBackendMode, err := service.clusterModelBackendMode(model)
+		if err != nil {
+			return cluster.Model{}, cluster.Route{}, func() {}, false
+		}
+		route, release, ok := service.registry.AcquireEmbedding(publicID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readinessText))
 		return model, route, release, ok
 	}
 	model, ok := service.registry.Model(publicID)
 	if !ok {
 		return cluster.Model{}, cluster.Route{}, func() {}, false
 	}
-	route, release, ok := service.registry.Acquire(publicID, service.textRuntime.backend.Healthy(r.Context()))
+	modelBackendMode, err := service.clusterModelBackendMode(model)
+	if err != nil {
+		return cluster.Model{}, cluster.Route{}, func() {}, false
+	}
+	route, release, ok := service.registry.Acquire(publicID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readinessText))
 	return model, route, release, ok
 }
 
@@ -83,7 +96,12 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 		return false
 	}
 
-	route, release, ok := service.registry.AcquireImage(publicImageID, service.imageRuntime.backend.Healthy(r.Context()), activeConfigFilename)
+	modelBackendMode, err := service.clusterModelBackendMode(model)
+	if err != nil {
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return true
+	}
+	route, release, ok := service.registry.AcquireImage(publicImageID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readinessImage), activeConfigFilename)
 	if !ok {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("image model %q has no available replicas", publicImageID))
 		return true
@@ -92,22 +110,28 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 	request := rewriteImageRequest(r, publicImageID, route.LocalImageID)
 	requestBody := rewriteImageRequestBody(body, publicImageID, route.LocalImageID, r)
 	var response *http.Response
-	var err error
+	var forwardErr error
 	if route.Remote {
-		response, err = service.forwardRemote(r.Context(), request, requestBody, route)
+		response, forwardErr = service.forwardRemote(r.Context(), request, requestBody, route)
 	} else {
-		if service.backendMode == BackendModeLlamaSDCPP && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
-			if err := service.loadLocalRuntimeForRequest(r.Context(), service.textRuntime, route.PublicID, route.Filename, readinessText); err != nil {
+		routeBackendMode, err := service.clusterRouteBackendMode(route, model)
+		if err != nil {
+			release()
+			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return true
+		}
+		if routeBackendMode == BackendModeLlamaSDCPP && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
+			if err := service.loadLocalRuntimeForRequest(r.Context(), routeBackendMode, route.PublicID, route.Filename, readinessText); err != nil {
 				release()
 				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 				return true
 			}
 		}
-		response, err = service.forwardWithFallback(r.Context(), request, requestBody, route.PublicImageID, route.Filename, true, readinessImage)
+		response, forwardErr = service.forwardWithFallback(r.Context(), request, requestBody, route.PublicImageID, route.Filename, true, readinessImage, routeBackendMode)
 	}
-	if err != nil {
+	if forwardErr != nil {
 		release()
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		openai.WriteError(w, http.StatusBadGateway, "backend_error", forwardErr.Error())
 		return true
 	}
 	response = responseWithRelease(response, release)
@@ -125,7 +149,12 @@ func (service *Service) handleRegistryImageOptions(w http.ResponseWriter, r *htt
 		return false
 	}
 
-	route, release, ok := service.registry.AcquireImage(publicImageID, service.imageRuntime.backend.Healthy(r.Context()), activeConfigFilename)
+	modelBackendMode, err := service.clusterModelBackendMode(model)
+	if err != nil {
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return true
+	}
+	route, release, ok := service.registry.AcquireImage(publicImageID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readinessImage), activeConfigFilename)
 	if !ok {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("image model %q has no available replicas", publicImageID))
 		return true
@@ -149,14 +178,20 @@ func (service *Service) handleRegistryImageOptions(w http.ResponseWriter, r *htt
 
 	modelContext, cancelModelContext := context.WithTimeout(context.WithoutCancel(r.Context()), modelOperationTimeout)
 	defer cancelModelContext()
-	if service.backendMode == BackendModeLlamaSDCPP && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
-		if err := service.loadLocalConfig(modelContext, service.textRuntime, route.PublicID, route.Filename, readinessText); err != nil {
+	routeBackendMode, err := service.clusterRouteBackendMode(route, model)
+	if err != nil {
+		release()
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return true
+	}
+	if routeBackendMode == BackendModeLlamaSDCPP && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
+		if err := service.loadLocalConfig(modelContext, routeBackendMode, route.PublicID, route.Filename, readinessText); err != nil {
 			release()
 			openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 			return true
 		}
 	}
-	releaseModel, _, err := service.acquireModelConfig(service.imageRuntime, modelContext, route.PublicImageID, route.Filename, readinessImage, false)
+	_, releaseModel, _, err := service.acquireModelConfigForBackendMode(routeBackendMode, modelContext, route.PublicImageID, route.Filename, readinessImage, false)
 	if err != nil {
 		release()
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
@@ -184,7 +219,18 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 	if route.Remote {
 		response, err = service.forwardRemote(r.Context(), r, requestBody, route)
 	} else {
-		response, err = service.forwardWithFallback(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readinessText)
+		routeBackendMode, modeErr := service.resolveBackendMode(route.BackendMode)
+		if modeErr != nil {
+			release()
+			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", modeErr.Error())
+			return
+		}
+		if routeBackendMode == BackendModeLlamaSDCPP {
+			release()
+			openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", "Voice and music routes require a Kobold backend.")
+			return
+		}
+		response, err = service.forwardWithFallback(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readinessText, routeBackendMode)
 	}
 	if err != nil {
 		release()
@@ -199,9 +245,9 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 
 func (service *Service) acquireRegistryAudioRoute(r *http.Request, publicID string, lane string) (cluster.Route, func(), bool) {
 	if lane == recipes.KindMusic {
-		return service.registry.AcquireMusic(publicID, service.textRuntime.backend.Healthy(r.Context()))
+		return service.registry.AcquireMusic(publicID, service.localBackendAvailableForRoute(r.Context(), BackendModeKobold, readinessText))
 	}
-	return service.registry.AcquireVoice(publicID, service.textRuntime.backend.Healthy(r.Context()))
+	return service.registry.AcquireVoice(publicID, service.localBackendAvailableForRoute(r.Context(), BackendModeKobold, readinessText))
 }
 
 func (service *Service) registryHasAudioModel(publicID string, lane string) bool {

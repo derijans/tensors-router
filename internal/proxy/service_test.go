@@ -228,6 +228,145 @@ func TestSplitModeRejectsAudioRoutes(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsInvalidExplicitBackendMode(t *testing.T) {
+	service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), map[string]string{
+		"bad": `{"model_param":"text.gguf","backend_mode":"native"}`,
+	})
+
+	err := service.loadLocalModel(context.Background(), "bad", "bad")
+	if err == nil || !strings.Contains(err.Error(), "backend_mode") {
+		t.Fatalf("expected backend_mode validation error, got %v", err)
+	}
+	if backend.reloads.Load() != 0 {
+		t.Fatalf("invalid backend_mode should not reload backend, got %d", backend.reloads.Load())
+	}
+}
+
+func TestLoadSwitchesBackendFamiliesBeforeReload(t *testing.T) {
+	dir := t.TempDir()
+	writeProxyTestConfig(t, dir, "kobold", `{"model_param":"kobold.gguf","backend_mode":"kobold"}`)
+	writeProxyTestConfig(t, dir, "native", `{"model_param":"native.gguf","backend_mode":"llama_sdcpp"}`)
+
+	var mu sync.Mutex
+	events := []string{}
+	record := func(event string) {
+		mu.Lock()
+		events = append(events, event)
+		mu.Unlock()
+	}
+	koboldBackend := newReadyFakeBackend(t, func(string) { record("reload-kobold") })
+	llamaBackend := newReadyFakeBackend(t, func(string) { record("reload-native") })
+	sdcppBackend := newReadyFakeBackend(t, nil)
+	service := NewService(ServiceConfig{
+		BackendMode: BackendModeKobold,
+		BackendFamilies: map[string]BackendFamilyConfig{
+			BackendModeKobold: {
+				TextBackend:  koboldBackend,
+				ImageBackend: koboldBackend,
+				Stop: func(context.Context) error {
+					record("stop-kobold")
+					return nil
+				},
+			},
+			BackendModeLlamaSDCPP: {
+				TextBackend:  llamaBackend,
+				ImageBackend: sdcppBackend,
+				Stop: func(context.Context) error {
+					record("stop-native")
+					return nil
+				},
+			},
+		},
+		Catalog: catalog.New(dir),
+		Logger:  log.New(io.Discard, "", 0),
+	})
+
+	if err := service.loadLocalModel(context.Background(), "native", "native"); err != nil {
+		t.Fatal(err)
+	}
+	if !eventBefore(eventsSnapshot(&mu, &events), "stop-kobold", "reload-native") {
+		t.Fatalf("kobold was not stopped before native reload: %#v", eventsSnapshot(&mu, &events))
+	}
+	if koboldBackend.unloads.Load() != 0 {
+		t.Fatalf("kobold switch-away should use Stop, got unloads=%d", koboldBackend.unloads.Load())
+	}
+
+	if err := service.loadLocalModel(context.Background(), "kobold", "kobold"); err != nil {
+		t.Fatal(err)
+	}
+	if !eventBefore(eventsSnapshot(&mu, &events), "stop-native", "reload-kobold") {
+		t.Fatalf("native was not stopped before kobold reload: %#v", eventsSnapshot(&mu, &events))
+	}
+}
+
+func TestBackendFamilySwitchWaitsForInFlightConfigUsers(t *testing.T) {
+	dir := t.TempDir()
+	writeProxyTestConfig(t, dir, "kobold", `{"model_param":"kobold.gguf","backend_mode":"kobold"}`)
+	writeProxyTestConfig(t, dir, "native", `{"model_param":"native.gguf","backend_mode":"llama_sdcpp"}`)
+
+	nativeReloaded := make(chan struct{}, 1)
+	service := NewService(ServiceConfig{
+		BackendMode: BackendModeKobold,
+		BackendFamilies: map[string]BackendFamilyConfig{
+			BackendModeKobold: {
+				TextBackend:  newReadyFakeBackend(t, nil),
+				ImageBackend: newReadyFakeBackend(t, nil),
+			},
+			BackendModeLlamaSDCPP: {
+				TextBackend: newReadyFakeBackend(t, func(string) {
+					nativeReloaded <- struct{}{}
+				}),
+				ImageBackend: newReadyFakeBackend(t, nil),
+			},
+		},
+		Catalog: catalog.New(dir),
+		Logger:  log.New(io.Discard, "", 0),
+	})
+	_, release, _, err := service.acquireModelConfigForBackendMode(BackendModeKobold, context.Background(), "kobold", "kobold.kcpps", readinessText, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- service.loadLocalModel(context.Background(), "native", "native")
+	}()
+	select {
+	case <-nativeReloaded:
+		t.Fatalf("backend family switched while config user was active")
+	case <-time.After(50 * time.Millisecond):
+	}
+	release()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatalf("backend family switch did not finish after active user release")
+	}
+}
+
+func TestImageModelsUsePerModelBackendModeVisibility(t *testing.T) {
+	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), map[string]string{
+		"kobold-combo": `{"model_param":"text.gguf","sdmodel":"/models/dream.safetensors","backend_mode":"kobold"}`,
+		"native-combo": `{"model_param":"text.gguf","sdmodel":"/models/neon.safetensors","backend_mode":"llama_sdcpp"}`,
+	})
+
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/sdapi/v1/sd-models", nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), "native-combo-neon") {
+		t.Fatalf("llama/sd.cpp combined image should be visible: %s", recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "kobold-combo-dream") {
+		t.Fatalf("inactive kobold combined image should not be visible: %s", recorder.Body.String())
+	}
+}
+
 func TestUnknownCoreModelReturnsOpenAIError(t *testing.T) {
 	service, _ := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
@@ -2069,6 +2208,55 @@ func TestRouterUnloadWaitsForStreamingRequest(t *testing.T) {
 
 func newTestService(t *testing.T, backendHandler http.Handler) (*Service, *fakeBackend) {
 	return newTestServiceWithLogger(t, backendHandler, log.New(io.Discard, "", 0))
+}
+
+func writeProxyTestConfig(t *testing.T, dir string, id string, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, id+".kcpps"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func newReadyFakeBackend(t *testing.T, onReload func(string)) *fakeBackend {
+	t.Helper()
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"object":"list","data":[]}`))
+		case "/sdapi/v1/sd-models":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"model_name":"ready"}]`))
+		default:
+			_, _ = w.Write([]byte(`{"ok":true}`))
+		}
+	}))
+	t.Cleanup(server.Close)
+	backendURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return &fakeBackend{url: backendURL, healthy: true, onReload: onReload}
+}
+
+func eventsSnapshot(mu *sync.Mutex, events *[]string) []string {
+	mu.Lock()
+	defer mu.Unlock()
+	return append([]string{}, (*events)...)
+}
+
+func eventBefore(events []string, first string, second string) bool {
+	firstIndex := -1
+	secondIndex := -1
+	for index, event := range events {
+		if event == first && firstIndex == -1 {
+			firstIndex = index
+		}
+		if event == second && secondIndex == -1 {
+			secondIndex = index
+		}
+	}
+	return firstIndex >= 0 && secondIndex >= 0 && firstIndex < secondIndex
 }
 
 func newTestServiceWithModels(t *testing.T, backendHandler http.Handler, modelIDs ...string) (*Service, *fakeBackend) {

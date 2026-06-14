@@ -71,6 +71,23 @@ func TestResolveMapsPublicIDToConfigFilename(t *testing.T) {
 	}
 }
 
+func TestCatalogParsesOptionalBackendMode(t *testing.T) {
+	dir := t.TempDir()
+	writeCatalogFile(t, dir, "default.kcpps", `{}`)
+	writeCatalogFile(t, dir, "native.kcpps", `{"backend_mode":"llama_sdcpp","model_param":"text.gguf"}`)
+
+	models, err := New(dir).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if models[0].BackendMode != "" {
+		t.Fatalf("missing backend_mode should remain empty, got %q", models[0].BackendMode)
+	}
+	if models[1].BackendMode != "llama_sdcpp" {
+		t.Fatalf("backend_mode was not parsed: %#v", models[1])
+	}
+}
+
 func TestMissingDirectoryReturnsEmptyCatalog(t *testing.T) {
 	models, err := New(filepath.Join(t.TempDir(), "missing")).List()
 	if err != nil {

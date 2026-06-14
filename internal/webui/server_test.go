@@ -74,6 +74,48 @@ func TestServerProxiesBenchmarkRoutes(t *testing.T) {
 	}
 }
 
+func TestServerProxiesLoadWithCSRF(t *testing.T) {
+	seen := []string{}
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		seen = append(seen, r.Method+" "+r.URL.Path)
+		if r.Method != http.MethodPost || r.URL.Path != "/router/v1/load" {
+			http.NotFound(w, r)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), `"model":"config-a"`) {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer router.Close()
+
+	process := NewRouterProcess(RouterConfig{URL: router.URL}, t.TempDir())
+	server := NewServer(Config{Router: RouterConfig{URL: router.URL}}, process, NewSessionManager("admin-secret"))
+	cookie, csrf := loginForServerTest(t, server)
+
+	blockedRecorder := httptest.NewRecorder()
+	blockedRequest := httptest.NewRequest(http.MethodPost, "/api/load", strings.NewReader(`{"model":"config-a"}`))
+	blockedRequest.AddCookie(cookie)
+	server.ServeHTTP(blockedRecorder, blockedRequest)
+	if blockedRecorder.Code != http.StatusForbidden {
+		t.Fatalf("missing csrf should be forbidden, got %d", blockedRecorder.Code)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/load", strings.NewReader(`{"model":"config-a"}`))
+	request.AddCookie(cookie)
+	request.Header.Set("X-CSRF-Token", csrf)
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if len(seen) != 1 || seen[0] != "POST /router/v1/load" {
+		t.Fatalf("unexpected proxied requests %#v", seen)
+	}
+}
+
 func loginForServerTest(t *testing.T, server *Server) (*http.Cookie, string) {
 	t.Helper()
 	recorder := httptest.NewRecorder()

@@ -114,7 +114,7 @@ func runServe(args []string) error {
 	}
 	routercluster.SyncConfiguredSlaves(ctx, syncConfig, registry, clusterClient, serveLogger)
 
-	textBackend, imageBackend, shutdownBackends, err := createBackends(ctx, cfg)
+	backendFamilies, shutdownBackends, err := createBackends(ctx, cfg)
 	if err != nil {
 		return err
 	}
@@ -138,23 +138,21 @@ func runServe(args []string) error {
 	}
 
 	router := proxy.NewService(proxy.ServiceConfig{
-		Backend:        textBackend,
-		TextBackend:    textBackend,
-		ImageBackend:   imageBackend,
-		BackendMode:    cfg.Backend.Mode,
-		Catalog:        modelCatalog,
-		Registry:       registry,
-		ClusterToken:   cfg.Cluster.Token,
-		ClusterClient:  clusterClient,
-		ClusterRole:    cfg.Cluster.Role,
-		NodeID:         cfg.Cluster.NodeID,
-		NodeURL:        cfg.Cluster.PublicURL,
-		SlaveURLs:      cfg.Cluster.SlaveURLs,
-		ConfigDir:      cfg.Models.ConfigDir,
-		FileRoots:      cfg.Models.FileRoots,
-		RecipeStore:    recipeStore,
-		BenchmarkStore: benchmarkStore,
-		Logger:         serveLogger,
+		BackendMode:     cfg.Backend.Mode,
+		BackendFamilies: backendFamilies,
+		Catalog:         modelCatalog,
+		Registry:        registry,
+		ClusterToken:    cfg.Cluster.Token,
+		ClusterClient:   clusterClient,
+		ClusterRole:     cfg.Cluster.Role,
+		NodeID:          cfg.Cluster.NodeID,
+		NodeURL:         cfg.Cluster.PublicURL,
+		SlaveURLs:       cfg.Cluster.SlaveURLs,
+		ConfigDir:       cfg.Models.ConfigDir,
+		FileRoots:       cfg.Models.FileRoots,
+		RecipeStore:     recipeStore,
+		BenchmarkStore:  benchmarkStore,
+		Logger:          serveLogger,
 	})
 	routercluster.StartSync(ctx, syncConfig, registry, clusterClient, serveLogger)
 	startupModel := strings.TrimSpace(cfg.Models.StartupModel)
@@ -203,55 +201,84 @@ func clusterClientTargets(cfg config.Config) []string {
 	return targets
 }
 
-func createBackends(ctx context.Context, cfg config.Config) (proxy.Backend, proxy.Backend, []func(context.Context) error, error) {
-	switch cfg.Backend.Mode {
-	case proxy.BackendModeLlamaSDCPP:
-		llamaManager, err := native.NewLlamaManager(native.ProcessConfig{
-			BackendURL: cfg.Llama.BackendURL,
-			BinaryPath: cfg.Llama.BinaryPath,
-			ConfigDir:  cfg.Models.ConfigDir,
-			DataDir:    cfg.Llama.DataDir,
-			ExtraArgs:  cfg.Llama.ExtraArgs,
-			HideWindow: cfg.Llama.HideWindow,
-			Logging:    cfg.Logging.Enabled,
-		})
-		if err != nil {
-			return nil, nil, nil, err
+func createBackends(ctx context.Context, cfg config.Config) (map[string]proxy.BackendFamilyConfig, []func(context.Context) error, error) {
+	koboldManager, err := kobold.NewManager(kobold.ProcessConfig{
+		BackendURL:   cfg.Kobold.BackendURL,
+		BinaryPath:   cfg.Kobold.BinaryPath,
+		ConfigDir:    cfg.Models.ConfigDir,
+		DataDir:      cfg.Kobold.DataDir,
+		ExtraArgs:    cfg.Kobold.ExtraArgs,
+		Multiuser:    cfg.Kobold.Multiuser,
+		Quiet:        cfg.Kobold.Quiet,
+		SkipLauncher: cfg.Kobold.SkipLauncher,
+		NoModel:      cfg.Kobold.NoModel,
+		HideWindow:   cfg.Kobold.HideWindow,
+		Logging:      cfg.Logging.Enabled,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	if cfg.Backend.Mode != proxy.BackendModeLlamaSDCPP {
+		if err := koboldManager.Start(ctx); err != nil {
+			return nil, nil, err
 		}
-		sdcppManager, err := native.NewSDCPPManager(native.ProcessConfig{
-			BackendURL: cfg.SDCPP.BackendURL,
-			BinaryPath: cfg.SDCPP.BinaryPath,
-			ConfigDir:  cfg.Models.ConfigDir,
-			DataDir:    cfg.SDCPP.DataDir,
-			ExtraArgs:  cfg.SDCPP.ExtraArgs,
-			HideWindow: cfg.SDCPP.HideWindow,
-			Logging:    cfg.Logging.Enabled,
-		})
-		if err != nil {
-			return nil, nil, nil, err
+	}
+
+	llamaManager, err := native.NewLlamaManager(native.ProcessConfig{
+		BackendURL: cfg.Llama.BackendURL,
+		BinaryPath: cfg.Llama.BinaryPath,
+		ConfigDir:  cfg.Models.ConfigDir,
+		DataDir:    cfg.Llama.DataDir,
+		ExtraArgs:  cfg.Llama.ExtraArgs,
+		HideWindow: cfg.Llama.HideWindow,
+		Logging:    cfg.Logging.Enabled,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	sdcppManager, err := native.NewSDCPPManager(native.ProcessConfig{
+		BackendURL: cfg.SDCPP.BackendURL,
+		BinaryPath: cfg.SDCPP.BinaryPath,
+		ConfigDir:  cfg.Models.ConfigDir,
+		DataDir:    cfg.SDCPP.DataDir,
+		ExtraArgs:  cfg.SDCPP.ExtraArgs,
+		HideWindow: cfg.SDCPP.HideWindow,
+		Logging:    cfg.Logging.Enabled,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	families := map[string]proxy.BackendFamilyConfig{
+		proxy.BackendModeKobold: {
+			TextBackend:  koboldManager,
+			ImageBackend: koboldManager,
+			Start:        koboldManager.Start,
+			Stop:         koboldManager.Stop,
+		},
+		proxy.BackendModeLlamaSDCPP: {
+			TextBackend:  llamaManager,
+			ImageBackend: sdcppManager,
+			Stop:         stopNativeManagers(llamaManager, sdcppManager),
+		},
+	}
+	shutdownBackends := []func(context.Context) error{
+		koboldManager.Stop,
+		stopNativeManagers(llamaManager, sdcppManager),
+	}
+	return families, shutdownBackends, nil
+}
+
+func stopNativeManagers(llamaManager *native.Manager, sdcppManager *native.Manager) func(context.Context) error {
+	return func(ctx context.Context) error {
+		var firstErr error
+		if err := llamaManager.Unload(ctx); err != nil && firstErr == nil {
+			firstErr = err
 		}
-		return llamaManager, sdcppManager, []func(context.Context) error{llamaManager.Unload, sdcppManager.Unload}, nil
-	default:
-		processManager, err := kobold.NewManager(kobold.ProcessConfig{
-			BackendURL:   cfg.Kobold.BackendURL,
-			BinaryPath:   cfg.Kobold.BinaryPath,
-			ConfigDir:    cfg.Models.ConfigDir,
-			DataDir:      cfg.Kobold.DataDir,
-			ExtraArgs:    cfg.Kobold.ExtraArgs,
-			Multiuser:    cfg.Kobold.Multiuser,
-			Quiet:        cfg.Kobold.Quiet,
-			SkipLauncher: cfg.Kobold.SkipLauncher,
-			NoModel:      cfg.Kobold.NoModel,
-			HideWindow:   cfg.Kobold.HideWindow,
-			Logging:      cfg.Logging.Enabled,
-		})
-		if err != nil {
-			return nil, nil, nil, err
+		if err := sdcppManager.Unload(ctx); err != nil && firstErr == nil {
+			firstErr = err
 		}
-		if err := processManager.Start(ctx); err != nil {
-			return nil, nil, nil, err
-		}
-		return processManager, processManager, []func(context.Context) error{processManager.Stop}, nil
+		return firstErr
 	}
 }
 

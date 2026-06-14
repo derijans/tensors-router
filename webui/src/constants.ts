@@ -10,6 +10,17 @@ export interface LaneMetadata {
 
 export const laneKinds: LaneKind[] = ["text", "image", "embeddings", "voice", "music"];
 
+export type BackendMode = "kobold" | "llama_sdcpp";
+
+export const backendModeKey = "backend_mode";
+
+export const backendModes: BackendMode[] = ["kobold", "llama_sdcpp"];
+
+export const backendModeLabels: Record<BackendMode, string> = {
+  kobold: "Kobold",
+  llama_sdcpp: "llama/sd.cpp"
+};
+
 export const laneMetadata: Record<LaneKind, LaneMetadata> = {
   text: {
     label: "LLM",

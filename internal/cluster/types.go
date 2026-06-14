@@ -3,6 +3,7 @@ package cluster
 import (
 	"encoding/json"
 
+	"tensors-router/internal/backendmode"
 	routerbenchmark "tensors-router/internal/benchmark"
 	"tensors-router/internal/catalog"
 )
@@ -20,8 +21,8 @@ const (
 )
 
 const (
-	BackendModeKobold     = "kobold"
-	BackendModeLlamaSDCPP = "llama_sdcpp"
+	BackendModeKobold     = backendmode.Kobold
+	BackendModeLlamaSDCPP = backendmode.LlamaSDCPP
 )
 
 const (
@@ -72,6 +73,7 @@ type Route struct {
 	NodeURL       string
 	Remote        bool
 	Lane          string
+	BackendMode   string
 }
 
 func LocalModels(models []catalog.Model, nodeID string, nodeURL string, source string) []Model {
@@ -79,11 +81,16 @@ func LocalModels(models []catalog.Model, nodeID string, nodeURL string, source s
 }
 
 func LocalModelsWithBackendMode(models []catalog.Model, nodeID string, nodeURL string, source string, backendMode string) []Model {
-	if backendMode == "" {
-		backendMode = BackendModeKobold
+	fallbackMode, err := backendmode.Resolve("", backendMode)
+	if err != nil {
+		fallbackMode = BackendModeKobold
 	}
 	records := make([]Model, 0, len(models))
 	for _, model := range models {
+		modelBackendMode := backendmode.Normalize(model.BackendMode)
+		if modelBackendMode == "" {
+			modelBackendMode = fallbackMode
+		}
 		records = append(records, Model{
 			PublicID:      model.ID,
 			LocalID:       model.ID,
@@ -101,7 +108,7 @@ func LocalModelsWithBackendMode(models []catalog.Model, nodeID string, nodeURL s
 			ConfigHash:    model.ConfigHash,
 			Capabilities:  model.Capabilities,
 			Options:       model.Options,
-			BackendMode:   backendMode,
+			BackendMode:   modelBackendMode,
 			Source:        source,
 			NodeID:        nodeID,
 			NodeURL:       nodeURL,

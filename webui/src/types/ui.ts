@@ -106,6 +106,8 @@ export interface AppState {
     lanes: Record<LaneKind, PaletteComponentPayload | null>;
     targetNodes: Record<LaneKind, string>;
     laneOptions: Record<LaneKind, Options>;
+    backendMode: string;
+    backendTouched: boolean;
     options: Options;
     fieldEditor: ConstructorFieldEditor | null;
     fieldPresets: FieldPreset[];

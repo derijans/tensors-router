@@ -66,6 +66,9 @@ export function renderTables(): void {
       <td>${escapeHTML(optionSummary(model.options))}</td>
       <td>${escapeHTML(benchmarkCompactLabel(model))}</td>
       <td>${model.available ? "yes" : "no"}</td>
+      <td>
+        <button type="button" data-load-config="${escapeAttribute(model.public_id || model.local_id)}">Load</button>
+      </td>
     </tr>
   `).join("");
   elements.filesTable.innerHTML = files.map(file => `

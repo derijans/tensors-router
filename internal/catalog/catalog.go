@@ -33,6 +33,7 @@ type Model struct {
 	ImageModelPath string
 	ModelHash      string
 	ConfigHash     string
+	BackendMode    string
 	Capabilities   Capabilities
 	Options        map[string]json.RawMessage
 }
@@ -210,6 +211,7 @@ func (catalog *Catalog) withMetadata(model Model) Model {
 	model.HasVoice = hasVoiceModel(metadata)
 	model.HasMusic = hasMusicModel(metadata)
 	model.HasLLM = hasLLMModel(metadata)
+	model.BackendMode = strings.TrimSpace(metadata.BackendMode)
 	if model.HasImage {
 		model.ImageModelPath = strings.TrimSpace(metadata.SDModel)
 		model.ImageModelName = filenameStem(model.ImageModelPath)

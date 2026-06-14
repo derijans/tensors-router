@@ -36,6 +36,21 @@ func TestFilterOptionsForVoiceMusicKinds(t *testing.T) {
 	}
 }
 
+func TestBackendModeOptionAllowsOnlyKnownModes(t *testing.T) {
+	mode, ok, err := BackendModeOption(Options{"backend_mode": rawJSON(t, "llama_sdcpp")})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || mode != "llama_sdcpp" {
+		t.Fatalf("unexpected backend mode result mode=%q ok=%t", mode, ok)
+	}
+
+	_, _, err = BackendModeOption(Options{"backend_mode": rawJSON(t, "native")})
+	if err == nil {
+		t.Fatalf("expected invalid backend mode error")
+	}
+}
+
 func rawJSON(t *testing.T, value any) json.RawMessage {
 	t.Helper()
 	content, err := json.Marshal(value)

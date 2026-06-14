@@ -202,7 +202,15 @@ func (service *Service) loadPublicModel(ctx context.Context, publicID string) er
 		return err
 	}
 	if service.registry != nil && service.registry.HasModel(publicID) {
-		route, release, ok := service.registry.Acquire(publicID, service.textRuntime.backend.Healthy(ctx))
+		model, ok := service.registry.Model(publicID)
+		if !ok {
+			return fmt.Errorf("model %q was not found", publicID)
+		}
+		modelBackendMode, err := service.clusterModelBackendMode(model)
+		if err != nil {
+			return err
+		}
+		route, release, ok := service.registry.Acquire(publicID, service.localBackendAvailableForRoute(ctx, modelBackendMode, readinessText))
 		if !ok {
 			return fmt.Errorf("model %q was not found", publicID)
 		}
@@ -218,7 +226,15 @@ func (service *Service) loadPublicModel(ctx context.Context, publicID string) er
 func (service *Service) unloadPublicModel(ctx context.Context, publicID string) error {
 	publicID = strings.TrimSpace(publicID)
 	if publicID != "" && service.registry != nil && service.registry.HasModel(publicID) {
-		route, release, ok := service.registry.Acquire(publicID, service.textRuntime.backend.Healthy(ctx))
+		model, ok := service.registry.Model(publicID)
+		if !ok {
+			return fmt.Errorf("model %q was not found", publicID)
+		}
+		modelBackendMode, err := service.clusterModelBackendMode(model)
+		if err != nil {
+			return err
+		}
+		route, release, ok := service.registry.Acquire(publicID, service.localBackendAvailableForRoute(ctx, modelBackendMode, readinessText))
 		if !ok {
 			return fmt.Errorf("model %q was not found", publicID)
 		}
@@ -238,24 +254,26 @@ func (service *Service) loadLocalModel(ctx context.Context, publicID string, loc
 	if !ok {
 		return fmt.Errorf("model %q was not found", publicID)
 	}
-	if service.backendMode == BackendModeLlamaSDCPP && model.HasImage && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
-		if err := service.loadLocalConfig(ctx, service.textRuntime, publicID, model.Filename, readinessText); err != nil {
+	modelBackendMode, err := service.catalogModelBackendMode(model)
+	if err != nil {
+		return err
+	}
+	if modelBackendMode == BackendModeLlamaSDCPP && model.HasImage && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
+		if err := service.loadLocalConfig(ctx, modelBackendMode, publicID, model.Filename, readinessText); err != nil {
 			return err
 		}
-		return service.loadLocalConfig(ctx, service.imageRuntime, publicID, model.Filename, readinessImage)
+		return service.loadLocalConfig(ctx, modelBackendMode, publicID, model.Filename, readinessImage)
 	}
 
 	readiness := readinessText
-	runtime := service.textRuntime
-	if model.HasImage && !model.HasLLM && !model.HasEmbeddings && !model.HasMultimodal {
+	if modelBackendMode == BackendModeLlamaSDCPP && model.HasImage && !model.HasLLM && !model.HasEmbeddings && !model.HasMultimodal {
 		readiness = readinessImage
-		runtime = service.imageRuntime
 	}
-	return service.loadLocalConfig(ctx, runtime, publicID, model.Filename, readiness)
+	return service.loadLocalConfig(ctx, modelBackendMode, publicID, model.Filename, readiness)
 }
 
-func (service *Service) loadLocalConfig(ctx context.Context, runtime *backendRuntime, publicID string, filename string, readiness backendReadiness) error {
-	release, _, err := service.acquireModelConfig(runtime, ctx, publicID, filename, readiness, false)
+func (service *Service) loadLocalConfig(ctx context.Context, mode string, publicID string, filename string, readiness backendReadiness) error {
+	_, release, _, err := service.acquireModelConfigForBackendMode(mode, ctx, publicID, filename, readiness, false)
 	if err != nil {
 		return err
 	}
@@ -263,23 +281,27 @@ func (service *Service) loadLocalConfig(ctx context.Context, runtime *backendRun
 	return nil
 }
 
-func (service *Service) loadLocalRuntimeForRequest(ctx context.Context, runtime *backendRuntime, publicID string, filename string, readiness backendReadiness) error {
+func (service *Service) loadLocalRuntimeForRequest(ctx context.Context, mode string, publicID string, filename string, readiness backendReadiness) error {
 	modelContext, cancelModelContext := context.WithTimeout(context.WithoutCancel(ctx), modelOperationTimeout)
 	defer cancelModelContext()
-	return service.loadLocalConfig(modelContext, runtime, publicID, filename, readiness)
+	return service.loadLocalConfig(modelContext, mode, publicID, filename, readiness)
 }
 
 func (service *Service) unloadLocal(ctx context.Context) error {
-	if service.imageRuntime == service.textRuntime {
-		return service.unloadRuntime(ctx, service.textRuntime)
+	family := service.backendFamilies[service.currentBackendMode()]
+	if family == nil {
+		return nil
+	}
+	if family.imageRuntime == family.textRuntime {
+		return service.unloadRuntime(ctx, family.textRuntime)
 	}
 
 	errors := make(chan error, 2)
 	go func() {
-		errors <- service.unloadRuntime(ctx, service.textRuntime)
+		errors <- service.unloadRuntime(ctx, family.textRuntime)
 	}()
 	go func() {
-		errors <- service.unloadRuntime(ctx, service.imageRuntime)
+		errors <- service.unloadRuntime(ctx, family.imageRuntime)
 	}()
 
 	var firstErr error

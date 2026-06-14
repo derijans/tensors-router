@@ -6,6 +6,7 @@ import { optionDefinition, testInventory } from "./factories";
 describe("advanced cook option filtering", () => {
   beforeEach(() => {
     state.inventory = testInventory([
+      optionDefinition("backend_mode", "string", "runtime"),
       optionDefinition("quiet", "bool", "runtime"),
       optionDefinition("model_param", "string", "llm"),
       optionDefinition("sdmodel", "string", "image"),
@@ -17,11 +18,13 @@ describe("advanced cook option filtering", () => {
   it("preserves runtime and unknown options while filtering unrelated known lane options", () => {
     expect(advancedLaneOptions("text", {
       quiet: true,
+      backend_mode: "llama_sdcpp",
       mystery_backend_key: "custom",
       model_param: "text.gguf",
       sdmodel: "image.safetensors"
     })).toEqual({
       quiet: true,
+      backend_mode: "llama_sdcpp",
       mystery_backend_key: "custom",
       model_param: "text.gguf"
     });

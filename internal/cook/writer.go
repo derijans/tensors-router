@@ -379,6 +379,9 @@ func NormalizedOptions(options Options) (Options, error) {
 		}
 		result[key] = cloneRaw(value)
 	}
+	if _, _, err := BackendModeOption(result); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
