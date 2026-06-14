@@ -140,6 +140,14 @@ cp webui.example.yaml webui.yaml
 
 If `router.url` is empty, `tensor-router-webui` looks beside itself for `tensors-router`, launches it with `router.config_path`, and stops that managed router process when the web UI exits. If `router.url` is set, the router is treated as external and launch/restart/kill controls are disabled. The web UI serves HTTPS with a self-signed certificate from `server.state_dir` unless cert files are configured. Generated certificates include localhost, loopback IPs, and local interface IPs for wildcard binds. Set `server.cert_hosts` for browser-facing DNS names or public/NAT IPs the process cannot infer.
 
+## Troubleshooting
+
+- If you see `Scheme missing.` when starting `tensor-router-webui`, your `router.url` is invalid.
+- `router.url` must be a full URL, for example:
+  - `router.url: http://127.0.0.1:8080`
+  - `router.url: https://router.example.com`
+- If you want the Web UI to manage the router process instead, leave `router.url` empty and set `router.binary_path` to your `tensors-router` executable instead.
+
 List LLM models:
 
 ```bash
