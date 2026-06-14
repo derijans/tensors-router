@@ -3,6 +3,8 @@ import { jsonRecord } from "./json";
 import type {
   ConfigFileRequest,
   ConfigFileResponse,
+  BenchmarkRecord,
+  BenchmarkRunRequest,
   CookRequest,
   CookResponse,
   ErrorResponse,
@@ -64,6 +66,21 @@ export function killRouter(): Promise<RouterProcessStatus> {
 
 export function getInventory(): Promise<InventoryResponse> {
   return api<InventoryResponse>("/api/inventory");
+}
+
+export function getBenchmarkRecord(nodeID: string, modelID: string): Promise<BenchmarkRecord> {
+  const params = new URLSearchParams({model_id: modelID});
+  if (nodeID) {
+    params.set("node_id", nodeID);
+  }
+  return api<BenchmarkRecord>(`/api/benchmarks?${params.toString()}`);
+}
+
+export function runBenchmark(request: BenchmarkRunRequest): Promise<BenchmarkRecord> {
+  return api<BenchmarkRecord>("/api/benchmarks/run", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
 }
 
 export function previewCook(request: CookRequest): Promise<CookResponse> {

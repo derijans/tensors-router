@@ -15,10 +15,9 @@ import (
 	"syscall"
 	"time"
 
+	"tensors-router/internal/buildinfo"
 	"tensors-router/internal/webui"
 )
-
-const version = "0.1.0"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -27,6 +26,13 @@ func main() {
 }
 
 func run(args []string) error {
+	if len(args) == 1 {
+		switch args[0] {
+		case "version", "--version", "-v":
+			fmt.Println(buildinfo.Current())
+			return nil
+		}
+	}
 	flags := flag.NewFlagSet("tensor-router-webui", flag.ContinueOnError)
 	configPath := flags.String("config", "webui.yaml", "webui config file")
 	bind := flags.String("bind", "", "https bind address")
@@ -46,6 +52,7 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	log.Printf("tensor-router-webui build %s", buildinfo.Current())
 	applyFlagOverrides(&cfg, *bind, *routerURL, *routerToken, *adminToken)
 	token := webUIToken(cfg)
 	if token.generated {

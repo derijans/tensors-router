@@ -44,6 +44,7 @@
         <button class="tab-button active" type="button" data-tab="router">Router</button>
         <button class="tab-button" type="button" data-tab="nodes">Nodes</button>
         <button class="tab-button" type="button" data-tab="models">Models</button>
+        <button class="tab-button" type="button" data-tab="benchmarks">Benchmarks</button>
         <button class="tab-button" type="button" data-tab="cook">Cook</button>
         <button class="tab-button" type="button" data-tab="recipes">Recipes</button>
       </nav>
@@ -94,6 +95,7 @@
                     <th>Backend</th>
                     <th>Capabilities</th>
                     <th>Options</th>
+                    <th>Benchmark</th>
                     <th>Available</th>
                   </tr>
                 </thead>
@@ -117,6 +119,39 @@
               </table>
             </div>
           </div>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-panel="benchmarks">
+        <div class="panel-head">
+          <div>
+            <h2>Benchmarks</h2>
+            <p class="muted">run and compare config performance</p>
+          </div>
+          <button id="runBenchmarkButton" type="button">Run</button>
+        </div>
+        <div class="benchmark-controls">
+          <label>
+            Config
+            <select id="benchmarkModelSelect"></select>
+          </label>
+          <label>
+            Type
+            <select id="benchmarkTypeSelect">
+              <option value="general">General</option>
+              <option value="section">Section</option>
+            </select>
+          </label>
+          <label class="toggle-row">
+            <input id="benchmarkAllSections" type="checkbox" checked>
+            <span>All sections</span>
+          </label>
+          <div id="benchmarkSections" class="section-checks"></div>
+        </div>
+        <div id="benchmarkLatest" class="benchmark-grid"></div>
+        <div>
+          <h3>History</h3>
+          <div id="benchmarkHistory" class="benchmark-history"></div>
         </div>
       </section>
 

@@ -9,6 +9,10 @@ NPM ?= npm
 GOOS ?= linux
 GOARCH ?= amd64
 CGO_ENABLED ?= 0
+VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null)
+COMMIT ?= $(shell git rev-parse HEAD 2>/dev/null)
+BUILD_DATE ?= $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+BUILDINFO_LDFLAGS := -X tensors-router/internal/buildinfo.Version=$(VERSION) -X tensors-router/internal/buildinfo.Commit=$(COMMIT) -X tensors-router/internal/buildinfo.Date=$(BUILD_DATE)
 
 .PHONY: test webui-build webui-check build build-router build-webui build-linux build-linux-router build-linux-webui clean install-user-service uninstall-user-service
 
@@ -24,20 +28,20 @@ webui-check:
 build: build-router build-webui
 
 build-router:
-	$(GO) build -o $(APP_NAME) $(CMD)
+	$(GO) build -ldflags "$(BUILDINFO_LDFLAGS)" -o $(APP_NAME) $(CMD)
 
 build-webui: webui-build
-	$(GO) build -o $(WEBUI_NAME) $(WEBUI_CMD)
+	$(GO) build -ldflags "$(BUILDINFO_LDFLAGS)" -o $(WEBUI_NAME) $(WEBUI_CMD)
 
 build-linux: build-linux-router build-linux-webui
 
 build-linux-router:
 	mkdir -p $(DIST_DIR)
-	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=$(CGO_ENABLED) $(GO) build -buildvcs=false -trimpath -ldflags "-s -w" -o $(DIST_DIR)/$(APP_NAME)-$(GOOS)-$(GOARCH) $(CMD)
+	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=$(CGO_ENABLED) $(GO) build -buildvcs=false -trimpath -ldflags "-s -w $(BUILDINFO_LDFLAGS)" -o $(DIST_DIR)/$(APP_NAME)-$(GOOS)-$(GOARCH) $(CMD)
 
 build-linux-webui: webui-build
 	mkdir -p $(DIST_DIR)
-	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=$(CGO_ENABLED) $(GO) build -buildvcs=false -trimpath -ldflags "-s -w" -o $(DIST_DIR)/$(WEBUI_NAME)-$(GOOS)-$(GOARCH) $(WEBUI_CMD)
+	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=$(CGO_ENABLED) $(GO) build -buildvcs=false -trimpath -ldflags "-s -w $(BUILDINFO_LDFLAGS)" -o $(DIST_DIR)/$(WEBUI_NAME)-$(GOOS)-$(GOARCH) $(WEBUI_CMD)
 
 clean:
 	rm -rf $(DIST_DIR) $(APP_NAME) $(WEBUI_NAME)

@@ -1,4 +1,4 @@
-import type { Options } from "./json";
+import type { JsonValue, Options } from "./json";
 
 export type LaneKind = "text" | "image" | "embeddings" | "voice" | "music";
 
@@ -13,6 +13,59 @@ export interface RouterProcessStatus {
   url: string;
   pid?: number;
   error?: string;
+}
+
+export type BenchmarkType = "general" | "section";
+
+export type BenchmarkSection = "runtime" | "llm" | "embed" | "image" | "voice" | "music";
+
+export interface BenchmarkMetric {
+  name: string;
+  status: string;
+  duration_ms?: number;
+  value?: number;
+  unit?: string;
+  error?: string;
+}
+
+export interface BenchmarkOptionChange {
+  key: string;
+  kind: string;
+  previous?: JsonValue;
+  current?: JsonValue;
+}
+
+export interface BenchmarkSummary {
+  run_id: string;
+  type: BenchmarkType;
+  section: string;
+  status: string;
+  started_at: number;
+  finished_at: number;
+  duration_ms: number;
+  metrics?: BenchmarkMetric[];
+  error?: string;
+  option_changes?: BenchmarkOptionChange[];
+}
+
+export interface ModelBenchmark {
+  latest?: BenchmarkSummary;
+  sections?: Record<string, BenchmarkSummary>;
+}
+
+export interface BenchmarkRecord extends ModelBenchmark {
+  node_id: string;
+  model_id: string;
+  history?: BenchmarkSummary[];
+}
+
+export interface BenchmarkRunRequest {
+  node_id?: string;
+  model_id: string;
+  type: BenchmarkType;
+  sections?: string[];
+  iterations?: number;
+  timeout_seconds?: number;
 }
 
 export interface HardwareInfo {
@@ -101,6 +154,7 @@ export interface Model {
   node_id: string;
   node_url?: string;
   available: boolean;
+  benchmark?: ModelBenchmark;
 }
 
 export interface FileRecord {

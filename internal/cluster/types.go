@@ -3,6 +3,7 @@ package cluster
 import (
 	"encoding/json"
 
+	routerbenchmark "tensors-router/internal/benchmark"
 	"tensors-router/internal/catalog"
 )
 
@@ -31,27 +32,28 @@ const (
 )
 
 type Model struct {
-	PublicID      string                     `json:"public_id"`
-	LocalID       string                     `json:"local_id"`
-	ImageID       string                     `json:"image_id,omitempty"`
-	PublicImageID string                     `json:"public_image_id,omitempty"`
-	Filename      string                     `json:"filename"`
-	Created       int64                      `json:"created"`
-	HasLLM        bool                       `json:"has_llm"`
-	HasImage      bool                       `json:"has_image"`
-	HasEmbeddings bool                       `json:"has_embeddings"`
-	HasMultimodal bool                       `json:"has_multimodal"`
-	HasVoice      bool                       `json:"has_voice"`
-	HasMusic      bool                       `json:"has_music"`
-	ModelHash     string                     `json:"model_hash"`
-	ConfigHash    string                     `json:"config_hash"`
-	Capabilities  catalog.Capabilities       `json:"capabilities"`
-	Options       map[string]json.RawMessage `json:"options,omitempty"`
-	BackendMode   string                     `json:"backend_mode"`
-	Source        string                     `json:"source"`
-	NodeID        string                     `json:"node_id"`
-	NodeURL       string                     `json:"node_url,omitempty"`
-	Available     bool                       `json:"available"`
+	PublicID      string                          `json:"public_id"`
+	LocalID       string                          `json:"local_id"`
+	ImageID       string                          `json:"image_id,omitempty"`
+	PublicImageID string                          `json:"public_image_id,omitempty"`
+	Filename      string                          `json:"filename"`
+	Created       int64                           `json:"created"`
+	HasLLM        bool                            `json:"has_llm"`
+	HasImage      bool                            `json:"has_image"`
+	HasEmbeddings bool                            `json:"has_embeddings"`
+	HasMultimodal bool                            `json:"has_multimodal"`
+	HasVoice      bool                            `json:"has_voice"`
+	HasMusic      bool                            `json:"has_music"`
+	ModelHash     string                          `json:"model_hash"`
+	ConfigHash    string                          `json:"config_hash"`
+	Capabilities  catalog.Capabilities            `json:"capabilities"`
+	Options       map[string]json.RawMessage      `json:"options,omitempty"`
+	BackendMode   string                          `json:"backend_mode"`
+	Source        string                          `json:"source"`
+	NodeID        string                          `json:"node_id"`
+	NodeURL       string                          `json:"node_url,omitempty"`
+	Available     bool                            `json:"available"`
+	Benchmark     *routerbenchmark.ModelBenchmark `json:"benchmark,omitempty"`
 }
 
 type Snapshot struct {

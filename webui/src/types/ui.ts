@@ -1,4 +1,4 @@
-import type { CookComponent, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, RouterProcessStatus } from "./api";
+import type { BenchmarkRecord, BenchmarkSection, BenchmarkType, CookComponent, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, RouterProcessStatus } from "./api";
 import type { Options } from "./json";
 
 export type CookMode = "quick" | "constructor";
@@ -81,6 +81,14 @@ export interface AppState {
   csrf: string;
   inventory: InventoryResponse | null;
   router: RouterProcessStatus | null;
+  benchmark: {
+    modelKey: string;
+    type: BenchmarkType;
+    sections: BenchmarkSection[];
+    record: BenchmarkRecord | null;
+    running: boolean;
+    error: string;
+  };
   activeTab: string;
   activeCookMode: CookMode;
   activePalette: PaletteName;

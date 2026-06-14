@@ -1,6 +1,8 @@
 import { state } from "./state";
 import { elements } from "./elements";
 import { renderConstructor } from "./constructor";
+import { benchmarkCompactLabel } from "./benchmark-data";
+import { renderBenchmarks } from "./benchmarks";
 import { renderSimpleCook } from "./simple-cook";
 import {
   filteredFiles,
@@ -30,6 +32,7 @@ export function showApp(): void {
 export function renderInventory(): void {
   renderNodes();
   renderTables();
+  renderBenchmarks();
   renderSimpleCook();
   renderConstructor();
   renderRecipes();
@@ -61,6 +64,7 @@ export function renderTables(): void {
       <td>${escapeHTML(model.backend_mode || "")}</td>
       <td>${escapeHTML(capabilities(model))}</td>
       <td>${escapeHTML(optionSummary(model.options))}</td>
+      <td>${escapeHTML(benchmarkCompactLabel(model))}</td>
       <td>${model.available ? "yes" : "no"}</td>
     </tr>
   `).join("");

@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"tensors-router/internal/auth"
+	routerbenchmark "tensors-router/internal/benchmark"
+	"tensors-router/internal/buildinfo"
 	"tensors-router/internal/catalog"
 	routercluster "tensors-router/internal/cluster"
 	"tensors-router/internal/config"
@@ -24,8 +26,6 @@ import (
 	"tensors-router/internal/recipes"
 	routerupdate "tensors-router/internal/update"
 )
-
-const version = "0.1.0"
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -43,8 +43,10 @@ func run(args []string) error {
 		return runServe(args[1:])
 	case "download":
 		return runDownload(args[1:])
+	case "benchmark":
+		return runBenchmark(args[1:])
 	case "version":
-		fmt.Println(version)
+		fmt.Println(buildinfo.Current())
 		return nil
 	case "-h", "--help", "help":
 		return usage()
@@ -64,6 +66,7 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
+	log.Printf("tensors-router build %s", buildinfo.Current())
 	serveLogger := log.Default()
 	if !cfg.Logging.Enabled {
 		serveLogger = log.New(io.Discard, "", 0)
@@ -81,6 +84,10 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
+	benchmarkStore, err := routerbenchmark.NewStore(cfg.Cluster.StoreDir)
+	if err != nil {
+		return err
+	}
 	localModels, err := modelCatalog.List()
 	if err != nil {
 		return err
@@ -94,7 +101,7 @@ func runServe(args []string) error {
 	if cfg.Cluster.Role == routercluster.RoleMaster {
 		localSource = routercluster.SourceMaster
 	}
-	if err := registry.UpdateLocal(routercluster.LocalModelsWithBackendMode(localModels, cfg.Cluster.NodeID, cfg.Cluster.PublicURL, localSource, cfg.Backend.Mode)); err != nil {
+	if err := registry.UpdateLocal(withModelBenchmarks(routercluster.LocalModelsWithBackendMode(localModels, cfg.Cluster.NodeID, cfg.Cluster.PublicURL, localSource, cfg.Backend.Mode), benchmarkStore)); err != nil {
 		return err
 	}
 	clusterClient := routercluster.NewClient(cfg.Cluster.Token, clusterClientTargets(cfg)...)
@@ -131,22 +138,23 @@ func runServe(args []string) error {
 	}
 
 	router := proxy.NewService(proxy.ServiceConfig{
-		Backend:       textBackend,
-		TextBackend:   textBackend,
-		ImageBackend:  imageBackend,
-		BackendMode:   cfg.Backend.Mode,
-		Catalog:       modelCatalog,
-		Registry:      registry,
-		ClusterToken:  cfg.Cluster.Token,
-		ClusterClient: clusterClient,
-		ClusterRole:   cfg.Cluster.Role,
-		NodeID:        cfg.Cluster.NodeID,
-		NodeURL:       cfg.Cluster.PublicURL,
-		SlaveURLs:     cfg.Cluster.SlaveURLs,
-		ConfigDir:     cfg.Models.ConfigDir,
-		FileRoots:     cfg.Models.FileRoots,
-		RecipeStore:   recipeStore,
-		Logger:        serveLogger,
+		Backend:        textBackend,
+		TextBackend:    textBackend,
+		ImageBackend:   imageBackend,
+		BackendMode:    cfg.Backend.Mode,
+		Catalog:        modelCatalog,
+		Registry:       registry,
+		ClusterToken:   cfg.Cluster.Token,
+		ClusterClient:  clusterClient,
+		ClusterRole:    cfg.Cluster.Role,
+		NodeID:         cfg.Cluster.NodeID,
+		NodeURL:        cfg.Cluster.PublicURL,
+		SlaveURLs:      cfg.Cluster.SlaveURLs,
+		ConfigDir:      cfg.Models.ConfigDir,
+		FileRoots:      cfg.Models.FileRoots,
+		RecipeStore:    recipeStore,
+		BenchmarkStore: benchmarkStore,
+		Logger:         serveLogger,
 	})
 	routercluster.StartSync(ctx, syncConfig, registry, clusterClient, serveLogger)
 	startupModel := strings.TrimSpace(cfg.Models.StartupModel)
@@ -275,6 +283,21 @@ func usage() error {
 	fmt.Println("usage:")
 	fmt.Println("  tensors-router serve --config config.yaml")
 	fmt.Println("  tensors-router download --config config.yaml")
+	fmt.Println("  tensors-router benchmark --model model-id")
 	fmt.Println("  tensors-router version")
 	return nil
+}
+
+func withModelBenchmarks(models []routercluster.Model, store *routerbenchmark.Store) []routercluster.Model {
+	if store == nil {
+		return models
+	}
+	for index := range models {
+		benchmark, ok, err := store.ModelBenchmark(models[index].NodeID, models[index].LocalID)
+		if err != nil || !ok {
+			continue
+		}
+		models[index].Benchmark = &benchmark
+	}
+	return models
 }

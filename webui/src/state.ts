@@ -34,6 +34,14 @@ export const state: AppState = {
   csrf: "",
   inventory: null,
   router: null,
+  benchmark: {
+    modelKey: "",
+    type: "general",
+    sections: ["runtime", "llm", "embed", "image", "voice", "music"],
+    record: null,
+    running: false,
+    error: ""
+  },
   activeTab: "router",
   activeCookMode: "quick",
   activePalette: "configs",

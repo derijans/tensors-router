@@ -9,6 +9,14 @@ import {
   logout,
   restartRouter
 } from "./api";
+import {
+  loadSelectedBenchmark,
+  runSelectedBenchmark,
+  selectBenchmarkModel,
+  selectBenchmarkType,
+  toggleAllBenchmarkSections,
+  updateBenchmarkSections
+} from "./benchmarks";
 import { closestElement, elementTarget, queryElements } from "./dom";
 import { elements } from "./elements";
 import { state } from "./state";
@@ -130,6 +138,17 @@ elements.logoutButton.addEventListener("click", () => runTask(handleLogout));
 
 elements.refreshButton.addEventListener("click", () => runTask(refreshAll));
 elements.filterInput.addEventListener("input", renderTables);
+elements.benchmarkModelSelect.addEventListener("change", () => {
+  selectBenchmarkModel(elements.benchmarkModelSelect.value);
+  runTask(loadSelectedBenchmark);
+});
+elements.benchmarkTypeSelect.addEventListener("change", () => selectBenchmarkType(elements.benchmarkTypeSelect.value));
+elements.benchmarkAllSections.addEventListener("change", () => toggleAllBenchmarkSections(elements.benchmarkAllSections.checked));
+elements.benchmarkSections.addEventListener("change", updateBenchmarkSections);
+elements.runBenchmarkButton.addEventListener("click", () => runTask(async () => {
+  await runSelectedBenchmark();
+  await refreshInventory();
+}));
 elements.constructorFilterInput.addEventListener("input", renderConstructor);
 
 elements.launchButton.addEventListener("click", () => runTask(handleLaunchRouter));

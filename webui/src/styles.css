@@ -322,7 +322,10 @@ td {
 .button-strip,
 .cook-actions,
 .palette-tabs,
-.mode-tabs {
+.mode-tabs,
+.section-checks,
+.metric-list,
+.change-list {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -330,7 +333,7 @@ td {
 
 .tabs {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
   border: 1px solid rgba(38, 56, 74, .72);
   border-radius: 8px;
@@ -477,6 +480,63 @@ td {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 16px;
+}
+
+.benchmark-controls {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(170px, 220px) auto minmax(280px, 1.4fr);
+  gap: 12px;
+  align-items: end;
+}
+
+.section-checks {
+  align-items: center;
+}
+
+.benchmark-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.benchmark-card,
+.benchmark-row {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(38, 57, 73, .95);
+  border-radius: 8px;
+  background: rgba(6, 13, 22, .9);
+  padding: 12px;
+}
+
+.benchmark-status {
+  width: max-content;
+  border: 1px solid rgba(38, 57, 73, .95);
+  border-radius: 999px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.benchmark-status.success {
+  border-color: rgba(183, 255, 57, .48);
+  color: var(--lime);
+}
+
+.benchmark-status.failed {
+  border-color: rgba(255, 95, 122, .5);
+  color: var(--red);
+}
+
+.benchmark-status.partial,
+.benchmark-status.skipped {
+  border-color: rgba(255, 196, 77, .52);
+  color: var(--amber);
+}
+
+.benchmark-history {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 .table-wrap {

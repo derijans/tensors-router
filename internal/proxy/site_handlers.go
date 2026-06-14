@@ -193,7 +193,7 @@ func (service *Service) localNodeInventory(ctx context.Context) (siteapi.NodeInv
 
 func (service *Service) siteModels() []cluster.Model {
 	if service.registry != nil {
-		return service.registry.Models()
+		return service.withBenchmarks(service.registry.Models())
 	}
 	models, err := service.localClusterModels()
 	if err != nil {
@@ -207,7 +207,7 @@ func (service *Service) localClusterModels() ([]cluster.Model, error) {
 	if err != nil {
 		return nil, err
 	}
-	return cluster.LocalModelsWithBackendMode(models, service.nodeID, service.nodeURL, service.localSource(), service.backendMode), nil
+	return service.withBenchmarks(cluster.LocalModelsWithBackendMode(models, service.nodeID, service.nodeURL, service.localSource(), service.backendMode)), nil
 }
 
 func (service *Service) localSource() string {

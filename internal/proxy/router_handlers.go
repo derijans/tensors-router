@@ -21,6 +21,10 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/inventory":
 		service.handleSiteInventory(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/benchmarks":
+		service.handleBenchmarks(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/benchmarks/run":
+		service.handleBenchmarkRun(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/cook/preview":
 		service.handleSiteCookPreview(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/cook/apply":
@@ -42,6 +46,14 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/site/inventory":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeSiteInventory(w, r)
+		}
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/benchmarks":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeBenchmarks(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/benchmarks/run":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeBenchmarkRun(w, r)
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/configs":
 		if service.requireClusterToken(w, r) {
@@ -76,7 +88,7 @@ func (service *Service) handleRouterModels(w http.ResponseWriter) {
 	if service.registry != nil {
 		openai.WriteJSON(w, http.StatusOK, map[string]any{
 			"object": "list",
-			"data":   service.registry.Models(),
+			"data":   service.withBenchmarks(service.registry.Models()),
 		})
 		return
 	}
@@ -88,13 +100,15 @@ func (service *Service) handleRouterModels(w http.ResponseWriter) {
 	}
 	openai.WriteJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
-		"data":   cluster.LocalModelsWithBackendMode(models, "local", "", cluster.SourceLocal, service.backendMode),
+		"data":   service.withBenchmarks(cluster.LocalModelsWithBackendMode(models, "local", "", cluster.SourceLocal, service.backendMode)),
 	})
 }
 
 func (service *Service) handleNodeModels(w http.ResponseWriter) {
 	if service.registry != nil {
-		openai.WriteJSON(w, http.StatusOK, service.registry.Snapshot())
+		snapshot := service.registry.Snapshot()
+		snapshot.Models = service.withBenchmarks(snapshot.Models)
+		openai.WriteJSON(w, http.StatusOK, snapshot)
 		return
 	}
 
@@ -105,7 +119,7 @@ func (service *Service) handleNodeModels(w http.ResponseWriter) {
 	}
 	openai.WriteJSON(w, http.StatusOK, cluster.Snapshot{
 		NodeID: "local",
-		Models: cluster.LocalModelsWithBackendMode(models, "local", "", cluster.SourceLocal, service.backendMode),
+		Models: service.withBenchmarks(cluster.LocalModelsWithBackendMode(models, "local", "", cluster.SourceLocal, service.backendMode)),
 	})
 }
 

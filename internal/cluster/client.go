@@ -148,8 +148,9 @@ func joinedURL(baseURL string, path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/" + strings.TrimLeft(path, "/")
-	parsed.RawQuery = ""
+	requestPath, requestQuery, _ := strings.Cut(path, "?")
+	parsed.Path = strings.TrimRight(parsed.Path, "/") + "/" + strings.TrimLeft(requestPath, "/")
+	parsed.RawQuery = requestQuery
 	return parsed.String(), nil
 }
 

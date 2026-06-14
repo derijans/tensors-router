@@ -118,13 +118,16 @@ jobs:
           TARGET_GOARM: ${{ matrix.target.goarm }}
           OUTPUT: dist/${{ matrix.target.binary }}
           WEBUI_OUTPUT: dist/${{ matrix.target.webui_binary }}
+          RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
         run: |
           mkdir -p dist
           if [ -n "$TARGET_GOARM" ]; then
             export GOARM="$TARGET_GOARM"
           fi
-          go build -buildvcs=false -trimpath -ldflags "-s -w" -o "$OUTPUT" ./cmd/tensors-router
-          go build -buildvcs=false -trimpath -ldflags "-s -w" -o "$WEBUI_OUTPUT" ./cmd/tensor-router-webui
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          LDFLAGS="-s -w -X tensors-router/internal/buildinfo.Version=$RELEASE_TAG_NAME -X tensors-router/internal/buildinfo.Commit=$GITHUB_SHA -X tensors-router/internal/buildinfo.Date=$BUILD_DATE"
+          go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "$OUTPUT" ./cmd/tensors-router
+          go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "$WEBUI_OUTPUT" ./cmd/tensor-router-webui
 
       - name: Package
         env:

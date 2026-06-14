@@ -87,6 +87,10 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		server.handleRouterAction(w, r, "kill")
 	case r.URL.Path == "/api/inventory" && r.Method == http.MethodGet:
 		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/inventory")
+	case r.URL.Path == "/api/benchmarks" && r.Method == http.MethodGet:
+		server.proxyRouter(w, r, http.MethodGet, "/router/v1/benchmarks")
+	case r.URL.Path == "/api/benchmarks/run" && r.Method == http.MethodPost:
+		server.proxyRouter(w, r, http.MethodPost, "/router/v1/benchmarks/run")
 	case r.URL.Path == "/api/cook/preview" && r.Method == http.MethodPost:
 		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/cook/preview")
 	case r.URL.Path == "/api/cook/apply" && r.Method == http.MethodPost:
@@ -167,6 +171,9 @@ func (server *Server) proxyRouter(w http.ResponseWriter, r *http.Request, method
 		body = bytes.NewReader(content)
 	}
 	target := strings.TrimRight(server.router.URL(), "/") + path
+	if strings.TrimSpace(r.URL.RawQuery) != "" {
+		target += "?" + r.URL.RawQuery
+	}
 	request, err := http.NewRequestWithContext(r.Context(), method, target, body)
 	if err != nil {
 		writeWebError(w, http.StatusBadRequest, err.Error())

@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	routerbenchmark "tensors-router/internal/benchmark"
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/hardware"
@@ -42,44 +43,47 @@ type ModelCatalog interface {
 }
 
 type ServiceConfig struct {
-	Backend       Backend
-	TextBackend   Backend
-	ImageBackend  Backend
-	BackendMode   string
-	Catalog       ModelCatalog
-	Registry      *cluster.Registry
-	ClusterToken  string
-	ClusterClient *cluster.Client
-	ClusterRole   string
-	NodeID        string
-	NodeURL       string
-	SlaveURLs     []string
-	ConfigDir     string
-	FileRoots     []string
-	RecipeStore   *recipes.Store
-	Hardware      hardware.Source
-	Logger        *log.Logger
+	Backend        Backend
+	TextBackend    Backend
+	ImageBackend   Backend
+	BackendMode    string
+	Catalog        ModelCatalog
+	Registry       *cluster.Registry
+	ClusterToken   string
+	ClusterClient  *cluster.Client
+	ClusterRole    string
+	NodeID         string
+	NodeURL        string
+	SlaveURLs      []string
+	ConfigDir      string
+	FileRoots      []string
+	RecipeStore    *recipes.Store
+	BenchmarkStore *routerbenchmark.Store
+	Hardware       hardware.Source
+	Logger         *log.Logger
 }
 
 type Service struct {
-	backend       Backend
-	textRuntime   *backendRuntime
-	imageRuntime  *backendRuntime
-	backendMode   string
-	catalog       ModelCatalog
-	registry      *cluster.Registry
-	clusterToken  string
-	clusterClient *cluster.Client
-	clusterRole   string
-	nodeID        string
-	nodeURL       string
-	slaveURLs     []string
-	configDir     string
-	fileRoots     []string
-	recipeStore   *recipes.Store
-	hardware      hardware.Source
-	client        *http.Client
-	logger        *log.Logger
+	backend        Backend
+	textRuntime    *backendRuntime
+	imageRuntime   *backendRuntime
+	backendMode    string
+	catalog        ModelCatalog
+	registry       *cluster.Registry
+	clusterToken   string
+	clusterClient  *cluster.Client
+	clusterRole    string
+	nodeID         string
+	nodeURL        string
+	slaveURLs      []string
+	configDir      string
+	fileRoots      []string
+	recipeStore    *recipes.Store
+	benchmarkStore *routerbenchmark.Store
+	hardware       hardware.Source
+	client         *http.Client
+	logger         *log.Logger
+	benchmarkMu    sync.Mutex
 
 	backendRetryAttempts int
 	backendRetryDelay    time.Duration
@@ -172,22 +176,23 @@ func NewService(config ServiceConfig) *Service {
 		imageRuntime = &backendRuntime{backend: imageBackend, state: newActiveConfigState(), name: "image"}
 	}
 	service := &Service{
-		backend:      textBackend,
-		textRuntime:  textRuntime,
-		imageRuntime: imageRuntime,
-		backendMode:  backendMode,
-		catalog:      config.Catalog,
-		registry:     config.Registry,
-		clusterToken: config.ClusterToken,
-		clusterRole:  clusterRole,
-		nodeID:       nodeID,
-		nodeURL:      strings.TrimSpace(config.NodeURL),
-		slaveURLs:    append([]string{}, config.SlaveURLs...),
-		configDir:    strings.TrimSpace(config.ConfigDir),
-		fileRoots:    append([]string{}, config.FileRoots...),
-		recipeStore:  config.RecipeStore,
-		hardware:     config.Hardware,
-		logger:       logger,
+		backend:        textBackend,
+		textRuntime:    textRuntime,
+		imageRuntime:   imageRuntime,
+		backendMode:    backendMode,
+		catalog:        config.Catalog,
+		registry:       config.Registry,
+		clusterToken:   config.ClusterToken,
+		clusterRole:    clusterRole,
+		nodeID:         nodeID,
+		nodeURL:        strings.TrimSpace(config.NodeURL),
+		slaveURLs:      append([]string{}, config.SlaveURLs...),
+		configDir:      strings.TrimSpace(config.ConfigDir),
+		fileRoots:      append([]string{}, config.FileRoots...),
+		recipeStore:    config.RecipeStore,
+		benchmarkStore: config.BenchmarkStore,
+		hardware:       config.Hardware,
+		logger:         logger,
 		client: &http.Client{
 			Timeout: 0,
 		},
