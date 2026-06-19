@@ -218,11 +218,6 @@ func createBackends(ctx context.Context, cfg config.Config) (map[string]proxy.Ba
 	if err != nil {
 		return nil, nil, err
 	}
-	if cfg.Backend.Mode != proxy.BackendModeLlamaSDCPP {
-		if err := koboldManager.Start(ctx); err != nil {
-			return nil, nil, err
-		}
-	}
 
 	llamaManager, err := native.NewLlamaManager(native.ProcessConfig{
 		BackendURL: cfg.Llama.BackendURL,
@@ -247,6 +242,12 @@ func createBackends(ctx context.Context, cfg config.Config) (map[string]proxy.Ba
 	})
 	if err != nil {
 		return nil, nil, err
+	}
+
+	if cfg.Backend.Mode != proxy.BackendModeLlamaSDCPP {
+		if err := koboldManager.Start(ctx); err != nil {
+			return nil, nil, err
+		}
 	}
 
 	families := map[string]proxy.BackendFamilyConfig{

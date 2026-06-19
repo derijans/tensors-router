@@ -19,6 +19,11 @@ import (
 	"tensors-router/internal/webui"
 )
 
+const (
+	webUIServerShutdownTimeout   = 15 * time.Second
+	managedRouterShutdownTimeout = 45 * time.Second
+)
+
 func main() {
 	if err := run(os.Args[1:]); err != nil {
 		log.Fatal(err)
@@ -82,21 +87,25 @@ func run(args []string) error {
 
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), webUIServerShutdownTimeout)
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			return err
 		}
-		return routerProcess.Shutdown(shutdownCtx)
+		return shutdownManagedRouter(routerProcess)
 	case err := <-errs:
 		if err == nil || err == http.ErrServerClosed {
 			return nil
 		}
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		_ = routerProcess.Shutdown(shutdownCtx)
+		_ = shutdownManagedRouter(routerProcess)
 		return err
 	}
+}
+
+func shutdownManagedRouter(routerProcess *webui.RouterProcess) error {
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), managedRouterShutdownTimeout)
+	defer cancel()
+	return routerProcess.Shutdown(shutdownCtx)
 }
 
 type tokenValue struct {

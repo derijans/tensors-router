@@ -1,6 +1,6 @@
-//go:build !windows
+//go:build linux
 
-package native
+package processcontrol
 
 import (
 	"os"
@@ -8,13 +8,14 @@ import (
 	"syscall"
 )
 
-func prepareCommand(cmd *exec.Cmd, config ProcessConfig) {
+func Prepare(cmd *exec.Cmd, options Options) {
 	cmd.SysProcAttr = &syscall.SysProcAttr{
-		Setpgid: true,
+		Setpgid:   true,
+		Pdeathsig: syscall.SIGKILL,
 	}
 }
 
-func terminateCommand(cmd *exec.Cmd) error {
+func Interrupt(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil
 	}
@@ -24,7 +25,7 @@ func terminateCommand(cmd *exec.Cmd) error {
 	return cmd.Process.Signal(os.Interrupt)
 }
 
-func killCommand(cmd *exec.Cmd) error {
+func Kill(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil
 	}

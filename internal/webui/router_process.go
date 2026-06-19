@@ -7,11 +7,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
 
+	"tensors-router/internal/processcontrol"
 	"tensors-router/internal/siteapi"
 )
 
@@ -21,7 +21,7 @@ type RouterProcess struct {
 	url      string
 	managed  bool
 	cmd      *exec.Cmd
-	waitDone chan struct{}
+	waitDone chan error
 	lastErr  string
 	client   *http.Client
 }
@@ -117,12 +117,13 @@ func (process *RouterProcess) Launch(ctx context.Context) error {
 	cmd.Dir = filepath.Dir(binaryPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
+	processcontrol.Prepare(cmd, processcontrol.Options{})
 	if err := cmd.Start(); err != nil {
 		process.lastErr = err.Error()
 		process.mu.Unlock()
 		return err
 	}
-	waitDone := make(chan struct{})
+	waitDone := make(chan error, 1)
 	process.cmd = cmd
 	process.waitDone = waitDone
 	process.lastErr = ""
@@ -177,7 +178,7 @@ func (process *RouterProcess) waitHealthy(ctx context.Context, timeout time.Dura
 	return fmt.Errorf("router did not become healthy within %s", timeout)
 }
 
-func (process *RouterProcess) waitForExit(cmd *exec.Cmd, waitDone chan<- struct{}) {
+func (process *RouterProcess) waitForExit(cmd *exec.Cmd, waitDone chan<- error) {
 	err := cmd.Wait()
 	process.mu.Lock()
 	if process.cmd == cmd {
@@ -188,26 +189,10 @@ func (process *RouterProcess) waitForExit(cmd *exec.Cmd, waitDone chan<- struct{
 		process.lastErr = err.Error()
 	}
 	process.mu.Unlock()
+	waitDone <- err
 	close(waitDone)
 }
 
-func stopRouterProcess(ctx context.Context, cmd *exec.Cmd, waitDone <-chan struct{}) error {
-	if runtime.GOOS == "windows" {
-		_ = cmd.Process.Kill()
-		if waitDone != nil {
-			<-waitDone
-		}
-		return nil
-	}
-	_ = cmd.Process.Signal(os.Interrupt)
-	select {
-	case <-ctx.Done():
-		_ = cmd.Process.Kill()
-		return ctx.Err()
-	case <-time.After(10 * time.Second):
-		_ = cmd.Process.Kill()
-		return nil
-	case <-waitDone:
-		return nil
-	}
+func stopRouterProcess(ctx context.Context, cmd *exec.Cmd, waitDone <-chan error) error {
+	return processcontrol.Stop(ctx, cmd, waitDone, 35*time.Second, 5*time.Second)
 }

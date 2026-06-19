@@ -17,6 +17,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"tensors-router/internal/processcontrol"
 )
 
 type ProcessConfig struct {
@@ -151,7 +153,7 @@ func (manager *Manager) startLocked(ctx context.Context) error {
 	}
 
 	cmd := exec.Command(manager.config.BinaryPath, manager.LaunchArguments()...)
-	prepareCommand(cmd, manager.config)
+	processcontrol.Prepare(cmd, processcontrol.Options{HideWindow: manager.config.HideWindow})
 	cmd.Stdout = processOutput
 	cmd.Stderr = processOutput
 
@@ -171,7 +173,7 @@ func (manager *Manager) startLocked(ctx context.Context) error {
 	}()
 
 	if err := manager.waitHealthy(ctx, 90*time.Second); err != nil {
-		_ = killCommand(cmd)
+		_ = processcontrol.Kill(cmd)
 		manager.cmd = nil
 		manager.logFile = nil
 		manager.waitDone = nil
@@ -207,32 +209,7 @@ func (manager *Manager) stopLocked(ctx context.Context) error {
 }
 
 func stopManagedProcess(ctx context.Context, cmd *exec.Cmd, waitDone <-chan error) error {
-	if err := terminateCommand(cmd); err != nil {
-		_ = killCommand(cmd)
-	}
-	if waitDone == nil {
-		_ = killCommand(cmd)
-		return nil
-	}
-
-	select {
-	case <-ctx.Done():
-		_ = killCommand(cmd)
-		select {
-		case <-waitDone:
-		case <-time.After(5 * time.Second):
-		}
-		return ctx.Err()
-	case <-time.After(10 * time.Second):
-		_ = killCommand(cmd)
-		select {
-		case <-waitDone:
-		case <-time.After(5 * time.Second):
-		}
-	case <-waitDone:
-	}
-
-	return nil
+	return processcontrol.Stop(ctx, cmd, waitDone, 10*time.Second, 5*time.Second)
 }
 
 func closeLogFile(logFile *os.File) error {

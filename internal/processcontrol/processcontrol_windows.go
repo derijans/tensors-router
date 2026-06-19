@@ -1,4 +1,4 @@
-package kobold
+package processcontrol
 
 import (
 	"os"
@@ -9,8 +9,8 @@ import (
 
 const createNoWindow = 0x08000000
 
-func prepareCommand(cmd *exec.Cmd, config ProcessConfig) {
-	if !config.HideWindow {
+func Prepare(cmd *exec.Cmd, options Options) {
+	if !options.HideWindow {
 		return
 	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{
@@ -19,14 +19,14 @@ func prepareCommand(cmd *exec.Cmd, config ProcessConfig) {
 	}
 }
 
-func terminateCommand(cmd *exec.Cmd) error {
+func Interrupt(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil
 	}
 	return cmd.Process.Signal(os.Interrupt)
 }
 
-func killCommand(cmd *exec.Cmd) error {
+func Kill(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil
 	}
