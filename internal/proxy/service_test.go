@@ -596,6 +596,23 @@ func TestFallbackWaitsAfterInactiveCoreResponse(t *testing.T) {
 	}
 }
 
+func TestBackendRetryResultRejectsBodylessResponse(t *testing.T) {
+	service, _ := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	response := &http.Response{
+		StatusCode: http.StatusBadRequest,
+		Header:     http.Header{},
+	}
+
+	result := service.backendRetryResult(response, nil, "/v1/chat/completions")
+
+	if !result.retry {
+		t.Fatalf("bodyless response was treated as usable")
+	}
+	if !errors.Is(result.err, errMissingBackendResponse) {
+		t.Fatalf("unexpected error %v", result.err)
+	}
+}
+
 func TestFreshLoadBackendTransportFailureRecoversThroughRestart(t *testing.T) {
 	var posts atomic.Int32
 	connectionRefused := errors.New("dial tcp 127.0.0.1:5001: connect: connection refused")
@@ -1235,6 +1252,39 @@ func TestStreamingResponseDropsInvalidDataLine(t *testing.T) {
 	}
 	if strings.Contains(recorder.Body.String(), "<script>") {
 		t.Fatalf("invalid event data was reflected: %s", recorder.Body.String())
+	}
+}
+
+func TestModelProxyResponseHandlesMissingBackendResponse(t *testing.T) {
+	tests := []struct {
+		name     string
+		response *http.Response
+	}{
+		{name: "nil response"},
+		{
+			name: "nil body",
+			response: &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{},
+			},
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+
+			if err := writeModelProxyResponse(recorder, testCase.response, "a", true); err != nil {
+				t.Fatal(err)
+			}
+
+			if recorder.Code != http.StatusBadGateway {
+				t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+			}
+			if !strings.Contains(recorder.Body.String(), "backend returned no response") {
+				t.Fatalf("missing backend error body: %s", recorder.Body.String())
+			}
+		})
 	}
 }
 

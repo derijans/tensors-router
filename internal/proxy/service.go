@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"io"
@@ -172,6 +173,8 @@ type imageModelObject struct {
 }
 
 var quotedModelFieldName = []byte(`"model"`)
+
+var errMissingBackendResponse = errors.New("backend returned no response")
 
 func NewService(config ServiceConfig) *Service {
 	logger := config.Logger
@@ -868,6 +871,9 @@ func writeModelProxyResponse(w http.ResponseWriter, response *http.Response, vir
 	if !rewriteModel {
 		return writeProxyResponse(w, response, virtualModelID, false)
 	}
+	if response == nil || response.Body == nil {
+		return writeMissingBackendResponse(w)
+	}
 	defer response.Body.Close()
 	if isEventStream(response.Header) {
 		return writeEventStreamResponse(w, response, virtualModelID)
@@ -1021,7 +1027,10 @@ func (service *Service) backendRetryResult(response *http.Response, err error, p
 		return backendRetryResult{retry: true, err: err}
 	}
 	if response == nil {
-		return backendRetryResult{retry: true}
+		return backendRetryResult{retry: true, err: errMissingBackendResponse}
+	}
+	if response.Body == nil {
+		return backendRetryResult{retry: true, status: response.StatusCode, err: errMissingBackendResponse}
 	}
 	if response.StatusCode >= 500 {
 		return backendRetryResult{
@@ -1779,6 +1788,9 @@ func jsonStringSelector(raw map[string]json.RawMessage, key string) (string, boo
 }
 
 func writeProxyResponse(w http.ResponseWriter, response *http.Response, virtualModelID string, rewriteModel bool) error {
+	if response == nil || response.Body == nil {
+		return writeMissingBackendResponse(w)
+	}
 	defer response.Body.Close()
 
 	if rewriteModel && response.StatusCode >= 200 && response.StatusCode < 300 && isEventStream(response.Header) {
@@ -1810,6 +1822,11 @@ func writeProxyResponse(w http.ResponseWriter, response *http.Response, virtualM
 			return readErr
 		}
 	}
+}
+
+func writeMissingBackendResponse(w http.ResponseWriter) error {
+	openai.WriteError(w, http.StatusBadGateway, "backend_error", errMissingBackendResponse.Error())
+	return nil
 }
 
 func writeJSONResponseWithVirtualModel(w http.ResponseWriter, response *http.Response, virtualModelID string) error {
