@@ -205,7 +205,7 @@ func (catalog *Catalog) withMetadata(model Model) Model {
 		return model
 	}
 
-	model.HasImage = strings.TrimSpace(metadata.SDModel) != ""
+	model.HasImage = metadata.ImageModelPath() != ""
 	model.HasEmbeddings = strings.TrimSpace(metadata.EmbeddingsModel) != ""
 	model.HasMultimodal = modelHasValue(metadata.MMProj)
 	model.HasVoice = hasVoiceModel(metadata)
@@ -213,7 +213,7 @@ func (catalog *Catalog) withMetadata(model Model) Model {
 	model.HasLLM = hasLLMModel(metadata)
 	model.BackendMode = strings.TrimSpace(metadata.BackendMode)
 	if model.HasImage {
-		model.ImageModelPath = strings.TrimSpace(metadata.SDModel)
+		model.ImageModelPath = metadata.ImageModelPath()
 		model.ImageModelName = filenameStem(model.ImageModelPath)
 		model.ImageID = model.ID + "-" + model.ImageModelName
 	}
@@ -241,6 +241,8 @@ func hasVoiceModel(metadata configMetadata) bool {
 	return strings.TrimSpace(metadata.WhisperModel) != "" ||
 		strings.TrimSpace(metadata.TTSModel) != "" ||
 		strings.TrimSpace(metadata.TTSWAVTokenizer) != "" ||
+		strings.TrimSpace(metadata.TalkerModel) != "" ||
+		strings.TrimSpace(metadata.Code2WAVModel) != "" ||
 		strings.TrimSpace(metadata.TTSDir) != ""
 }
 

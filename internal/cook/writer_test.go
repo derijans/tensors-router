@@ -174,7 +174,7 @@ func TestWriterPreservesAndOverridesBackendMode(t *testing.T) {
 func TestWriterComposesVoiceMusicRawFilesWithOptionKeys(t *testing.T) {
 	dir := packageTempDir(t)
 	root := packageTempDir(t)
-	voicePath := filepath.Join(root, "voice.gguf")
+	voicePath := filepath.Join(root, "talker.gguf")
 	musicPath := filepath.Join(root, "musicvae.gguf")
 	if err := os.WriteFile(voicePath, []byte("voice"), 0o644); err != nil {
 		t.Fatal(err)
@@ -187,7 +187,7 @@ func TestWriterComposesVoiceMusicRawFilesWithOptionKeys(t *testing.T) {
 	_, err := writer.Apply(NodeConfigRequest{
 		ID: "audio",
 		Components: []Component{
-			{Kind: KindVoice, Source: SourceFile, FilePath: voicePath, OptionKey: "ttsmodel"},
+			{Kind: KindVoice, Source: SourceFile, FilePath: voicePath, OptionKey: "talkermodel"},
 			{Kind: KindMusic, Source: SourceFile, FilePath: musicPath, OptionKey: "musicvae"},
 		},
 	})
@@ -195,7 +195,7 @@ func TestWriterComposesVoiceMusicRawFilesWithOptionKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := readConfigBody(t, filepath.Join(dir, "audio.kcpps"))
-	if body["ttsmodel"] != voicePath || body["musicvae"] != musicPath || body["nomodel"] != true {
+	if body["talkermodel"] != voicePath || body["musicvae"] != musicPath || body["nomodel"] != true {
 		t.Fatalf("unexpected audio body %#v", body)
 	}
 }
@@ -227,7 +227,9 @@ func TestWriterCopiesOnlySelectedVoiceMusicAndSharedConfigKeys(t *testing.T) {
 		"custom_backend_key":"keep",
 		"model_param":"text.gguf",
 		"sdmodel":"image.safetensors",
-		"whispermodel":"whisper.gguf"
+		"whispermodel":"whisper.gguf",
+		"talkermodel":"talker.gguf",
+		"code2wavmodel":"code2wav.gguf"
 	}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -250,7 +252,7 @@ func TestWriterCopiesOnlySelectedVoiceMusicAndSharedConfigKeys(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := readConfigBody(t, filepath.Join(dir, "audio-shared.kcpps"))
-	if body["quiet"] != true || body["custom_backend_key"] != "keep" || body["whispermodel"] != "whisper.gguf" || body["musicdiffusion"] != "music-diffusion.gguf" || body["nomodel"] != true {
+	if body["quiet"] != true || body["custom_backend_key"] != "keep" || body["whispermodel"] != "whisper.gguf" || body["talkermodel"] != "talker.gguf" || body["code2wavmodel"] != "code2wav.gguf" || body["musicdiffusion"] != "music-diffusion.gguf" || body["nomodel"] != true {
 		t.Fatalf("unexpected shared audio body %#v", body)
 	}
 	if _, ok := body["model_param"]; ok {

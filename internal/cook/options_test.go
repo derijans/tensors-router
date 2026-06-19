@@ -51,6 +51,51 @@ func TestBackendModeOptionAllowsOnlyKnownModes(t *testing.T) {
 	}
 }
 
+func TestOptionCatalogIncludesReleaseCatchUpKeys(t *testing.T) {
+	tests := []struct {
+		key        string
+		backend    string
+		nativeFlag string
+	}{
+		{key: "parallelrequests", backend: "kobold"},
+		{key: "parallel", backend: "llama_sdcpp", nativeFlag: "--parallel"},
+		{key: "cont_batching", backend: "llama_sdcpp", nativeFlag: "--cont-batching"},
+		{key: "cache_ram", backend: "llama_sdcpp", nativeFlag: "--cache-ram"},
+		{key: "spec_type", backend: "llama_sdcpp", nativeFlag: "--spec-type"},
+		{key: "whispermodel", backend: "llama_sdcpp", nativeFlag: "--model"},
+		{key: "talkermodel", backend: "llama_sdcpp", nativeFlag: "--model"},
+		{key: "code2wavmodel", backend: "llama_sdcpp", nativeFlag: "--model-vocoder"},
+		{key: "sddiffusionmodel", backend: "llama_sdcpp", nativeFlag: "--diffusion-model"},
+		{key: "sdbackend", backend: "llama_sdcpp", nativeFlag: "--backend"},
+		{key: "sdtensortyperules", backend: "llama_sdcpp", nativeFlag: "--tensor-type-rules"},
+		{key: "sdvramlimit", backend: "kobold"},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.key, func(t *testing.T) {
+			definition, ok := OptionDefinitionForKey(testCase.key)
+			if !ok {
+				t.Fatalf("missing option %q", testCase.key)
+			}
+			if !containsString(definition.Backends, testCase.backend) {
+				t.Fatalf("option %q missing backend %q: %#v", testCase.key, testCase.backend, definition.Backends)
+			}
+			if definition.NativeFlag != testCase.nativeFlag {
+				t.Fatalf("option %q native flag = %q, want %q", testCase.key, definition.NativeFlag, testCase.nativeFlag)
+			}
+		})
+	}
+}
+
+func containsString(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
+}
+
 func rawJSON(t *testing.T, value any) json.RawMessage {
 	t.Helper()
 	content, err := json.Marshal(value)
