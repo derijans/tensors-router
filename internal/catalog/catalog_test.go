@@ -181,6 +181,8 @@ func TestCapabilitiesIncludeImageEmbeddingsMultimodalAndContext(t *testing.T) {
 		"whispermodel":"C:/models/whisper.gguf",
 		"ttsmodel":"C:/models/tts.gguf",
 		"ttswavtokenizer":"C:/models/tokenizer.gguf",
+		"talkermodel":"C:/models/talker.gguf",
+		"code2wavmodel":"C:/models/code2wav.gguf",
 		"ttsdir":"C:/voices",
 		"ttsgpu":true,
 		"musicllm":"C:/music/llm.gguf",
@@ -210,7 +212,7 @@ func TestCapabilitiesIncludeImageEmbeddingsMultimodalAndContext(t *testing.T) {
 	if model.Capabilities.Multimodal == nil || model.Capabilities.Multimodal.VisionMaxRes != 1024 {
 		t.Fatalf("missing multimodal details %#v", model.Capabilities.Multimodal)
 	}
-	if model.Capabilities.Voice == nil || model.Capabilities.Voice.TTSModel != "C:/models/tts.gguf" || !model.Capabilities.Voice.GPU {
+	if model.Capabilities.Voice == nil || model.Capabilities.Voice.TTSModel != "C:/models/tts.gguf" || model.Capabilities.Voice.TalkerModel != "C:/models/talker.gguf" || model.Capabilities.Voice.Code2WAVModel != "C:/models/code2wav.gguf" || !model.Capabilities.Voice.GPU {
 		t.Fatalf("missing voice details %#v", model.Capabilities.Voice)
 	}
 	if model.Capabilities.Music == nil || model.Capabilities.Music.Diffusion != "C:/music/diffusion.gguf" || !model.Capabilities.Music.LowVRAM {

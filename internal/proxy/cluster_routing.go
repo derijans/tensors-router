@@ -204,7 +204,17 @@ func (service *Service) handleRegistryImageOptions(w http.ResponseWriter, r *htt
 }
 
 func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string, lane string) {
-	route, release, ok := service.acquireRegistryAudioRoute(r, publicID, lane)
+	model, ok := service.registryAudioModel(publicID, lane)
+	if !ok {
+		openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", publicID))
+		return
+	}
+	modelBackendMode, err := service.clusterModelBackendMode(model)
+	if err != nil {
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+	route, release, ok := service.acquireRegistryAudioRoute(r, publicID, lane, modelBackendMode)
 	if !ok {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("model %q has no available replicas", publicID))
 		return
@@ -215,7 +225,6 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 		requestBody = rewriteRequestModel(body, route.LocalID)
 	}
 	var response *http.Response
-	var err error
 	if route.Remote {
 		response, err = service.forwardRemote(r.Context(), r, requestBody, route)
 	} else {
@@ -226,9 +235,11 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 			return
 		}
 		if routeBackendMode == BackendModeLlamaSDCPP {
-			release()
-			openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", "Voice and music routes require a Kobold backend.")
-			return
+			if lane == recipes.KindMusic || !clusterModelSupportsLlamaAudioPath(model, r.URL.Path) {
+				release()
+				openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", "audio route is not supported by the selected split backend config")
+				return
+			}
 		}
 		response, err = service.forwardWithFallback(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readinessText, routeBackendMode)
 	}
@@ -243,11 +254,11 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 	}
 }
 
-func (service *Service) acquireRegistryAudioRoute(r *http.Request, publicID string, lane string) (cluster.Route, func(), bool) {
+func (service *Service) acquireRegistryAudioRoute(r *http.Request, publicID string, lane string, backendMode string) (cluster.Route, func(), bool) {
 	if lane == recipes.KindMusic {
 		return service.registry.AcquireMusic(publicID, service.localBackendAvailableForRoute(r.Context(), BackendModeKobold, readinessText))
 	}
-	return service.registry.AcquireVoice(publicID, service.localBackendAvailableForRoute(r.Context(), BackendModeKobold, readinessText))
+	return service.registry.AcquireVoice(publicID, service.localBackendAvailableForRoute(r.Context(), backendMode, readinessText))
 }
 
 func (service *Service) registryHasAudioModel(publicID string, lane string) bool {
@@ -255,6 +266,27 @@ func (service *Service) registryHasAudioModel(publicID string, lane string) bool
 		return service.registry.HasMusicModel(publicID)
 	}
 	return service.registry.HasVoiceModel(publicID)
+}
+
+func (service *Service) registryAudioModel(publicID string, lane string) (cluster.Model, bool) {
+	if lane == recipes.KindMusic {
+		return service.registry.MusicModel(publicID)
+	}
+	return service.registry.VoiceModel(publicID)
+}
+
+func clusterModelSupportsLlamaAudioPath(model cluster.Model, path string) bool {
+	if model.Capabilities.Voice == nil {
+		return false
+	}
+	switch path {
+	case "/v1/audio/speech":
+		return strings.TrimSpace(model.Capabilities.Voice.TalkerModel) != ""
+	case "/v1/audio/transcriptions":
+		return strings.TrimSpace(model.Capabilities.Voice.WhisperModel) != ""
+	default:
+		return false
+	}
 }
 
 func (service *Service) forwardRemote(ctx context.Context, original *http.Request, body []byte, route cluster.Route) (*http.Response, error) {

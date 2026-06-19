@@ -280,11 +280,25 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	}
 	appendIntArg(&args, "--ctx-size", metadata.ContextSize)
 	appendIntArg(&args, "--threads", metadata.Threads)
+	appendIntArg(&args, "--threads-batch", metadata.BLASThreads)
 	appendIntArg(&args, "--batch-size", metadata.BatchSize)
+	appendIntArg(&args, "--ubatch-size", metadata.UBatchSize)
 	appendIntArg(&args, "--n-gpu-layers", metadata.GPULayers)
 	appendStringArg(&args, "--split-mode", metadata.SplitMode)
 	appendStringArg(&args, "--tensor-split", metadata.TensorSplitValue())
 	appendIntArg(&args, "--main-gpu", nonNegative(metadata.MainGPU))
+	appendIntArg(&args, "--parallel", metadata.Parallel)
+	appendOptionalBoolArg(&args, "--cont-batching", "--no-cont-batching", metadata.ContBatching)
+	appendIntArg(&args, "--cache-ram", metadata.CacheRAM)
+	appendIntArg(&args, "--ctx-checkpoints", metadata.CtxCheckpoints)
+	appendOptionalBoolArg(&args, "--kv-unified", "--no-kv-unified", metadata.KVUnified)
+	appendOptionalBoolArg(&args, "--cache-idle-slots", "--no-cache-idle-slots", metadata.CacheIdleSlots)
+	if metadata.SWAFull {
+		args = append(args, "--swa-full")
+	}
+	appendStringArg(&args, "--spec-type", metadata.SpecType)
+	appendStringArg(&args, "--spec-draft-type-k", metadata.SpecDraftTypeK)
+	appendStringArg(&args, "--spec-draft-type-v", metadata.SpecDraftTypeV)
 	if !metadata.UseMMap {
 		args = append(args, "--no-mmap")
 	}
@@ -294,9 +308,8 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	if strings.TrimSpace(metadata.EmbeddingsModel) != "" {
 		args = append(args, "--embeddings")
 	}
-	if strings.TrimSpace(metadata.QuantKV) != "" {
-		args = append(args, "--cache-type-k", strings.TrimSpace(metadata.QuantKV), "--cache-type-v", strings.TrimSpace(metadata.QuantKV))
-	}
+	appendStringArg(&args, "--cache-type-k", firstNonEmpty(metadata.CacheTypeK, metadata.QuantKV))
+	appendStringArg(&args, "--cache-type-v", firstNonEmpty(metadata.CacheTypeV, metadata.QuantKV))
 	if mmproj := metadata.MMProjPath(); mmproj != "" {
 		args = append(args, "--mmproj", mmproj)
 	}
@@ -305,6 +318,16 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	}
 	appendIntArg(&args, "--image-min-tokens", positive(metadata.VisionMinTokens))
 	appendIntArg(&args, "--image-max-tokens", positive(metadata.VisionMaxTokens))
+	appendStringArg(&args, "--model-vocoder", metadata.Code2WAVModel)
+	appendStringArg(&args, "--api-key-file", metadata.APIKeyFile)
+	appendStringArg(&args, "--log-prompts-dir", metadata.LogPromptsDir)
+	if metadata.Agent {
+		args = append(args, "--agent")
+	}
+	appendStringArg(&args, "--models-dir", metadata.ModelsDir)
+	appendStringArg(&args, "--models-preset", metadata.ModelsPreset)
+	appendIntArg(&args, "--models-max", metadata.ModelsMax)
+	appendOptionalBoolArg(&args, "--models-autoload", "--no-models-autoload", metadata.ModelsAutoload)
 	return args, nil
 }
 
@@ -320,13 +343,42 @@ func sdcppArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 		"--model", modelPath,
 	}
 	appendStringArg(&args, "--vae", metadata.SDVAE)
+	appendStringArg(&args, "--diffusion-model", metadata.SDDiffusionModel)
+	appendStringArg(&args, "--high-noise-diffusion-model", metadata.SDHighNoiseDiffusionModel)
+	appendStringArg(&args, "--uncond-diffusion-model", metadata.SDUncondDiffusionModel)
 	appendStringArg(&args, "--t5xxl", metadata.SDT5XXL)
 	appendStringArg(&args, "--clip_l", firstNonEmpty(metadata.SDClipL, metadata.SDClip1))
 	appendStringArg(&args, "--clip_g", firstNonEmpty(metadata.SDClipG, metadata.SDClip2))
+	appendStringArg(&args, "--llm", metadata.SDLLM)
+	appendStringArg(&args, "--llm-vision", metadata.SDLLMVision)
+	appendStringArg(&args, "--clip-vision", metadata.SDClipVision)
+	appendStringListArg(&args, "--embeddings-connector", metadata.SDEmbeddingsConnectors)
+	appendStringArg(&args, "--control-net", metadata.SDControlNet)
+	appendStringArg(&args, "--pulid-weights", metadata.SDPulidWeights)
+	appendStringArg(&args, "--pulid-id-embedding", metadata.SDPulidIDEmbedding)
+	appendFloatArg(&args, "--pulid-id-weight", metadata.SDPulidIDWeight)
 	appendStringArg(&args, "--upscale-model", metadata.SDUpscaler)
+	appendStringArg(&args, "--backend", metadata.SDBackend)
+	appendStringArg(&args, "--params-backend", metadata.SDParamsBackend)
+	appendStringListArg(&args, "--rpc-servers", metadata.SDRPCServers)
+	appendIntArg(&args, "--max-vram", metadata.SDMaxVRAM)
+	appendIntArg(&args, "--stream-layers", metadata.SDStreamLayers)
+	appendStringListArg(&args, "--tensor-type-rules", metadata.SDTensorTypeRules)
+	appendStringArg(&args, "--vae-format", metadata.SDVAEFormat)
+	appendStringArg(&args, "--lora-model-dir", metadata.SDLoRAModelDir)
+	appendStringArg(&args, "--upscaler-model-dir", metadata.SDHiresUpscalersDir)
 	appendIntArg(&args, "--threads", metadata.SDThreads)
 	if metadata.SDFlashAttention {
 		args = append(args, "--fa")
+	}
+	if metadata.SDDiffusionFlashAttention {
+		args = append(args, "--diffusion-fa")
+	}
+	if metadata.SDDiffusionConvDirect {
+		args = append(args, "--diffusion-conv-direct")
+	}
+	if metadata.SDVAEConvDirect {
+		args = append(args, "--vae-conv-direct")
 	}
 	if metadata.SDOffloadCPU {
 		args = append(args, "--offload-to-cpu")
@@ -354,6 +406,55 @@ func appendIntArg(args *[]string, flag string, value int) {
 		return
 	}
 	*args = append(*args, flag, strconv.Itoa(value))
+}
+
+func appendFloatArg(args *[]string, flag string, value float64) {
+	if value == 0 {
+		return
+	}
+	*args = append(*args, flag, strconv.FormatFloat(value, 'f', -1, 64))
+}
+
+func appendOptionalBoolArg(args *[]string, enabledFlag string, disabledFlag string, value *bool) {
+	if value == nil {
+		return
+	}
+	if *value {
+		*args = append(*args, enabledFlag)
+		return
+	}
+	*args = append(*args, disabledFlag)
+}
+
+func appendStringListArg(args *[]string, flag string, value any) {
+	values := nativeStringValues(value)
+	if len(values) == 0 {
+		return
+	}
+	*args = append(*args, flag, strings.Join(values, ","))
+}
+
+func nativeStringValues(value any) []string {
+	switch typed := value.(type) {
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if trimmed == "" {
+			return nil
+		}
+		return []string{trimmed}
+	case []any:
+		values := make([]string, 0, len(typed))
+		for _, item := range typed {
+			values = append(values, nativeStringValues(item)...)
+		}
+		return values
+	case float64:
+		return []string{strconv.FormatFloat(typed, 'f', -1, 64)}
+	case int:
+		return []string{strconv.Itoa(typed)}
+	default:
+		return nil
+	}
 }
 
 func positive(value int) int {

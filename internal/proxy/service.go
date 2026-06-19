@@ -96,6 +96,7 @@ type Service struct {
 	client          *http.Client
 	logger          *log.Logger
 	benchmarkMu     sync.Mutex
+	sdcppJobs       *sdcppJobStore
 
 	backendRetryAttempts int
 	backendRetryDelay    time.Duration
@@ -235,6 +236,7 @@ func NewService(config ServiceConfig) *Service {
 		benchmarkStore: config.BenchmarkStore,
 		hardware:       config.Hardware,
 		logger:         logger,
+		sdcppJobs:      newSdcppJobStore(),
 		client: &http.Client{
 			Timeout: 0,
 		},
@@ -356,6 +358,11 @@ func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if strings.HasPrefix(r.URL.Path, "/api/admin/") {
+		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		return
+	}
+
 	if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
 		service.handleModels(w)
 		return
@@ -376,11 +383,6 @@ func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if r.Method == http.MethodPost && isCorePath(r.URL.Path) {
-		service.handleModelRequest(w, r, true)
-		return
-	}
-
 	if isVoicePath(r.URL.Path) || isMusicPath(r.URL.Path) {
 		service.handleAudioRequest(w, r)
 		return
@@ -391,8 +393,8 @@ func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if isOpenAIPath(r.URL.Path) {
-		service.handleModelRequest(w, r, false)
+	if isTextPath(r.URL.Path) {
+		service.handleModelRequest(w, r, textPathRequiresModel(r.URL.Path))
 		return
 	}
 
@@ -513,6 +515,36 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if !hasModel {
+		if target, ok := service.sdcppJobs.routeForPath(r.URL.Path); ok {
+			response, err := service.forwardWithFallback(r.Context(), r, body, target.publicImageID, target.configFilename, true, readinessImage, target.backendMode)
+			if err != nil {
+				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+				return
+			}
+			if err := writeProxyResponse(w, response, target.publicImageID, false); err != nil {
+				return
+			}
+			return
+		}
+		if isImageDiscoveryPath(r.URL.Path) {
+			selectedBackendMode, err := service.resolveBackendMode("")
+			if err != nil {
+				openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+				return
+			}
+			response, err := service.forwardWithFallback(r.Context(), r, body, "", "", false, readinessImage, selectedBackendMode)
+			if err != nil {
+				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+				return
+			}
+			if err := writeProxyResponse(w, response, "", false); err != nil {
+				return
+			}
+			return
+		}
+	}
+
 	var model catalog.Model
 	if hasModel {
 		if service.handleRecipeImageRequest(w, r, body, modelID) {
@@ -554,6 +586,14 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	if isSdcppJobSubmissionPath(r.URL.Path) {
+		response = service.responseWithSdcppJobTracking(response, sdcppJobTarget{
+			publicImageID:  model.ImageID,
+			configFilename: model.Filename,
+			backendMode:    modelBackendMode,
+		})
+	}
+
 	if err := writeProxyResponse(w, response, model.ImageID, hasModel); err != nil {
 		return
 	}
@@ -591,6 +631,7 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
+	var selectedModel catalog.Model
 	if hasModel {
 		model, ok, err := service.catalog.Resolve(modelID)
 		if err != nil {
@@ -614,11 +655,14 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 			}
 			configFilename = model.Filename
 			backendModelID = model.ID
+			selectedModel = model
 		}
 	}
 	if selectedBackendMode == BackendModeLlamaSDCPP {
-		openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", "Voice and music routes require a Kobold backend.")
-		return
+		if !hasModel || !modelSupportsLlamaAudioPath(selectedModel, r.URL.Path) {
+			openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", "audio route is not supported by the selected split backend config")
+			return
+		}
 	}
 
 	requestBody := body
@@ -1662,14 +1706,19 @@ func (service *Service) forward(runtime *backendRuntime, ctx context.Context, or
 }
 
 func modelFromRequest(body []byte, r *http.Request) (string, bool, error) {
-	contentType := strings.ToLower(r.Header.Get("Content-Type"))
-	if !strings.Contains(contentType, "application/json") && !strings.HasSuffix(r.URL.Path, "/chat/completions") && !strings.HasSuffix(r.URL.Path, "/completions") && r.URL.Path != "/v1/embeddings" {
-		return "", false, nil
+	if len(body) > 0 && requestBodyLooksJSON(body, r) {
+		modelID, ok, err := openai.ModelFromJSON(body)
+		if err != nil || ok {
+			return modelID, ok, err
+		}
 	}
-	if len(body) == 0 {
-		return "", false, nil
+	if modelID := strings.TrimSpace(r.URL.Query().Get("model")); modelID != "" {
+		return modelID, true, nil
 	}
-	return openai.ModelFromJSON(body)
+	if modelID := strings.TrimSpace(r.Header.Get("X-Tensors-Model")); modelID != "" {
+		return modelID, true, nil
+	}
+	return "", false, nil
 }
 
 func audioModelFromRequest(body []byte, r *http.Request) (string, bool, error) {
@@ -2102,7 +2151,7 @@ func isCorePath(path string) bool {
 }
 
 func isEmbeddingsPath(path string) bool {
-	return path == "/v1/embeddings"
+	return path == "/v1/embeddings" || path == "/api/extra/embeddings"
 }
 
 func isVoicePath(path string) bool {
@@ -2129,6 +2178,73 @@ func audioRouteKind(path string) string {
 
 func isOpenAIPath(path string) bool {
 	return path == "/v1" || strings.HasPrefix(path, "/v1/")
+}
+
+func isTextPath(path string) bool {
+	if isOpenAIPath(path) {
+		return true
+	}
+	switch path {
+	case "/api/v1/generate",
+		"/api/extra/generate/stream",
+		"/api/extra/embeddings",
+		"/api/extra/tokencount",
+		"/api/generate",
+		"/api/chat",
+		"/api/show",
+		"/api/tags",
+		"/api/ps",
+		"/api/version":
+		return true
+	default:
+		return false
+	}
+}
+
+func textPathRequiresModel(path string) bool {
+	if isCorePath(path) {
+		return true
+	}
+	switch path {
+	case "/v1/responses",
+		"/v1/responses/input_tokens",
+		"/v1/messages",
+		"/v1/messages/count_tokens",
+		"/v1/rerank",
+		"/v1/reranking",
+		"/api/generate",
+		"/api/chat",
+		"/api/show":
+		return true
+	default:
+		return false
+	}
+}
+
+func isImageDiscoveryPath(path string) bool {
+	switch path {
+	case "/sdapi/v1/loras",
+		"/sdapi/v1/upscalers",
+		"/sdapi/v1/schedulers",
+		"/sdcpp/v1/capabilities":
+		return true
+	default:
+		return false
+	}
+}
+
+func modelSupportsLlamaAudioPath(model catalog.Model, path string) bool {
+	if model.Capabilities.Voice == nil {
+		return false
+	}
+	switch path {
+	case "/v1/audio/speech":
+		return strings.TrimSpace(model.Capabilities.Voice.TalkerModel) != ""
+	case "/v1/audio/transcriptions":
+		return strings.TrimSpace(model.Capabilities.Voice.WhisperModel) != ""
+	default:
+		return false
+	}
 }
 
 func joinPath(base string, requestPath string) string {

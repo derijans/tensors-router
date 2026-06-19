@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 
+	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/recipes"
@@ -176,8 +177,15 @@ func (service *Service) handleRecipeAudioRequest(w http.ResponseWriter, r *http.
 			return true
 		}
 		if backendMode == BackendModeLlamaSDCPP {
-			openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", "Voice and music routes require a Kobold backend.")
-			return true
+			model, ok, modelErr := service.recipeComponentModel(component)
+			if modelErr != nil {
+				openai.WriteError(w, http.StatusInternalServerError, "catalog_error", modelErr.Error())
+				return true
+			}
+			if !ok || lane == recipes.KindMusic || !modelSupportsLlamaAudioPath(model, r.URL.Path) {
+				openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", "audio route is not supported by the selected split backend config")
+				return true
+			}
 		}
 		response, err = service.forwardWithFallback(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readinessText, backendMode)
 	}
@@ -233,6 +241,26 @@ func (service *Service) recipeComponentBackendMode(component recipes.Component) 
 		}
 	}
 	return service.resolveBackendMode("")
+}
+
+func (service *Service) recipeComponentModel(component recipes.Component) (catalog.Model, bool, error) {
+	models, err := service.catalog.List()
+	if err != nil {
+		return catalog.Model{}, false, err
+	}
+	modelID := component.ModelID
+	if component.Kind == recipes.KindImage && strings.TrimSpace(component.ImageID) != "" {
+		modelID = component.ImageID
+	}
+	for _, model := range models {
+		if model.Filename != component.ConfigFilename {
+			continue
+		}
+		if model.ID == modelID || model.ImageID == modelID || strings.TrimSpace(modelID) == "" {
+			return model, true, nil
+		}
+	}
+	return catalog.Model{}, false, nil
 }
 
 func routeLaneForReadiness(readiness backendReadiness) string {

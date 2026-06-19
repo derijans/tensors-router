@@ -755,6 +755,8 @@ var voiceKeys = []string{
 	"whispermodel",
 	"ttsmodel",
 	"ttswavtokenizer",
+	"talkermodel",
+	"code2wavmodel",
 	"ttsdir",
 	"ttsgpu",
 	"ttsmaxlen",
@@ -773,6 +775,8 @@ var voiceFileKeys = []string{
 	"whispermodel",
 	"ttsmodel",
 	"ttswavtokenizer",
+	"talkermodel",
+	"code2wavmodel",
 	"ttsdir",
 }
 

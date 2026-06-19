@@ -132,6 +132,128 @@ func TestOpenAIBaseEndpointIsForwarded(t *testing.T) {
 	}
 }
 
+func TestModelAwareTextEndpointsRouteSelectedConfig(t *testing.T) {
+	endpoints := []string{
+		"/v1/responses",
+		"/v1/responses/input_tokens",
+		"/v1/messages",
+		"/v1/messages/count_tokens",
+		"/v1/rerank",
+		"/v1/reranking",
+		"/api/v1/generate",
+		"/api/extra/generate/stream",
+		"/api/extra/embeddings",
+		"/api/extra/tokencount",
+		"/api/generate",
+		"/api/chat",
+		"/api/show",
+	}
+
+	for _, endpoint := range endpoints {
+		t.Run(strings.Trim(endpoint, "/"), func(t *testing.T) {
+			var sawRequest bool
+			service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != endpoint {
+					t.Fatalf("unexpected path %s", r.URL.Path)
+				}
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				sawRequest = strings.Contains(string(body), `"model":"text"`)
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"model":"backend","ok":true}`))
+			}), map[string]string{
+				"text": `{"model_param":"C:\\models\\text.gguf"}`,
+			})
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(`{"model":"text","prompt":"hello"}`))
+			request.Header.Set("Content-Type", "application/json")
+			service.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+			}
+			if !sawRequest {
+				t.Fatalf("backend did not receive rewritten local model")
+			}
+			if backend.lastReload != "text.kcpps" {
+				t.Fatalf("unexpected reload config %q", backend.lastReload)
+			}
+			if !strings.Contains(recorder.Body.String(), `"model":"text"`) {
+				t.Fatalf("response model was not rewritten: %s", recorder.Body.String())
+			}
+		})
+	}
+}
+
+func TestTextStatusEndpointsForwardWithoutModel(t *testing.T) {
+	endpoints := []string{"/api/tags", "/api/ps", "/api/version"}
+	for _, endpoint := range endpoints {
+		t.Run(endpoint, func(t *testing.T) {
+			var sawRequest bool
+			service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != endpoint {
+					t.Fatalf("unexpected path %s", r.URL.Path)
+				}
+				sawRequest = true
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"ok":true}`))
+			}), map[string]string{})
+
+			recorder := httptest.NewRecorder()
+			service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, endpoint, nil))
+
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+			}
+			if !sawRequest {
+				t.Fatalf("backend did not receive request")
+			}
+			if backend.reloads.Load() != 0 {
+				t.Fatalf("status endpoint should not reload config, got %d", backend.reloads.Load())
+			}
+		})
+	}
+}
+
+func TestRequiredTextEndpointRejectsMissingModel(t *testing.T) {
+	var backendCalled bool
+	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backendCalled = true
+	}), map[string]string{})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"input":"hello"}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if backendCalled {
+		t.Fatalf("backend should not receive missing-model request")
+	}
+}
+
+func TestAPIAdminPathsAreNotPubliclyProxied(t *testing.T) {
+	var backendCalled bool
+	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		backendCalled = true
+	}), map[string]string{})
+
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/admin/reload_config", strings.NewReader(`{}`)))
+
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if backendCalled {
+		t.Fatalf("admin path was proxied")
+	}
+}
+
 func TestAudioSpeechRoutesKnownVoiceConfig(t *testing.T) {
 	service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/audio/speech" {
@@ -225,6 +347,91 @@ func TestSplitModeRejectsAudioRoutes(t *testing.T) {
 	}
 	if textBackend.reloads.Load() != 0 || imageBackend.reloads.Load() != 0 {
 		t.Fatalf("split audio should not reload backends text=%d image=%d", textBackend.reloads.Load(), imageBackend.reloads.Load())
+	}
+}
+
+func TestSplitModeRoutesLlamaAudioAssetsToTextBackend(t *testing.T) {
+	tests := []struct {
+		name   string
+		path   string
+		config string
+		body   string
+	}{
+		{
+			name:   "speech",
+			path:   "/v1/audio/speech",
+			config: `{"talkermodel":"C:\\models\\talker.gguf","code2wavmodel":"C:\\models\\code2wav.gguf"}`,
+			body:   `{"model":"voice","input":"hello","voice":"alloy"}`,
+		},
+		{
+			name:   "transcription",
+			path:   "/v1/audio/transcriptions",
+			config: `{"whispermodel":"C:\\models\\whisper.gguf"}`,
+			body:   `{"model":"voice","input":"audio"}`,
+		},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			var sawTextAudio bool
+			service, textBackend, imageBackend := newSplitTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
+					w.Header().Set("Content-Type", "application/json")
+					_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"voice"}]}`))
+					return
+				}
+				if r.URL.Path != testCase.path {
+					t.Fatalf("unexpected text path %s", r.URL.Path)
+				}
+				sawTextAudio = true
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"ok":true}`))
+			}), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				t.Fatalf("image backend should not receive split audio route %s", r.URL.Path)
+			}), map[string]string{
+				"voice": testCase.config,
+			})
+
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, testCase.path, strings.NewReader(testCase.body))
+			request.Header.Set("Content-Type", "application/json")
+			service.ServeHTTP(recorder, request)
+
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+			}
+			if !sawTextAudio {
+				t.Fatalf("text backend did not receive audio request")
+			}
+			if textBackend.lastReload != "voice.kcpps" {
+				t.Fatalf("unexpected text reload %q", textBackend.lastReload)
+			}
+			if imageBackend.reloads.Load() != 0 {
+				t.Fatalf("image backend should not reload for audio, got %d", imageBackend.reloads.Load())
+			}
+		})
+	}
+}
+
+func TestSplitModeRejectsSpeechWithoutTalkerModel(t *testing.T) {
+	service, textBackend, imageBackend := newSplitTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("text backend should not receive incomplete speech config")
+	}), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("image backend should not receive incomplete speech config")
+	}), map[string]string{
+		"voice": `{"code2wavmodel":"C:\\models\\code2wav.gguf"}`,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/audio/speech", strings.NewReader(`{"model":"voice","input":"hello","voice":"alloy"}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusNotImplemented {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if textBackend.reloads.Load() != 0 || imageBackend.reloads.Load() != 0 {
+		t.Fatalf("incomplete speech config should not reload backends text=%d image=%d", textBackend.reloads.Load(), imageBackend.reloads.Load())
 	}
 }
 
@@ -1480,6 +1687,106 @@ func TestImageRequestLoadsImageOnlyConfig(t *testing.T) {
 	}
 }
 
+func TestImageDiscoveryEndpointsForwardWithoutModel(t *testing.T) {
+	endpoints := []string{"/sdapi/v1/loras", "/sdapi/v1/upscalers", "/sdapi/v1/schedulers", "/sdcpp/v1/capabilities"}
+	for _, endpoint := range endpoints {
+		t.Run(endpoint, func(t *testing.T) {
+			var sawImageBackend bool
+			service, _, imageBackend := newSplitTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				t.Fatalf("text backend should not receive image discovery path %s", r.URL.Path)
+			}), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path != endpoint {
+					t.Fatalf("unexpected image path %s", r.URL.Path)
+				}
+				sawImageBackend = true
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"ok":true}`))
+			}), map[string]string{})
+
+			recorder := httptest.NewRecorder()
+			service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, endpoint, nil))
+
+			if recorder.Code != http.StatusOK {
+				t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+			}
+			if !sawImageBackend {
+				t.Fatalf("image backend did not receive discovery request")
+			}
+			if imageBackend.reloads.Load() != 0 {
+				t.Fatalf("discovery should not reload image config, got %d", imageBackend.reloads.Load())
+			}
+		})
+	}
+}
+
+func TestSdcppJobsRouteBackToSubmittingImageConfig(t *testing.T) {
+	var imageBackend *fakeBackend
+	service, _, createdImageBackend := newSplitTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("text backend should not receive image path %s", r.URL.Path)
+	}), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/sdapi/v1/sd-models" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"model_name":"ready"}]`))
+			return
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		switch r.URL.Path {
+		case "/sdcpp/v1/img_gen":
+			if !strings.Contains(string(body), `"model":"first-first"`) {
+				t.Fatalf("job submit used wrong image model: %s", string(body))
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"job_id":"job-a"}`))
+		case "/v1/images/generations":
+			if !strings.Contains(string(body), `"model":"second-second"`) {
+				t.Fatalf("switch request used wrong image model: %s", string(body))
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"model":"backend","data":[]}`))
+		case "/sdcpp/v1/jobs/job-a":
+			if imageBackend == nil || imageBackend.lastReload != "first.kcpps" {
+				t.Fatalf("job poll did not reload original config, got %q", imageBackend.lastReload)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"job-a","status":"done"}`))
+		default:
+			t.Fatalf("unexpected image path %s", r.URL.Path)
+		}
+	}), map[string]string{
+		"first":  `{"nomodel":true,"sdmodel":"C:\\models\\first.safetensors"}`,
+		"second": `{"nomodel":true,"sdmodel":"C:\\models\\second.safetensors"}`,
+	})
+	imageBackend = createdImageBackend
+
+	submitRecorder := httptest.NewRecorder()
+	submitRequest := httptest.NewRequest(http.MethodPost, "/sdcpp/v1/img_gen", strings.NewReader(`{"model":"first-first","prompt":"cat"}`))
+	submitRequest.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(submitRecorder, submitRequest)
+	if submitRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected submit status %d body %s", submitRecorder.Code, submitRecorder.Body.String())
+	}
+
+	switchRecorder := httptest.NewRecorder()
+	switchRequest := httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{"model":"second-second","prompt":"dog"}`))
+	switchRequest.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(switchRecorder, switchRequest)
+	if switchRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected switch status %d body %s", switchRecorder.Code, switchRecorder.Body.String())
+	}
+
+	pollRecorder := httptest.NewRecorder()
+	service.ServeHTTP(pollRecorder, httptest.NewRequest(http.MethodGet, "/sdcpp/v1/jobs/job-a", nil))
+	if pollRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected poll status %d body %s", pollRecorder.Code, pollRecorder.Body.String())
+	}
+	if imageBackend.lastReload != "first.kcpps" {
+		t.Fatalf("job route did not restore original config, got %q", imageBackend.lastReload)
+	}
+}
+
 func TestColdImageRequestWaitsForImageModelsEndpoint(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "image.kcpps"), []byte(`{"nomodel":true,"sdmodel":"C:\\models\\dream.safetensors"}`), 0o644); err != nil {
@@ -1738,6 +2045,56 @@ func TestClusterRemoteRequestRewritesModelBothWays(t *testing.T) {
 	service, _ := newTestServiceWithRegistry(t, registry, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), "secret")
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"same-2","messages":[]}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !sawAuthorization {
+		t.Fatalf("cluster authorization was not forwarded")
+	}
+	if !sawLocalModel {
+		t.Fatalf("remote did not receive local model id")
+	}
+	if !strings.Contains(recorder.Body.String(), `"model":"same-2"`) {
+		t.Fatalf("response model was not rewritten: %s", recorder.Body.String())
+	}
+}
+
+func TestClusterRemoteTextAPIRequestRewritesModelBothWays(t *testing.T) {
+	var sawAuthorization bool
+	var sawLocalModel bool
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/chat" {
+			t.Fatalf("unexpected remote path %s", r.URL.Path)
+		}
+		sawAuthorization = r.Header.Get("Authorization") == "Bearer secret"
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sawLocalModel = strings.Contains(string(body), `"model":"same"`)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"backend","done":true}`))
+	}))
+	defer remote.Close()
+
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
+	if err := registry.UpdateLocal([]cluster.Model{testClusterModel("same", "master", "master-hash", "config-hash", cluster.SourceMaster)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.UpdateNode(cluster.Snapshot{
+		NodeID:  "slave-a",
+		NodeURL: remote.URL,
+		Models:  []cluster.Model{testClusterModel("same", "slave-a", "slave-hash", "config-hash", cluster.SourceSlave)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	service, _ := newTestServiceWithRegistry(t, registry, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), "secret")
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/chat", strings.NewReader(`{"model":"same-2","messages":[]}`))
 	request.Header.Set("Content-Type", "application/json")
 	service.ServeHTTP(recorder, request)
 
