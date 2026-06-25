@@ -3,6 +3,8 @@ import { jsonRecord } from "./json";
 import type {
   ConfigFileRequest,
   ConfigFileResponse,
+  AnalyticsQuery,
+  AnalyticsResponse,
   BenchmarkRecord,
   BenchmarkRunRequest,
   CookRequest,
@@ -82,6 +84,20 @@ export function runBenchmark(request: BenchmarkRunRequest): Promise<BenchmarkRec
     method: "POST",
     body: JSON.stringify(request)
   });
+}
+
+export function getAnalytics(query: AnalyticsQuery): Promise<AnalyticsResponse> {
+  const params = new URLSearchParams({period: query.period});
+  if (query.node_id) {
+    params.set("node_id", query.node_id);
+  }
+  if (query.model_id) {
+    params.set("model_id", query.model_id);
+  }
+  if (query.section) {
+    params.set("section", query.section);
+  }
+  return api<AnalyticsResponse>(`/api/analytics?${params.toString()}`);
 }
 
 export function loadModelConfig(request: LoadConfigRequest): Promise<{ ok: boolean }> {

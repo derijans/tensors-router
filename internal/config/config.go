@@ -11,16 +11,17 @@ import (
 )
 
 type Config struct {
-	Server  ServerConfig
-	Auth    AuthConfig
-	Models  ModelsConfig
-	Backend BackendConfig
-	Kobold  KoboldConfig
-	Llama   NativeServerConfig
-	SDCPP   NativeServerConfig
-	Logging LoggingConfig
-	Updates UpdatesConfig
-	Cluster ClusterConfig
+	Server    ServerConfig
+	Auth      AuthConfig
+	Models    ModelsConfig
+	Backend   BackendConfig
+	Kobold    KoboldConfig
+	Llama     NativeServerConfig
+	SDCPP     NativeServerConfig
+	Logging   LoggingConfig
+	Updates   UpdatesConfig
+	Cluster   ClusterConfig
+	Analytics AnalyticsConfig
 }
 
 type ServerConfig struct {
@@ -87,6 +88,12 @@ type ClusterConfig struct {
 	StoreDir       string
 	SyncInterval   time.Duration
 	HealthInterval time.Duration
+}
+
+type AnalyticsConfig struct {
+	Enabled       bool
+	FlushInterval time.Duration
+	DatabasePath  string
 }
 
 func Defaults() Config {
@@ -156,6 +163,10 @@ func Defaults() Config {
 			StoreDir:       "./router-store",
 			SyncInterval:   60 * time.Second,
 			HealthInterval: 15 * time.Second,
+		},
+		Analytics: AnalyticsConfig{
+			Enabled:       false,
+			FlushInterval: 3 * time.Minute,
 		},
 	}
 }
@@ -253,6 +264,9 @@ func validate(cfg Config) error {
 	}
 	if cfg.Cluster.HealthInterval <= 0 {
 		return fmt.Errorf("cluster.health_interval must be positive")
+	}
+	if cfg.Analytics.FlushInterval <= 0 {
+		return fmt.Errorf("analytics.flush_interval must be positive")
 	}
 	if cfg.Cluster.Role != "standalone" && strings.TrimSpace(cfg.Cluster.Token) == "" {
 		return fmt.Errorf("cluster.token is required when cluster.role is not standalone")
@@ -663,6 +677,26 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 				return err
 			}
 			cfg.Cluster.HealthInterval = parsed
+			return nil
+		}
+	case "analytics":
+		switch key {
+		case "enabled":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return err
+			}
+			cfg.Analytics.Enabled = parsed
+			return nil
+		case "flush_interval":
+			parsed, err := time.ParseDuration(value)
+			if err != nil {
+				return err
+			}
+			cfg.Analytics.FlushInterval = parsed
+			return nil
+		case "database_path":
+			cfg.Analytics.DatabasePath = value
 			return nil
 		}
 	}

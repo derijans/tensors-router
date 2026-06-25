@@ -25,6 +25,8 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		service.handleBenchmarks(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/benchmarks/run":
 		service.handleBenchmarkRun(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/analytics":
+		service.handleSiteAnalytics(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/cook/preview":
 		service.handleSiteCookPreview(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/cook/apply":
@@ -54,6 +56,10 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/benchmarks/run":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeBenchmarkRun(w, r)
+		}
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/analytics":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeAnalytics(w, r)
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/configs":
 		if service.requireClusterToken(w, r) {

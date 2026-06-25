@@ -339,7 +339,7 @@ td {
 
 .tabs {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(7, minmax(0, 1fr));
   gap: 8px;
   border: 1px solid rgba(38, 56, 74, .72);
   border-radius: 8px;
@@ -549,6 +549,104 @@ td {
   display: grid;
   gap: 8px;
   margin-top: 10px;
+}
+
+.analytics-controls {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(160px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.analytics-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 10px;
+}
+
+.analytics-metric,
+.analytics-graph {
+  border: 1px solid rgba(38, 57, 73, .95);
+  border-radius: 8px;
+  background: rgba(6, 13, 22, .9);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04);
+}
+
+.analytics-metric {
+  display: grid;
+  gap: 6px;
+  min-height: 96px;
+  padding: 12px;
+}
+
+.analytics-metric span,
+.analytics-metric small {
+  color: var(--muted);
+}
+
+.analytics-metric strong {
+  color: var(--cyan);
+  font-size: 22px;
+  letter-spacing: 0;
+}
+
+.analytics-graphs {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(320px, .8fr);
+  gap: 16px;
+}
+
+.analytics-graph {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 12px;
+}
+
+.analytics-chart-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.analytics-chart {
+  width: 100%;
+  min-height: 180px;
+  overflow: visible;
+}
+
+.analytics-bar {
+  fill: var(--cyan);
+}
+
+.analytics-bar-track {
+  fill: rgba(38, 57, 73, .72);
+}
+
+.analytics-section-bars {
+  display: grid;
+  gap: 10px;
+}
+
+.analytics-section-row {
+  display: grid;
+  grid-template-columns: 100px minmax(120px, 1fr) 64px;
+  gap: 10px;
+  align-items: center;
+}
+
+.analytics-section-row svg {
+  width: 100%;
+  height: 12px;
+  border-radius: 6px;
+}
+
+.analytics-section-row strong {
+  text-align: right;
+}
+
+.analytics-tables {
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, .8fr);
 }
 
 .table-wrap {
@@ -1205,6 +1303,11 @@ td {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .analytics-graphs,
+  .analytics-tables {
+    grid-template-columns: 1fr;
+  }
+
   .lanes {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -1231,6 +1334,7 @@ td {
   }
 
   .tables,
+  .analytics-controls,
   .simple-cook,
   .constructor-toolbar,
   .constructor-workpanels,

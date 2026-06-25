@@ -17,6 +17,13 @@ import {
   toggleAllBenchmarkSections,
   updateBenchmarkSections
 } from "./benchmarks";
+import {
+  loadAnalytics,
+  updateAnalyticsModel,
+  updateAnalyticsNode,
+  updateAnalyticsPeriod,
+  updateAnalyticsSection
+} from "./analytics";
 import { closestElement, elementTarget, queryElements } from "./dom";
 import { elements } from "./elements";
 import { state } from "./state";
@@ -83,6 +90,7 @@ async function bootstrap(): Promise<void> {
 async function refreshAll(): Promise<void> {
   await refreshRouterStatus();
   await refreshInventory();
+  await loadAnalytics();
 }
 
 async function refreshRouterStatus(): Promise<void> {
@@ -157,6 +165,23 @@ elements.runBenchmarkButton.addEventListener("click", () => runTask(async () => 
   await runSelectedBenchmark();
   await refreshInventory();
 }));
+elements.analyticsPeriodSelect.addEventListener("change", () => runTask(async () => {
+  updateAnalyticsPeriod(elements.analyticsPeriodSelect.value);
+  await loadAnalytics();
+}));
+elements.analyticsNodeSelect.addEventListener("change", () => runTask(async () => {
+  updateAnalyticsNode(elements.analyticsNodeSelect.value);
+  await loadAnalytics();
+}));
+elements.analyticsModelSelect.addEventListener("change", () => runTask(async () => {
+  updateAnalyticsModel(elements.analyticsModelSelect.value);
+  await loadAnalytics();
+}));
+elements.analyticsSectionSelect.addEventListener("change", () => runTask(async () => {
+  updateAnalyticsSection(elements.analyticsSectionSelect.value);
+  await loadAnalytics();
+}));
+elements.analyticsRefreshButton.addEventListener("click", () => runTask(loadAnalytics));
 elements.constructorFilterInput.addEventListener("input", renderConstructor);
 
 elements.launchButton.addEventListener("click", () => runTask(handleLaunchRouter));

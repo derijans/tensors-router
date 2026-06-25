@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	routeranalytics "tensors-router/internal/analytics"
 	"tensors-router/internal/backendmode"
 	routerbenchmark "tensors-router/internal/benchmark"
 	"tensors-router/internal/catalog"
@@ -69,6 +70,7 @@ type ServiceConfig struct {
 	FileRoots       []string
 	RecipeStore     *recipes.Store
 	BenchmarkStore  *routerbenchmark.Store
+	AnalyticsStore  *routeranalytics.Store
 	Hardware        hardware.Source
 	Logger          *log.Logger
 }
@@ -92,6 +94,7 @@ type Service struct {
 	fileRoots       []string
 	recipeStore     *recipes.Store
 	benchmarkStore  *routerbenchmark.Store
+	analyticsStore  *routeranalytics.Store
 	hardware        hardware.Source
 	client          *http.Client
 	logger          *log.Logger
@@ -234,6 +237,7 @@ func NewService(config ServiceConfig) *Service {
 		fileRoots:      append([]string{}, config.FileRoots...),
 		recipeStore:    config.RecipeStore,
 		benchmarkStore: config.BenchmarkStore,
+		analyticsStore: config.AnalyticsStore,
 		hardware:       config.Hardware,
 		logger:         logger,
 		sdcppJobs:      newSdcppJobStore(),
@@ -517,11 +521,15 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 
 	if !hasModel {
 		if target, ok := service.sdcppJobs.routeForPath(r.URL.Path); ok {
+			started := time.Now()
+			analyticsEvent := service.newAnalyticsEvent(started, r, body, target.publicImageID, routeranalytics.SectionImage, target.backendMode)
 			response, err := service.forwardWithFallback(r.Context(), r, body, target.publicImageID, target.configFilename, true, readinessImage, target.backendMode)
 			if err != nil {
+				service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway)
 				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 				return
 			}
+			response = service.responseWithAnalytics(response, analyticsEvent)
 			if err := writeProxyResponse(w, response, target.publicImageID, false); err != nil {
 				return
 			}
@@ -580,8 +588,11 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
+	started := time.Now()
+	analyticsEvent := service.newAnalyticsEvent(started, r, body, model.ImageID, routeranalytics.SectionImage, modelBackendMode)
 	response, err := service.forwardWithFallback(r.Context(), r, body, model.ImageID, model.Filename, hasModel, readinessImage, modelBackendMode)
 	if err != nil {
+		service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway)
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
@@ -593,6 +604,7 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 			backendMode:    modelBackendMode,
 		})
 	}
+	response = service.responseWithAnalytics(response, analyticsEvent)
 
 	if err := writeProxyResponse(w, response, model.ImageID, hasModel); err != nil {
 		return
@@ -669,10 +681,22 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 	if hasModel && requestBodyLooksJSON(body, r) && backendModelID != modelID {
 		requestBody = rewriteRequestModel(body, backendModelID)
 	}
+	analyticsModelID := backendModelID
+	if analyticsModelID == "" {
+		analyticsModelID = modelID
+	}
+	started := time.Now()
+	analyticsEvent := service.newAnalyticsEvent(started, r, requestBody, analyticsModelID, audioAnalyticsSection(lane), selectedBackendMode)
 	response, err := service.forwardWithFallback(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readinessText, selectedBackendMode)
 	if err != nil {
+		if analyticsModelID != "" {
+			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway)
+		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
+	}
+	if analyticsModelID != "" {
+		response = service.responseWithAnalytics(response, analyticsEvent)
 	}
 	if err := writeProxyResponse(w, response, modelID, false); err != nil {
 		return
@@ -870,10 +894,18 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 		requestBody = rewriteRequestModel(body, backendModelID)
 	}
 
+	started := time.Now()
+	analyticsEvent := service.newAnalyticsEvent(started, r, requestBody, backendModelID, textAnalyticsSection(r.URL.Path), selectedBackendMode)
 	response, err := service.forwardWithFallback(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readinessText, selectedBackendMode)
 	if err != nil {
+		if hasModel {
+			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway)
+		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
+	}
+	if hasModel {
+		response = service.responseWithAnalytics(response, analyticsEvent)
 	}
 
 	if err := writeModelProxyResponse(w, response, modelID, hasModel); err != nil {

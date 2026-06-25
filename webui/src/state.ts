@@ -42,6 +42,14 @@ export const state: AppState = {
     running: false,
     error: ""
   },
+  analytics: {
+    query: {
+      period: "24h"
+    },
+    data: null,
+    loading: false,
+    error: ""
+  },
   activeTab: "router",
   activeCookMode: "quick",
   activePalette: "configs",

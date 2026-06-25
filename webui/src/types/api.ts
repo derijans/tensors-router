@@ -68,6 +68,105 @@ export interface BenchmarkRunRequest {
   timeout_seconds?: number;
 }
 
+export interface AnalyticsQuery {
+  period: "24h" | "7d" | "30d" | "90d" | "all";
+  node_id?: string;
+  model_id?: string;
+  section?: string;
+}
+
+export interface AnalyticsSummary {
+  request_count: number;
+  success_count: number;
+  failure_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  image_count: number;
+  audio_seconds: number;
+  audio_tokens: number;
+  average_duration_ms: number;
+  average_tokens_per_second: number;
+}
+
+export interface AnalyticsTimeline {
+  bucket_start: number;
+  request_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  image_count: number;
+  audio_seconds: number;
+}
+
+export interface AnalyticsSectionUsage {
+  section: string;
+  request_count: number;
+  total_tokens: number;
+  image_count: number;
+  audio_seconds: number;
+}
+
+export interface AnalyticsModelUsage {
+  node_id: string;
+  model_id: string;
+  request_count: number;
+  total_tokens: number;
+  image_count: number;
+  audio_seconds: number;
+}
+
+export interface AnalyticsNodeUsage {
+  node_id: string;
+  request_count: number;
+  total_tokens: number;
+  image_count: number;
+  audio_seconds: number;
+}
+
+export interface AnalyticsRecentEvent {
+  node_id: string;
+  model_id: string;
+  section: string;
+  backend_mode: string;
+  route: string;
+  status_code: number;
+  success: boolean;
+  started_at: number;
+  finished_at: number;
+  duration_ms: number;
+  input_tokens?: number;
+  output_tokens?: number;
+  total_tokens?: number;
+  tokens_per_second?: number;
+  image_count?: number;
+  image_width?: number;
+  image_height?: number;
+  image_type?: string;
+  audio_seconds?: number;
+  audio_tokens?: number;
+}
+
+export interface AnalyticsNodeError {
+  node_id?: string;
+  node_url?: string;
+  error: string;
+}
+
+export interface AnalyticsResponse {
+  enabled: boolean;
+  from: number;
+  to: number;
+  granularity: string;
+  summary: AnalyticsSummary;
+  timeline: AnalyticsTimeline[];
+  sections: AnalyticsSectionUsage[];
+  models: AnalyticsModelUsage[];
+  nodes: AnalyticsNodeUsage[];
+  recent: AnalyticsRecentEvent[];
+  node_errors?: AnalyticsNodeError[];
+}
+
 export interface LoadConfigRequest {
   model: string;
 }

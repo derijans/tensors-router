@@ -1,4 +1,4 @@
-import type { BenchmarkRecord, BenchmarkSection, BenchmarkType, CookComponent, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, RouterProcessStatus } from "./api";
+import type { AnalyticsQuery, AnalyticsResponse, BenchmarkRecord, BenchmarkSection, BenchmarkType, CookComponent, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, RouterProcessStatus } from "./api";
 import type { Options } from "./json";
 
 export type CookMode = "quick" | "constructor";
@@ -87,6 +87,12 @@ export interface AppState {
     sections: BenchmarkSection[];
     record: BenchmarkRecord | null;
     running: boolean;
+    error: string;
+  };
+  analytics: {
+    query: AnalyticsQuery;
+    data: AnalyticsResponse | null;
+    loading: boolean;
     error: string;
   };
   activeTab: string;

@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>tensor-router-webui</title>
-  <script type="module" crossorigin src="/assets/index-DCY1wsQd.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-CEt_4Jkq.css">
+  <script type="module" crossorigin src="/assets/index-D4m_GXbW.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-T2xrES3T.css">
 </head>
 <body>
   <main class="shell">
@@ -46,6 +46,7 @@
         <button class="tab-button" type="button" data-tab="nodes">Nodes</button>
         <button class="tab-button" type="button" data-tab="models">Models</button>
         <button class="tab-button" type="button" data-tab="benchmarks">Benchmarks</button>
+        <button class="tab-button" type="button" data-tab="analytics">Analytics</button>
         <button class="tab-button" type="button" data-tab="cook">Cook</button>
         <button class="tab-button" type="button" data-tab="recipes">Recipes</button>
       </nav>
@@ -157,6 +158,97 @@
         <div>
           <h3>History</h3>
           <div id="benchmarkHistory" class="benchmark-history"></div>
+        </div>
+      </section>
+
+      <section class="tab-panel" data-panel="analytics">
+        <div class="panel-head">
+          <div>
+            <h2>Analytics</h2>
+            <p class="muted">usage, throughput, and media volume</p>
+          </div>
+          <button id="analyticsRefreshButton" type="button">Refresh</button>
+        </div>
+        <div class="analytics-controls">
+          <label>
+            Period
+            <select id="analyticsPeriodSelect"></select>
+          </label>
+          <label>
+            Node
+            <select id="analyticsNodeSelect"></select>
+          </label>
+          <label>
+            Model
+            <select id="analyticsModelSelect"></select>
+          </label>
+          <label>
+            Section
+            <select id="analyticsSectionSelect"></select>
+          </label>
+        </div>
+        <div id="analyticsStatus"></div>
+        <div id="analyticsSummary" class="analytics-summary"></div>
+        <div class="analytics-graphs">
+          <section id="analyticsTimeline" class="analytics-graph"></section>
+          <section id="analyticsSections" class="analytics-graph"></section>
+        </div>
+        <div id="analyticsNodeErrors"></div>
+        <div class="tables analytics-tables">
+          <div>
+            <h3>Models</h3>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Node</th>
+                    <th>Model</th>
+                    <th>Requests</th>
+                    <th>Tokens</th>
+                    <th>Images</th>
+                    <th>Audio</th>
+                  </tr>
+                </thead>
+                <tbody id="analyticsModelsTable"></tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <h3>Nodes</h3>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Node</th>
+                    <th>Requests</th>
+                    <th>Tokens</th>
+                    <th>Images</th>
+                    <th>Audio</th>
+                  </tr>
+                </thead>
+                <tbody id="analyticsNodesTable"></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+        <div>
+          <h3>Recent</h3>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Time</th>
+                  <th>Node</th>
+                  <th>Model</th>
+                  <th>Section</th>
+                  <th>Backend</th>
+                  <th>Status</th>
+                  <th>Metadata</th>
+                </tr>
+              </thead>
+              <tbody id="analyticsRecentTable"></tbody>
+            </table>
+          </div>
         </div>
       </section>
 

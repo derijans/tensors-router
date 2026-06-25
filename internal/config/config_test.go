@@ -83,6 +83,11 @@ cluster:
   store_dir: "./store"
   sync_interval: "30s"
   health_interval: "5s"
+
+analytics:
+  enabled: true
+  flush_interval: "2m"
+  database_path: "./store/custom-analytics.sqlite"
 `)
 	if err := os.WriteFile(path, content, 0o644); err != nil {
 		t.Fatal(err)
@@ -156,6 +161,9 @@ cluster:
 	if cfg.Cluster.SyncInterval != 30*time.Second || cfg.Cluster.HealthInterval != 5*time.Second {
 		t.Fatalf("unexpected cluster intervals %#v", cfg.Cluster)
 	}
+	if !cfg.Analytics.Enabled || cfg.Analytics.FlushInterval != 2*time.Minute || cfg.Analytics.DatabasePath != "./store/custom-analytics.sqlite" {
+		t.Fatalf("unexpected analytics config %#v", cfg.Analytics)
+	}
 }
 
 func TestLoadDefaultConfigWhenDefaultFileMissing(t *testing.T) {
@@ -189,6 +197,9 @@ func TestLoadDefaultConfigWhenDefaultFileMissing(t *testing.T) {
 	}
 	if cfg.Cluster.Role != "standalone" || cfg.Cluster.NodeID != "local" {
 		t.Fatalf("unexpected default cluster %#v", cfg.Cluster)
+	}
+	if cfg.Analytics.Enabled || cfg.Analytics.FlushInterval != 3*time.Minute || cfg.Analytics.DatabasePath != "" {
+		t.Fatalf("unexpected default analytics config %#v", cfg.Analytics)
 	}
 }
 
@@ -257,5 +268,20 @@ updates:
 
 	if _, err := Load(path); err != nil {
 		t.Fatalf("expected valid split update config: %v", err)
+	}
+}
+
+func TestLoadRejectsInvalidAnalyticsInterval(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+analytics:
+  flush_interval: "0s"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(path); err == nil {
+		t.Fatalf("expected invalid analytics interval error")
 	}
 }

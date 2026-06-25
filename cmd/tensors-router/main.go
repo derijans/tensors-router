@@ -10,10 +10,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
 
+	routeranalytics "tensors-router/internal/analytics"
 	"tensors-router/internal/auth"
 	routerbenchmark "tensors-router/internal/benchmark"
 	"tensors-router/internal/buildinfo"
@@ -88,6 +90,19 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
+	analyticsStore, err := newAnalyticsStore(cfg, serveLogger)
+	if err != nil {
+		return err
+	}
+	if analyticsStore != nil {
+		defer func() {
+			shutdownContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			defer cancel()
+			if err := analyticsStore.Close(shutdownContext); err != nil {
+				serveLogger.Printf("analytics shutdown failed: %v", err)
+			}
+		}()
+	}
 	localModels, err := modelCatalog.List()
 	if err != nil {
 		return err
@@ -152,6 +167,7 @@ func runServe(args []string) error {
 		FileRoots:       cfg.Models.FileRoots,
 		RecipeStore:     recipeStore,
 		BenchmarkStore:  benchmarkStore,
+		AnalyticsStore:  analyticsStore,
 		Logger:          serveLogger,
 	})
 	routercluster.StartSync(ctx, syncConfig, registry, clusterClient, serveLogger)
@@ -190,6 +206,22 @@ func runServe(args []string) error {
 		}
 		return err
 	}
+}
+
+func newAnalyticsStore(cfg config.Config, logger *log.Logger) (*routeranalytics.Store, error) {
+	if !cfg.Analytics.Enabled {
+		return nil, nil
+	}
+	databasePath := strings.TrimSpace(cfg.Analytics.DatabasePath)
+	if databasePath == "" {
+		databasePath = filepath.Join(cfg.Cluster.StoreDir, "analytics.sqlite")
+	}
+	return routeranalytics.NewStore(routeranalytics.StoreConfig{
+		NodeID:        cfg.Cluster.NodeID,
+		DatabasePath:  databasePath,
+		FlushInterval: cfg.Analytics.FlushInterval,
+		Logger:        logger,
+	})
 }
 
 func clusterClientTargets(cfg config.Config) []string {

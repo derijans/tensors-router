@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
+	routeranalytics "tensors-router/internal/analytics"
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
@@ -21,6 +23,8 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 	route := routeFromRecipeComponent(recipe, component, false, cluster.RouteLaneText)
 	var response *http.Response
 	var err error
+	var analyticsEvent routeranalytics.Event
+	recordAnalytics := false
 	if component.NodeID != service.nodeID {
 		route.Remote = true
 		response, err = service.forwardRemote(r.Context(), r, requestBody, route)
@@ -30,11 +34,20 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", modeErr.Error())
 			return true
 		}
+		started := time.Now()
+		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, component.ModelID, textAnalyticsSection(r.URL.Path), backendMode)
+		recordAnalytics = true
 		response, err = service.forwardWithFallback(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readinessText, backendMode)
 	}
 	if err != nil {
+		if recordAnalytics {
+			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway)
+		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return true
+	}
+	if recordAnalytics {
+		response = service.responseWithAnalytics(response, analyticsEvent)
 	}
 	if err := writeModelProxyResponse(w, response, publicID, true); err != nil {
 		return true
@@ -52,6 +65,8 @@ func (service *Service) handleRecipeImageRequest(w http.ResponseWriter, r *http.
 	requestBody := rewriteImageRequestBody(body, publicImageID, component.ImageID, r)
 	var response *http.Response
 	var err error
+	var analyticsEvent routeranalytics.Event
+	recordAnalytics := false
 	if component.NodeID != service.nodeID {
 		route.Remote = true
 		response, err = service.forwardRemote(r.Context(), request, requestBody, route)
@@ -67,11 +82,20 @@ func (service *Service) handleRecipeImageRequest(w http.ResponseWriter, r *http.
 				return true
 			}
 		}
+		started := time.Now()
+		analyticsEvent = service.newAnalyticsEvent(started, request, requestBody, component.ImageID, routeranalytics.SectionImage, backendMode)
+		recordAnalytics = true
 		response, err = service.forwardWithFallback(r.Context(), request, requestBody, component.ImageID, component.ConfigFilename, true, readinessImage, backendMode)
 	}
 	if err != nil {
+		if recordAnalytics {
+			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway)
+		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return true
+	}
+	if recordAnalytics {
+		response = service.responseWithAnalytics(response, analyticsEvent)
 	}
 	if err := writeProxyResponse(w, response, publicImageID, true); err != nil {
 		return true
@@ -167,6 +191,8 @@ func (service *Service) handleRecipeAudioRequest(w http.ResponseWriter, r *http.
 	}
 	var response *http.Response
 	var err error
+	var analyticsEvent routeranalytics.Event
+	recordAnalytics := false
 	if component.NodeID != service.nodeID {
 		route.Remote = true
 		response, err = service.forwardRemote(r.Context(), r, requestBody, route)
@@ -187,11 +213,20 @@ func (service *Service) handleRecipeAudioRequest(w http.ResponseWriter, r *http.
 				return true
 			}
 		}
+		started := time.Now()
+		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, component.ModelID, audioAnalyticsSection(lane), backendMode)
+		recordAnalytics = true
 		response, err = service.forwardWithFallback(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readinessText, backendMode)
 	}
 	if err != nil {
+		if recordAnalytics {
+			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway)
+		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return true
+	}
+	if recordAnalytics {
+		response = service.responseWithAnalytics(response, analyticsEvent)
 	}
 	if err := writeProxyResponse(w, response, publicID, false); err != nil {
 		return true

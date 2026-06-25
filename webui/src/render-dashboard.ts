@@ -1,5 +1,6 @@
 import { state } from "./state";
 import { elements } from "./elements";
+import { renderAnalytics } from "./analytics";
 import { renderConstructor } from "./constructor";
 import { benchmarkCompactLabel } from "./benchmark-data";
 import { renderBenchmarks } from "./benchmarks";
@@ -33,6 +34,7 @@ export function renderInventory(): void {
   renderNodes();
   renderTables();
   renderBenchmarks();
+  renderAnalytics();
   renderSimpleCook();
   renderConstructor();
   renderRecipes();

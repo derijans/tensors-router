@@ -74,6 +74,36 @@ func TestServerProxiesBenchmarkRoutes(t *testing.T) {
 	}
 }
 
+func TestServerProxiesAnalyticsRoute(t *testing.T) {
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/router/v1/site/analytics" {
+			http.NotFound(w, r)
+			return
+		}
+		if r.URL.Query().Get("period") != "7d" || r.URL.Query().Get("section") != "image" {
+			http.Error(w, "bad query", http.StatusBadRequest)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"enabled": true})
+	}))
+	defer router.Close()
+
+	process := NewRouterProcess(RouterConfig{URL: router.URL}, t.TempDir())
+	server := NewServer(Config{Router: RouterConfig{URL: router.URL}}, process, NewSessionManager("admin-secret"))
+	cookie, _ := loginForServerTest(t, server)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/api/analytics?period=7d&section=image", nil)
+	request.AddCookie(cookie)
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected analytics status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"enabled":true`) {
+		t.Fatalf("unexpected analytics body %s", recorder.Body.String())
+	}
+}
+
 func TestServerProxiesLoadWithCSRF(t *testing.T) {
 	seen := []string{}
 	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

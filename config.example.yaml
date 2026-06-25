@@ -67,3 +67,8 @@ cluster:
   store_dir: "./router-store"
   sync_interval: "60s"
   health_interval: "15s"
+
+analytics:
+  enabled: false
+  flush_interval: "3m"
+  database_path: ""
