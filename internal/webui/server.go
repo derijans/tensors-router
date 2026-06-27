@@ -83,6 +83,10 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		server.handleRouterAction(w, r, "launch")
 	case r.URL.Path == "/api/router/restart" && r.Method == http.MethodPost:
 		server.handleRouterAction(w, r, "restart")
+	case r.URL.Path == "/api/router/shutdown" && r.Method == http.MethodPost:
+		server.handleRouterAction(w, r, "shutdown")
+	case r.URL.Path == "/api/router/force-kill" && r.Method == http.MethodPost:
+		server.handleRouterAction(w, r, "force-kill")
 	case r.URL.Path == "/api/router/kill" && r.Method == http.MethodPost:
 		server.handleRouterAction(w, r, "kill")
 	case r.URL.Path == "/api/inventory" && r.Method == http.MethodGet:
@@ -150,8 +154,10 @@ func (server *Server) handleRouterAction(w http.ResponseWriter, r *http.Request,
 		err = server.router.Launch(ctx)
 	case "restart":
 		err = server.router.Restart(ctx)
-	case "kill":
-		err = server.router.Kill(ctx)
+	case "shutdown":
+		err = server.router.GracefulShutdown(ctx)
+	case "force-kill", "kill":
+		err = server.router.ForceKill()
 	}
 	if err != nil {
 		writeWebError(w, http.StatusBadRequest, err.Error())

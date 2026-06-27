@@ -63,8 +63,12 @@ export function restartRouter(): Promise<RouterProcessStatus> {
   return api<RouterProcessStatus>("/api/router/restart", {method: "POST"});
 }
 
-export function killRouter(): Promise<RouterProcessStatus> {
-  return api<RouterProcessStatus>("/api/router/kill", {method: "POST"});
+export function shutdownRouter(): Promise<RouterProcessStatus> {
+  return api<RouterProcessStatus>("/api/router/shutdown", {method: "POST"});
+}
+
+export function forceKillRouter(): Promise<RouterProcessStatus> {
+  return api<RouterProcessStatus>("/api/router/force-kill", {method: "POST"});
 }
 
 export function getInventory(): Promise<InventoryResponse> {

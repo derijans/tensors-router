@@ -85,6 +85,8 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		service.handleRouterLoad(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/unload":
 		service.handleRouterUnload(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/shutdown":
+		service.handleRouterShutdown(w)
 	default:
 		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
 	}
@@ -200,6 +202,18 @@ func (service *Service) handleRouterUnload(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func (service *Service) handleRouterShutdown(w http.ResponseWriter) {
+	if service.shutdown == nil {
+		openai.WriteError(w, http.StatusForbidden, "shutdown_disabled", "router shutdown is disabled")
+		return
+	}
+	openai.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+	if flusher, ok := w.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	go service.shutdown()
 }
 
 func (service *Service) loadPublicModel(ctx context.Context, publicID string) error {

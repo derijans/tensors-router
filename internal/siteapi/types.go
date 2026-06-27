@@ -65,9 +65,11 @@ type ConfigFileResponse struct {
 }
 
 type RouterProcessStatus struct {
-	Managed bool   `json:"managed"`
-	Running bool   `json:"running"`
-	URL     string `json:"url"`
-	PID     int    `json:"pid,omitempty"`
-	Error   string `json:"error,omitempty"`
+	Managed      bool   `json:"managed"`
+	Running      bool   `json:"running"`
+	URL          string `json:"url"`
+	PID          int    `json:"pid,omitempty"`
+	CanShutdown  bool   `json:"can_shutdown"`
+	CanForceKill bool   `json:"can_force_kill"`
+	Error        string `json:"error,omitempty"`
 }

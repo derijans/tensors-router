@@ -76,6 +76,7 @@ func runServe(args []string) error {
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	shutdownRequested := make(chan struct{}, 1)
 
 	updater := routerupdate.NewManager(cfg)
 	if err := updater.Ensure(ctx); err != nil {
@@ -169,6 +170,7 @@ func runServe(args []string) error {
 		BenchmarkStore:  benchmarkStore,
 		AnalyticsStore:  analyticsStore,
 		Logger:          serveLogger,
+		Shutdown:        routerShutdownFunc(cfg, shutdownRequested),
 	})
 	routercluster.StartSync(ctx, syncConfig, registry, clusterClient, serveLogger)
 	startupModel := strings.TrimSpace(cfg.Models.StartupModel)
@@ -194,18 +196,45 @@ func runServe(args []string) error {
 
 	select {
 	case <-ctx.Done():
-		shutdownContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		if err := server.Shutdown(shutdownContext); err != nil {
-			return err
-		}
-		return nil
+		return shutdownServer(server)
+	case <-shutdownRequested:
+		return shutdownServer(server)
 	case err := <-errs:
 		if errors.Is(err, http.ErrServerClosed) {
 			return nil
 		}
 		return err
 	}
+}
+
+func shutdownServer(server *http.Server) error {
+	shutdownContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := server.Shutdown(shutdownContext); err != nil {
+		return err
+	}
+	return nil
+}
+
+func routerShutdownFunc(cfg config.Config, shutdownRequested chan<- struct{}) func() {
+	if !bearerAuthConfigured(cfg.Auth.BearerKeys) {
+		return nil
+	}
+	return func() {
+		select {
+		case shutdownRequested <- struct{}{}:
+		default:
+		}
+	}
+}
+
+func bearerAuthConfigured(keys []string) bool {
+	for _, key := range keys {
+		if strings.TrimSpace(key) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func newAnalyticsStore(cfg config.Config, logger *log.Logger) (*routeranalytics.Store, error) {

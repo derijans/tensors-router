@@ -73,6 +73,7 @@ type ServiceConfig struct {
 	AnalyticsStore  *routeranalytics.Store
 	Hardware        hardware.Source
 	Logger          *log.Logger
+	Shutdown        func()
 }
 
 type Service struct {
@@ -98,6 +99,7 @@ type Service struct {
 	hardware        hardware.Source
 	client          *http.Client
 	logger          *log.Logger
+	shutdown        func()
 	benchmarkMu     sync.Mutex
 	sdcppJobs       *sdcppJobStore
 
@@ -240,6 +242,7 @@ func NewService(config ServiceConfig) *Service {
 		analyticsStore: config.AnalyticsStore,
 		hardware:       config.Hardware,
 		logger:         logger,
+		shutdown:       config.Shutdown,
 		sdcppJobs:      newSdcppJobStore(),
 		client: &http.Client{
 			Timeout: 0,

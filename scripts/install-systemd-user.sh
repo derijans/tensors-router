@@ -39,6 +39,11 @@ WorkingDirectory="$APP_DIR"
 ExecStart="$BIN_PATH" serve --config "$CONFIG_PATH"
 Restart=on-failure
 RestartSec=5
+KillSignal=SIGTERM
+KillMode=mixed
+TimeoutStopSec=90s
+SendSIGKILL=yes
+FinalKillSignal=SIGKILL
 
 [Install]
 WantedBy=default.target

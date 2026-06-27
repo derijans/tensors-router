@@ -138,6 +138,45 @@ func TestStoreDoesNotPersistContentFields(t *testing.T) {
 	}
 }
 
+func TestStoreCloseFlushesBufferedEvents(t *testing.T) {
+	dir := t.TempDir()
+	databasePath := filepath.Join(dir, "analytics.sqlite")
+	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	store, err := NewStore(StoreConfig{
+		NodeID:        "node-a",
+		DatabasePath:  databasePath,
+		FlushInterval: time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.Record(Event{ModelID: "llm-a", Section: SectionLLM, StatusCode: 200, Success: true, StartedAt: now, FinishedAt: now})
+	if err := store.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := NewStore(StoreConfig{
+		NodeID:        "node-a",
+		DatabasePath:  databasePath,
+		FlushInterval: time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := reopened.Close(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	})
+	response, err := reopened.Query(context.Background(), Query{Period: PeriodAll, StartMS: now.Add(-time.Hour).UnixMilli(), EndMS: now.Add(time.Hour).UnixMilli()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Summary.RequestCount != 1 {
+		t.Fatalf("close did not flush buffered event: %#v", response.Summary)
+	}
+}
+
 func newTestStore(t *testing.T, nodeID string) *Store {
 	t.Helper()
 	store, err := NewStore(StoreConfig{

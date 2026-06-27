@@ -23,8 +23,7 @@ func TestRouterProcessKillAllowsGracefulExit(t *testing.T) {
 		"FAKE_ROUTER_READY_FILE="+readyPath,
 		"FAKE_ROUTER_SHUTDOWN_FILE="+shutdownPath,
 	)
-	processcontrol.Prepare(cmd, processcontrol.Options{})
-	if err := cmd.Start(); err != nil {
+	if err := processcontrol.Start(cmd, processcontrol.Options{}); err != nil {
 		t.Fatal(err)
 	}
 	waitDone := make(chan error, 1)

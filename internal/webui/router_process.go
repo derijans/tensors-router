@@ -58,16 +58,22 @@ func (process *RouterProcess) Managed() bool {
 
 func (process *RouterProcess) Status(ctx context.Context) siteapi.RouterProcessStatus {
 	process.mu.Lock()
+	managed := process.managed
+	routerURL := process.url
+	token := strings.TrimSpace(process.config.Token)
+	hasProcess := process.cmd != nil && process.cmd.Process != nil
 	status := siteapi.RouterProcessStatus{
-		Managed: process.managed,
-		URL:     process.url,
+		Managed: managed,
+		URL:     routerURL,
 		Error:   process.lastErr,
 	}
-	if process.cmd != nil && process.cmd.Process != nil {
+	if hasProcess {
 		status.PID = process.cmd.Process.Pid
 	}
 	process.mu.Unlock()
 	status.Running = process.Healthy(ctx)
+	status.CanShutdown = (managed && hasProcess) || (!managed && status.Running && token != "")
+	status.CanForceKill = managed && hasProcess
 	return status
 }
 
@@ -117,8 +123,7 @@ func (process *RouterProcess) Launch(ctx context.Context) error {
 	cmd.Dir = filepath.Dir(binaryPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	processcontrol.Prepare(cmd, processcontrol.Options{})
-	if err := cmd.Start(); err != nil {
+	if err := processcontrol.Start(cmd, processcontrol.Options{ParentDeathGracePeriod: 35 * time.Second}); err != nil {
 		process.lastErr = err.Error()
 		process.mu.Unlock()
 		return err
@@ -133,20 +138,45 @@ func (process *RouterProcess) Launch(ctx context.Context) error {
 }
 
 func (process *RouterProcess) Kill(ctx context.Context) error {
+	return process.GracefulShutdown(ctx)
+}
+
+func (process *RouterProcess) GracefulShutdown(ctx context.Context) error {
+	if !process.Managed() {
+		return process.shutdownExternal(ctx)
+	}
+	cmd, waitDone, err := process.takeManagedCommand()
+	if err != nil {
+		return err
+	}
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+	return stopRouterProcess(ctx, cmd, waitDone)
+}
+
+func (process *RouterProcess) ForceKill() error {
+	cmd, waitDone, err := process.takeManagedCommand()
+	if err != nil {
+		return err
+	}
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+	return forceRouterProcess(cmd, waitDone)
+}
+
+func (process *RouterProcess) takeManagedCommand() (*exec.Cmd, <-chan error, error) {
 	process.mu.Lock()
+	defer process.mu.Unlock()
 	if !process.managed {
-		process.mu.Unlock()
-		return fmt.Errorf("router process is external")
+		return nil, nil, fmt.Errorf("router process is external")
 	}
 	cmd := process.cmd
 	waitDone := process.waitDone
 	process.cmd = nil
 	process.waitDone = nil
-	process.mu.Unlock()
-	if cmd == nil || cmd.Process == nil {
-		return nil
-	}
-	return stopRouterProcess(ctx, cmd, waitDone)
+	return cmd, waitDone, nil
 }
 
 func (process *RouterProcess) Restart(ctx context.Context) error {
@@ -157,10 +187,31 @@ func (process *RouterProcess) Restart(ctx context.Context) error {
 }
 
 func (process *RouterProcess) Shutdown(ctx context.Context) error {
-	if !process.config.ShutdownWithWebUI {
+	if !process.config.ShutdownWithWebUI || !process.Managed() {
 		return nil
 	}
-	return process.Kill(ctx)
+	return process.GracefulShutdown(ctx)
+}
+
+func (process *RouterProcess) shutdownExternal(ctx context.Context) error {
+	token := strings.TrimSpace(process.config.Token)
+	if token == "" {
+		return fmt.Errorf("router token is required for external shutdown")
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(process.URL(), "/")+"/router/v1/shutdown", nil)
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := process.client.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode > 299 {
+		return fmt.Errorf("router shutdown failed with status %d", response.StatusCode)
+	}
+	return nil
 }
 
 func (process *RouterProcess) waitHealthy(ctx context.Context, timeout time.Duration) error {
@@ -195,4 +246,8 @@ func (process *RouterProcess) waitForExit(cmd *exec.Cmd, waitDone chan<- error) 
 
 func stopRouterProcess(ctx context.Context, cmd *exec.Cmd, waitDone <-chan error) error {
 	return processcontrol.Stop(ctx, cmd, waitDone, 35*time.Second, 5*time.Second)
+}
+
+func forceRouterProcess(cmd *exec.Cmd, waitDone <-chan error) error {
+	return processcontrol.ForceStop(cmd, waitDone, 5*time.Second)
 }

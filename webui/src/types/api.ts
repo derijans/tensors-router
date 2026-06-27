@@ -12,6 +12,8 @@ export interface RouterProcessStatus {
   running: boolean;
   url: string;
   pid?: number;
+  can_shutdown: boolean;
+  can_force_kill: boolean;
   error?: string;
 }
 

@@ -1,13 +1,14 @@
 import {
   deleteRecipe,
+  forceKillRouter,
   getInventory,
   getRouterStatus,
   getSession,
-  killRouter,
   launchRouter,
   login,
   logout,
-  restartRouter
+  restartRouter,
+  shutdownRouter
 } from "./api";
 import {
   loadSelectedBenchmark,
@@ -188,7 +189,9 @@ elements.launchButton.addEventListener("click", () => runTask(handleLaunchRouter
 
 elements.restartButton.addEventListener("click", () => runTask(handleRestartRouter));
 
-elements.killButton.addEventListener("click", () => runTask(handleKillRouter));
+elements.shutdownButton.addEventListener("click", () => runTask(handleShutdownRouter));
+
+elements.forceKillButton.addEventListener("click", () => runTask(handleForceKillRouter));
 
 elements.previewButton.addEventListener("click", () => runTask(previewSimpleCook));
 elements.cookForm.addEventListener("submit", event => {
@@ -365,8 +368,13 @@ async function handleRestartRouter(): Promise<void> {
   renderRouterStatus();
 }
 
-async function handleKillRouter(): Promise<void> {
-  state.router = await killRouter();
+async function handleShutdownRouter(): Promise<void> {
+  state.router = await shutdownRouter();
+  renderRouterStatus();
+}
+
+async function handleForceKillRouter(): Promise<void> {
+  state.router = await forceKillRouter();
   renderRouterStatus();
 }
 

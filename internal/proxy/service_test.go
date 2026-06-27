@@ -2613,6 +2613,37 @@ func TestRouterUnloadWaitsForStreamingRequest(t *testing.T) {
 	}
 }
 
+func TestRouterShutdownRequiresConfiguredHook(t *testing.T) {
+	service := NewService(ServiceConfig{})
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/v1/shutdown", nil))
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("unexpected shutdown status %d body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestRouterShutdownTriggersConfiguredHook(t *testing.T) {
+	triggered := make(chan struct{})
+	var once sync.Once
+	service := NewService(ServiceConfig{
+		Shutdown: func() {
+			once.Do(func() {
+				close(triggered)
+			})
+		},
+	})
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/v1/shutdown", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected shutdown status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	select {
+	case <-triggered:
+	case <-time.After(time.Second):
+		t.Fatal("shutdown hook was not called")
+	}
+}
+
 func newTestService(t *testing.T, backendHandler http.Handler) (*Service, *fakeBackend) {
 	return newTestServiceWithLogger(t, backendHandler, log.New(io.Discard, "", 0))
 }

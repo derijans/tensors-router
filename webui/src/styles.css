@@ -619,6 +619,31 @@ td {
   fill: var(--cyan);
 }
 
+.analytics-line {
+  fill: none;
+  stroke: var(--cyan);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 2;
+}
+
+.analytics-point {
+  fill: var(--panel);
+  stroke: var(--cyan);
+  stroke-width: 2;
+}
+
+.analytics-axis {
+  stroke: rgba(150, 173, 181, .46);
+  stroke-width: 1;
+}
+
+.analytics-tick-label {
+  fill: var(--muted);
+  font-size: 12px;
+  text-anchor: middle;
+}
+
 .analytics-bar-track {
   fill: rgba(38, 57, 73, .72);
 }

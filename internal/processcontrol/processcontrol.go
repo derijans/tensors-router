@@ -7,7 +7,17 @@ import (
 )
 
 type Options struct {
-	HideWindow bool
+	HideWindow             bool
+	ParentDeathGracePeriod time.Duration
+}
+
+func Start(cmd *exec.Cmd, options Options) error {
+	Prepare(cmd, options)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	Guard(cmd, options)
+	return nil
 }
 
 func Stop(ctx context.Context, cmd *exec.Cmd, waitDone <-chan error, gracePeriod time.Duration, forceWait time.Duration) error {
@@ -37,6 +47,15 @@ func Stop(ctx context.Context, cmd *exec.Cmd, waitDone <-chan error, gracePeriod
 	case <-waitDone:
 		return nil
 	}
+}
+
+func ForceStop(cmd *exec.Cmd, waitDone <-chan error, forceWait time.Duration) error {
+	if cmd == nil || cmd.Process == nil {
+		return nil
+	}
+	err := Kill(cmd)
+	waitAfterKill(waitDone, forceWait)
+	return err
 }
 
 func waitAfterKill(waitDone <-chan error, forceWait time.Duration) {

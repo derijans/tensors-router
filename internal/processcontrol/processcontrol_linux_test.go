@@ -20,14 +20,17 @@ func TestMain(m *testing.M) {
 		runParentDeathHelper()
 		return
 	}
+	if os.Getenv("PROCESSCONTROL_TEST_HELPER") == "parent-death-group" {
+		runParentDeathGroupHelper()
+		return
+	}
 	os.Exit(m.Run())
 }
 
 func TestLinuxKillStopsProcessGroup(t *testing.T) {
 	pidPath := filepath.Join(t.TempDir(), "child.pid")
 	cmd := exec.Command("/bin/sh", "-c", `sleep 60 & echo $! > "$1"; wait`, "process-group", pidPath)
-	Prepare(cmd, Options{})
-	if err := cmd.Start(); err != nil {
+	if err := Start(cmd, Options{}); err != nil {
 		t.Fatal(err)
 	}
 	waitDone := make(chan error, 1)
@@ -65,11 +68,25 @@ func TestLinuxParentDeathSignalStopsManagedChild(t *testing.T) {
 	waitForMissingProcess(t, childPID)
 }
 
+func TestLinuxParentDeathGuardianStopsSpawnedProcess(t *testing.T) {
+	pidPath := filepath.Join(t.TempDir(), "child.pid")
+	helper := exec.Command(os.Args[0], "-test.run", "TestLinuxParentDeathGuardianStopsSpawnedProcess")
+	helper.Env = append(os.Environ(),
+		"PROCESSCONTROL_TEST_HELPER=parent-death-group",
+		"PROCESSCONTROL_CHILD_PID_FILE="+pidPath,
+	)
+	output, err := helper.CombinedOutput()
+	if err != nil {
+		t.Fatalf("helper failed: %v\n%s", err, string(output))
+	}
+	childPID := waitForPIDFile(t, pidPath)
+	waitForMissingProcess(t, childPID)
+}
+
 func runParentDeathHelper() {
 	pidPath := os.Getenv("PROCESSCONTROL_CHILD_PID_FILE")
 	cmd := exec.Command("/bin/sleep", "60")
-	Prepare(cmd, Options{})
-	if err := cmd.Start(); err != nil {
+	if err := Start(cmd, Options{}); err != nil {
 		_, _ = fmt.Fprintln(os.Stderr, err)
 		os.Exit(2)
 	}
@@ -78,6 +95,25 @@ func runParentDeathHelper() {
 		os.Exit(3)
 	}
 	os.Exit(0)
+}
+
+func runParentDeathGroupHelper() {
+	pidPath := os.Getenv("PROCESSCONTROL_CHILD_PID_FILE")
+	cmd := exec.Command("/bin/sh", "-c", `sleep 60 & echo $! > "$1"; wait`, "process-group", pidPath)
+	if err := Start(cmd, Options{ParentDeathGracePeriod: time.Second}); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, err)
+		os.Exit(2)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(pidPath); err == nil {
+			os.Exit(0)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	_, _ = fmt.Fprintln(os.Stderr, "pid file was not written")
+	_ = Kill(cmd)
+	os.Exit(3)
 }
 
 func waitForPIDFile(t *testing.T, path string) int {

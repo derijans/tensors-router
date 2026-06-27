@@ -104,6 +104,42 @@ func TestServerProxiesAnalyticsRoute(t *testing.T) {
 	}
 }
 
+func TestServerProxiesExternalRouterShutdown(t *testing.T) {
+	shutdownSeen := false
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer router-secret" {
+			http.Error(w, "missing token", http.StatusUnauthorized)
+			return
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/router/v1/models":
+			_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{}})
+		case r.Method == http.MethodPost && r.URL.Path == "/router/v1/shutdown":
+			shutdownSeen = true
+			_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer router.Close()
+
+	process := NewRouterProcess(RouterConfig{URL: router.URL, Token: "router-secret"}, t.TempDir())
+	server := NewServer(Config{Router: RouterConfig{URL: router.URL, Token: "router-secret"}}, process, NewSessionManager("admin-secret"))
+	cookie, csrf := loginForServerTest(t, server)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/router/shutdown", nil)
+	request.AddCookie(cookie)
+	request.Header.Set("X-CSRF-Token", csrf)
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected shutdown status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !shutdownSeen {
+		t.Fatal("external router shutdown was not proxied")
+	}
+}
+
 func TestServerProxiesLoadWithCSRF(t *testing.T) {
 	seen := []string{}
 	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

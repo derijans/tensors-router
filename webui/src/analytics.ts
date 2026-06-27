@@ -4,7 +4,7 @@ import {
   analyticsNodeChoices,
   analyticsPeriods,
   analyticsSections,
-  chartBars,
+  chartPoints,
   formatCount,
   formatDecimal,
   formatDurationSeconds,
@@ -107,25 +107,34 @@ function renderAnalyticsTimeline(): void {
     return;
   }
   const width = 720;
-  const height = 180;
-  const bars = chartBars(timeline, width, height);
+  const plotHeight = 170;
+  const height = 220;
+  const series = chartPoints(timeline, width, plotHeight);
   elements.analyticsTimeline.innerHTML = `
     <div class="analytics-chart-head">
       <strong>Timeline</strong>
       <span class="muted">${escapeHTML(state.analytics.data.granularity)}</span>
     </div>
     <svg class="analytics-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Analytics timeline">
-      ${bars.map((bar, index) => {
+      <path class="analytics-line" d="${escapeAttribute(series.linePath)}"></path>
+      ${series.points.map((chartPoint, index) => {
         const point = timeline[index];
         if (!point) {
           return "";
         }
         return `
-        <rect class="analytics-bar" x="${bar.x.toFixed(2)}" y="${bar.y.toFixed(2)}" width="${bar.width.toFixed(2)}" height="${bar.height.toFixed(2)}">
+        <circle class="analytics-point" cx="${chartPoint.x.toFixed(2)}" cy="${chartPoint.y.toFixed(2)}" r="${chartPoint.radius.toFixed(2)}">
           <title>${escapeHTML(formatBucket(point))}: ${formatCount(point.request_count)} requests</title>
-        </rect>
+        </circle>
       `;
       }).join("")}
+      <line class="analytics-axis" x1="4" y1="${plotHeight + 10}" x2="${width - 4}" y2="${plotHeight + 10}"></line>
+      ${series.ticks.map(tick => `
+        <g class="analytics-tick">
+          <line class="analytics-axis" x1="${tick.x.toFixed(2)}" y1="${plotHeight + 5}" x2="${tick.x.toFixed(2)}" y2="${plotHeight + 15}"></line>
+          <text class="analytics-tick-label" x="${tick.x.toFixed(2)}" y="${plotHeight + 34}">${escapeHTML(tick.label)}</text>
+        </g>
+      `).join("")}
     </svg>
   `;
 }

@@ -14,6 +14,9 @@ func Prepare(cmd *exec.Cmd, options Options) {
 	}
 }
 
+func Guard(cmd *exec.Cmd, options Options) {
+}
+
 func Interrupt(cmd *exec.Cmd) error {
 	if cmd.Process == nil {
 		return nil

@@ -45,12 +45,15 @@ export function renderRouterStatus(): void {
   elements.routerSummary.textContent = `${router?.url || ""} ${router?.running ? "running" : "stopped"}`;
   elements.launchButton.disabled = !router?.managed || Boolean(router?.running);
   elements.restartButton.disabled = !router?.managed;
-  elements.killButton.disabled = !router?.managed || !router?.running;
+  elements.shutdownButton.disabled = !router?.can_shutdown;
+  elements.forceKillButton.disabled = !router?.can_force_kill;
   elements.routerStatus.innerHTML = [
     statusItem("Managed", router?.managed ? "yes" : "no"),
     statusItem("Running", router?.running ? "yes" : "no"),
     statusItem("URL", router?.url || "unknown"),
     statusItem("PID", router?.pid ? String(router.pid) : "none"),
+    statusItem("Can shutdown", router?.can_shutdown ? "yes" : "no"),
+    statusItem("Can force kill", router?.can_force_kill ? "yes" : "no"),
     statusItem("Last error", router?.error || "none")
   ].join("");
 }

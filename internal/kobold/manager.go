@@ -153,11 +153,10 @@ func (manager *Manager) startLocked(ctx context.Context) error {
 	}
 
 	cmd := exec.Command(manager.config.BinaryPath, manager.LaunchArguments()...)
-	processcontrol.Prepare(cmd, processcontrol.Options{HideWindow: manager.config.HideWindow})
 	cmd.Stdout = processOutput
 	cmd.Stderr = processOutput
 
-	if err := cmd.Start(); err != nil {
+	if err := processcontrol.Start(cmd, processcontrol.Options{HideWindow: manager.config.HideWindow, ParentDeathGracePeriod: 10 * time.Second}); err != nil {
 		_ = closeLogFile(logFile)
 		return err
 	}
