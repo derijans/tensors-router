@@ -9,6 +9,7 @@ import (
 
 type RuntimeConfig struct {
 	BackendMode               string  `json:"backend_mode"`
+	RouterUnloadPolicy        string  `json:"router_unload_policy"`
 	Model                     any     `json:"model"`
 	ModelParam                string  `json:"model_param"`
 	NoModel                   bool    `json:"nomodel"`

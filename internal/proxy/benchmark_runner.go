@@ -146,7 +146,7 @@ func (service *Service) benchmarkMetrics(ctx context.Context, request routerbenc
 
 func (service *Service) runtimeBenchmarkMetric(ctx context.Context, model catalog.Model) routerbenchmark.Metric {
 	started := time.Now()
-	err := service.loadLocalModel(ctx, model.ID, model.ID)
+	err := service.loadLocalModel(ctx, model.ID, model.ID, "")
 	duration := time.Since(started).Milliseconds()
 	if err != nil {
 		return failedMetric(routerbenchmark.MetricModelLoadMS, err.Error(), duration)

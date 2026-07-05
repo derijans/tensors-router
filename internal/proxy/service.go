@@ -351,7 +351,7 @@ func (service *Service) PreloadModel(ctx context.Context, modelID string) error 
 	modelContext, cancelModelContext := context.WithTimeout(ctx, modelOperationTimeout)
 	defer cancelModelContext()
 
-	_, release, _, err := service.acquireModelConfigForBackendMode(modelBackendMode, modelContext, model.ID, model.Filename, readinessText, false)
+	_, release, _, err := service.acquireModelConfigForBackendMode(modelBackendMode, modelContext, model.ID, model.Filename, readinessText, false, "")
 	if err != nil {
 		return err
 	}
@@ -493,7 +493,7 @@ func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Reques
 			}
 			modelContext, cancelModelContext := context.WithTimeout(context.WithoutCancel(r.Context()), modelOperationTimeout)
 			defer cancelModelContext()
-			_, release, _, err := service.acquireModelConfigForBackendMode(modelBackendMode, modelContext, model.ImageID, model.Filename, readinessImage, false)
+			_, release, _, err := service.acquireModelConfigForBackendMode(modelBackendMode, modelContext, model.ImageID, model.Filename, readinessImage, false, "")
 			if err != nil {
 				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 				return
@@ -974,7 +974,7 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 		defer cancelModelContext()
 
 		var acquireErr error
-		runtime, releaseModel, loadedFresh, acquireErr = service.acquireModelConfigForBackendMode(mode, modelContext, modelID, configFilename, readiness, false)
+		runtime, releaseModel, loadedFresh, acquireErr = service.acquireModelConfigForBackendMode(mode, modelContext, modelID, configFilename, readiness, false, "")
 		if acquireErr != nil {
 			return nil, acquireErr
 		}

@@ -10,7 +10,7 @@
 
 Kobold mode starts one no-model KoboldCpp process at router startup. Model switches reload that process.
 
-Split mode starts native workers lazily when a request or explicit load selects a `.kcpps` file. Text and image lanes switch independently. A lane switch waits for in-flight requests in that lane to finish, then stops the old process and starts the new one.
+Split mode starts native workers lazily when a request or explicit load selects a `.kcpps` file. Text and image lanes switch independently by default. A lane switch waits for in-flight requests in that lane to finish, then stops the old process and starts the new one. `router_unload_policy` or load `unload_policy` can target `text`, `image`, `embeddings`, `voice`, `music`, or `all` to unload selected active lanes before loading a different config.
 
 ## Backend Downloads
 
@@ -38,4 +38,4 @@ Per-backend `extra_args` are appended last so explicit config values can overrid
 
 Cluster model records now include `backend_mode`. Masters use text lane health for LLM, embedding, and multimodal routes, and image lane health for image routes.
 
-In split mode, combined LLM+image `.kcpps` configs can expose their image model without requiring the text lane to have that config active.
+In split mode, combined LLM+image `.kcpps` configs can expose their image model without requiring the text lane to have that config active unless an unload policy asks the router to replace selected active lanes.

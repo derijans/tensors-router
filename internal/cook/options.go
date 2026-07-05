@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"tensors-router/internal/backendmode"
+	"tensors-router/internal/unloadpolicy"
 )
 
 const (
@@ -46,6 +47,7 @@ const (
 
 var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option(backendmode.Key, "Backend", LaneRuntime, ValueString, "", false, backendmode.Kobold, backendmode.LlamaSDCPP),
+	option(unloadpolicy.Key, "Unload Policy", LaneRuntime, ValueString, "", false, backendmode.Kobold, backendmode.LlamaSDCPP),
 	option("baseconfig", "Base Config", LaneRuntime, ValueString, "", false, "kobold"),
 	option("config", "Config", LaneRuntime, ValueString, "", false, "kobold", "llama_sdcpp"),
 	option("host", "Host", LaneRuntime, ValueString, "--host", false, "kobold", "llama_sdcpp"),
@@ -354,6 +356,10 @@ func BackendModeOption(options Options) (string, bool, error) {
 	return mode, true, nil
 }
 
+func UnloadPolicyOption(options Options) (string, bool, error) {
+	return unloadpolicy.ResolveRaw(options)
+}
+
 func lanesForComponents(components []Component) map[string]bool {
 	allowed := map[string]bool{}
 	for _, component := range components {
@@ -412,6 +418,7 @@ func enrichOptionCatalog(values []OptionDefinition) []OptionDefinition {
 
 var optionMetadataByKey = map[string]optionMetadata{
 	"backend_mode":               meta(values(backendmode.Kobold, backendmode.LlamaSDCPP), "", "", "", ""),
+	"router_unload_policy":       meta(unloadpolicy.Values(), "", unloadpolicy.None, "", ""),
 	"baseconfig":                 meta(nil, "config", "", SourceKoboldCPP, ""),
 	"config":                     meta(nil, "config", "", SourceLlamaCPPServer, ""),
 	"host":                       meta(nil, "", "127.0.0.1", SourceLlamaCPPServer, ""),

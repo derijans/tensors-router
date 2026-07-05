@@ -50,7 +50,7 @@ import {
   applyAdvancedCook,
   previewAdvancedCook
 } from "./cook-actions";
-import { loadSelectedConfig } from "./model-actions";
+import { loadSelectedConfig, unloadSelectedTarget } from "./model-actions";
 import {
   addSelectedSimpleField,
   applySimpleCook,
@@ -149,6 +149,7 @@ elements.logoutButton.addEventListener("click", () => runTask(handleLogout));
 
 elements.refreshButton.addEventListener("click", () => runTask(refreshAll));
 elements.filterInput.addEventListener("input", renderTables);
+elements.unloadButton.addEventListener("click", () => runTask(() => unloadSelectedTarget(refreshInventory)));
 elements.modelsTable.addEventListener("click", event => {
   const modelID = elementTarget(event)?.dataset.loadConfig;
   if (modelID) {

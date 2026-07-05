@@ -215,11 +215,13 @@ Usable config types depend on the KoboldCpp endpoint being called:
 - Text config: use with `/v1/chat/completions` or `/v1/completions`; listed on `/v1/models`.
 - Embeddings config: use with `/v1/embeddings` and include `model`.
 - Image-only config: use with `/v1/images/...`, `/sdapi/v1/...`, or supported ComfyUI-style image routes; listed on `/sdapi/v1/sd-models` as `<kcpps name>-<sdmodel filename stem>`.
-- Combined LLM+image config: use one `.kcpps` containing the text model plus `sdmodel`; its image id is available only while the combined config is loaded, and selecting it does not reload or unload the active LLM.
+- Combined LLM+image config: use one `.kcpps` containing the text model plus `sdmodel`; its image id is available only while the combined config is loaded. By default selecting it does not unload another split lane, but `router_unload_policy` can make loading replace-only.
 
 Only one KoboldCpp config is active at a time. LLM and image requests share one model gate: requests using the active config can run together, while a config switch waits for in-flight requests to finish.
 
-In `llama_sdcpp` mode, combined LLM+image configs expose both lanes independently. Selecting the text model starts `llama-server`; selecting the image model starts `sd-server`; explicit `/router/v1/load` on a combined config starts both. The two lanes have separate gates, so a text model switch does not block an unrelated image request.
+In `llama_sdcpp` mode, combined LLM+image configs expose both lanes independently. Selecting the text model starts `llama-server`; selecting the image model starts `sd-server`; explicit `/router/v1/load` on a combined config starts both. The two lanes have separate gates, so a text model switch does not block an unrelated image request unless an unload policy targets that lane.
+
+Set `router_unload_policy` in `.kcpps`, or pass `unload_policy` to `/router/v1/load`, to unload active runtimes before loading a different config. Valid values are `none`, `text`, `image`, `embeddings`, `voice`, `music`, and `all`. Current runtimes map `image` to the image backend, while `text`, `embeddings`, `voice`, and `music` map to the text backend; `all` aggregates every current target. Future backend splits should add a target value instead of changing what existing values mean.
 
 ## Router Registry
 
@@ -238,10 +240,18 @@ curl http://127.0.0.1:8080/router/v1/load \
   -H "Content-Type: application/json" \
   -d '{"model":"hermes-8k"}'
 
+curl http://127.0.0.1:8080/router/v1/load \
+  -H "Content-Type: application/json" \
+  -d '{"model":"image-mix","unload_policy":"all"}'
+
 curl -X POST http://127.0.0.1:8080/router/v1/unload
+
+curl -X POST http://127.0.0.1:8080/router/v1/unload \
+  -H "Content-Type: application/json" \
+  -d '{"target":"image"}'
 ```
 
-Unload restarts KoboldCpp in no-model mode and clears the router active config.
+Unload restarts KoboldCpp in no-model mode and clears the selected router active config. With no body, unload targets `all`. The `target` field accepts `text`, `image`, `embeddings`, `voice`, `music`, or `all`; `none` is only valid as a load policy.
 
 ## Management Web UI API
 

@@ -88,6 +88,20 @@ func TestCatalogParsesOptionalBackendMode(t *testing.T) {
 	}
 }
 
+func TestRuntimeConfigParsesRouterUnloadPolicy(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "strict.kcpps")
+	writeCatalogFile(t, dir, "strict.kcpps", `{"router_unload_policy":"image","model_param":"text.gguf"}`)
+
+	metadata, err := LoadRuntimeConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadata.RouterUnloadPolicy != "image" {
+		t.Fatalf("unexpected unload policy %q", metadata.RouterUnloadPolicy)
+	}
+}
+
 func TestMissingDirectoryReturnsEmptyCatalog(t *testing.T) {
 	models, err := New(filepath.Join(t.TempDir(), "missing")).List()
 	if err != nil {

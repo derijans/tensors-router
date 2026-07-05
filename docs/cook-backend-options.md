@@ -19,6 +19,8 @@ Rules:
 
 | Key | Type | Values | Notes |
 | --- | --- | --- | --- |
+| `backend_mode` | enum | `kobold`, `llama_sdcpp` | Router runtime mode. |
+| `router_unload_policy` | enum | `none`, `text`, `image`, `embeddings`, `voice`, `music`, `all` | Router-owned unload target policy before loading a different config. |
 | `baseconfig` | path | node `.kcpps` files + custom | Verified KoboldCPP admin/base config option. |
 | `config` | path | node `.kcpps` files + custom | Load settings from config. |
 | `host` | string | node backend host + custom | Router-owned when managed. |

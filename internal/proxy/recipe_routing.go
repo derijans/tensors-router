@@ -103,7 +103,7 @@ func (service *Service) handleRecipeImageRequest(w http.ResponseWriter, r *http.
 	return true
 }
 
-func (service *Service) loadRecipe(ctx context.Context, publicID string) (bool, error) {
+func (service *Service) loadRecipe(ctx context.Context, publicID string, unloadPolicy string) (bool, error) {
 	if service.recipeStore == nil {
 		return false, nil
 	}
@@ -116,47 +116,47 @@ func (service *Service) loadRecipe(ctx context.Context, publicID string) (bool, 
 		return false, nil
 	}
 	if hasText {
-		if err := service.loadRecipeComponent(ctx, recipe, text, readinessText); err != nil {
+		if err := service.loadRecipeComponent(ctx, recipe, text, readinessText, unloadPolicy); err != nil {
 			return true, err
 		}
 	}
 	if hasEmbeddings && !sameRecipeComponent(text, embeddings) {
-		if err := service.loadRecipeComponent(ctx, recipe, embeddings, readinessText); err != nil {
+		if err := service.loadRecipeComponent(ctx, recipe, embeddings, readinessText, unloadPolicy); err != nil {
 			return true, err
 		}
 	}
 	if hasImage {
-		if err := service.loadRecipeComponent(ctx, recipe, image, readinessImage); err != nil {
+		if err := service.loadRecipeComponent(ctx, recipe, image, readinessImage, unloadPolicy); err != nil {
 			return true, err
 		}
 	}
 	if hasVoice && !sameRecipeComponent(text, voice) && !sameRecipeComponent(embeddings, voice) {
-		if err := service.loadRecipeComponent(ctx, recipe, voice, readinessText); err != nil {
+		if err := service.loadRecipeComponent(ctx, recipe, voice, readinessText, unloadPolicy); err != nil {
 			return true, err
 		}
 	}
 	if hasMusic && !sameRecipeComponent(text, music) && !sameRecipeComponent(embeddings, music) && !sameRecipeComponent(voice, music) {
-		if err := service.loadRecipeComponent(ctx, recipe, music, readinessText); err != nil {
+		if err := service.loadRecipeComponent(ctx, recipe, music, readinessText, unloadPolicy); err != nil {
 			return true, err
 		}
 	}
 	return true, nil
 }
 
-func (service *Service) loadRecipeComponent(ctx context.Context, recipe recipes.Recipe, component recipes.Component, readiness backendReadiness) error {
+func (service *Service) loadRecipeComponent(ctx context.Context, recipe recipes.Recipe, component recipes.Component, readiness backendReadiness, unloadPolicy string) error {
+	modelID := component.ModelID
+	if readiness == readinessImage {
+		modelID = component.ImageID
+	}
 	route := routeFromRecipeComponent(recipe, component, component.NodeID != service.nodeID, routeLaneForReadiness(readiness))
 	if route.Remote {
-		return service.clusterClient.Load(ctx, route.NodeURL, route.LocalID)
+		return service.clusterClient.Load(ctx, route.NodeURL, modelID, unloadPolicy)
 	}
 	backendMode, err := service.recipeComponentBackendMode(component)
 	if err != nil {
 		return err
 	}
-	modelID := component.ModelID
-	if readiness == readinessImage {
-		modelID = component.ImageID
-	}
-	return service.loadLocalConfig(ctx, backendMode, modelID, component.ConfigFilename, readiness)
+	return service.loadLocalConfigWithPolicy(ctx, backendMode, modelID, component.ConfigFilename, readiness, unloadPolicy)
 }
 
 func (service *Service) recipeModelComponent(publicID string, path string) (recipes.Recipe, recipes.Component, bool) {

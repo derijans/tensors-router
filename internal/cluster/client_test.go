@@ -2,6 +2,7 @@ package cluster
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -43,6 +44,36 @@ func TestClientAllowsAuthorizedTarget(t *testing.T) {
 	}
 	if snapshot.NodeID != "slave-a" {
 		t.Fatalf("unexpected snapshot %#v", snapshot)
+	}
+}
+
+func TestClientForwardsUnloadPolicyAndTarget(t *testing.T) {
+	seen := map[string]string{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]string
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatal(err)
+		}
+		for key, value := range body {
+			seen[r.URL.Path+":"+key] = value
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("secret", server.URL)
+	if err := client.Load(context.Background(), server.URL, "combo", "all"); err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Unload(context.Background(), server.URL, "", "image"); err != nil {
+		t.Fatal(err)
+	}
+	if seen["/router/v1/load:model"] != "combo" || seen["/router/v1/load:unload_policy"] != "all" {
+		t.Fatalf("unexpected load payload %#v", seen)
+	}
+	if seen["/router/v1/unload:target"] != "image" {
+		t.Fatalf("unexpected unload payload %#v", seen)
 	}
 }
 

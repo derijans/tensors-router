@@ -7,6 +7,7 @@ describe("advanced cook option filtering", () => {
   beforeEach(() => {
     state.inventory = testInventory([
       optionDefinition("backend_mode", "string", "runtime"),
+      optionDefinition("router_unload_policy", "string", "runtime"),
       optionDefinition("quiet", "bool", "runtime"),
       optionDefinition("model_param", "string", "llm"),
       optionDefinition("sdmodel", "string", "image"),
@@ -19,12 +20,14 @@ describe("advanced cook option filtering", () => {
     expect(advancedLaneOptions("text", {
       quiet: true,
       backend_mode: "llama_sdcpp",
+      router_unload_policy: "all",
       mystery_backend_key: "custom",
       model_param: "text.gguf",
       sdmodel: "image.safetensors"
     })).toEqual({
       quiet: true,
       backend_mode: "llama_sdcpp",
+      router_unload_policy: "all",
       mystery_backend_key: "custom",
       model_param: "text.gguf"
     });

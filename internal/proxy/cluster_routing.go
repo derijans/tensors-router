@@ -215,7 +215,7 @@ func (service *Service) handleRegistryImageOptions(w http.ResponseWriter, r *htt
 			return true
 		}
 	}
-	_, releaseModel, _, err := service.acquireModelConfigForBackendMode(routeBackendMode, modelContext, route.PublicImageID, route.Filename, readinessImage, false)
+	_, releaseModel, _, err := service.acquireModelConfigForBackendMode(routeBackendMode, modelContext, route.PublicImageID, route.Filename, readinessImage, false, "")
 	if err != nil {
 		release()
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())

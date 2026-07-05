@@ -3,6 +3,8 @@ package cook
 import (
 	"encoding/json"
 	"testing"
+
+	"tensors-router/internal/unloadpolicy"
 )
 
 func TestFilterOptionsForVoiceMusicKinds(t *testing.T) {
@@ -48,6 +50,38 @@ func TestBackendModeOptionAllowsOnlyKnownModes(t *testing.T) {
 	_, _, err = BackendModeOption(Options{"backend_mode": rawJSON(t, "native")})
 	if err == nil {
 		t.Fatalf("expected invalid backend mode error")
+	}
+}
+
+func TestUnloadPolicyOptionAllowsCurrentTargets(t *testing.T) {
+	for _, value := range unloadpolicy.Values() {
+		policy, ok, err := UnloadPolicyOption(Options{unloadpolicy.Key: rawJSON(t, value)})
+		if err != nil {
+			t.Fatalf("expected %q to resolve: %v", value, err)
+		}
+		if !ok || policy != value {
+			t.Fatalf("unexpected unload policy result policy=%q ok=%t", policy, ok)
+		}
+	}
+
+	_, _, err := UnloadPolicyOption(Options{unloadpolicy.Key: rawJSON(t, "gpu")})
+	if err == nil {
+		t.Fatal("expected invalid unload policy error")
+	}
+}
+
+func TestOptionCatalogIncludesUnloadPolicy(t *testing.T) {
+	definition, ok := OptionDefinitionForKey(unloadpolicy.Key)
+	if !ok {
+		t.Fatalf("missing option %q", unloadpolicy.Key)
+	}
+	if definition.Lane != LaneRuntime {
+		t.Fatalf("expected runtime lane, got %q", definition.Lane)
+	}
+	for _, value := range unloadpolicy.Values() {
+		if !containsString(definition.Choices, value) {
+			t.Fatalf("missing unload policy choice %q: %#v", value, definition.Choices)
+		}
 	}
 }
 

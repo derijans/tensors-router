@@ -14,6 +14,7 @@ import type {
   LoadConfigRequest,
   RouterProcessStatus,
   SessionResponse,
+  UnloadConfigRequest,
   ValidationIssue
 } from "./types";
 
@@ -106,6 +107,13 @@ export function getAnalytics(query: AnalyticsQuery): Promise<AnalyticsResponse> 
 
 export function loadModelConfig(request: LoadConfigRequest): Promise<{ ok: boolean }> {
   return api<{ ok: boolean }>("/api/load", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function unloadModelConfig(request: UnloadConfigRequest): Promise<{ ok: boolean }> {
+  return api<{ ok: boolean }>("/api/unload", {
     method: "POST",
     body: JSON.stringify(request)
   });

@@ -440,7 +440,7 @@ func TestLoadRejectsInvalidExplicitBackendMode(t *testing.T) {
 		"bad": `{"model_param":"text.gguf","backend_mode":"native"}`,
 	})
 
-	err := service.loadLocalModel(context.Background(), "bad", "bad")
+	err := service.loadLocalModel(context.Background(), "bad", "bad", "")
 	if err == nil || !strings.Contains(err.Error(), "backend_mode") {
 		t.Fatalf("expected backend_mode validation error, got %v", err)
 	}
@@ -488,7 +488,7 @@ func TestLoadSwitchesBackendFamiliesBeforeReload(t *testing.T) {
 		Logger:  log.New(io.Discard, "", 0),
 	})
 
-	if err := service.loadLocalModel(context.Background(), "native", "native"); err != nil {
+	if err := service.loadLocalModel(context.Background(), "native", "native", ""); err != nil {
 		t.Fatal(err)
 	}
 	if !eventBefore(eventsSnapshot(&mu, &events), "stop-kobold", "reload-native") {
@@ -498,7 +498,7 @@ func TestLoadSwitchesBackendFamiliesBeforeReload(t *testing.T) {
 		t.Fatalf("kobold switch-away should use Stop, got unloads=%d", koboldBackend.unloads.Load())
 	}
 
-	if err := service.loadLocalModel(context.Background(), "kobold", "kobold"); err != nil {
+	if err := service.loadLocalModel(context.Background(), "kobold", "kobold", ""); err != nil {
 		t.Fatal(err)
 	}
 	if !eventBefore(eventsSnapshot(&mu, &events), "stop-native", "reload-kobold") {
@@ -529,14 +529,14 @@ func TestBackendFamilySwitchWaitsForInFlightConfigUsers(t *testing.T) {
 		Catalog: catalog.New(dir),
 		Logger:  log.New(io.Discard, "", 0),
 	})
-	_, release, _, err := service.acquireModelConfigForBackendMode(BackendModeKobold, context.Background(), "kobold", "kobold.kcpps", readinessText, false)
+	_, release, _, err := service.acquireModelConfigForBackendMode(BackendModeKobold, context.Background(), "kobold", "kobold.kcpps", readinessText, false, "")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	done := make(chan error, 1)
 	go func() {
-		done <- service.loadLocalModel(context.Background(), "native", "native")
+		done <- service.loadLocalModel(context.Background(), "native", "native", "")
 	}()
 	select {
 	case <-nativeReloaded:
@@ -1824,9 +1824,10 @@ func TestColdImageRequestWaitsForImageModelsEndpoint(t *testing.T) {
 	}
 	backend := &fakeBackend{url: backendURL, healthy: true}
 	service := NewService(ServiceConfig{
-		Backend: backend,
-		Catalog: catalog.New(dir),
-		Logger:  log.New(io.Discard, "", 0),
+		Backend:   backend,
+		Catalog:   catalog.New(dir),
+		ConfigDir: dir,
+		Logger:    log.New(io.Discard, "", 0),
 	})
 	service.backendRetryAttempts = 4
 	service.backendRetryDelay = 0
@@ -2398,6 +2399,116 @@ func TestLlamaSDCPPRouterLoadCombinedConfigLoadsBothLanes(t *testing.T) {
 	}
 }
 
+func TestLlamaSDCPPLoadPolicyAllUnloadsDifferentActiveLanes(t *testing.T) {
+	service, textBackend, imageBackend := newSplitTestServiceWithConfigContents(
+		t,
+		readyTextHandler(t),
+		readyImageHandler(t),
+		map[string]string{
+			"text":  `{"model_param":"C:\\models\\text.gguf"}`,
+			"image": `{"nomodel":true,"sdmodel":"C:\\models\\dream.safetensors"}`,
+			"next":  `{"model_param":"C:\\models\\next.gguf"}`,
+		},
+	)
+
+	postRouterLoad(t, service, `{"model":"text"}`)
+	postRouterLoad(t, service, `{"model":"image"}`)
+	postRouterLoad(t, service, `{"model":"next","unload_policy":"all"}`)
+
+	if textBackend.unloads.Load() != 1 || imageBackend.unloads.Load() != 1 {
+		t.Fatalf("expected both lanes to unload, got text=%d image=%d", textBackend.unloads.Load(), imageBackend.unloads.Load())
+	}
+	if textBackend.lastReload != "next.kcpps" {
+		t.Fatalf("unexpected final text reload %q", textBackend.lastReload)
+	}
+}
+
+func TestLlamaSDCPPLoadPolicyImageUnloadsOnlyImageLane(t *testing.T) {
+	service, textBackend, imageBackend := newSplitTestServiceWithConfigContents(
+		t,
+		readyTextHandler(t),
+		readyImageHandler(t),
+		map[string]string{
+			"text":  `{"model_param":"C:\\models\\text.gguf"}`,
+			"image": `{"nomodel":true,"sdmodel":"C:\\models\\dream.safetensors"}`,
+			"next":  `{"model_param":"C:\\models\\next.gguf"}`,
+		},
+	)
+
+	postRouterLoad(t, service, `{"model":"text"}`)
+	postRouterLoad(t, service, `{"model":"image"}`)
+	postRouterLoad(t, service, `{"model":"next","unload_policy":"image"}`)
+
+	if textBackend.unloads.Load() != 0 || imageBackend.unloads.Load() != 1 {
+		t.Fatalf("expected only image lane unload, got text=%d image=%d", textBackend.unloads.Load(), imageBackend.unloads.Load())
+	}
+	if textBackend.lastReload != "next.kcpps" {
+		t.Fatalf("unexpected final text reload %q", textBackend.lastReload)
+	}
+}
+
+func TestConfigUnloadPolicyAppliesToRouterLoad(t *testing.T) {
+	service, textBackend, imageBackend := newSplitTestServiceWithConfigContents(
+		t,
+		readyTextHandler(t),
+		readyImageHandler(t),
+		map[string]string{
+			"image":  `{"nomodel":true,"sdmodel":"C:\\models\\dream.safetensors"}`,
+			"strict": `{"model_param":"C:\\models\\strict.gguf","router_unload_policy":"image"}`,
+		},
+	)
+
+	postRouterLoad(t, service, `{"model":"image"}`)
+	postRouterLoad(t, service, `{"model":"strict"}`)
+
+	if textBackend.unloads.Load() != 0 || imageBackend.unloads.Load() != 1 {
+		t.Fatalf("expected config policy to unload image lane, got text=%d image=%d", textBackend.unloads.Load(), imageBackend.unloads.Load())
+	}
+	if textBackend.lastReload != "strict.kcpps" {
+		t.Fatalf("unexpected final text reload %q", textBackend.lastReload)
+	}
+}
+
+func TestCombinedConfigUnloadPolicyAllKeepsSameFilenameLanes(t *testing.T) {
+	service, textBackend, imageBackend := newSplitTestServiceWithConfigContents(
+		t,
+		readyTextHandler(t),
+		readyImageHandler(t),
+		map[string]string{
+			"combo": `{"model_param":"C:\\models\\llm.gguf","sdmodel":"C:\\models\\dream.safetensors","router_unload_policy":"all"}`,
+		},
+	)
+
+	postRouterLoad(t, service, `{"model":"combo"}`)
+
+	if textBackend.unloads.Load() != 0 || imageBackend.unloads.Load() != 0 {
+		t.Fatalf("same config lanes should not unload, got text=%d image=%d", textBackend.unloads.Load(), imageBackend.unloads.Load())
+	}
+	if textBackend.reloads.Load() != 1 || imageBackend.reloads.Load() != 1 {
+		t.Fatalf("expected both lanes to load, got text=%d image=%d", textBackend.reloads.Load(), imageBackend.reloads.Load())
+	}
+}
+
+func TestKoboldUnloadTargetCollapsesToSharedRuntime(t *testing.T) {
+	service, backend := newTestServiceWithConfigContents(t, readyTextHandler(t), map[string]string{
+		"text": `{"model_param":"C:\\models\\text.gguf"}`,
+	})
+
+	postRouterLoad(t, service, `{"model":"text"}`)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/router/v1/unload", strings.NewReader(`{"target":"image"}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if backend.unloads.Load() != 1 {
+		t.Fatalf("expected shared runtime unload, got %d", backend.unloads.Load())
+	}
+}
+
 func TestClusterSplitCombinedImageModelIsVisibleWhenInactive(t *testing.T) {
 	model := testClusterModel("combo", "master", "model-hash", "config-hash", cluster.SourceMaster)
 	model.HasImage = true
@@ -2644,6 +2755,41 @@ func TestRouterShutdownTriggersConfiguredHook(t *testing.T) {
 	}
 }
 
+func postRouterLoad(t *testing.T, service *Service, body string) {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/router/v1/load", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected load status %d body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func readyTextHandler(t *testing.T) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"backend"}]}`))
+			return
+		}
+		t.Fatalf("unexpected text path %s", r.URL.Path)
+	}
+}
+
+func readyImageHandler(t *testing.T) http.HandlerFunc {
+	t.Helper()
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/sdapi/v1/sd-models" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"model_name":"ready"}]`))
+			return
+		}
+		t.Fatalf("unexpected image path %s", r.URL.Path)
+	}
+}
+
 func newTestService(t *testing.T, backendHandler http.Handler) (*Service, *fakeBackend) {
 	return newTestServiceWithLogger(t, backendHandler, log.New(io.Discard, "", 0))
 }
@@ -2806,6 +2952,7 @@ func newSplitTestServiceWithConfigContents(t *testing.T, textHandler http.Handle
 		ImageBackend: imageBackend,
 		BackendMode:  BackendModeLlamaSDCPP,
 		Catalog:      catalog.New(dir),
+		ConfigDir:    dir,
 		Logger:       log.New(io.Discard, "", 0),
 	})
 	return service, textBackend, imageBackend

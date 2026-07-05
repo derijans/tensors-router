@@ -99,6 +99,8 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/analytics")
 	case r.URL.Path == "/api/load" && r.Method == http.MethodPost:
 		server.proxyRouter(w, r, http.MethodPost, "/router/v1/load")
+	case r.URL.Path == "/api/unload" && r.Method == http.MethodPost:
+		server.proxyRouter(w, r, http.MethodPost, "/router/v1/unload")
 	case r.URL.Path == "/api/cook/preview" && r.Method == http.MethodPost:
 		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/cook/preview")
 	case r.URL.Path == "/api/cook/apply" && r.Method == http.MethodPost:

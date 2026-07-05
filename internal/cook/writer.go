@@ -382,6 +382,9 @@ func NormalizedOptions(options Options) (Options, error) {
 	if _, _, err := BackendModeOption(result); err != nil {
 		return nil, err
 	}
+	if _, _, err := UnloadPolicyOption(result); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 

@@ -401,6 +401,13 @@ td {
   min-width: min(340px, 100%);
 }
 
+.model-unload-controls {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(112px, 1fr)) auto;
+  gap: 8px;
+  align-items: end;
+}
+
 .status-grid,
 .cards-grid {
   display: grid;
@@ -1365,6 +1372,7 @@ td {
   .constructor-workpanels,
   .preset-row,
   .field-add-row,
+  .model-unload-controls,
   .assignment-panel,
   .field-diff-row {
     grid-template-columns: 1fr;

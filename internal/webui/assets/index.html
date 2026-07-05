@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>tensor-router-webui</title>
-  <script type="module" crossorigin src="/assets/index-LPy4cR3a.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-69FXCR-S.css">
+  <script type="module" crossorigin src="/assets/index-DOzL7b4P.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-N2Tc0kxp.css">
 </head>
 <body>
   <main class="shell">
@@ -86,6 +86,32 @@
           </div>
           <div class="models-panel-actions">
             <input id="filterInput" type="search" placeholder="Filter models, files, nodes">
+            <div class="model-unload-controls">
+              <label>
+                Load policy
+                <select id="loadPolicySelect">
+                  <option value="none">None</option>
+                  <option value="text">Text</option>
+                  <option value="image">Image</option>
+                  <option value="embeddings">Embeddings</option>
+                  <option value="voice">Voice</option>
+                  <option value="music">Music</option>
+                  <option value="all">All</option>
+                </select>
+              </label>
+              <label>
+                Unload target
+                <select id="unloadTargetSelect">
+                  <option value="all">All</option>
+                  <option value="text">Text</option>
+                  <option value="image">Image</option>
+                  <option value="embeddings">Embeddings</option>
+                  <option value="voice">Voice</option>
+                  <option value="music">Music</option>
+                </select>
+              </label>
+              <button id="unloadButton" type="button">Unload</button>
+            </div>
             <p id="modelsActionStatus" class="action-status"></p>
           </div>
         </div>
