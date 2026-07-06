@@ -43,6 +43,7 @@
       <nav class="tabs" aria-label="WebUI sections">
         <button class="tab-button active" type="button" data-tab="router">Router</button>
         <button class="tab-button" type="button" data-tab="nodes">Nodes</button>
+        <button class="tab-button" type="button" data-tab="webuis">WebUIs</button>
         <button class="tab-button" type="button" data-tab="models">Models</button>
         <button class="tab-button" type="button" data-tab="benchmarks">Benchmarks</button>
         <button class="tab-button" type="button" data-tab="analytics">Analytics</button>
@@ -75,6 +76,20 @@
           <span id="nodeCount" class="pill"></span>
         </div>
         <div id="nodesGrid" class="cards-grid"></div>
+      </section>
+
+      <section class="tab-panel" data-panel="webuis">
+        <div class="panel-head">
+          <div>
+            <h2>WebUIs</h2>
+            <p class="muted">backend entrypoints</p>
+          </div>
+          <div class="webui-toolbar">
+            <input id="webuiFilterInput" type="search" placeholder="Filter WebUIs">
+            <p id="webuiStatus" class="action-status"></p>
+          </div>
+        </div>
+        <div id="webuiGrid" class="webui-grid"></div>
       </section>
 
       <section class="tab-panel" data-panel="models">
@@ -419,6 +434,10 @@
 
   <dialog id="constructorFieldDialog" class="field-dialog">
     <div id="constructorFieldDialogBody" class="field-dialog-body"></div>
+  </dialog>
+
+  <dialog id="webuiDialog" class="field-dialog">
+    <div id="webuiDialogBody" class="field-dialog-body"></div>
   </dialog>
 
   <script type="module" src="/src/main.ts"></script>

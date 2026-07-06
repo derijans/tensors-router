@@ -24,6 +24,12 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/inventory":
 		service.handleSiteInventory(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/webuis":
+		service.handleSiteWebUIs(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/webuis/session":
+		service.handleSiteWebUISession(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/webuis/load":
+		service.handleSiteWebUILoad(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/benchmarks":
 		service.handleBenchmarks(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/benchmarks/run":
@@ -51,6 +57,14 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/site/inventory":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeSiteInventory(w, r)
+		}
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/site/webuis":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeSiteWebUIs(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/webuis/load":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeSiteWebUILoad(w, r)
 		}
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/benchmarks":
 		if service.requireClusterToken(w, r) {

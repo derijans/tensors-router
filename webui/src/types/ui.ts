@@ -1,4 +1,4 @@
-import type { AnalyticsQuery, AnalyticsResponse, BenchmarkRecord, BenchmarkSection, BenchmarkType, CookComponent, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, RouterProcessStatus } from "./api";
+import type { AnalyticsQuery, AnalyticsResponse, BenchmarkRecord, BenchmarkSection, BenchmarkType, CookComponent, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, RouterProcessStatus, WebUICatalogResponse } from "./api";
 import type { Options } from "./json";
 
 export type CookMode = "quick" | "constructor";
@@ -94,6 +94,13 @@ export interface AppState {
     data: AnalyticsResponse | null;
     loading: boolean;
     error: string;
+  };
+  webuis: {
+    data: WebUICatalogResponse | null;
+    filter: string;
+    loading: boolean;
+    error: string;
+    action: string;
   };
   activeTab: string;
   activeCookMode: CookMode;

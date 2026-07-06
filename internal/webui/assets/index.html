@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>tensor-router-webui</title>
-  <script type="module" crossorigin src="/assets/index-DOzL7b4P.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-N2Tc0kxp.css">
+  <script type="module" crossorigin src="/assets/index-D0lLSVT_.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-E8Vj2WoO.css">
 </head>
 <body>
   <main class="shell">
@@ -44,6 +44,7 @@
       <nav class="tabs" aria-label="WebUI sections">
         <button class="tab-button active" type="button" data-tab="router">Router</button>
         <button class="tab-button" type="button" data-tab="nodes">Nodes</button>
+        <button class="tab-button" type="button" data-tab="webuis">WebUIs</button>
         <button class="tab-button" type="button" data-tab="models">Models</button>
         <button class="tab-button" type="button" data-tab="benchmarks">Benchmarks</button>
         <button class="tab-button" type="button" data-tab="analytics">Analytics</button>
@@ -76,6 +77,20 @@
           <span id="nodeCount" class="pill"></span>
         </div>
         <div id="nodesGrid" class="cards-grid"></div>
+      </section>
+
+      <section class="tab-panel" data-panel="webuis">
+        <div class="panel-head">
+          <div>
+            <h2>WebUIs</h2>
+            <p class="muted">backend entrypoints</p>
+          </div>
+          <div class="webui-toolbar">
+            <input id="webuiFilterInput" type="search" placeholder="Filter WebUIs">
+            <p id="webuiStatus" class="action-status"></p>
+          </div>
+        </div>
+        <div id="webuiGrid" class="webui-grid"></div>
       </section>
 
       <section class="tab-panel" data-panel="models">
@@ -420,6 +435,10 @@
 
   <dialog id="constructorFieldDialog" class="field-dialog">
     <div id="constructorFieldDialogBody" class="field-dialog-body"></div>
+  </dialog>
+
+  <dialog id="webuiDialog" class="field-dialog">
+    <div id="webuiDialogBody" class="field-dialog-body"></div>
   </dialog>
 
 </body>

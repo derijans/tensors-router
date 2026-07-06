@@ -58,6 +58,7 @@ type ServiceConfig struct {
 	ImageBackend    Backend
 	BackendMode     string
 	BackendFamilies map[string]BackendFamilyConfig
+	WebUIHosts      BackendWebUIHosts
 	Catalog         ModelCatalog
 	Registry        *cluster.Registry
 	ClusterToken    string
@@ -83,6 +84,8 @@ type Service struct {
 	backendMode     string
 	backendFamilies map[string]*backendFamily
 	backendSwitch   *backendFamilySwitchState
+	webUIHosts      BackendWebUIHosts
+	webUISession    *webUISession
 	catalog         ModelCatalog
 	registry        *cluster.Registry
 	clusterToken    string
@@ -200,6 +203,7 @@ func NewService(config ServiceConfig) *Service {
 		nodeID = "local"
 	}
 	backendFamilies := backendFamiliesFromConfig(config, backendMode)
+	webUIHosts := webUIHostsFromConfig(config.WebUIHosts, backendFamilies)
 	defaultFamily := backendFamilies[backendMode]
 	if defaultFamily == nil {
 		for mode, family := range backendFamilies {
@@ -228,6 +232,8 @@ func NewService(config ServiceConfig) *Service {
 			changed: make(chan struct{}),
 			mode:    backendMode,
 		},
+		webUIHosts:     webUIHosts,
+		webUISession:   newWebUISession(),
 		catalog:        config.Catalog,
 		registry:       config.Registry,
 		clusterToken:   config.ClusterToken,

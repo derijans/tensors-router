@@ -21,6 +21,7 @@ backend:
 
 kobold:
   backend_url: "http://127.0.0.1:5001"
+  host_url: ""
   binary_path: "./bin/kobold/koboldcpp"
   data_dir: "./data"
   multiuser: 1
@@ -32,6 +33,7 @@ kobold:
 
 llama:
   backend_url: "http://127.0.0.1:5002"
+  host_url: ""
   binary_path: "./bin/llama/llama-b9495/llama-server"
   data_dir: "./data/llama"
   hide_window: true
@@ -39,6 +41,7 @@ llama:
 
 sdcpp:
   backend_url: "http://127.0.0.1:7860"
+  host_url: ""
   binary_path: "./bin/stable-diffusion/build/bin/sd-server"
   data_dir: "./data/sdcpp"
   hide_window: true

@@ -339,7 +339,7 @@ td {
 
 .tabs {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(8, minmax(0, 1fr));
   gap: 8px;
   border: 1px solid rgba(38, 56, 74, .72);
   border-radius: 8px;
@@ -1209,6 +1209,82 @@ td {
   gap: 10px;
 }
 
+.webui-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 320px);
+  gap: 6px;
+}
+
+.webui-grid,
+.webui-node-group,
+.webui-cards,
+.webui-model-list {
+  display: grid;
+  gap: 10px;
+}
+
+.webui-node-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.webui-cards {
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.webui-card,
+.webui-model-row {
+  border: 1px solid rgba(38, 57, 73, .95);
+  border-radius: 8px;
+  background: rgba(6, 13, 22, .9);
+  box-shadow: inset 0 1px rgba(255, 255, 255, .04);
+}
+
+.webui-card {
+  display: grid;
+  grid-template-rows: auto auto minmax(22px, auto) auto;
+  gap: 10px;
+  min-height: 206px;
+  padding: 12px;
+}
+
+.webui-card-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 10px;
+}
+
+.webui-card strong,
+.webui-model-row strong {
+  overflow-wrap: anywhere;
+}
+
+.webui-url,
+.webui-model-summary {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.webui-actions,
+.webui-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.webui-model-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+}
+
 .recipe-item {
   display: flex;
   justify-content: space-between;
@@ -1374,7 +1450,10 @@ td {
   .field-add-row,
   .model-unload-controls,
   .assignment-panel,
-  .field-diff-row {
+  .field-diff-row,
+  .webui-card-head,
+  .webui-model-row,
+  .webui-toolbar {
     grid-template-columns: 1fr;
   }
 

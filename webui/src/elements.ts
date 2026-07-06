@@ -16,6 +16,9 @@ export const elements = {
   routerStatus: getRequiredElement("routerStatus", HTMLElement),
   nodeCount: getRequiredElement("nodeCount", HTMLElement),
   nodesGrid: getRequiredElement("nodesGrid", HTMLElement),
+  webuiFilterInput: getRequiredElement("webuiFilterInput", HTMLInputElement),
+  webuiStatus: getRequiredElement("webuiStatus", HTMLElement),
+  webuiGrid: getRequiredElement("webuiGrid", HTMLElement),
   filterInput: getRequiredElement("filterInput", HTMLInputElement),
   loadPolicySelect: getRequiredElement("loadPolicySelect", HTMLSelectElement),
   unloadTargetSelect: getRequiredElement("unloadTargetSelect", HTMLSelectElement),
@@ -72,5 +75,7 @@ export const elements = {
   usedModelsList: getRequiredElement("usedModelsList", HTMLElement),
   selectedOptionsList: getRequiredElement("selectedOptionsList", HTMLElement),
   constructorFieldDialog: getRequiredElement("constructorFieldDialog", HTMLDialogElement),
-  constructorFieldDialogBody: getRequiredElement("constructorFieldDialogBody", HTMLElement)
+  constructorFieldDialogBody: getRequiredElement("constructorFieldDialogBody", HTMLElement),
+  webuiDialog: getRequiredElement("webuiDialog", HTMLDialogElement),
+  webuiDialogBody: getRequiredElement("webuiDialogBody", HTMLElement)
 };

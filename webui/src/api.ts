@@ -15,7 +15,11 @@ import type {
   RouterProcessStatus,
   SessionResponse,
   UnloadConfigRequest,
-  ValidationIssue
+  ValidationIssue,
+  WebUICatalogResponse,
+  WebUILoadRequest,
+  WebUILoadResponse,
+  WebUISessionRequest
 } from "./types";
 
 export type WebError = Error & { data: unknown };
@@ -74,6 +78,24 @@ export function forceKillRouter(): Promise<RouterProcessStatus> {
 
 export function getInventory(): Promise<InventoryResponse> {
   return api<InventoryResponse>("/api/inventory");
+}
+
+export function getWebUIs(): Promise<WebUICatalogResponse> {
+  return api<WebUICatalogResponse>("/api/webuis");
+}
+
+export function setWebUISession(request: WebUISessionRequest): Promise<WebUICatalogResponse> {
+  return api<WebUICatalogResponse>("/api/webuis/session", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
+}
+
+export function loadWebUI(request: WebUILoadRequest): Promise<WebUILoadResponse> {
+  return api<WebUILoadResponse>("/api/webuis/load", {
+    method: "POST",
+    body: JSON.stringify(request)
+  });
 }
 
 export function getBenchmarkRecord(nodeID: string, modelID: string): Promise<BenchmarkRecord> {

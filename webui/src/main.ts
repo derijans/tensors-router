@@ -52,6 +52,15 @@ import {
 } from "./cook-actions";
 import { loadSelectedConfig, unloadSelectedTarget } from "./model-actions";
 import {
+  closeWebUIDialog,
+  loadSelectedWebUIModel,
+  loadWebUIs,
+  openSelectedWebUI,
+  setWebUIEnabled,
+  showSelectedWebUIDialog,
+  updateWebUIFilter
+} from "./webuis";
+import {
   addSelectedSimpleField,
   applySimpleCook,
   copySimpleConfig,
@@ -91,6 +100,7 @@ async function bootstrap(): Promise<void> {
 async function refreshAll(): Promise<void> {
   await refreshRouterStatus();
   await refreshInventory();
+  await loadWebUIs();
   await loadAnalytics();
 }
 
@@ -148,6 +158,26 @@ elements.loginForm.addEventListener("submit", event => {
 elements.logoutButton.addEventListener("click", () => runTask(handleLogout));
 
 elements.refreshButton.addEventListener("click", () => runTask(refreshAll));
+elements.webuiFilterInput.addEventListener("input", () => updateWebUIFilter(elements.webuiFilterInput.value));
+elements.webuiGrid.addEventListener("click", event => {
+  const target = elementTarget(event);
+  const openID = target?.dataset.webuiOpen;
+  if (openID) {
+    openSelectedWebUI(openID);
+    return;
+  }
+  const detailsID = target?.dataset.webuiDetails;
+  if (detailsID) {
+    showSelectedWebUIDialog(detailsID);
+  }
+});
+elements.webuiGrid.addEventListener("change", event => {
+  const target = elementTarget(event);
+  const toggleID = target?.dataset.webuiToggle;
+  if (toggleID && target instanceof HTMLInputElement) {
+    runTask(() => setWebUIEnabled(toggleID, target.checked));
+  }
+});
 elements.filterInput.addEventListener("input", renderTables);
 elements.unloadButton.addEventListener("click", () => runTask(() => unloadSelectedTarget(refreshInventory)));
 elements.modelsTable.addEventListener("click", event => {
@@ -314,6 +344,27 @@ elements.constructorFieldDialog.addEventListener("change", event => {
   handleFieldEditorInput(event.target);
 });
 
+elements.webuiDialog.addEventListener("cancel", event => {
+  event.preventDefault();
+  closeWebUIDialog();
+});
+elements.webuiDialog.addEventListener("click", event => {
+  const target = elementTarget(event);
+  if (target?.dataset.webuiDialogClose !== undefined) {
+    closeWebUIDialog();
+    return;
+  }
+  const enableID = target?.dataset.webuiEnable;
+  if (enableID) {
+    runTask(() => setWebUIEnabled(enableID, true));
+    return;
+  }
+  const loadID = target?.dataset.webuiLoad;
+  if (loadID) {
+    runTask(() => loadSelectedWebUIModel(loadID, target.dataset.webuiLoadModel || "", target.dataset.webuiLoadImage || ""));
+  }
+});
+
 elements.selectedOptionsList.addEventListener("input", event => updateOptionInput(event.target));
 elements.selectedOptionsList.addEventListener("click", event => {
   const target = elementTarget(event);
@@ -362,21 +413,25 @@ async function handleLogout(): Promise<void> {
 async function handleLaunchRouter(): Promise<void> {
   state.router = await launchRouter();
   renderRouterStatus();
+  await loadWebUIs();
 }
 
 async function handleRestartRouter(): Promise<void> {
   state.router = await restartRouter();
   renderRouterStatus();
+  await loadWebUIs();
 }
 
 async function handleShutdownRouter(): Promise<void> {
   state.router = await shutdownRouter();
   renderRouterStatus();
+  await loadWebUIs();
 }
 
 async function handleForceKillRouter(): Promise<void> {
   state.router = await forceKillRouter();
   renderRouterStatus();
+  await loadWebUIs();
 }
 
 async function handleRecipeClick(event: Event): Promise<void> {

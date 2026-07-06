@@ -50,6 +50,13 @@ export const state: AppState = {
     loading: false,
     error: ""
   },
+  webuis: {
+    data: null,
+    filter: "",
+    loading: false,
+    error: "",
+    action: ""
+  },
   activeTab: "router",
   activeCookMode: "quick",
   activePalette: "configs",
