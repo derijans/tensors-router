@@ -86,6 +86,7 @@ cluster:
 
 analytics:
   enabled: true
+  vram_enabled: false
   flush_interval: "2m"
   database_path: "./store/custom-analytics.sqlite"
 `)
@@ -161,7 +162,7 @@ analytics:
 	if cfg.Cluster.SyncInterval != 30*time.Second || cfg.Cluster.HealthInterval != 5*time.Second {
 		t.Fatalf("unexpected cluster intervals %#v", cfg.Cluster)
 	}
-	if !cfg.Analytics.Enabled || cfg.Analytics.FlushInterval != 2*time.Minute || cfg.Analytics.DatabasePath != "./store/custom-analytics.sqlite" {
+	if !cfg.Analytics.Enabled || cfg.Analytics.VRAMEnabled || cfg.Analytics.FlushInterval != 2*time.Minute || cfg.Analytics.DatabasePath != "./store/custom-analytics.sqlite" {
 		t.Fatalf("unexpected analytics config %#v", cfg.Analytics)
 	}
 }
@@ -198,8 +199,18 @@ func TestLoadDefaultConfigWhenDefaultFileMissing(t *testing.T) {
 	if cfg.Cluster.Role != "standalone" || cfg.Cluster.NodeID != "local" {
 		t.Fatalf("unexpected default cluster %#v", cfg.Cluster)
 	}
-	if cfg.Analytics.Enabled || cfg.Analytics.FlushInterval != 3*time.Minute || cfg.Analytics.DatabasePath != "" {
+	if cfg.Analytics.Enabled || !cfg.Analytics.VRAMEnabled || cfg.Analytics.FlushInterval != 3*time.Minute || cfg.Analytics.DatabasePath != "" {
 		t.Fatalf("unexpected default analytics config %#v", cfg.Analytics)
+	}
+}
+
+func TestLoadExampleConfigIncludesVRAMAnalyticsDefault(t *testing.T) {
+	cfg, err := Load(filepath.Join("..", "..", "config.example.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Analytics.Enabled || !cfg.Analytics.VRAMEnabled || cfg.Analytics.FlushInterval != 3*time.Minute {
+		t.Fatalf("unexpected example analytics config %#v", cfg.Analytics)
 	}
 }
 

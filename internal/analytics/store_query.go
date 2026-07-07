@@ -57,16 +57,22 @@ func (store *Store) Query(ctx context.Context, query Query) (Response, error) {
 func (store *Store) querySummary(ctx context.Context, query Query) (Summary, error) {
 	where, args := eventWhere(query)
 	row := store.db.QueryRowContext(ctx, `SELECT
-		COUNT(*),
-		COALESCE(SUM(success), 0),
+		COALESCE(SUM(CASE WHEN event_type = 'request' THEN 1 ELSE 0 END), 0),
+		COALESCE(SUM(CASE WHEN event_type = 'request' THEN success ELSE 0 END), 0),
 		COALESCE(SUM(input_tokens), 0),
 		COALESCE(SUM(output_tokens), 0),
 		COALESCE(SUM(total_tokens), 0),
 		COALESCE(SUM(image_count), 0),
 		COALESCE(SUM(audio_seconds), 0),
 		COALESCE(SUM(audio_tokens), 0),
-		COALESCE(AVG(duration_ms), 0),
-		COALESCE(AVG(NULLIF(tokens_per_second, 0)), 0)
+		COALESCE(AVG(CASE WHEN event_type = 'request' THEN duration_ms END), 0),
+		COALESCE(AVG(CASE WHEN event_type = 'request' THEN NULLIF(tokens_per_second, 0) END), 0),
+		COALESCE(SUM(CASE WHEN event_type = 'model_load' THEN 1 ELSE 0 END), 0),
+		COALESCE(AVG(CASE WHEN event_type = 'model_load' THEN duration_ms END), 0),
+		COALESCE(MAX(CASE WHEN work_vram_max_mb > load_vram_after_mb THEN work_vram_max_mb ELSE load_vram_after_mb END), 0),
+		COALESCE(MAX(vram_peak_percent), 0),
+		COALESCE(MAX(vram_total_mb), 0),
+		COALESCE(MAX(model_vram_estimate_mb), 0)
 		FROM analytics_events `+where, args...)
 	var summary Summary
 	if err := row.Scan(
@@ -80,6 +86,12 @@ func (store *Store) querySummary(ctx context.Context, query Query) (Summary, err
 		&summary.AudioTokens,
 		&summary.AverageDuration,
 		&summary.AverageTokensPS,
+		&summary.LoadCount,
+		&summary.AverageLoadMS,
+		&summary.VRAMPeakMB,
+		&summary.VRAMPeakPercent,
+		&summary.VRAMTotalMB,
+		&summary.ModelVRAMMB,
 	); err != nil {
 		return Summary{}, err
 	}
@@ -96,7 +108,12 @@ func (store *Store) queryTimeline(ctx context.Context, query Query, granularity 
 		COALESCE(SUM(output_tokens), 0),
 		COALESCE(SUM(total_tokens), 0),
 		COALESCE(SUM(image_count), 0),
-		COALESCE(SUM(audio_seconds), 0)
+		COALESCE(SUM(audio_seconds), 0),
+		COALESCE(SUM(load_count), 0),
+		COALESCE(MAX(vram_peak_mb), 0),
+		COALESCE(MAX(vram_peak_percent), 0),
+		COALESCE(MAX(vram_total_mb), 0),
+		COALESCE(MAX(model_vram_estimate_mb), 0)
 		FROM analytics_rollups `+where+`
 		GROUP BY bucket_start
 		ORDER BY bucket_start`, args...)
@@ -115,6 +132,11 @@ func (store *Store) queryTimeline(ctx context.Context, query Query, granularity 
 			&item.TotalTokens,
 			&item.ImageCount,
 			&item.AudioSeconds,
+			&item.LoadCount,
+			&item.VRAMPeakMB,
+			&item.VRAMPeakPct,
+			&item.VRAMTotalMB,
+			&item.ModelVRAMMB,
 		); err != nil {
 			return nil, err
 		}
@@ -127,13 +149,17 @@ func (store *Store) querySections(ctx context.Context, query Query) ([]SectionUs
 	where, args := eventWhere(query)
 	rows, err := store.db.QueryContext(ctx, `SELECT
 		section,
-		COUNT(*),
+		COALESCE(SUM(CASE WHEN event_type = 'request' THEN 1 ELSE 0 END), 0),
 		COALESCE(SUM(total_tokens), 0),
 		COALESCE(SUM(image_count), 0),
-		COALESCE(SUM(audio_seconds), 0)
+		COALESCE(SUM(audio_seconds), 0),
+		COALESCE(SUM(CASE WHEN event_type = 'model_load' THEN 1 ELSE 0 END), 0),
+		COALESCE(MAX(CASE WHEN work_vram_max_mb > load_vram_after_mb THEN work_vram_max_mb ELSE load_vram_after_mb END), 0),
+		COALESCE(MAX(vram_peak_percent), 0),
+		COALESCE(MAX(model_vram_estimate_mb), 0)
 		FROM analytics_events `+where+`
 		GROUP BY section
-		ORDER BY COUNT(*) DESC, section`, args...)
+		ORDER BY COALESCE(SUM(CASE WHEN event_type = 'request' THEN 1 ELSE 0 END), 0) DESC, section`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +167,7 @@ func (store *Store) querySections(ctx context.Context, query Query) ([]SectionUs
 	var result []SectionUsage
 	for rows.Next() {
 		var item SectionUsage
-		if err := rows.Scan(&item.Section, &item.RequestCount, &item.TotalTokens, &item.ImageCount, &item.AudioSeconds); err != nil {
+		if err := rows.Scan(&item.Section, &item.RequestCount, &item.TotalTokens, &item.ImageCount, &item.AudioSeconds, &item.LoadCount, &item.VRAMPeakMB, &item.VRAMPeakPct, &item.ModelVRAMMB); err != nil {
 			return nil, err
 		}
 		result = append(result, item)
@@ -154,13 +180,18 @@ func (store *Store) queryModels(ctx context.Context, query Query) ([]ModelUsage,
 	rows, err := store.db.QueryContext(ctx, `SELECT
 		node_id,
 		model_id,
-		COUNT(*),
+		COALESCE(SUM(CASE WHEN event_type = 'request' THEN 1 ELSE 0 END), 0),
 		COALESCE(SUM(total_tokens), 0),
 		COALESCE(SUM(image_count), 0),
-		COALESCE(SUM(audio_seconds), 0)
+		COALESCE(SUM(audio_seconds), 0),
+		COALESCE(SUM(CASE WHEN event_type = 'model_load' THEN 1 ELSE 0 END), 0),
+		COALESCE(AVG(CASE WHEN event_type = 'model_load' THEN duration_ms END), 0),
+		COALESCE(MAX(CASE WHEN work_vram_max_mb > load_vram_after_mb THEN work_vram_max_mb ELSE load_vram_after_mb END), 0),
+		COALESCE(MAX(vram_peak_percent), 0),
+		COALESCE(MAX(model_vram_estimate_mb), 0)
 		FROM analytics_events `+where+`
 		GROUP BY node_id, model_id
-		ORDER BY COUNT(*) DESC, model_id
+		ORDER BY COALESCE(SUM(CASE WHEN event_type = 'request' THEN 1 ELSE 0 END), 0) DESC, model_id
 		LIMIT 100`, args...)
 	if err != nil {
 		return nil, err
@@ -169,7 +200,7 @@ func (store *Store) queryModels(ctx context.Context, query Query) ([]ModelUsage,
 	var result []ModelUsage
 	for rows.Next() {
 		var item ModelUsage
-		if err := rows.Scan(&item.NodeID, &item.ModelID, &item.RequestCount, &item.TotalTokens, &item.ImageCount, &item.AudioSeconds); err != nil {
+		if err := rows.Scan(&item.NodeID, &item.ModelID, &item.RequestCount, &item.TotalTokens, &item.ImageCount, &item.AudioSeconds, &item.LoadCount, &item.AverageLoadMS, &item.VRAMPeakMB, &item.VRAMPeakPct, &item.ModelVRAMMB); err != nil {
 			return nil, err
 		}
 		result = append(result, item)
@@ -181,10 +212,15 @@ func (store *Store) queryNodes(ctx context.Context, query Query) ([]NodeUsage, e
 	where, args := eventWhere(query)
 	rows, err := store.db.QueryContext(ctx, `SELECT
 		node_id,
-		COUNT(*),
+		COALESCE(SUM(CASE WHEN event_type = 'request' THEN 1 ELSE 0 END), 0),
 		COALESCE(SUM(total_tokens), 0),
 		COALESCE(SUM(image_count), 0),
-		COALESCE(SUM(audio_seconds), 0)
+		COALESCE(SUM(audio_seconds), 0),
+		COALESCE(SUM(CASE WHEN event_type = 'model_load' THEN 1 ELSE 0 END), 0),
+		COALESCE(AVG(CASE WHEN event_type = 'model_load' THEN duration_ms END), 0),
+		COALESCE(MAX(CASE WHEN work_vram_max_mb > load_vram_after_mb THEN work_vram_max_mb ELSE load_vram_after_mb END), 0),
+		COALESCE(MAX(vram_peak_percent), 0),
+		COALESCE(MAX(model_vram_estimate_mb), 0)
 		FROM analytics_events `+where+`
 		GROUP BY node_id
 		ORDER BY node_id`, args...)
@@ -195,7 +231,7 @@ func (store *Store) queryNodes(ctx context.Context, query Query) ([]NodeUsage, e
 	var result []NodeUsage
 	for rows.Next() {
 		var item NodeUsage
-		if err := rows.Scan(&item.NodeID, &item.RequestCount, &item.TotalTokens, &item.ImageCount, &item.AudioSeconds); err != nil {
+		if err := rows.Scan(&item.NodeID, &item.RequestCount, &item.TotalTokens, &item.ImageCount, &item.AudioSeconds, &item.LoadCount, &item.AverageLoadMS, &item.VRAMPeakMB, &item.VRAMPeakPct, &item.ModelVRAMMB); err != nil {
 			return nil, err
 		}
 		result = append(result, item)
@@ -206,10 +242,12 @@ func (store *Store) queryNodes(ctx context.Context, query Query) ([]NodeUsage, e
 func (store *Store) queryRecent(ctx context.Context, query Query) ([]RecentEvent, error) {
 	where, args := eventWhere(query)
 	rows, err := store.db.QueryContext(ctx, `SELECT
-		node_id, model_id, section, backend_mode, route, status_code, success,
+		node_id, model_id, section, backend_mode, event_type, route, config_filename, status_code, success,
 		started_at, finished_at, duration_ms, input_tokens, output_tokens,
 		total_tokens, tokens_per_second, image_count, image_width, image_height,
-		image_type, audio_seconds, audio_tokens
+		image_type, audio_seconds, audio_tokens, load_vram_before_mb, load_vram_after_mb,
+		load_vram_delta_mb, work_vram_start_mb, work_vram_max_mb, work_vram_end_mb,
+		model_vram_estimate_mb, vram_total_mb, vram_peak_percent
 		FROM analytics_events `+where+`
 		ORDER BY finished_at DESC
 		LIMIT 100`, args...)
@@ -226,7 +264,9 @@ func (store *Store) queryRecent(ctx context.Context, query Query) ([]RecentEvent
 			&item.ModelID,
 			&item.Section,
 			&item.BackendMode,
+			&item.EventType,
 			&item.Route,
+			&item.ConfigFilename,
 			&item.StatusCode,
 			&success,
 			&item.StartedAt,
@@ -242,6 +282,15 @@ func (store *Store) queryRecent(ctx context.Context, query Query) ([]RecentEvent
 			&item.ImageType,
 			&item.AudioSeconds,
 			&item.AudioTokens,
+			&item.LoadVRAMBefore,
+			&item.LoadVRAMAfter,
+			&item.LoadVRAMDelta,
+			&item.WorkVRAMStart,
+			&item.WorkVRAMMax,
+			&item.WorkVRAMEnd,
+			&item.ModelVRAM,
+			&item.VRAMTotal,
+			&item.VRAMPeakPercent,
 		); err != nil {
 			return nil, err
 		}

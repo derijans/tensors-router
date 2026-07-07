@@ -170,6 +170,7 @@ func Merge(responses ...Response) Response {
 
 func addSummary(left *Summary, right Summary) {
 	previousRequests := left.RequestCount
+	previousLoads := left.LoadCount
 	left.RequestCount += right.RequestCount
 	left.SuccessCount += right.SuccessCount
 	left.FailureCount += right.FailureCount
@@ -179,8 +180,14 @@ func addSummary(left *Summary, right Summary) {
 	left.ImageCount += right.ImageCount
 	left.AudioSeconds += right.AudioSeconds
 	left.AudioTokens += right.AudioTokens
+	left.LoadCount += right.LoadCount
 	left.AverageDuration = weightedAverage(previousRequests, left.AverageDuration, right.RequestCount, right.AverageDuration)
 	left.AverageTokensPS = weightedAverage(previousRequests, left.AverageTokensPS, right.RequestCount, right.AverageTokensPS)
+	left.AverageLoadMS = weightedAverage(previousLoads, left.AverageLoadMS, right.LoadCount, right.AverageLoadMS)
+	left.VRAMPeakMB = maxInt64(left.VRAMPeakMB, right.VRAMPeakMB)
+	left.VRAMPeakPercent = maxFloat64(left.VRAMPeakPercent, right.VRAMPeakPercent)
+	left.VRAMTotalMB = maxInt64(left.VRAMTotalMB, right.VRAMTotalMB)
+	left.ModelVRAMMB = maxInt64(left.ModelVRAMMB, right.ModelVRAMMB)
 }
 
 func addTimeline(left *Timeline, right Timeline) {
@@ -190,6 +197,11 @@ func addTimeline(left *Timeline, right Timeline) {
 	left.TotalTokens += right.TotalTokens
 	left.ImageCount += right.ImageCount
 	left.AudioSeconds += right.AudioSeconds
+	left.LoadCount += right.LoadCount
+	left.VRAMPeakMB = maxInt64(left.VRAMPeakMB, right.VRAMPeakMB)
+	left.VRAMPeakPct = maxFloat64(left.VRAMPeakPct, right.VRAMPeakPct)
+	left.VRAMTotalMB = maxInt64(left.VRAMTotalMB, right.VRAMTotalMB)
+	left.ModelVRAMMB = maxInt64(left.ModelVRAMMB, right.ModelVRAMMB)
 }
 
 func addSection(left *SectionUsage, right SectionUsage) {
@@ -197,20 +209,36 @@ func addSection(left *SectionUsage, right SectionUsage) {
 	left.TotalTokens += right.TotalTokens
 	left.ImageCount += right.ImageCount
 	left.AudioSeconds += right.AudioSeconds
+	left.LoadCount += right.LoadCount
+	left.VRAMPeakMB = maxInt64(left.VRAMPeakMB, right.VRAMPeakMB)
+	left.VRAMPeakPct = maxFloat64(left.VRAMPeakPct, right.VRAMPeakPct)
+	left.ModelVRAMMB = maxInt64(left.ModelVRAMMB, right.ModelVRAMMB)
 }
 
 func addModel(left *ModelUsage, right ModelUsage) {
+	previousLoads := left.LoadCount
 	left.RequestCount += right.RequestCount
 	left.TotalTokens += right.TotalTokens
 	left.ImageCount += right.ImageCount
 	left.AudioSeconds += right.AudioSeconds
+	left.LoadCount += right.LoadCount
+	left.AverageLoadMS = weightedAverage(previousLoads, left.AverageLoadMS, right.LoadCount, right.AverageLoadMS)
+	left.VRAMPeakMB = maxInt64(left.VRAMPeakMB, right.VRAMPeakMB)
+	left.VRAMPeakPct = maxFloat64(left.VRAMPeakPct, right.VRAMPeakPct)
+	left.ModelVRAMMB = maxInt64(left.ModelVRAMMB, right.ModelVRAMMB)
 }
 
 func addNode(left *NodeUsage, right NodeUsage) {
+	previousLoads := left.LoadCount
 	left.RequestCount += right.RequestCount
 	left.TotalTokens += right.TotalTokens
 	left.ImageCount += right.ImageCount
 	left.AudioSeconds += right.AudioSeconds
+	left.LoadCount += right.LoadCount
+	left.AverageLoadMS = weightedAverage(previousLoads, left.AverageLoadMS, right.LoadCount, right.AverageLoadMS)
+	left.VRAMPeakMB = maxInt64(left.VRAMPeakMB, right.VRAMPeakMB)
+	left.VRAMPeakPct = maxFloat64(left.VRAMPeakPct, right.VRAMPeakPct)
+	left.ModelVRAMMB = maxInt64(left.ModelVRAMMB, right.ModelVRAMMB)
 }
 
 func weightedAverage(leftCount int64, leftValue float64, rightCount int64, rightValue float64) float64 {
@@ -227,6 +255,13 @@ func mapValues[K comparable, V any](values map[K]*V) []V {
 		result = append(result, *value)
 	}
 	return result
+}
+
+func maxFloat64(left float64, right float64) float64 {
+	if right > left {
+		return right
+	}
+	return left
 }
 
 func optionalInt64(value string) (int64, error) {

@@ -53,56 +53,62 @@ type ModelCatalog interface {
 }
 
 type ServiceConfig struct {
-	Backend         Backend
-	TextBackend     Backend
-	ImageBackend    Backend
-	BackendMode     string
-	BackendFamilies map[string]BackendFamilyConfig
-	Catalog         ModelCatalog
-	Registry        *cluster.Registry
-	ClusterToken    string
-	ClusterClient   *cluster.Client
-	ClusterRole     string
-	NodeID          string
-	NodeURL         string
-	SlaveURLs       []string
-	ConfigDir       string
-	FileRoots       []string
-	RecipeStore     *recipes.Store
-	BenchmarkStore  *routerbenchmark.Store
-	AnalyticsStore  *routeranalytics.Store
-	Hardware        hardware.Source
-	Logger          *log.Logger
-	Shutdown        func()
+	Backend              Backend
+	TextBackend          Backend
+	ImageBackend         Backend
+	BackendMode          string
+	BackendFamilies      map[string]BackendFamilyConfig
+	Catalog              ModelCatalog
+	Registry             *cluster.Registry
+	ClusterToken         string
+	ClusterClient        *cluster.Client
+	ClusterRole          string
+	NodeID               string
+	NodeURL              string
+	SlaveURLs            []string
+	ConfigDir            string
+	FileRoots            []string
+	RecipeStore          *recipes.Store
+	BenchmarkStore       *routerbenchmark.Store
+	AnalyticsStore       *routeranalytics.Store
+	VRAMAnalyticsEnabled bool
+	VRAMSource           hardware.VRAMSource
+	VRAMSampleInterval   time.Duration
+	Hardware             hardware.Source
+	Logger               *log.Logger
+	Shutdown             func()
 }
 
 type Service struct {
-	backend         Backend
-	textRuntime     *backendRuntime
-	imageRuntime    *backendRuntime
-	backendMode     string
-	backendFamilies map[string]*backendFamily
-	backendSwitch   *backendFamilySwitchState
-	webUISession    *webUISession
-	catalog         ModelCatalog
-	registry        *cluster.Registry
-	clusterToken    string
-	clusterClient   *cluster.Client
-	clusterRole     string
-	nodeID          string
-	nodeURL         string
-	slaveURLs       []string
-	configDir       string
-	fileRoots       []string
-	recipeStore     *recipes.Store
-	benchmarkStore  *routerbenchmark.Store
-	analyticsStore  *routeranalytics.Store
-	hardware        hardware.Source
-	client          *http.Client
-	logger          *log.Logger
-	shutdown        func()
-	benchmarkMu     sync.Mutex
-	sdcppJobs       *sdcppJobStore
+	backend              Backend
+	textRuntime          *backendRuntime
+	imageRuntime         *backendRuntime
+	backendMode          string
+	backendFamilies      map[string]*backendFamily
+	backendSwitch        *backendFamilySwitchState
+	webUISession         *webUISession
+	catalog              ModelCatalog
+	registry             *cluster.Registry
+	clusterToken         string
+	clusterClient        *cluster.Client
+	clusterRole          string
+	nodeID               string
+	nodeURL              string
+	slaveURLs            []string
+	configDir            string
+	fileRoots            []string
+	recipeStore          *recipes.Store
+	benchmarkStore       *routerbenchmark.Store
+	analyticsStore       *routeranalytics.Store
+	vramAnalyticsEnabled bool
+	vramSource           hardware.VRAMSource
+	vramSampleInterval   time.Duration
+	hardware             hardware.Source
+	client               *http.Client
+	logger               *log.Logger
+	shutdown             func()
+	benchmarkMu          sync.Mutex
+	sdcppJobs            *sdcppJobStore
 
 	backendRetryAttempts int
 	backendRetryDelay    time.Duration
@@ -196,6 +202,14 @@ func NewService(config ServiceConfig) *Service {
 	if clusterRole == "" {
 		clusterRole = cluster.RoleStandalone
 	}
+	vramSampleInterval := config.VRAMSampleInterval
+	if vramSampleInterval <= 0 {
+		vramSampleInterval = 250 * time.Millisecond
+	}
+	vramSource := config.VRAMSource
+	if config.VRAMAnalyticsEnabled && vramSource == nil {
+		vramSource = hardware.NewVRAMReader()
+	}
 	nodeID := strings.TrimSpace(config.NodeID)
 	if nodeID == "" {
 		nodeID = "local"
@@ -229,23 +243,26 @@ func NewService(config ServiceConfig) *Service {
 			changed: make(chan struct{}),
 			mode:    backendMode,
 		},
-		webUISession:   newWebUISession(),
-		catalog:        config.Catalog,
-		registry:       config.Registry,
-		clusterToken:   config.ClusterToken,
-		clusterRole:    clusterRole,
-		nodeID:         nodeID,
-		nodeURL:        strings.TrimSpace(config.NodeURL),
-		slaveURLs:      append([]string{}, config.SlaveURLs...),
-		configDir:      strings.TrimSpace(config.ConfigDir),
-		fileRoots:      append([]string{}, config.FileRoots...),
-		recipeStore:    config.RecipeStore,
-		benchmarkStore: config.BenchmarkStore,
-		analyticsStore: config.AnalyticsStore,
-		hardware:       config.Hardware,
-		logger:         logger,
-		shutdown:       config.Shutdown,
-		sdcppJobs:      newSdcppJobStore(),
+		webUISession:         newWebUISession(),
+		catalog:              config.Catalog,
+		registry:             config.Registry,
+		clusterToken:         config.ClusterToken,
+		clusterRole:          clusterRole,
+		nodeID:               nodeID,
+		nodeURL:              strings.TrimSpace(config.NodeURL),
+		slaveURLs:            append([]string{}, config.SlaveURLs...),
+		configDir:            strings.TrimSpace(config.ConfigDir),
+		fileRoots:            append([]string{}, config.FileRoots...),
+		recipeStore:          config.RecipeStore,
+		benchmarkStore:       config.BenchmarkStore,
+		analyticsStore:       config.AnalyticsStore,
+		vramAnalyticsEnabled: config.VRAMAnalyticsEnabled,
+		vramSource:           vramSource,
+		vramSampleInterval:   vramSampleInterval,
+		hardware:             config.Hardware,
+		logger:               logger,
+		shutdown:             config.Shutdown,
+		sdcppJobs:            newSdcppJobStore(),
 		client: &http.Client{
 			Timeout: 0,
 		},
@@ -308,10 +325,10 @@ func newBackendFamily(mode string, config BackendFamilyConfig) *backendFamily {
 		imageBackend = textBackend
 	}
 	sharedState := newActiveConfigState()
-	textRuntime := &backendRuntime{backend: textBackend, state: sharedState, name: mode + "-text"}
+	textRuntime := &backendRuntime{backend: textBackend, state: sharedState, mode: mode, name: mode + "-text"}
 	imageRuntime := textRuntime
 	if mode == BackendModeLlamaSDCPP && config.ImageBackend != nil {
-		imageRuntime = &backendRuntime{backend: imageBackend, state: newActiveConfigState(), name: mode + "-image"}
+		imageRuntime = &backendRuntime{backend: imageBackend, state: newActiveConfigState(), mode: mode, name: mode + "-image"}
 	}
 	return &backendFamily{
 		mode:         mode,
@@ -533,13 +550,13 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 		if target, ok := service.sdcppJobs.routeForPath(r.URL.Path); ok {
 			started := time.Now()
 			analyticsEvent := service.newAnalyticsEvent(started, r, body, target.publicImageID, routeranalytics.SectionImage, target.backendMode)
-			response, err := service.forwardWithFallback(r.Context(), r, body, target.publicImageID, target.configFilename, true, readinessImage, target.backendMode)
+			response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, target.publicImageID, target.configFilename, true, readinessImage, target.backendMode)
 			if err != nil {
-				service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway)
+				service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
 				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 				return
 			}
-			response = service.responseWithAnalytics(response, analyticsEvent)
+			response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 			if err := writeProxyResponse(w, response, target.publicImageID, false); err != nil {
 				return
 			}
@@ -600,9 +617,9 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 
 	started := time.Now()
 	analyticsEvent := service.newAnalyticsEvent(started, r, body, model.ImageID, routeranalytics.SectionImage, modelBackendMode)
-	response, err := service.forwardWithFallback(r.Context(), r, body, model.ImageID, model.Filename, hasModel, readinessImage, modelBackendMode)
+	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, model.ImageID, model.Filename, hasModel, readinessImage, modelBackendMode)
 	if err != nil {
-		service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway)
+		service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
@@ -614,7 +631,7 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 			backendMode:    modelBackendMode,
 		})
 	}
-	response = service.responseWithAnalytics(response, analyticsEvent)
+	response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 
 	if err := writeProxyResponse(w, response, model.ImageID, hasModel); err != nil {
 		return
@@ -697,16 +714,16 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 	}
 	started := time.Now()
 	analyticsEvent := service.newAnalyticsEvent(started, r, requestBody, analyticsModelID, audioAnalyticsSection(lane), selectedBackendMode)
-	response, err := service.forwardWithFallback(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readinessText, selectedBackendMode)
+	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readinessText, selectedBackendMode)
 	if err != nil {
 		if analyticsModelID != "" {
-			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway)
+			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
 		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
 	if analyticsModelID != "" {
-		response = service.responseWithAnalytics(response, analyticsEvent)
+		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 	}
 	if err := writeProxyResponse(w, response, modelID, false); err != nil {
 		return
@@ -906,16 +923,16 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 
 	started := time.Now()
 	analyticsEvent := service.newAnalyticsEvent(started, r, requestBody, backendModelID, textAnalyticsSection(r.URL.Path), selectedBackendMode)
-	response, err := service.forwardWithFallback(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readinessText, selectedBackendMode)
+	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readinessText, selectedBackendMode)
 	if err != nil {
 		if hasModel {
-			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway)
+			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
 		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
 	if hasModel {
-		response = service.responseWithAnalytics(response, analyticsEvent)
+		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 	}
 
 	if err := writeModelProxyResponse(w, response, modelID, hasModel); err != nil {
@@ -968,14 +985,20 @@ func writeModelProxyResponse(w http.ResponseWriter, response *http.Response, vir
 }
 
 func (service *Service) forwardWithFallback(ctx context.Context, original *http.Request, body []byte, modelID string, configFilename string, hasModel bool, readiness backendReadiness, mode string) (*http.Response, error) {
+	response, _, err := service.forwardWithFallbackObserved(ctx, original, body, modelID, configFilename, hasModel, readiness, mode)
+	return response, err
+}
+
+func (service *Service) forwardWithFallbackObserved(ctx context.Context, original *http.Request, body []byte, modelID string, configFilename string, hasModel bool, readiness backendReadiness, mode string) (*http.Response, analyticsEventFinalizer, error) {
 	runtime, err := service.runtimeForBackendMode(mode, readiness)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	loadedFresh := false
 	modelContext := ctx
 	cancelModelContext := func() {}
 	releaseModel := func() {}
+	var workFinalizer analyticsEventFinalizer
 	if hasModel {
 		modelContext, cancelModelContext = context.WithTimeout(context.WithoutCancel(ctx), modelOperationTimeout)
 		defer cancelModelContext()
@@ -983,26 +1006,27 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 		var acquireErr error
 		runtime, releaseModel, loadedFresh, acquireErr = service.acquireModelConfigForBackendMode(mode, modelContext, modelID, configFilename, readiness, false)
 		if acquireErr != nil {
-			return nil, acquireErr
+			return nil, nil, acquireErr
 		}
+		workFinalizer = service.beginVRAMWork(runtime)
 	} else {
 		if err := service.ensureBackendFamily(ctx, mode); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		runtime, err = service.runtimeForBackendMode(mode, readiness)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
 	response, err := service.forward(runtime, ctx, original, body)
 	if !hasModel {
-		return response, err
+		return response, nil, err
 	}
 	recoveredBackend := false
 	retryResult := service.backendRetryResult(response, err, original.URL.Path)
 	if !retryResult.retry {
-		return responseWithRelease(response, releaseModel), nil
+		return responseWithRelease(response, releaseModel), workFinalizer, nil
 	}
 
 	lastStatus := retryResult.status
@@ -1014,7 +1038,7 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 		var recoveryErr error
 		releaseModel, loadedFresh, recoveryErr = service.recoverBackendForModel(runtime, modelContext, releaseModel, modelID, configFilename, readiness, original.URL.Path, retryResult.err)
 		if recoveryErr != nil {
-			return nil, recoveryErr
+			return nil, workFinalizer, recoveryErr
 		}
 		recoveredBackend = true
 	} else if !loadedFresh && !isBackendWaitingResponse(lastStatus, lastBody) {
@@ -1022,7 +1046,7 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 		var reloadErr error
 		releaseModel, loadedFresh, reloadErr = service.acquireModelConfig(runtime, modelContext, modelID, configFilename, readiness, true)
 		if reloadErr != nil {
-			return nil, reloadErr
+			return nil, workFinalizer, reloadErr
 		}
 	} else if !loadedFresh {
 		service.logger.Printf("backend unavailable while config already active; retrying without reload model=%q config=%q", modelID, configFilename)
@@ -1035,7 +1059,7 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 	if retryResult.inactive {
 		if err := service.waitForInactiveBackend(runtime, modelContext, readiness, modelID, configFilename, original.URL.Path); err != nil {
 			releaseModel()
-			return nil, err
+			return nil, workFinalizer, err
 		}
 		skipRetryDelay = true
 	}
@@ -1043,7 +1067,7 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 		if attempt > 1 && !skipRetryDelay {
 			if err := waitForRetry(ctx, retryDelay); err != nil {
 				releaseModel()
-				return nil, err
+				return nil, workFinalizer, err
 			}
 			retryDelay = nextRetryDelay(retryDelay, service.backendRetryMaxDelay)
 		}
@@ -1052,7 +1076,7 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 		response, err = service.forward(runtime, ctx, original, body)
 		retryResult = service.backendRetryResult(response, err, original.URL.Path)
 		if !retryResult.retry {
-			return responseWithRelease(response, releaseModel), nil
+			return responseWithRelease(response, releaseModel), workFinalizer, nil
 		}
 
 		lastStatus = retryResult.status
@@ -1064,14 +1088,14 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 			var recoveryErr error
 			releaseModel, loadedFresh, recoveryErr = service.recoverBackendForModel(runtime, modelContext, releaseModel, modelID, configFilename, readiness, original.URL.Path, retryResult.err)
 			if recoveryErr != nil {
-				return nil, recoveryErr
+				return nil, workFinalizer, recoveryErr
 			}
 			recoveredBackend = true
 		}
 		if retryResult.inactive {
 			if err := service.waitForInactiveBackend(runtime, modelContext, readiness, modelID, configFilename, original.URL.Path); err != nil {
 				releaseModel()
-				return nil, err
+				return nil, workFinalizer, err
 			}
 			skipRetryDelay = true
 		}
@@ -1079,7 +1103,7 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 
 	service.logger.Printf("backend retry exhausted path=%s model=%q config=%q attempts=%d status=%d error=%v body=%q", original.URL.Path, modelID, configFilename, service.backendRetryAttempts, lastStatus, lastErr, lastBody)
 	releaseModel()
-	return nil, backendRetryExhaustedError(lastStatus, lastErr, lastBody)
+	return nil, workFinalizer, backendRetryExhaustedError(lastStatus, lastErr, lastBody)
 }
 
 func (service *Service) shouldRecoverBackend(runtime *backendRuntime, ctx context.Context, retryResult backendRetryResult) bool {

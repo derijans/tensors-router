@@ -70,5 +70,6 @@ cluster:
 
 analytics:
   enabled: false
+  vram_enabled: true
   flush_interval: "3m"
   database_path: ""

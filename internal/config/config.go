@@ -92,6 +92,7 @@ type ClusterConfig struct {
 
 type AnalyticsConfig struct {
 	Enabled       bool
+	VRAMEnabled   bool
 	FlushInterval time.Duration
 	DatabasePath  string
 }
@@ -166,6 +167,7 @@ func Defaults() Config {
 		},
 		Analytics: AnalyticsConfig{
 			Enabled:       false,
+			VRAMEnabled:   true,
 			FlushInterval: 3 * time.Minute,
 		},
 	}
@@ -687,6 +689,13 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 				return err
 			}
 			cfg.Analytics.Enabled = parsed
+			return nil
+		case "vram_enabled":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return err
+			}
+			cfg.Analytics.VRAMEnabled = parsed
 			return nil
 		case "flush_interval":
 			parsed, err := time.ParseDuration(value)

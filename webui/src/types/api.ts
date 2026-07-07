@@ -89,6 +89,12 @@ export interface AnalyticsSummary {
   audio_tokens: number;
   average_duration_ms: number;
   average_tokens_per_second: number;
+  load_count: number;
+  average_load_duration_ms: number;
+  vram_peak_mb: number;
+  vram_peak_percent: number;
+  vram_total_mb: number;
+  model_vram_estimate_mb: number;
 }
 
 export interface AnalyticsTimeline {
@@ -99,6 +105,11 @@ export interface AnalyticsTimeline {
   total_tokens: number;
   image_count: number;
   audio_seconds: number;
+  load_count: number;
+  vram_peak_mb: number;
+  vram_peak_percent: number;
+  vram_total_mb: number;
+  model_vram_estimate_mb: number;
 }
 
 export interface AnalyticsSectionUsage {
@@ -107,6 +118,10 @@ export interface AnalyticsSectionUsage {
   total_tokens: number;
   image_count: number;
   audio_seconds: number;
+  load_count: number;
+  vram_peak_mb: number;
+  vram_peak_percent: number;
+  model_vram_estimate_mb: number;
 }
 
 export interface AnalyticsModelUsage {
@@ -116,6 +131,11 @@ export interface AnalyticsModelUsage {
   total_tokens: number;
   image_count: number;
   audio_seconds: number;
+  load_count: number;
+  average_load_duration_ms: number;
+  vram_peak_mb: number;
+  vram_peak_percent: number;
+  model_vram_estimate_mb: number;
 }
 
 export interface AnalyticsNodeUsage {
@@ -124,6 +144,11 @@ export interface AnalyticsNodeUsage {
   total_tokens: number;
   image_count: number;
   audio_seconds: number;
+  load_count: number;
+  average_load_duration_ms: number;
+  vram_peak_mb: number;
+  vram_peak_percent: number;
+  model_vram_estimate_mb: number;
 }
 
 export interface AnalyticsRecentEvent {
@@ -131,7 +156,9 @@ export interface AnalyticsRecentEvent {
   model_id: string;
   section: string;
   backend_mode: string;
+  event_type: string;
   route: string;
+  config_filename?: string;
   status_code: number;
   success: boolean;
   started_at: number;
@@ -147,6 +174,15 @@ export interface AnalyticsRecentEvent {
   image_type?: string;
   audio_seconds?: number;
   audio_tokens?: number;
+  load_vram_before_mb?: number;
+  load_vram_after_mb?: number;
+  load_vram_delta_mb?: number;
+  work_vram_start_mb?: number;
+  work_vram_max_mb?: number;
+  work_vram_end_mb?: number;
+  model_vram_estimate_mb?: number;
+  vram_total_mb?: number;
+  vram_peak_percent?: number;
 }
 
 export interface AnalyticsNodeError {

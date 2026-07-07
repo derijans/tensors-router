@@ -196,8 +196,16 @@ func (store *Store) normalizeEvent(event Event) Event {
 	event.ModelID = strings.TrimSpace(event.ModelID)
 	event.Section = strings.TrimSpace(event.Section)
 	event.BackendMode = strings.TrimSpace(event.BackendMode)
+	event.EventType = strings.TrimSpace(event.EventType)
 	event.Route = strings.TrimSpace(event.Route)
+	event.ConfigFilename = strings.TrimSpace(event.ConfigFilename)
 	event.ImageType = strings.TrimSpace(event.ImageType)
+	if event.EventType == "" {
+		event.EventType = EventTypeRequest
+	}
+	if event.EventType != EventTypeRequest && event.EventType != EventTypeModelLoad {
+		event.EventType = EventTypeRequest
+	}
 	if event.Route == "" {
 		event.Route = "unknown"
 	}
@@ -216,6 +224,18 @@ func (store *Store) normalizeEvent(event Event) Event {
 	if event.TotalTokens == 0 && (event.InputTokens > 0 || event.OutputTokens > 0) {
 		event.TotalTokens = event.InputTokens + event.OutputTokens
 	}
+	if event.LoadVRAMDelta == 0 && event.LoadVRAMAfter > event.LoadVRAMBefore {
+		event.LoadVRAMDelta = event.LoadVRAMAfter - event.LoadVRAMBefore
+	}
+	event.VRAMPeakPercent = nonNegativeFloat(event.VRAMPeakPercent)
+	event.LoadVRAMBefore = nonNegativeInt64(event.LoadVRAMBefore)
+	event.LoadVRAMAfter = nonNegativeInt64(event.LoadVRAMAfter)
+	event.LoadVRAMDelta = nonNegativeInt64(event.LoadVRAMDelta)
+	event.WorkVRAMStart = nonNegativeInt64(event.WorkVRAMStart)
+	event.WorkVRAMMax = nonNegativeInt64(event.WorkVRAMMax)
+	event.WorkVRAMEnd = nonNegativeInt64(event.WorkVRAMEnd)
+	event.ModelVRAM = nonNegativeInt64(event.ModelVRAM)
+	event.VRAMTotal = nonNegativeInt64(event.VRAMTotal)
 	if event.TokensPerSecond == 0 && event.OutputTokens > 0 && event.DurationMS > 0 {
 		event.TokensPerSecond = float64(event.OutputTokens) / (float64(event.DurationMS) / 1000)
 	}
@@ -234,11 +254,13 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 	}()
 
 	insertEvent, err := tx.PrepareContext(ctx, `INSERT INTO analytics_events (
-		node_id, model_id, section, backend_mode, route, status_code, success,
+		node_id, model_id, section, backend_mode, event_type, route, config_filename, status_code, success,
 		started_at, finished_at, duration_ms, input_tokens, output_tokens,
 		total_tokens, tokens_per_second, image_count, image_width, image_height,
-		image_type, audio_seconds, audio_tokens
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		image_type, audio_seconds, audio_tokens, load_vram_before_mb, load_vram_after_mb,
+		load_vram_delta_mb, work_vram_start_mb, work_vram_max_mb, work_vram_end_mb,
+		model_vram_estimate_mb, vram_total_mb, vram_peak_percent
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -257,7 +279,9 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 			event.ModelID,
 			event.Section,
 			event.BackendMode,
+			event.EventType,
 			event.Route,
+			event.ConfigFilename,
 			event.StatusCode,
 			boolInt(event.Success),
 			event.StartedAt.UnixMilli(),
@@ -273,6 +297,15 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 			event.ImageType,
 			event.AudioSeconds,
 			event.AudioTokens,
+			event.LoadVRAMBefore,
+			event.LoadVRAMAfter,
+			event.LoadVRAMDelta,
+			event.WorkVRAMStart,
+			event.WorkVRAMMax,
+			event.WorkVRAMEnd,
+			event.ModelVRAM,
+			event.VRAMTotal,
+			event.VRAMPeakPercent,
 		); err != nil {
 			return err
 		}
@@ -285,6 +318,19 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 }
 
 func (store *Store) writeRollups(ctx context.Context, statement *sql.Stmt, event Event) error {
+	requestCount := 0
+	successCount := 0
+	durationMS := int64(0)
+	loadCount := 0
+	loadDurationMS := int64(0)
+	if event.EventType == EventTypeModelLoad {
+		loadCount = 1
+		loadDurationMS = event.DurationMS
+	} else {
+		requestCount = 1
+		successCount = boolInt(event.Success)
+		durationMS = event.DurationMS
+	}
 	for _, period := range []string{"hour", "day"} {
 		if _, err := statement.ExecContext(ctx,
 			period,
@@ -294,9 +340,9 @@ func (store *Store) writeRollups(ctx context.Context, statement *sql.Stmt, event
 			event.Section,
 			event.BackendMode,
 			event.Route,
-			1,
-			boolInt(event.Success),
-			event.DurationMS,
+			requestCount,
+			successCount,
+			durationMS,
 			event.InputTokens,
 			event.OutputTokens,
 			event.TotalTokens,
@@ -305,6 +351,12 @@ func (store *Store) writeRollups(ctx context.Context, statement *sql.Stmt, event
 			event.ImageCount,
 			event.AudioSeconds,
 			event.AudioTokens,
+			loadCount,
+			loadDurationMS,
+			eventVRAMPeakMB(event),
+			event.VRAMPeakPercent,
+			event.VRAMTotal,
+			event.ModelVRAM,
 		); err != nil {
 			return err
 		}
@@ -317,8 +369,9 @@ func rollupInsertSQL() string {
 		period_kind, bucket_start, node_id, model_id, section, backend_mode, route,
 		request_count, success_count, duration_ms_total, input_tokens, output_tokens,
 		total_tokens, tokens_per_second_sum, tokens_per_second_count, image_count,
-		audio_seconds, audio_tokens
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+		audio_seconds, audio_tokens, load_count, load_duration_ms_total, vram_peak_mb,
+		vram_peak_percent, vram_total_mb, model_vram_estimate_mb
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	ON CONFLICT(period_kind, bucket_start, node_id, model_id, section, backend_mode, route)
 	DO UPDATE SET
 		request_count = request_count + excluded.request_count,
@@ -331,7 +384,13 @@ func rollupInsertSQL() string {
 		tokens_per_second_count = tokens_per_second_count + excluded.tokens_per_second_count,
 		image_count = image_count + excluded.image_count,
 		audio_seconds = audio_seconds + excluded.audio_seconds,
-		audio_tokens = audio_tokens + excluded.audio_tokens`
+		audio_tokens = audio_tokens + excluded.audio_tokens,
+		load_count = load_count + excluded.load_count,
+		load_duration_ms_total = load_duration_ms_total + excluded.load_duration_ms_total,
+		vram_peak_mb = MAX(vram_peak_mb, excluded.vram_peak_mb),
+		vram_peak_percent = MAX(vram_peak_percent, excluded.vram_peak_percent),
+		vram_total_mb = MAX(vram_total_mb, excluded.vram_total_mb),
+		model_vram_estimate_mb = MAX(model_vram_estimate_mb, excluded.model_vram_estimate_mb)`
 }
 
 func bucketStart(value time.Time, period string) int64 {
@@ -355,4 +414,32 @@ func tokensPerSecondCount(value float64) int {
 		return 1
 	}
 	return 0
+}
+
+func eventVRAMPeakMB(event Event) int64 {
+	return maxInt64(event.WorkVRAMMax, event.LoadVRAMAfter)
+}
+
+func nonNegativeInt64(value int64) int64 {
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
+func nonNegativeFloat(value float64) float64 {
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
+func maxInt64(values ...int64) int64 {
+	var max int64
+	for _, value := range values {
+		if value > max {
+			max = value
+		}
+	}
+	return max
 }

@@ -8,6 +8,8 @@ import {
   formatCount,
   formatDecimal,
   formatDurationSeconds,
+  formatMegabytes,
+  formatPercent,
   normalizedAnalyticsQuery
 } from "./analytics-data";
 import { elements } from "./elements";
@@ -96,7 +98,9 @@ function renderAnalyticsSummary(): void {
     metricCard("Tokens", formatCount(summary.total_tokens), `${formatCount(summary.input_tokens)} in / ${formatCount(summary.output_tokens)} out`),
     metricCard("Speed", `${formatDecimal(summary.average_tokens_per_second, 1)} tok/s`, `${formatDecimal(summary.average_duration_ms, 0)}ms avg`),
     metricCard("Images", formatCount(summary.image_count), "generated or returned"),
-    metricCard("Audio", formatDurationSeconds(summary.audio_seconds), `${formatCount(summary.audio_tokens)} tokens`)
+    metricCard("Audio", formatDurationSeconds(summary.audio_seconds), `${formatCount(summary.audio_tokens)} tokens`),
+    metricCard("VRAM", formatMegabytes(summary.vram_peak_mb), `${formatPercent(summary.vram_peak_percent)} peak / ${formatMegabytes(summary.vram_total_mb)} total`),
+    metricCard("Loads", formatCount(summary.load_count), `${formatDecimal(summary.average_load_duration_ms, 0)}ms avg / ${formatMegabytes(summary.model_vram_estimate_mb)} model`)
   ].join("");
 }
 
@@ -204,6 +208,8 @@ function modelRow(model: AnalyticsModelUsage): string {
       <td>${escapeHTML(model.node_id)}</td>
       <td>${escapeHTML(model.model_id || "unknown")}</td>
       <td>${formatCount(model.request_count)}</td>
+      <td>${formatCount(model.load_count)}</td>
+      <td>${formatMegabytes(model.vram_peak_mb)} / ${formatPercent(model.vram_peak_percent)}</td>
       <td>${formatCount(model.total_tokens)}</td>
       <td>${formatCount(model.image_count)}</td>
       <td>${formatDurationSeconds(model.audio_seconds)}</td>
@@ -216,6 +222,8 @@ function nodeRow(node: AnalyticsNodeUsage): string {
     <tr>
       <td>${escapeHTML(node.node_id)}</td>
       <td>${formatCount(node.request_count)}</td>
+      <td>${formatCount(node.load_count)}</td>
+      <td>${formatMegabytes(node.vram_peak_mb)} / ${formatPercent(node.vram_peak_percent)}</td>
       <td>${formatCount(node.total_tokens)}</td>
       <td>${formatCount(node.image_count)}</td>
       <td>${formatDurationSeconds(node.audio_seconds)}</td>
@@ -224,7 +232,9 @@ function nodeRow(node: AnalyticsNodeUsage): string {
 }
 
 function recentRow(event: AnalyticsRecentEvent): string {
-  const media = event.section === "image"
+  const media = event.event_type === "model_load"
+    ? loadDetail(event)
+    : event.section === "image"
     ? imageDetail(event)
     : event.section === "voice" || event.section === "music"
       ? audioDetail(event)
@@ -244,17 +254,29 @@ function recentRow(event: AnalyticsRecentEvent): string {
 
 function tokenDetail(event: AnalyticsRecentEvent): string {
   const speed = event.tokens_per_second ? ` / ${formatDecimal(event.tokens_per_second, 1)} tok/s` : "";
-  return `${formatCount(event.input_tokens)} in / ${formatCount(event.output_tokens)} out${speed}`;
+  return `${formatCount(event.input_tokens)} in / ${formatCount(event.output_tokens)} out${speed}${workVRAMDetail(event)}`;
 }
 
 function imageDetail(event: AnalyticsRecentEvent): string {
   const resolution = event.image_width && event.image_height ? ` / ${event.image_width}x${event.image_height}` : "";
   const type = event.image_type ? `${event.image_type} / ` : "";
-  return `${type}${formatCount(event.image_count)} images${resolution}`;
+  return `${type}${formatCount(event.image_count)} images${resolution}${workVRAMDetail(event)}`;
 }
 
 function audioDetail(event: AnalyticsRecentEvent): string {
-  return `${formatDurationSeconds(event.audio_seconds)} / ${formatCount(event.audio_tokens)} tokens`;
+  return `${formatDurationSeconds(event.audio_seconds)} / ${formatCount(event.audio_tokens)} tokens${workVRAMDetail(event)}`;
+}
+
+function loadDetail(event: AnalyticsRecentEvent): string {
+  const config = event.config_filename ? `${event.config_filename} / ` : "";
+  return `${config}${formatDecimal(event.duration_ms, 0)}ms / ${formatMegabytes(event.load_vram_before_mb)} -> ${formatMegabytes(event.load_vram_after_mb)} / +${formatMegabytes(event.load_vram_delta_mb)}`;
+}
+
+function workVRAMDetail(event: AnalyticsRecentEvent): string {
+  if (!event.work_vram_max_mb && !event.model_vram_estimate_mb) {
+    return "";
+  }
+  return ` / VRAM ${formatMegabytes(event.work_vram_max_mb)} (${formatPercent(event.vram_peak_percent)}) / model ${formatMegabytes(event.model_vram_estimate_mb)}`;
 }
 
 function optionsHTML(options: SelectChoice[], selected: string): string {

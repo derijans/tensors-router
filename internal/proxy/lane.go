@@ -8,16 +8,20 @@ import (
 type backendRuntime struct {
 	backend Backend
 	state   *activeConfigState
+	mode    string
 	name    string
 }
 
 type activeConfigState struct {
-	mu            sync.Mutex
-	changed       chan struct{}
-	filename      string
-	users         int
-	switching     bool
-	switchWaiters int
+	mu                sync.Mutex
+	changed           chan struct{}
+	filename          string
+	users             int
+	switching         bool
+	switchWaiters     int
+	vramBaselineMB    int64
+	vramTotalMB       int64
+	vramBaselineValid bool
 }
 
 func newActiveConfigState() *activeConfigState {
@@ -81,24 +85,29 @@ func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.
 		state.switching = true
 		state.mu.Unlock()
 
+		vramLoad := service.beginVRAMLoad(ctx)
 		err := service.reloadModelConfig(runtime, ctx, modelID, configFilename)
 		if err == nil {
 			err = service.waitForBackendEndpoint(runtime, ctx, readiness, modelID, configFilename)
 		}
+		service.finishVRAMLoad(ctx, vramLoad)
 
 		state.mu.Lock()
 		state.switching = false
 		if err != nil {
 			state.filename = ""
+			clearVRAMLoadStateLocked(state)
 			notifyActiveConfigLocked(state)
 			state.mu.Unlock()
 			return nil, false, err
 		}
 		state.filename = configFilename
+		applyVRAMLoadStateLocked(state, vramLoad)
 		state.users++
 		release := releaseActiveConfigOnce(state)
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
+		service.recordVRAMLoad(modelID, configFilename, readiness, runtime.mode, vramLoad)
 		return release, true, nil
 	}
 }
@@ -133,6 +142,7 @@ func (service *Service) unloadRuntime(ctx context.Context, runtime *backendRunti
 		state.switchWaiters--
 		state.switching = true
 		state.filename = ""
+		clearVRAMLoadStateLocked(state)
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
 
@@ -179,6 +189,7 @@ func lockRuntimeForBackendStop(ctx context.Context, runtime *backendRuntime) (fu
 		state.switchWaiters--
 		state.switching = true
 		state.filename = ""
+		clearVRAMLoadStateLocked(state)
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
 

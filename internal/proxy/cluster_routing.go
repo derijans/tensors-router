@@ -33,6 +33,7 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 	var response *http.Response
 	var err error
 	var analyticsEvent routeranalytics.Event
+	var workFinalizer analyticsEventFinalizer
 	recordAnalytics := false
 	if route.Remote {
 		response, err = service.forwardRemote(r.Context(), r, requestBody, route)
@@ -51,18 +52,18 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 		started := time.Now()
 		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, route.LocalID, textAnalyticsSection(r.URL.Path), routeBackendMode)
 		recordAnalytics = true
-		response, err = service.forwardWithFallback(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readinessText, routeBackendMode)
+		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readinessText, routeBackendMode)
 	}
 	if err != nil {
 		if recordAnalytics {
-			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway)
+			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
 		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
 	response = responseWithRelease(response, release)
 	if recordAnalytics {
-		response = service.responseWithAnalytics(response, analyticsEvent)
+		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 	}
 
 	if err := writeModelProxyResponse(w, response, publicID, true); err != nil {
@@ -125,6 +126,7 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 	var response *http.Response
 	var forwardErr error
 	var analyticsEvent routeranalytics.Event
+	var workFinalizer analyticsEventFinalizer
 	recordAnalytics := false
 	if route.Remote {
 		response, forwardErr = service.forwardRemote(r.Context(), request, requestBody, route)
@@ -145,19 +147,19 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 		started := time.Now()
 		analyticsEvent = service.newAnalyticsEvent(started, request, requestBody, route.LocalImageID, routeranalytics.SectionImage, routeBackendMode)
 		recordAnalytics = true
-		response, forwardErr = service.forwardWithFallback(r.Context(), request, requestBody, route.PublicImageID, route.Filename, true, readinessImage, routeBackendMode)
+		response, workFinalizer, forwardErr = service.forwardWithFallbackObserved(r.Context(), request, requestBody, route.PublicImageID, route.Filename, true, readinessImage, routeBackendMode)
 	}
 	if forwardErr != nil {
 		release()
 		if recordAnalytics {
-			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway)
+			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
 		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", forwardErr.Error())
 		return true
 	}
 	response = responseWithRelease(response, release)
 	if recordAnalytics {
-		response = service.responseWithAnalytics(response, analyticsEvent)
+		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 	}
 
 	if err := writeProxyResponse(w, response, publicImageID, true); err != nil {
@@ -250,6 +252,7 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 	}
 	var response *http.Response
 	var analyticsEvent routeranalytics.Event
+	var workFinalizer analyticsEventFinalizer
 	recordAnalytics := false
 	if route.Remote {
 		response, err = service.forwardRemote(r.Context(), r, requestBody, route)
@@ -270,19 +273,19 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 		started := time.Now()
 		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, route.LocalID, audioAnalyticsSection(lane), routeBackendMode)
 		recordAnalytics = true
-		response, err = service.forwardWithFallback(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readinessText, routeBackendMode)
+		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readinessText, routeBackendMode)
 	}
 	if err != nil {
 		release()
 		if recordAnalytics {
-			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway)
+			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
 		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
 	response = responseWithRelease(response, release)
 	if recordAnalytics {
-		response = service.responseWithAnalytics(response, analyticsEvent)
+		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 	}
 	if err := writeProxyResponse(w, response, publicID, false); err != nil {
 		return

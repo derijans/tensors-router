@@ -15,17 +15,19 @@ type ResponseObserver struct {
 	sink        EventSink
 	event       Event
 	contentType string
+	finalizers  []func(*Event)
 	lineBuffer  []byte
 	bodyBuffer  bytes.Buffer
 	once        sync.Once
 }
 
-func NewResponseObserver(sink EventSink, event Event, contentType string, body io.ReadCloser) *ResponseObserver {
+func NewResponseObserver(sink EventSink, event Event, contentType string, body io.ReadCloser, finalizers ...func(*Event)) *ResponseObserver {
 	return &ResponseObserver{
 		body:        body,
 		sink:        sink,
 		event:       event,
 		contentType: contentType,
+		finalizers:  append([]func(*Event){}, finalizers...),
 	}
 }
 
@@ -104,6 +106,11 @@ func (observer *ResponseObserver) finish() {
 		}
 		if !isEventStreamContent(observer.contentType) {
 			ApplyResponse(&observer.event, observer.contentType, observer.bodyBuffer.Bytes())
+		}
+		for _, finalizer := range observer.finalizers {
+			if finalizer != nil {
+				finalizer(&observer.event)
+			}
 		}
 		observer.sink.Record(observer.event)
 	})

@@ -22,34 +22,34 @@ func (service *Service) newAnalyticsEvent(started time.Time, r *http.Request, bo
 	return event
 }
 
-func (service *Service) responseWithAnalytics(response *http.Response, event routeranalytics.Event) *http.Response {
+func (service *Service) responseWithAnalytics(response *http.Response, event routeranalytics.Event, finalizers ...analyticsEventFinalizer) *http.Response {
 	if service.analyticsStore == nil {
 		return response
 	}
 	if response == nil {
-		service.recordAnalyticsFailure(event, http.StatusBadGateway)
+		service.recordAnalyticsFailure(event, http.StatusBadGateway, finalizers...)
 		return response
 	}
 	event.StatusCode = response.StatusCode
 	event.Success = response.StatusCode >= 200 && response.StatusCode < 300
 	if response.Body == nil {
-		service.recordAnalyticsFinished(event)
+		service.recordAnalyticsFinished(event, finalizers...)
 		return response
 	}
-	response.Body = routeranalytics.NewResponseObserver(service.analyticsStore, event, response.Header.Get("Content-Type"), response.Body)
+	response.Body = routeranalytics.NewResponseObserver(service.analyticsStore, event, response.Header.Get("Content-Type"), response.Body, finalizers...)
 	return response
 }
 
-func (service *Service) recordAnalyticsFailure(event routeranalytics.Event, statusCode int) {
+func (service *Service) recordAnalyticsFailure(event routeranalytics.Event, statusCode int, finalizers ...analyticsEventFinalizer) {
 	if service.analyticsStore == nil {
 		return
 	}
 	event.StatusCode = statusCode
 	event.Success = false
-	service.recordAnalyticsFinished(event)
+	service.recordAnalyticsFinished(event, finalizers...)
 }
 
-func (service *Service) recordAnalyticsFinished(event routeranalytics.Event) {
+func (service *Service) recordAnalyticsFinished(event routeranalytics.Event, finalizers ...analyticsEventFinalizer) {
 	if service.analyticsStore == nil {
 		return
 	}
@@ -58,6 +58,11 @@ func (service *Service) recordAnalyticsFinished(event routeranalytics.Event) {
 		event.StartedAt = event.FinishedAt
 	}
 	event.DurationMS = event.FinishedAt.Sub(event.StartedAt).Milliseconds()
+	for _, finalizer := range finalizers {
+		if finalizer != nil {
+			finalizer(&event)
+		}
+	}
 	service.analyticsStore.Record(event)
 }
 

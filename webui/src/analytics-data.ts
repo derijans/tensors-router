@@ -91,6 +91,14 @@ export function formatDurationSeconds(value: number | undefined): string {
   return `${formatDecimal(minutes / 60, 1)}h`;
 }
 
+export function formatMegabytes(value: number | undefined): string {
+  return `${formatCount(value)} MB`;
+}
+
+export function formatPercent(value: number | undefined): string {
+  return `${formatDecimal(value, 1)}%`;
+}
+
 export function chartPoints(timeline: AnalyticsTimeline[], width: number, height: number): ChartPointSeries {
   const empty: ChartPointSeries = {points: [], linePath: "", ticks: []};
   if (timeline.length === 0 || width <= 0 || height <= 0) {
