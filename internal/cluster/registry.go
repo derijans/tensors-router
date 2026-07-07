@@ -257,6 +257,16 @@ func (registry *Registry) AcquireMusic(publicID string, localHealthy bool) (Rout
 	return registry.acquireRouteLocked(route)
 }
 
+func (registry *Registry) AcquireWebUI(selectionKey string, candidates []Route) (Route, func(), bool) {
+	registry.mu.Lock()
+	route, ok := registry.selectWebUIRouteLocked(selectionKey, candidates)
+	if !ok {
+		registry.mu.Unlock()
+		return Route{}, func() {}, false
+	}
+	return registry.acquireRouteLocked(route)
+}
+
 func (registry *Registry) acquireRouteLocked(route Route) (Route, func(), bool) {
 	key := routeKey(route)
 	registry.busy[key]++
@@ -351,6 +361,40 @@ func (registry *Registry) selectRouteLocked(publicID string, replicas []Model, l
 		}
 	}
 	return Route{}, false
+}
+
+func (registry *Registry) selectWebUIRouteLocked(selectionKey string, candidates []Route) (Route, bool) {
+	if len(candidates) == 0 {
+		return Route{}, false
+	}
+	routes := append([]Route{}, candidates...)
+	sort.Slice(routes, func(left, right int) bool {
+		return routeKey(routes[left]) < routeKey(routes[right])
+	})
+	for _, route := range routes {
+		if route.NodeID == registry.localID {
+			route.Remote = false
+			return route, true
+		}
+	}
+	idle := make([]Route, 0, len(routes))
+	for _, route := range routes {
+		if registry.busy[routeKey(route)] == 0 {
+			idle = append(idle, route)
+		}
+	}
+	if len(idle) > 0 {
+		return registry.nextWebUIRouteLocked(selectionKey+":idle", idle), true
+	}
+	return registry.nextWebUIRouteLocked(selectionKey+":busy", routes), true
+}
+
+func (registry *Registry) nextWebUIRouteLocked(selectionKey string, routes []Route) Route {
+	index := registry.next[selectionKey] % len(routes)
+	registry.next[selectionKey] = (registry.next[selectionKey] + 1) % len(routes)
+	route := routes[index]
+	route.Remote = route.NodeID != registry.localID
+	return route
 }
 
 func (registry *Registry) replicasLocked(publicID string) []Model {

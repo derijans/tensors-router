@@ -58,7 +58,6 @@ type ServiceConfig struct {
 	ImageBackend    Backend
 	BackendMode     string
 	BackendFamilies map[string]BackendFamilyConfig
-	WebUIHosts      BackendWebUIHosts
 	Catalog         ModelCatalog
 	Registry        *cluster.Registry
 	ClusterToken    string
@@ -84,7 +83,6 @@ type Service struct {
 	backendMode     string
 	backendFamilies map[string]*backendFamily
 	backendSwitch   *backendFamilySwitchState
-	webUIHosts      BackendWebUIHosts
 	webUISession    *webUISession
 	catalog         ModelCatalog
 	registry        *cluster.Registry
@@ -203,7 +201,6 @@ func NewService(config ServiceConfig) *Service {
 		nodeID = "local"
 	}
 	backendFamilies := backendFamiliesFromConfig(config, backendMode)
-	webUIHosts := webUIHostsFromConfig(config.WebUIHosts, backendFamilies)
 	defaultFamily := backendFamilies[backendMode]
 	if defaultFamily == nil {
 		for mode, family := range backendFamilies {
@@ -232,7 +229,6 @@ func NewService(config ServiceConfig) *Service {
 			changed: make(chan struct{}),
 			mode:    backendMode,
 		},
-		webUIHosts:     webUIHosts,
 		webUISession:   newWebUISession(),
 		catalog:        config.Catalog,
 		registry:       config.Registry,
@@ -357,7 +353,7 @@ func (service *Service) PreloadModel(ctx context.Context, modelID string) error 
 	modelContext, cancelModelContext := context.WithTimeout(ctx, modelOperationTimeout)
 	defer cancelModelContext()
 
-	_, release, _, err := service.acquireModelConfigForBackendMode(modelBackendMode, modelContext, model.ID, model.Filename, readinessText, false, "")
+	_, release, _, err := service.acquireModelConfigForBackendMode(modelBackendMode, modelContext, model.ID, model.Filename, readinessText, false)
 	if err != nil {
 		return err
 	}
@@ -368,6 +364,11 @@ func (service *Service) PreloadModel(ctx context.Context, modelID string) error 
 func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/router/v1/") {
 		service.handleRouterEndpoint(w, r)
+		return
+	}
+
+	if strings.HasPrefix(r.URL.Path, siteWebUIProxyPrefix) {
+		service.handleSiteWebUIProxy(w, r)
 		return
 	}
 
@@ -499,7 +500,7 @@ func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Reques
 			}
 			modelContext, cancelModelContext := context.WithTimeout(context.WithoutCancel(r.Context()), modelOperationTimeout)
 			defer cancelModelContext()
-			_, release, _, err := service.acquireModelConfigForBackendMode(modelBackendMode, modelContext, model.ImageID, model.Filename, readinessImage, false, "")
+			_, release, _, err := service.acquireModelConfigForBackendMode(modelBackendMode, modelContext, model.ImageID, model.Filename, readinessImage, false)
 			if err != nil {
 				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 				return
@@ -980,7 +981,7 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 		defer cancelModelContext()
 
 		var acquireErr error
-		runtime, releaseModel, loadedFresh, acquireErr = service.acquireModelConfigForBackendMode(mode, modelContext, modelID, configFilename, readiness, false, "")
+		runtime, releaseModel, loadedFresh, acquireErr = service.acquireModelConfigForBackendMode(mode, modelContext, modelID, configFilename, readiness, false)
 		if acquireErr != nil {
 			return nil, acquireErr
 		}

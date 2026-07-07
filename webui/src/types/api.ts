@@ -171,12 +171,6 @@ export interface AnalyticsResponse {
 
 export interface LoadConfigRequest {
   model: string;
-  unload_policy?: string;
-}
-
-export interface UnloadConfigRequest {
-  model?: string;
-  target?: string;
 }
 
 export interface HardwareInfo {

@@ -17,7 +17,7 @@ import (
 	"tensors-router/internal/cluster"
 )
 
-func TestSiteWebUICatalogBuildsCompatibleEntriesWithHostURLs(t *testing.T) {
+func TestSiteWebUICatalogBuildsCompatibleEntriesWithStableURLs(t *testing.T) {
 	service := newWebUICatalogTestService(t, map[string]string{
 		"text":        `{"model_param":"text.gguf"}`,
 		"image":       `{"nomodel":true,"sdmodel":"dream.safetensors"}`,
@@ -28,26 +28,24 @@ func TestSiteWebUICatalogBuildsCompatibleEntriesWithHostURLs(t *testing.T) {
 
 	response := requestWebUICatalog(t, service, "/router/v1/site/webuis", "")
 	entries := webUIEntriesByID(response.Data)
-	if entries["local:kobold-lite"].URL != "https://kobold.example.test/base/" {
-		t.Fatalf("unexpected kobold lite url %q", entries["local:kobold-lite"].URL)
+	expectedURLs := map[string]string{
+		"kobold-lite":  "/router/webuis/kobold-lite/",
+		"kobold-lcpp":  "/router/webuis/kobold-lcpp/",
+		"kobold-sd":    "/router/webuis/kobold-sd/",
+		"kobold-music": "/router/webuis/kobold-music/",
+		"llama":        "/router/webuis/llama/",
+		"sdcpp":        "/router/webuis/sdcpp/",
 	}
-	if entries["local:kobold-llama"].URL != "https://kobold.example.test/base/lcpp/" {
-		t.Fatalf("unexpected kobold llama url %q", entries["local:kobold-llama"].URL)
+	for id, expectedURL := range expectedURLs {
+		if entries[id].URL != expectedURL {
+			t.Fatalf("unexpected url for %s: %q", id, entries[id].URL)
+		}
 	}
-	if entries["local:kobold-stable"].URL != "https://kobold.example.test/base/sdui/" {
-		t.Fatalf("unexpected kobold stable url %q", entries["local:kobold-stable"].URL)
+	if len(entries["kobold-sd"].CompatibleModels) != 1 || entries["kobold-sd"].CompatibleModels[0].ImageID != "image-dream" {
+		t.Fatalf("unexpected stable compatible models %#v", entries["kobold-sd"].CompatibleModels)
 	}
-	if entries["local:llama-server"].URL != "https://llama.example.test/ui/" {
-		t.Fatalf("unexpected llama url %q", entries["local:llama-server"].URL)
-	}
-	if entries["local:sd-server"].URL != "https://sd.example.test/ui/" {
-		t.Fatalf("unexpected sd url %q", entries["local:sd-server"].URL)
-	}
-	if len(entries["local:kobold-stable"].CompatibleModels) != 1 || entries["local:kobold-stable"].CompatibleModels[0].ImageID != "image-dream" {
-		t.Fatalf("unexpected stable compatible models %#v", entries["local:kobold-stable"].CompatibleModels)
-	}
-	if len(entries["local:kobold-music"].CompatibleModels) != 1 || entries["local:kobold-music"].CompatibleModels[0].ModelID != "music" {
-		t.Fatalf("unexpected music compatible models %#v", entries["local:kobold-music"].CompatibleModels)
+	if len(entries["kobold-music"].CompatibleModels) != 1 || entries["kobold-music"].CompatibleModels[0].ModelID != "music" {
+		t.Fatalf("unexpected music compatible models %#v", entries["kobold-music"].CompatibleModels)
 	}
 }
 
@@ -57,12 +55,12 @@ func TestWebUISessionToggleIsStoredInRouterMemory(t *testing.T) {
 	})
 
 	catalogBefore := requestWebUICatalog(t, service, "/router/v1/site/webuis", "")
-	if webUIEntryEnabled(t, catalogBefore, "local:kobold-lite") {
+	if webUIEntryEnabled(t, catalogBefore, "kobold-lite") {
 		t.Fatalf("toggle should default off")
 	}
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/router/v1/site/webuis/session", strings.NewReader(`{"id":"local:kobold-lite","enabled":true}`))
+	request := httptest.NewRequest(http.MethodPost, "/router/v1/site/webuis/session", strings.NewReader(`{"id":"kobold-lite","enabled":true}`))
 	service.ServeHTTP(recorder, request)
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected session status %d body %s", recorder.Code, recorder.Body.String())
@@ -71,7 +69,7 @@ func TestWebUISessionToggleIsStoredInRouterMemory(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &toggled); err != nil {
 		t.Fatal(err)
 	}
-	if !webUIEntryEnabled(t, toggled, "local:kobold-lite") {
+	if !webUIEntryEnabled(t, toggled, "kobold-lite") {
 		t.Fatalf("toggle should be on after session update")
 	}
 
@@ -79,7 +77,7 @@ func TestWebUISessionToggleIsStoredInRouterMemory(t *testing.T) {
 		"text": `{"model_param":"text.gguf"}`,
 	})
 	catalogAfterRestart := requestWebUICatalog(t, restarted, "/router/v1/site/webuis", "")
-	if webUIEntryEnabled(t, catalogAfterRestart, "local:kobold-lite") {
+	if webUIEntryEnabled(t, catalogAfterRestart, "kobold-lite") {
 		t.Fatalf("toggle should reset when router service is recreated")
 	}
 }
@@ -131,15 +129,12 @@ func TestSiteWebUILoadUsesImageReadinessForImageUI(t *testing.T) {
 	backend := &fakeBackend{url: backendURL, healthy: true}
 	service := NewService(ServiceConfig{
 		Backend: backend,
-		WebUIHosts: BackendWebUIHosts{
-			Kobold: backendServer.URL,
-		},
 		Catalog: catalog.New(dir),
 		Logger:  log.New(io.Discard, "", 0),
 	})
 
 	recorder := httptest.NewRecorder()
-	body := `{"id":"local:kobold-stable","model_id":"image","image_id":"image-dream"}`
+	body := `{"id":"kobold-sd","model_id":"image","image_id":"image-dream"}`
 	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/v1/site/webuis/load", strings.NewReader(body)))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected load status %d body %s", recorder.Code, recorder.Body.String())
@@ -165,16 +160,16 @@ func TestMasterWebUILoadRoutesToSelectedRemoteNode(t *testing.T) {
 				Object: "list",
 				Data: []WebUIEntry{
 					{
-						ID:                  "slave-a:kobold-lite",
+						ID:                  "kobold-lite",
 						Name:                "KoboldCpp Lite",
 						Backend:             "koboldcpp",
 						BackendMode:         BackendModeKobold,
 						Lane:                cluster.RouteLaneText,
-						URL:                 "https://slave.example.test/",
+						URL:                 "/router/webuis/kobold-lite/",
 						NodeID:              "slave-a",
 						RequiresLoadedModel: true,
 						CompatibleModels: []WebUICompatibleModel{
-							{ID: "remote-text", ModelID: "remote-text", Filename: "remote-text.kcpps", NodeID: "slave-a", BackendMode: BackendModeKobold},
+							{ID: "remote-text", ModelID: "remote-text", LocalID: "remote-text", Filename: "remote-text.kcpps", NodeID: "slave-a", NodeURL: remoteURL(r), BackendMode: BackendModeKobold},
 						},
 					},
 				},
@@ -186,20 +181,26 @@ func TestMasterWebUILoadRoutesToSelectedRemoteNode(t *testing.T) {
 				http.Error(w, "bad body", http.StatusBadRequest)
 				return
 			}
-			_ = json.NewEncoder(w).Encode(webUILoadResponse{OK: true, ID: "slave-a:kobold-lite", URL: "https://slave.example.test/", ModelID: "remote-text"})
+			_ = json.NewEncoder(w).Encode(webUILoadResponse{OK: true, ID: "kobold-lite", URL: "/router/webuis/kobold-lite/", ModelID: "remote-text"})
 		default:
 			http.NotFound(w, r)
 		}
 	}))
 	defer remote.Close()
 
-	backendURL, err := url.Parse("http://127.0.0.1:1")
-	if err != nil {
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
+	if err := registry.UpdateNode(cluster.Snapshot{
+		NodeID:  "slave-a",
+		NodeURL: remote.URL,
+		Models:  []cluster.Model{testClusterModel("remote-text", "slave-a", "remote-hash", "remote-config", cluster.SourceSlave)},
+	}); err != nil {
 		t.Fatal(err)
 	}
+	backendURL := mustParseURL(t, "http://127.0.0.1:1")
 	service := NewService(ServiceConfig{
 		Backend:      &fakeBackend{url: backendURL, healthy: true},
 		Catalog:      catalog.New(t.TempDir()),
+		Registry:     registry,
 		ClusterRole:  cluster.RoleMaster,
 		NodeID:       "master",
 		ClusterToken: "secret",
@@ -208,13 +209,101 @@ func TestMasterWebUILoadRoutesToSelectedRemoteNode(t *testing.T) {
 	})
 
 	recorder := httptest.NewRecorder()
-	body := `{"id":"slave-a:kobold-lite","model_id":"remote-text"}`
+	body := `{"id":"kobold-lite","model_id":"remote-text"}`
 	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/v1/site/webuis/load", strings.NewReader(body)))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected load status %d body %s", recorder.Code, recorder.Body.String())
 	}
 	if loadSeen.Load() != 1 {
 		t.Fatalf("expected remote load")
+	}
+}
+
+func TestLocalWebUIProxyStripsStablePrefixPreservesQueryAndRewritesRedirect(t *testing.T) {
+	service := newProxyReadyWebUIService(t)
+	loadWebUIForTest(t, service, "kobold-lcpp", "text", "")
+	service.webUISession.set("kobold-lcpp", true)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/router/webuis/kobold-lcpp/assets/app.js?theme=dark", nil)
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected proxy status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Body.String() != "local:/lcpp/assets/app.js?theme=dark" {
+		t.Fatalf("unexpected proxy body %q", recorder.Body.String())
+	}
+
+	redirect := httptest.NewRecorder()
+	service.ServeHTTP(redirect, httptest.NewRequest(http.MethodGet, "/router/webuis/kobold-lcpp/redirect", nil))
+	if redirect.Code != http.StatusFound {
+		t.Fatalf("unexpected redirect status %d body %s", redirect.Code, redirect.Body.String())
+	}
+	if location := redirect.Header().Get("Location"); location != "/router/webuis/kobold-lcpp/next?x=1" {
+		t.Fatalf("unexpected redirect location %q", location)
+	}
+}
+
+func TestRemoteWebUIProxyUsesSlaveTokenAndRewritesNodeRedirect(t *testing.T) {
+	var sawToken atomic.Bool
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") == "Bearer secret" {
+			sawToken.Store(true)
+		}
+		if r.Header.Get("Authorization") != "Bearer secret" {
+			http.Error(w, "missing token", http.StatusUnauthorized)
+			return
+		}
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/site/webuis":
+			writeRemoteActiveWebUI(t, w, remoteURL(r), "slave-a")
+		case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/webuis/kobold-lite/panel":
+			if r.URL.RawQuery != "tab=1" {
+				http.Error(w, "bad query", http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Location", "/router/v1/node/webuis/kobold-lite/next?x=1")
+			w.WriteHeader(http.StatusFound)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer remote.Close()
+
+	service := NewService(ServiceConfig{
+		Backend:      &fakeBackend{url: mustParseURL(t, "http://127.0.0.1:1"), healthy: false},
+		Catalog:      catalog.New(t.TempDir()),
+		ClusterRole:  cluster.RoleMaster,
+		NodeID:       "master",
+		ClusterToken: "secret",
+		SlaveURLs:    []string{remote.URL},
+		Logger:       log.New(io.Discard, "", 0),
+	})
+	service.webUISession.set("kobold-lite", true)
+
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/router/webuis/kobold-lite/panel?tab=1", nil))
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("unexpected remote status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !sawToken.Load() {
+		t.Fatalf("expected slave authorization token")
+	}
+	if location := recorder.Header().Get("Location"); location != "/router/webuis/kobold-lite/next?x=1" {
+		t.Fatalf("unexpected remote redirect location %q", location)
+	}
+}
+
+func TestWebUIProxyReturnsUnavailableWithoutActiveBackend(t *testing.T) {
+	service := newWebUICatalogTestService(t, map[string]string{
+		"text": `{"model_param":"text.gguf"}`,
+	})
+	service.webUISession.set("kobold-lite", true)
+
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/router/webuis/kobold-lite/", nil))
+	if recorder.Code != http.StatusServiceUnavailable {
+		t.Fatalf("expected unavailable, got %d body %s", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -226,12 +315,9 @@ func newWebUICatalogTestService(t *testing.T, configs map[string]string) *Servic
 			t.Fatal(err)
 		}
 	}
-	koboldURL := mustParseURL(t, "http://127.0.0.1:1")
-	llamaURL := mustParseURL(t, "http://127.0.0.1:2")
-	sdcppURL := mustParseURL(t, "http://127.0.0.1:3")
-	koboldBackend := &fakeBackend{url: koboldURL, healthy: true}
-	llamaBackend := &fakeBackend{url: llamaURL, healthy: true}
-	sdcppBackend := &fakeBackend{url: sdcppURL, healthy: true}
+	koboldBackend := &fakeBackend{url: mustParseURL(t, "http://127.0.0.1:1"), healthy: true}
+	llamaBackend := &fakeBackend{url: mustParseURL(t, "http://127.0.0.1:2"), healthy: true}
+	sdcppBackend := &fakeBackend{url: mustParseURL(t, "http://127.0.0.1:3"), healthy: true}
 	return NewService(ServiceConfig{
 		BackendMode: BackendModeKobold,
 		BackendFamilies: map[string]BackendFamilyConfig{
@@ -244,15 +330,46 @@ func newWebUICatalogTestService(t *testing.T, configs map[string]string) *Servic
 				ImageBackend: sdcppBackend,
 			},
 		},
-		WebUIHosts: BackendWebUIHosts{
-			Kobold: "https://kobold.example.test/base",
-			Llama:  "https://llama.example.test/ui",
-			SDCPP:  "https://sd.example.test/ui",
-		},
 		Catalog: catalog.New(dir),
 		NodeID:  "local",
 		Logger:  log.New(io.Discard, "", 0),
 	})
+}
+
+func newProxyReadyWebUIService(t *testing.T) *Service {
+	t.Helper()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "text.kcpps"), []byte(`{"model_param":"text.gguf"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"ready"}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/lcpp/redirect":
+			w.Header().Set("Location", "/lcpp/next?x=1")
+			w.WriteHeader(http.StatusFound)
+		default:
+			_, _ = w.Write([]byte("local:" + r.URL.Path + "?" + r.URL.RawQuery))
+		}
+	}))
+	t.Cleanup(backendServer.Close)
+	backend := &fakeBackend{url: mustParseURL(t, backendServer.URL), healthy: true}
+	return NewService(ServiceConfig{
+		Backend: backend,
+		Catalog: catalog.New(dir),
+		Logger:  log.New(io.Discard, "", 0),
+	})
+}
+
+func loadWebUIForTest(t *testing.T, service *Service, id string, modelID string, imageID string) {
+	t.Helper()
+	body := `{"id":"` + id + `","model_id":"` + modelID + `","image_id":"` + imageID + `"}`
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/v1/site/webuis/load", strings.NewReader(body)))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected load status %d body %s", recorder.Code, recorder.Body.String())
+	}
 }
 
 func requestWebUICatalog(t *testing.T, service *Service, path string, token string) WebUICatalogResponse {
@@ -288,6 +405,33 @@ func webUIEntryEnabled(t *testing.T, response WebUICatalogResponse, id string) b
 		t.Fatalf("missing webui %q", id)
 	}
 	return entry.Enabled
+}
+
+func writeRemoteActiveWebUI(t *testing.T, w http.ResponseWriter, nodeURL string, nodeID string) {
+	t.Helper()
+	_ = json.NewEncoder(w).Encode(WebUICatalogResponse{
+		Object: "list",
+		Data: []WebUIEntry{
+			{
+				ID:          "kobold-lite",
+				Name:        "KoboldCpp Lite",
+				Backend:     "koboldcpp",
+				BackendMode: BackendModeKobold,
+				Lane:        cluster.RouteLaneText,
+				URL:         "/router/webuis/kobold-lite/",
+				NodeID:      nodeID,
+				NodeURL:     nodeURL,
+				Active:      true,
+				CompatibleModels: []WebUICompatibleModel{
+					{ID: "remote-text", ModelID: "remote-text", LocalID: "remote-text", Filename: "remote-text.kcpps", NodeID: nodeID, NodeURL: nodeURL, BackendMode: BackendModeKobold, Active: true},
+				},
+			},
+		},
+	})
+}
+
+func remoteURL(r *http.Request) string {
+	return "http://" + r.Host
 }
 
 func mustParseURL(t *testing.T, rawURL string) *url.URL {

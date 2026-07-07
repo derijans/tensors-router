@@ -45,7 +45,6 @@ type BackendConfig struct {
 
 type KoboldConfig struct {
 	BackendURL   string
-	HostURL      string
 	BinaryPath   string
 	DataDir      string
 	Multiuser    int
@@ -58,7 +57,6 @@ type KoboldConfig struct {
 
 type NativeServerConfig struct {
 	BackendURL string
-	HostURL    string
 	BinaryPath string
 	DataDir    string
 	ExtraArgs  []string
@@ -217,9 +215,6 @@ func validate(cfg *Config) error {
 	if _, err := url.ParseRequestURI(cfg.Kobold.BackendURL); err != nil {
 		return fmt.Errorf("kobold.backend_url is invalid: %w", err)
 	}
-	if err := validateOptionalHostURL("kobold.host_url", cfg.Kobold.HostURL); err != nil {
-		return err
-	}
 	if cfg.Kobold.BinaryPath == "" {
 		return fmt.Errorf("kobold.binary_path is required")
 	}
@@ -236,12 +231,6 @@ func validate(cfg *Config) error {
 		if err := validateNativeServerConfig("sdcpp", cfg.SDCPP); err != nil {
 			return err
 		}
-	}
-	if err := validateOptionalHostURL("llama.host_url", cfg.Llama.HostURL); err != nil {
-		return err
-	}
-	if err := validateOptionalHostURL("sdcpp.host_url", cfg.SDCPP.HostURL); err != nil {
-		return err
 	}
 	if cfg.Updates.CheckInterval <= 0 {
 		return fmt.Errorf("updates.check_interval must be positive")
@@ -305,7 +294,6 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("cluster.slave_urls contains invalid URL: %w", err)
 		}
 	}
-	defaultHostURLs(cfg)
 	return nil
 }
 
@@ -323,38 +311,6 @@ func validateNativeServerConfig(section string, server NativeServerConfig) error
 		return fmt.Errorf("%s.data_dir is required", section)
 	}
 	return nil
-}
-
-func validateOptionalHostURL(field string, rawURL string) error {
-	if strings.TrimSpace(rawURL) == "" {
-		return nil
-	}
-	parsed, err := url.Parse(strings.TrimSpace(rawURL))
-	if err != nil {
-		return fmt.Errorf("%s is invalid: %w", field, err)
-	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return fmt.Errorf("%s must use http or https", field)
-	}
-	if parsed.Host == "" || parsed.User != nil {
-		return fmt.Errorf("%s must be an absolute URL with a host", field)
-	}
-	if parsed.Fragment != "" {
-		return fmt.Errorf("%s must not include a fragment", field)
-	}
-	return nil
-}
-
-func defaultHostURLs(cfg *Config) {
-	if strings.TrimSpace(cfg.Kobold.HostURL) == "" {
-		cfg.Kobold.HostURL = cfg.Kobold.BackendURL
-	}
-	if strings.TrimSpace(cfg.Llama.HostURL) == "" {
-		cfg.Llama.HostURL = cfg.Llama.BackendURL
-	}
-	if strings.TrimSpace(cfg.SDCPP.HostURL) == "" {
-		cfg.SDCPP.HostURL = cfg.SDCPP.BackendURL
-	}
 }
 
 func validateUpdateDownload(urlField string, rawURL string, shaField string, sha256 string) error {
@@ -597,9 +553,6 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 		case "backend_url":
 			cfg.Kobold.BackendURL = value
 			return nil
-		case "host_url":
-			cfg.Kobold.HostURL = value
-			return nil
 		case "binary_path":
 			cfg.Kobold.BinaryPath = value
 			return nil
@@ -754,9 +707,6 @@ func setNativeServerScalar(server *NativeServerConfig, section string, key strin
 	switch key {
 	case "backend_url":
 		server.BackendURL = value
-		return nil
-	case "host_url":
-		server.HostURL = value
 		return nil
 	case "binary_path":
 		server.BinaryPath = value

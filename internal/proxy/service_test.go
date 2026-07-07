@@ -440,7 +440,7 @@ func TestLoadRejectsInvalidExplicitBackendMode(t *testing.T) {
 		"bad": `{"model_param":"text.gguf","backend_mode":"native"}`,
 	})
 
-	err := service.loadLocalModel(context.Background(), "bad", "bad", "")
+	err := service.loadLocalModel(context.Background(), "bad", "bad")
 	if err == nil || !strings.Contains(err.Error(), "backend_mode") {
 		t.Fatalf("expected backend_mode validation error, got %v", err)
 	}
@@ -488,7 +488,7 @@ func TestLoadSwitchesBackendFamiliesBeforeReload(t *testing.T) {
 		Logger:  log.New(io.Discard, "", 0),
 	})
 
-	if err := service.loadLocalModel(context.Background(), "native", "native", ""); err != nil {
+	if err := service.loadLocalModel(context.Background(), "native", "native"); err != nil {
 		t.Fatal(err)
 	}
 	if !eventBefore(eventsSnapshot(&mu, &events), "stop-kobold", "reload-native") {
@@ -498,7 +498,7 @@ func TestLoadSwitchesBackendFamiliesBeforeReload(t *testing.T) {
 		t.Fatalf("kobold switch-away should use Stop, got unloads=%d", koboldBackend.unloads.Load())
 	}
 
-	if err := service.loadLocalModel(context.Background(), "kobold", "kobold", ""); err != nil {
+	if err := service.loadLocalModel(context.Background(), "kobold", "kobold"); err != nil {
 		t.Fatal(err)
 	}
 	if !eventBefore(eventsSnapshot(&mu, &events), "stop-native", "reload-kobold") {
@@ -529,14 +529,14 @@ func TestBackendFamilySwitchWaitsForInFlightConfigUsers(t *testing.T) {
 		Catalog: catalog.New(dir),
 		Logger:  log.New(io.Discard, "", 0),
 	})
-	_, release, _, err := service.acquireModelConfigForBackendMode(BackendModeKobold, context.Background(), "kobold", "kobold.kcpps", readinessText, false, "")
+	_, release, _, err := service.acquireModelConfigForBackendMode(BackendModeKobold, context.Background(), "kobold", "kobold.kcpps", readinessText, false)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	done := make(chan error, 1)
 	go func() {
-		done <- service.loadLocalModel(context.Background(), "native", "native", "")
+		done <- service.loadLocalModel(context.Background(), "native", "native")
 	}()
 	select {
 	case <-nativeReloaded:
@@ -2399,7 +2399,7 @@ func TestLlamaSDCPPRouterLoadCombinedConfigLoadsBothLanes(t *testing.T) {
 	}
 }
 
-func TestLlamaSDCPPLoadPolicyAllUnloadsDifferentActiveLanes(t *testing.T) {
+func TestRouterLoadRequestUnloadPolicyDoesNotUnloadLanes(t *testing.T) {
 	service, textBackend, imageBackend := newSplitTestServiceWithConfigContents(
 		t,
 		readyTextHandler(t),
@@ -2415,32 +2415,8 @@ func TestLlamaSDCPPLoadPolicyAllUnloadsDifferentActiveLanes(t *testing.T) {
 	postRouterLoad(t, service, `{"model":"image"}`)
 	postRouterLoad(t, service, `{"model":"next","unload_policy":"all"}`)
 
-	if textBackend.unloads.Load() != 1 || imageBackend.unloads.Load() != 1 {
-		t.Fatalf("expected both lanes to unload, got text=%d image=%d", textBackend.unloads.Load(), imageBackend.unloads.Load())
-	}
-	if textBackend.lastReload != "next.kcpps" {
-		t.Fatalf("unexpected final text reload %q", textBackend.lastReload)
-	}
-}
-
-func TestLlamaSDCPPLoadPolicyImageUnloadsOnlyImageLane(t *testing.T) {
-	service, textBackend, imageBackend := newSplitTestServiceWithConfigContents(
-		t,
-		readyTextHandler(t),
-		readyImageHandler(t),
-		map[string]string{
-			"text":  `{"model_param":"C:\\models\\text.gguf"}`,
-			"image": `{"nomodel":true,"sdmodel":"C:\\models\\dream.safetensors"}`,
-			"next":  `{"model_param":"C:\\models\\next.gguf"}`,
-		},
-	)
-
-	postRouterLoad(t, service, `{"model":"text"}`)
-	postRouterLoad(t, service, `{"model":"image"}`)
-	postRouterLoad(t, service, `{"model":"next","unload_policy":"image"}`)
-
-	if textBackend.unloads.Load() != 0 || imageBackend.unloads.Load() != 1 {
-		t.Fatalf("expected only image lane unload, got text=%d image=%d", textBackend.unloads.Load(), imageBackend.unloads.Load())
+	if textBackend.unloads.Load() != 0 || imageBackend.unloads.Load() != 0 {
+		t.Fatalf("request unload_policy should not unload lanes, got text=%d image=%d", textBackend.unloads.Load(), imageBackend.unloads.Load())
 	}
 	if textBackend.lastReload != "next.kcpps" {
 		t.Fatalf("unexpected final text reload %q", textBackend.lastReload)

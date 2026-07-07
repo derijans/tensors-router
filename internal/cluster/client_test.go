@@ -47,7 +47,7 @@ func TestClientAllowsAuthorizedTarget(t *testing.T) {
 	}
 }
 
-func TestClientForwardsUnloadPolicyAndTarget(t *testing.T) {
+func TestClientForwardsLoadModelAndUnloadTarget(t *testing.T) {
 	seen := map[string]string{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]string
@@ -63,14 +63,17 @@ func TestClientForwardsUnloadPolicyAndTarget(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient("secret", server.URL)
-	if err := client.Load(context.Background(), server.URL, "combo", "all"); err != nil {
+	if err := client.Load(context.Background(), server.URL, "combo"); err != nil {
 		t.Fatal(err)
 	}
 	if err := client.Unload(context.Background(), server.URL, "", "image"); err != nil {
 		t.Fatal(err)
 	}
-	if seen["/router/v1/load:model"] != "combo" || seen["/router/v1/load:unload_policy"] != "all" {
+	if seen["/router/v1/load:model"] != "combo" {
 		t.Fatalf("unexpected load payload %#v", seen)
+	}
+	if _, ok := seen["/router/v1/load:unload_policy"]; ok {
+		t.Fatalf("load should not forward unload policy %#v", seen)
 	}
 	if seen["/router/v1/unload:target"] != "image" {
 		t.Fatalf("unexpected unload payload %#v", seen)

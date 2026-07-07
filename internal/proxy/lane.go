@@ -24,11 +24,11 @@ func newActiveConfigState() *activeConfigState {
 	return &activeConfigState{changed: make(chan struct{})}
 }
 
-func (service *Service) acquireModelConfigForBackendMode(mode string, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool, unloadPolicy string) (*backendRuntime, func(), bool, error) {
+func (service *Service) acquireModelConfigForBackendMode(mode string, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (*backendRuntime, func(), bool, error) {
 	if err := service.ensureBackendFamily(ctx, mode); err != nil {
 		return nil, nil, false, err
 	}
-	if err := service.enforceUnloadPolicy(ctx, mode, configFilename, unloadPolicy); err != nil {
+	if err := service.enforceUnloadPolicy(ctx, mode, configFilename); err != nil {
 		return nil, nil, false, err
 	}
 	runtime, err := service.runtimeForBackendMode(mode, readiness)

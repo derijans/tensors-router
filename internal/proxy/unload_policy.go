@@ -10,8 +10,8 @@ import (
 	"tensors-router/internal/unloadpolicy"
 )
 
-func (service *Service) enforceUnloadPolicy(ctx context.Context, mode string, filename string, requestedPolicy string) error {
-	policy, err := service.resolveUnloadPolicy(filename, requestedPolicy)
+func (service *Service) enforceUnloadPolicy(ctx context.Context, mode string, filename string) error {
+	policy, err := service.resolveUnloadPolicy(filename)
 	if err != nil {
 		return err
 	}
@@ -33,10 +33,7 @@ func (service *Service) enforceUnloadPolicy(ctx context.Context, mode string, fi
 	return service.unloadRuntimes(ctx, different)
 }
 
-func (service *Service) resolveUnloadPolicy(filename string, requestedPolicy string) (string, error) {
-	if strings.TrimSpace(requestedPolicy) != "" {
-		return unloadpolicy.Resolve(requestedPolicy)
-	}
+func (service *Service) resolveUnloadPolicy(filename string) (string, error) {
 	if strings.TrimSpace(service.configDir) == "" || strings.TrimSpace(filename) == "" {
 		return unloadpolicy.None, nil
 	}

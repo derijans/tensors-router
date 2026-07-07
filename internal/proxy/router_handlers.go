@@ -15,9 +15,8 @@ import (
 )
 
 type modelControlRequest struct {
-	Model        string `json:"model"`
-	UnloadPolicy string `json:"unload_policy"`
-	Target       string `json:"target"`
+	Model  string `json:"model"`
+	Target string `json:"target"`
 }
 
 func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +64,10 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/webuis/load":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeSiteWebUILoad(w, r)
+		}
+	case strings.HasPrefix(r.URL.Path, nodeWebUIProxyPrefix):
+		if service.requireClusterToken(w, r) {
+			service.handleNodeWebUIProxy(w, r)
 		}
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/benchmarks":
 		if service.requireClusterToken(w, r) {
@@ -198,16 +201,7 @@ func (service *Service) handleRouterLoad(w http.ResponseWriter, r *http.Request)
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), modelOperationTimeout)
 	defer cancel()
 
-	policy := ""
-	if control.UnloadPolicy != "" {
-		resolved, err := unloadpolicy.Resolve(control.UnloadPolicy)
-		if err != nil {
-			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
-			return
-		}
-		policy = resolved
-	}
-	if err := service.loadPublicModel(ctx, control.Model, policy); err != nil {
+	if err := service.loadPublicModel(ctx, control.Model); err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
@@ -247,9 +241,9 @@ func (service *Service) handleRouterShutdown(w http.ResponseWriter) {
 	go service.shutdown()
 }
 
-func (service *Service) loadPublicModel(ctx context.Context, publicID string, unloadPolicy string) error {
+func (service *Service) loadPublicModel(ctx context.Context, publicID string) error {
 	publicID = strings.TrimSpace(publicID)
-	if handled, err := service.loadRecipe(ctx, publicID, unloadPolicy); handled || err != nil {
+	if handled, err := service.loadRecipe(ctx, publicID); handled || err != nil {
 		return err
 	}
 	if service.registry != nil && service.registry.HasModel(publicID) {
@@ -267,11 +261,11 @@ func (service *Service) loadPublicModel(ctx context.Context, publicID string, un
 		}
 		defer release()
 		if route.Remote {
-			return service.clusterClient.Load(ctx, route.NodeURL, route.LocalID, unloadPolicy)
+			return service.clusterClient.Load(ctx, route.NodeURL, route.LocalID)
 		}
-		return service.loadLocalModel(ctx, route.PublicID, route.LocalID, unloadPolicy)
+		return service.loadLocalModel(ctx, route.PublicID, route.LocalID)
 	}
-	return service.loadLocalModel(ctx, publicID, publicID, unloadPolicy)
+	return service.loadLocalModel(ctx, publicID, publicID)
 }
 
 func (service *Service) unloadPublicModel(ctx context.Context, publicID string, target string) error {
@@ -297,7 +291,7 @@ func (service *Service) unloadPublicModel(ctx context.Context, publicID string, 
 	return service.unloadLocal(ctx, target)
 }
 
-func (service *Service) loadLocalModel(ctx context.Context, publicID string, localID string, unloadPolicy string) error {
+func (service *Service) loadLocalModel(ctx context.Context, publicID string, localID string) error {
 	model, ok, err := service.catalog.Resolve(localID)
 	if err != nil {
 		return err
@@ -310,25 +304,21 @@ func (service *Service) loadLocalModel(ctx context.Context, publicID string, loc
 		return err
 	}
 	if modelBackendMode == BackendModeLlamaSDCPP && model.HasImage && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
-		if err := service.loadLocalConfigWithPolicy(ctx, modelBackendMode, publicID, model.Filename, readinessText, unloadPolicy); err != nil {
+		if err := service.loadLocalConfig(ctx, modelBackendMode, publicID, model.Filename, readinessText); err != nil {
 			return err
 		}
-		return service.loadLocalConfigWithPolicy(ctx, modelBackendMode, publicID, model.Filename, readinessImage, unloadPolicy)
+		return service.loadLocalConfig(ctx, modelBackendMode, publicID, model.Filename, readinessImage)
 	}
 
 	readiness := readinessText
 	if modelBackendMode == BackendModeLlamaSDCPP && model.HasImage && !model.HasLLM && !model.HasEmbeddings && !model.HasMultimodal {
 		readiness = readinessImage
 	}
-	return service.loadLocalConfigWithPolicy(ctx, modelBackendMode, publicID, model.Filename, readiness, unloadPolicy)
+	return service.loadLocalConfig(ctx, modelBackendMode, publicID, model.Filename, readiness)
 }
 
 func (service *Service) loadLocalConfig(ctx context.Context, mode string, publicID string, filename string, readiness backendReadiness) error {
-	return service.loadLocalConfigWithPolicy(ctx, mode, publicID, filename, readiness, "")
-}
-
-func (service *Service) loadLocalConfigWithPolicy(ctx context.Context, mode string, publicID string, filename string, readiness backendReadiness, unloadPolicy string) error {
-	_, release, _, err := service.acquireModelConfigForBackendMode(mode, ctx, publicID, filename, readiness, false, unloadPolicy)
+	_, release, _, err := service.acquireModelConfigForBackendMode(mode, ctx, publicID, filename, readiness, false)
 	if err != nil {
 		return err
 	}
@@ -371,7 +361,6 @@ func readModelControlRequest(r *http.Request, requireModel bool) (modelControlRe
 		return modelControlRequest{}, err
 	}
 	control.Model = strings.TrimSpace(control.Model)
-	control.UnloadPolicy = strings.TrimSpace(control.UnloadPolicy)
 	control.Target = strings.TrimSpace(control.Target)
 	if requireModel && control.Model == "" {
 		return modelControlRequest{}, fmt.Errorf("model is required")

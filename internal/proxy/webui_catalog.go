@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -13,12 +12,6 @@ import (
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
 )
-
-type BackendWebUIHosts struct {
-	Kobold string
-	Llama  string
-	SDCPP  string
-}
 
 type WebUICatalogResponse struct {
 	Object string       `json:"object"`
@@ -61,7 +54,6 @@ type webUIDefinition struct {
 	name        string
 	backend     string
 	backendMode string
-	host        string
 	lane        string
 	path        string
 }
@@ -90,37 +82,28 @@ type webUILoadResponse struct {
 	ImageID string `json:"image_id,omitempty"`
 }
 
-const (
-	webUIHostKobold = "kobold"
-	webUIHostLlama  = "llama"
-	webUIHostSDCPP  = "sdcpp"
-)
-
 var webUIDefinitions = []webUIDefinition{
 	{
 		kind:        "kobold-lite",
 		name:        "KoboldCpp Lite",
 		backend:     "koboldcpp",
 		backendMode: BackendModeKobold,
-		host:        webUIHostKobold,
 		lane:        cluster.RouteLaneText,
 		path:        "/",
 	},
 	{
-		kind:        "kobold-llama",
+		kind:        "kobold-lcpp",
 		name:        "KoboldCpp llama UI",
 		backend:     "koboldcpp",
 		backendMode: BackendModeKobold,
-		host:        webUIHostKobold,
 		lane:        cluster.RouteLaneText,
 		path:        "/lcpp/",
 	},
 	{
-		kind:        "kobold-stable",
+		kind:        "kobold-sd",
 		name:        "KoboldCpp StableUI",
 		backend:     "koboldcpp",
 		backendMode: BackendModeKobold,
-		host:        webUIHostKobold,
 		lane:        cluster.RouteLaneImage,
 		path:        "/sdui/",
 	},
@@ -129,25 +112,22 @@ var webUIDefinitions = []webUIDefinition{
 		name:        "KoboldCpp MusicUI",
 		backend:     "koboldcpp",
 		backendMode: BackendModeKobold,
-		host:        webUIHostKobold,
 		lane:        cluster.RouteLaneMusic,
 		path:        "/musicui/",
 	},
 	{
-		kind:        "llama-server",
+		kind:        "llama",
 		name:        "llama-server UI",
 		backend:     "llama.cpp",
 		backendMode: BackendModeLlamaSDCPP,
-		host:        webUIHostLlama,
 		lane:        cluster.RouteLaneText,
 		path:        "/",
 	},
 	{
-		kind:        "sd-server",
+		kind:        "sdcpp",
 		name:        "sd-server UI",
 		backend:     "stable-diffusion.cpp",
 		backendMode: BackendModeLlamaSDCPP,
-		host:        webUIHostSDCPP,
 		lane:        cluster.RouteLaneImage,
 		path:        "/",
 	},
@@ -167,42 +147,18 @@ func (session *webUISession) set(id string, enabled bool) {
 	delete(session.enabled, id)
 }
 
+func (session *webUISession) isEnabled(id string) bool {
+	session.mu.RLock()
+	defer session.mu.RUnlock()
+	return session.enabled[id]
+}
+
 func (session *webUISession) apply(entries []WebUIEntry) {
 	session.mu.RLock()
 	defer session.mu.RUnlock()
 	for index := range entries {
 		entries[index].Enabled = session.enabled[entries[index].ID]
 	}
-}
-
-func webUIHostsFromConfig(hosts BackendWebUIHosts, families map[string]*backendFamily) BackendWebUIHosts {
-	if strings.TrimSpace(hosts.Kobold) == "" {
-		hosts.Kobold = backendFamilyTextURL(families[BackendModeKobold])
-	}
-	if strings.TrimSpace(hosts.Llama) == "" {
-		hosts.Llama = backendFamilyTextURL(families[BackendModeLlamaSDCPP])
-	}
-	if strings.TrimSpace(hosts.SDCPP) == "" {
-		hosts.SDCPP = backendFamilyImageURL(families[BackendModeLlamaSDCPP])
-	}
-	if strings.TrimSpace(hosts.SDCPP) == "" {
-		hosts.SDCPP = hosts.Llama
-	}
-	return hosts
-}
-
-func backendFamilyTextURL(family *backendFamily) string {
-	if family == nil || family.textRuntime == nil || family.textRuntime.backend == nil {
-		return ""
-	}
-	return family.textRuntime.backend.URL().String()
-}
-
-func backendFamilyImageURL(family *backendFamily) string {
-	if family == nil || family.imageRuntime == nil || family.imageRuntime.backend == nil {
-		return ""
-	}
-	return family.imageRuntime.backend.URL().String()
 }
 
 func (service *Service) handleSiteWebUIs(w http.ResponseWriter, r *http.Request) {
@@ -293,22 +249,12 @@ func (service *Service) handleNodeSiteWebUILoad(w http.ResponseWriter, r *http.R
 }
 
 func (service *Service) siteWebUIs(ctx context.Context) (WebUICatalogResponse, error) {
-	entries, err := service.localWebUIs()
+	models, err := service.webUICatalogModels()
 	if err != nil {
 		return WebUICatalogResponse{}, err
 	}
-	if service.clusterRole == cluster.RoleMaster {
-		for _, nodeURL := range service.remoteInventoryURLs() {
-			var remote WebUICatalogResponse
-			if err := service.clusterClient.JSON(ctx, http.MethodGet, nodeURL, "/router/v1/node/site/webuis", nil, &remote); err != nil {
-				continue
-			}
-			for index := range remote.Data {
-				remote.Data[index].NodeURL = nodeURL
-			}
-			entries = append(entries, remote.Data...)
-		}
-	}
+	entries := service.webUIsFromModels(models)
+	service.markRemoteActiveWebUIs(ctx, entries)
 	service.webUISession.apply(entries)
 	sortWebUIEntries(entries)
 	return webUICatalogResponse(entries), nil
@@ -319,12 +265,21 @@ func (service *Service) localWebUIs() ([]WebUIEntry, error) {
 	if err != nil {
 		return nil, err
 	}
+	entries := service.webUIsFromModels(models)
+	sortWebUIEntries(entries)
+	return entries, nil
+}
+
+func (service *Service) webUICatalogModels() ([]cluster.Model, error) {
+	if service.registry != nil {
+		return service.siteModels(), nil
+	}
+	return service.localClusterModels()
+}
+
+func (service *Service) webUIsFromModels(models []cluster.Model) []WebUIEntry {
 	entries := make([]WebUIEntry, 0, len(webUIDefinitions))
 	for _, definition := range webUIDefinitions {
-		hostURL := service.webUIHostURL(definition.host)
-		if hostURL == "" {
-			continue
-		}
 		compatibleModels := service.compatibleWebUIModels(definition, models)
 		if len(compatibleModels) == 0 {
 			continue
@@ -335,7 +290,7 @@ func (service *Service) localWebUIs() ([]WebUIEntry, error) {
 			Backend:             definition.backend,
 			BackendMode:         definition.backendMode,
 			Lane:                definition.lane,
-			URL:                 joinWebUIURL(hostURL, definition.path),
+			URL:                 routerWebUIURL(definition),
 			NodeID:              service.nodeID,
 			NodeURL:             service.nodeURL,
 			RequiresLoadedModel: true,
@@ -345,8 +300,7 @@ func (service *Service) localWebUIs() ([]WebUIEntry, error) {
 		service.markActiveWebUIEntry(definition, &entry)
 		entries = append(entries, entry)
 	}
-	sortWebUIEntries(entries)
-	return entries, nil
+	return entries
 }
 
 func (service *Service) compatibleWebUIModels(definition webUIDefinition, models []cluster.Model) []WebUICompatibleModel {
@@ -389,6 +343,9 @@ func (service *Service) markActiveWebUIEntry(definition webUIDefinition, entry *
 		return
 	}
 	for index := range entry.CompatibleModels {
+		if entry.CompatibleModels[index].NodeID != service.nodeID {
+			continue
+		}
 		if entry.CompatibleModels[index].Filename != activeFilename {
 			continue
 		}
@@ -410,6 +367,50 @@ func (service *Service) webUIActiveConfigFilename(definition webUIDefinition) st
 	return currentRuntimeConfigFilename(runtime)
 }
 
+func (service *Service) markRemoteActiveWebUIs(ctx context.Context, entries []WebUIEntry) {
+	if service.clusterRole != cluster.RoleMaster {
+		return
+	}
+	entryByID := map[string]*WebUIEntry{}
+	for index := range entries {
+		entryByID[entries[index].ID] = &entries[index]
+	}
+	for _, nodeURL := range service.remoteInventoryURLs() {
+		var remote WebUICatalogResponse
+		if err := service.clusterClient.JSON(ctx, http.MethodGet, nodeURL, "/router/v1/node/site/webuis", nil, &remote); err != nil {
+			continue
+		}
+		for _, remoteEntry := range remote.Data {
+			entry := entryByID[remoteEntry.ID]
+			if entry == nil || !remoteEntry.Active {
+				continue
+			}
+			markRemoteActiveWebUIEntry(entry, remoteEntry)
+		}
+	}
+}
+
+func markRemoteActiveWebUIEntry(entry *WebUIEntry, remote WebUIEntry) {
+	entry.Active = true
+	for _, remoteModel := range remote.CompatibleModels {
+		if !remoteModel.Active {
+			continue
+		}
+		for index := range entry.CompatibleModels {
+			model := &entry.CompatibleModels[index]
+			if model.NodeID != remoteModel.NodeID || model.Filename != remoteModel.Filename {
+				continue
+			}
+			model.Active = true
+			entry.ActiveModelID = model.ModelID
+			if entry.Lane == cluster.RouteLaneImage {
+				entry.ActiveImageID = model.ImageID
+			}
+			return
+		}
+	}
+}
+
 func (service *Service) loadSiteWebUI(ctx context.Context, request webUILoadRequest) (webUILoadResponse, error) {
 	catalogResponse, err := service.siteWebUIs(ctx)
 	if err != nil {
@@ -423,11 +424,20 @@ func (service *Service) loadSiteWebUI(ctx context.Context, request webUILoadRequ
 	if !ok {
 		return webUILoadResponse{}, fmt.Errorf("compatible model was not found for webui %q", request.ID)
 	}
-	if entry.NodeID != "" && entry.NodeID != service.nodeID {
+	if model.NodeID != "" && model.NodeID != service.nodeID {
+		if strings.TrimSpace(model.NodeURL) == "" {
+			return webUILoadResponse{}, fmt.Errorf("node url for webui model %q is required", model.ID)
+		}
 		var response webUILoadResponse
-		if err := service.clusterClient.JSON(ctx, http.MethodPost, entry.NodeURL, "/router/v1/node/site/webuis/load", request, &response); err != nil {
+		remoteRequest := webUILoadRequest{
+			ID:      entry.ID,
+			ModelID: firstNonEmpty(model.LocalID, model.ModelID),
+			ImageID: firstNonEmpty(model.LocalImageID, model.ImageID),
+		}
+		if err := service.clusterClient.JSON(ctx, http.MethodPost, model.NodeURL, "/router/v1/node/site/webuis/load", remoteRequest, &response); err != nil {
 			return webUILoadResponse{}, err
 		}
+		response.URL = entry.URL
 		return response, nil
 	}
 	return service.loadLocalWebUIEntry(ctx, entry, model)
@@ -450,7 +460,7 @@ func (service *Service) loadLocalWebUI(ctx context.Context, request webUILoadReq
 }
 
 func (service *Service) loadLocalWebUIEntry(ctx context.Context, entry WebUIEntry, model WebUICompatibleModel) (webUILoadResponse, error) {
-	if err := service.loadLocalConfigWithPolicy(ctx, entry.BackendMode, model.ID, model.Filename, webUIReadiness(entry.Lane), ""); err != nil {
+	if err := service.loadLocalConfig(ctx, entry.BackendMode, webUILoadModelID(entry, model), model.Filename, webUIReadiness(entry.Lane)); err != nil {
 		return webUILoadResponse{}, err
 	}
 	return webUILoadResponse{
@@ -462,17 +472,11 @@ func (service *Service) loadLocalWebUIEntry(ctx context.Context, entry WebUIEntr
 	}, nil
 }
 
-func (service *Service) webUIHostURL(host string) string {
-	switch host {
-	case webUIHostKobold:
-		return strings.TrimSpace(service.webUIHosts.Kobold)
-	case webUIHostLlama:
-		return strings.TrimSpace(service.webUIHosts.Llama)
-	case webUIHostSDCPP:
-		return strings.TrimSpace(service.webUIHosts.SDCPP)
-	default:
-		return ""
+func webUILoadModelID(entry WebUIEntry, model WebUICompatibleModel) string {
+	if entry.Lane == cluster.RouteLaneImage && strings.TrimSpace(model.ImageID) != "" {
+		return model.ImageID
 	}
+	return model.ModelID
 }
 
 func readWebUILoadRequest(r *http.Request) (webUILoadRequest, error) {
@@ -544,25 +548,24 @@ func webUICatalogResponse(entries []WebUIEntry) WebUICatalogResponse {
 }
 
 func webUIEntryID(nodeID string, kind string) string {
-	return firstNonEmpty(nodeID, "local") + ":" + kind
+	return kind
 }
 
-func joinWebUIURL(hostURL string, path string) string {
-	parsed, err := url.Parse(strings.TrimSpace(hostURL))
-	if err != nil {
-		return ""
+func routerWebUIURL(definition webUIDefinition) string {
+	return "/router/webuis/" + definition.kind + "/"
+}
+
+func webUIDefinitionByKind(kind string) (webUIDefinition, bool) {
+	for _, definition := range webUIDefinitions {
+		if definition.kind == kind {
+			return definition, true
+		}
 	}
-	parsed.Path = joinPath(parsed.Path, path)
-	parsed.RawQuery = ""
-	parsed.Fragment = ""
-	return parsed.String()
+	return webUIDefinition{}, false
 }
 
 func sortWebUIEntries(entries []WebUIEntry) {
 	sort.Slice(entries, func(left, right int) bool {
-		if entries[left].NodeID != entries[right].NodeID {
-			return entries[left].NodeID < entries[right].NodeID
-		}
 		return entries[left].ID < entries[right].ID
 	})
 }

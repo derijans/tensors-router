@@ -120,6 +120,42 @@ func TestRegistryAcquiresVoiceAndMusicLanes(t *testing.T) {
 	releaseMusic()
 }
 
+func TestRegistryWebUIRoutePrefersLocalActiveRoute(t *testing.T) {
+	registry := NewRegistry(RoleMaster, "master", "http://master")
+	route, release, ok := registry.AcquireWebUI("kobold-lite", []Route{
+		{PublicID: "text", LocalID: "text", NodeID: "slave-a", NodeURL: "http://slave-a", Remote: true, Lane: RouteLaneText},
+		{PublicID: "text", LocalID: "text", NodeID: "master", NodeURL: "http://master", Lane: RouteLaneText},
+	})
+	defer release()
+	if !ok || route.Remote || route.NodeID != "master" {
+		t.Fatalf("expected local webui route %#v ok=%t", route, ok)
+	}
+}
+
+func TestRegistryWebUIRoutePrefersIdleSlaveThenFallsBackToBusy(t *testing.T) {
+	registry := NewRegistry(RoleMaster, "master", "http://master")
+	routes := []Route{
+		{PublicID: "text-a", LocalID: "text-a", NodeID: "slave-a", NodeURL: "http://slave-a", Remote: true, Lane: RouteLaneText},
+		{PublicID: "text-b", LocalID: "text-b", NodeID: "slave-b", NodeURL: "http://slave-b", Remote: true, Lane: RouteLaneText},
+	}
+
+	first, releaseFirst, ok := registry.AcquireWebUI("kobold-lite", routes)
+	if !ok || !first.Remote || first.NodeID != "slave-a" {
+		t.Fatalf("expected first idle slave route %#v ok=%t", first, ok)
+	}
+	second, releaseSecond, ok := registry.AcquireWebUI("kobold-lite", routes)
+	if !ok || !second.Remote || second.NodeID != "slave-b" {
+		t.Fatalf("expected second idle slave route %#v ok=%t", second, ok)
+	}
+	third, releaseThird, ok := registry.AcquireWebUI("kobold-lite", routes)
+	if !ok || !third.Remote || (third.NodeID != "slave-a" && third.NodeID != "slave-b") {
+		t.Fatalf("expected busy fallback route %#v ok=%t", third, ok)
+	}
+	releaseThird()
+	releaseSecond()
+	releaseFirst()
+}
+
 func TestRegistryMarksSlaveURLUnhealthy(t *testing.T) {
 	registry := NewRegistry(RoleMaster, "master", "http://master")
 	for _, nodeID := range []string{"slave-a", "slave-b"} {

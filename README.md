@@ -221,7 +221,7 @@ Only one KoboldCpp config is active at a time. LLM and image requests share one 
 
 In `llama_sdcpp` mode, combined LLM+image configs expose both lanes independently. Selecting the text model starts `llama-server`; selecting the image model starts `sd-server`; explicit `/router/v1/load` on a combined config starts both. The two lanes have separate gates, so a text model switch does not block an unrelated image request unless an unload policy targets that lane.
 
-Set `router_unload_policy` in `.kcpps`, or pass `unload_policy` to `/router/v1/load`, to unload active runtimes before loading a different config. Valid values are `none`, `text`, `image`, `embeddings`, `voice`, `music`, and `all`. Current runtimes map `image` to the image backend, while `text`, `embeddings`, `voice`, and `music` map to the text backend; `all` aggregates every current target. Future backend splits should add a target value instead of changing what existing values mean.
+Set `router_unload_policy` in `.kcpps` to unload active runtimes before loading a different config. Valid values are `none`, `text`, `image`, `embeddings`, `voice`, `music`, and `all`. Current runtimes map `image` to the image backend, while `text`, `embeddings`, `voice`, and `music` map to the text backend; `all` aggregates every current target. Future backend splits should add a target value instead of changing what existing values mean.
 
 ## Router Registry
 
@@ -239,10 +239,6 @@ Load or unload a model explicitly:
 curl http://127.0.0.1:8080/router/v1/load \
   -H "Content-Type: application/json" \
   -d '{"model":"hermes-8k"}'
-
-curl http://127.0.0.1:8080/router/v1/load \
-  -H "Content-Type: application/json" \
-  -d '{"model":"image-mix","unload_policy":"all"}'
 
 curl -X POST http://127.0.0.1:8080/router/v1/unload
 

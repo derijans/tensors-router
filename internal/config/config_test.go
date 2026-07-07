@@ -34,7 +34,6 @@ backend:
 
 kobold:
   backend_url: "http://127.0.0.1:6000"
-  host_url: "https://ui.example.test/kobold"
   binary_path: "./bin/koboldcpp"
   data_dir: "./state"
   multiuser: 2
@@ -46,7 +45,6 @@ kobold:
 
 llama:
   backend_url: "http://127.0.0.1:6002"
-  host_url: "https://ui.example.test/llama"
   binary_path: "./bin/llama-server"
   data_dir: "./llama-state"
   hide_window: false
@@ -56,7 +54,6 @@ llama:
 
 sdcpp:
   backend_url: "http://127.0.0.1:7861"
-  host_url: "https://ui.example.test/sdcpp"
   binary_path: "./bin/sd-server"
   data_dir: "./sd-state"
   hide_window: false
@@ -125,16 +122,13 @@ analytics:
 	if cfg.Kobold.Quiet || cfg.Kobold.SkipLauncher || cfg.Kobold.NoModel || cfg.Kobold.HideWindow {
 		t.Fatalf("unexpected kobold bool settings %#v", cfg.Kobold)
 	}
-	if cfg.Kobold.HostURL != "https://ui.example.test/kobold" {
-		t.Fatalf("unexpected kobold host url %q", cfg.Kobold.HostURL)
-	}
-	if cfg.Llama.BackendURL != "http://127.0.0.1:6002" || cfg.Llama.HostURL != "https://ui.example.test/llama" || cfg.Llama.BinaryPath != "./bin/llama-server" || cfg.Llama.DataDir != "./llama-state" || cfg.Llama.HideWindow {
+	if cfg.Llama.BackendURL != "http://127.0.0.1:6002" || cfg.Llama.BinaryPath != "./bin/llama-server" || cfg.Llama.DataDir != "./llama-state" || cfg.Llama.HideWindow {
 		t.Fatalf("unexpected llama config %#v", cfg.Llama)
 	}
 	if !reflect.DeepEqual(cfg.Llama.ExtraArgs, []string{"--parallel", "2"}) {
 		t.Fatalf("unexpected llama extra args %#v", cfg.Llama.ExtraArgs)
 	}
-	if cfg.SDCPP.BackendURL != "http://127.0.0.1:7861" || cfg.SDCPP.HostURL != "https://ui.example.test/sdcpp" || cfg.SDCPP.BinaryPath != "./bin/sd-server" || cfg.SDCPP.DataDir != "./sd-state" || cfg.SDCPP.HideWindow {
+	if cfg.SDCPP.BackendURL != "http://127.0.0.1:7861" || cfg.SDCPP.BinaryPath != "./bin/sd-server" || cfg.SDCPP.DataDir != "./sd-state" || cfg.SDCPP.HideWindow {
 		t.Fatalf("unexpected sdcpp config %#v", cfg.SDCPP)
 	}
 	if !reflect.DeepEqual(cfg.SDCPP.ExtraArgs, []string{"--verbose"}) {
@@ -191,9 +185,6 @@ func TestLoadDefaultConfigWhenDefaultFileMissing(t *testing.T) {
 	}
 	if cfg.Llama.BackendURL != "http://127.0.0.1:5002" || cfg.SDCPP.BackendURL != "http://127.0.0.1:7860" {
 		t.Fatalf("unexpected native defaults llama=%#v sdcpp=%#v", cfg.Llama, cfg.SDCPP)
-	}
-	if cfg.Kobold.HostURL != cfg.Kobold.BackendURL || cfg.Llama.HostURL != cfg.Llama.BackendURL || cfg.SDCPP.HostURL != cfg.SDCPP.BackendURL {
-		t.Fatalf("host urls should default to backend urls")
 	}
 	if cfg.Llama.BinaryPath != "./bin/llama/llama-b9495/llama-server" || cfg.SDCPP.BinaryPath != "./bin/stable-diffusion/build/bin/sd-server" {
 		t.Fatalf("unexpected native binary defaults llama=%q sdcpp=%q", cfg.Llama.BinaryPath, cfg.SDCPP.BinaryPath)
@@ -295,17 +286,17 @@ analytics:
 	}
 }
 
-func TestLoadRejectsInvalidHostURL(t *testing.T) {
+func TestLoadRejectsRemovedHostURL(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(path, []byte(`
 kobold:
-  host_url: "file:///tmp/kobold"
+  host_url: "https://ui.example.test/kobold"
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	if _, err := Load(path); err == nil {
-		t.Fatalf("expected invalid host url error")
+		t.Fatalf("expected removed host url key error")
 	}
 }

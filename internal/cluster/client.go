@@ -64,11 +64,8 @@ func (client *Client) Register(ctx context.Context, masterURL string, snapshot S
 	return client.JSON(ctx, http.MethodPost, masterURL, "/router/v1/node/register", snapshot, nil)
 }
 
-func (client *Client) Load(ctx context.Context, nodeURL string, modelID string, unloadPolicy string) error {
+func (client *Client) Load(ctx context.Context, nodeURL string, modelID string) error {
 	body := map[string]string{"model": modelID}
-	if strings.TrimSpace(unloadPolicy) != "" {
-		body["unload_policy"] = strings.TrimSpace(unloadPolicy)
-	}
 	return client.JSON(ctx, http.MethodPost, nodeURL, "/router/v1/load", body, nil)
 }
 
