@@ -228,6 +228,164 @@ func TestServerProxiesRouterWebUIPathWithSession(t *testing.T) {
 	}
 }
 
+func TestServerBridgesSdcppBackendPathFromWebUIReferer(t *testing.T) {
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer router-secret" {
+			http.Error(w, "missing token", http.StatusUnauthorized)
+			return
+		}
+		if r.Header.Get("Cookie") != "" {
+			http.Error(w, "unexpected cookie", http.StatusBadRequest)
+			return
+		}
+		if r.Method != http.MethodGet || r.URL.Path != "/router/webuis/sdcpp/sdcpp/v1/capabilities" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer router.Close()
+
+	process := NewRouterProcess(RouterConfig{URL: router.URL}, t.TempDir())
+	server := NewServer(Config{Router: RouterConfig{URL: router.URL, Token: "router-secret"}}, process, NewSessionManager("admin-secret"))
+	cookie, _ := loginForServerTest(t, server)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "https://webui.test/sdcpp/v1/capabilities", nil)
+	request.AddCookie(cookie)
+	request.Header.Set("Referer", "https://webui.test/router/webuis/sdcpp/")
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"ok":true`) {
+		t.Fatalf("unexpected body %s", recorder.Body.String())
+	}
+}
+
+func TestServerRequiresSessionForWebUIBackendBridge(t *testing.T) {
+	routerHit := false
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routerHit = true
+		http.NotFound(w, r)
+	}))
+	defer router.Close()
+
+	process := NewRouterProcess(RouterConfig{URL: router.URL}, t.TempDir())
+	server := NewServer(Config{Router: RouterConfig{URL: router.URL}}, process, NewSessionManager("admin-secret"))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "https://webui.test/sdcpp/v1/capabilities", nil)
+	request.Header.Set("Referer", "https://webui.test/router/webuis/sdcpp/")
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized, got %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if routerHit {
+		t.Fatal("router should not be reached without a webui session")
+	}
+}
+
+func TestServerBridgesWebUIBackendRequestBodyQueryAndHeaders(t *testing.T) {
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer router-secret" {
+			http.Error(w, "missing token", http.StatusUnauthorized)
+			return
+		}
+		if r.Header.Get("Cookie") != "" {
+			http.Error(w, "unexpected cookie", http.StatusBadRequest)
+			return
+		}
+		if r.Header.Get("Accept") != "application/json" || r.Header.Get("Content-Type") != "application/json" || r.Header.Get("X-WebUI-Test") != "1" {
+			http.Error(w, "missing forwarded header", http.StatusBadRequest)
+			return
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/router/webuis/sdcpp/sdcpp/v1/img_gen" || r.URL.RawQuery != "async=true" {
+			http.NotFound(w, r)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != `{"prompt":"cat"}` {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"job_id": "job-a"})
+	}))
+	defer router.Close()
+
+	process := NewRouterProcess(RouterConfig{URL: router.URL}, t.TempDir())
+	server := NewServer(Config{Router: RouterConfig{URL: router.URL, Token: "router-secret"}}, process, NewSessionManager("admin-secret"))
+	cookie, _ := loginForServerTest(t, server)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "https://webui.test/sdcpp/v1/img_gen?async=true", strings.NewReader(`{"prompt":"cat"}`))
+	request.AddCookie(cookie)
+	request.Header.Set("Referer", "https://webui.test/router/webuis/sdcpp/")
+	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Authorization", "Bearer browser-token")
+	request.Header.Set("X-WebUI-Test", "1")
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestServerKeepsManagementAPIAboveWebUIBackendBridge(t *testing.T) {
+	routerHit := false
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routerHit = true
+		http.NotFound(w, r)
+	}))
+	defer router.Close()
+
+	process := NewRouterProcess(RouterConfig{URL: router.URL}, t.TempDir())
+	server := NewServer(Config{Router: RouterConfig{URL: router.URL}}, process, NewSessionManager("admin-secret"))
+	cookie, _ := loginForServerTest(t, server)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "https://webui.test/api/session", nil)
+	request.AddCookie(cookie)
+	request.Header.Set("Referer", "https://webui.test/router/webuis/kobold-lite/")
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if routerHit {
+		t.Fatal("router should not be reached for management api")
+	}
+}
+
+func TestServerBridgesKoboldAPIPathBeforeManagementAPI(t *testing.T) {
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/router/webuis/kobold-lite/api/v1/generate" {
+			http.NotFound(w, r)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		if !strings.Contains(string(body), `"prompt":"hi"`) {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"ok": true})
+	}))
+	defer router.Close()
+
+	process := NewRouterProcess(RouterConfig{URL: router.URL}, t.TempDir())
+	server := NewServer(Config{Router: RouterConfig{URL: router.URL}}, process, NewSessionManager("admin-secret"))
+	cookie, _ := loginForServerTest(t, server)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "https://webui.test/api/v1/generate", strings.NewReader(`{"prompt":"hi"}`))
+	request.AddCookie(cookie)
+	request.Header.Set("Referer", "https://webui.test/router/webuis/kobold-lite/")
+	request.Header.Set("Content-Type", "application/json")
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+}
+
 func TestServerRequiresSessionForRouterWebUIPath(t *testing.T) {
 	routerHit := false
 	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

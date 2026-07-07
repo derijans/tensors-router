@@ -6,6 +6,7 @@ import (
 	"io"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -36,6 +37,10 @@ func NewServer(config Config, router *RouterProcess, sessions *SessionManager) *
 }
 
 func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if path, ok := webUIBackendProxyPath(r); ok {
+		server.proxyRouterWebUIPath(w, r, path)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/api/") {
 		server.handleAPI(w, r)
 		return
@@ -189,11 +194,15 @@ func (server *Server) proxyRouter(w http.ResponseWriter, r *http.Request, method
 }
 
 func (server *Server) proxyRouterWebUI(w http.ResponseWriter, r *http.Request) {
+	server.proxyRouterWebUIPath(w, r, r.URL.Path)
+}
+
+func (server *Server) proxyRouterWebUIPath(w http.ResponseWriter, r *http.Request, path string) {
 	if !server.sessions.Authorized(r) {
 		writeWebError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	request, _, ok := server.newRouterProxyRequest(w, r, r.Method, r.URL.Path)
+	request, _, ok := server.newRouterProxyRequest(w, r, r.Method, path)
 	if !ok {
 		return
 	}
@@ -303,6 +312,99 @@ func skipRouterWebUIHeader(key string) bool {
 	default:
 		return false
 	}
+}
+
+func webUIBackendProxyPath(r *http.Request) (string, bool) {
+	kind, ok := webUIBackendProxyKind(r)
+	if !ok {
+		return "", false
+	}
+	return "/router/webuis/" + kind + "/" + strings.TrimLeft(r.URL.Path, "/"), true
+}
+
+func webUIBackendProxyKind(r *http.Request) (string, bool) {
+	if kind, ok := webUIKindFromReferer(r); ok && webUIBackendPathAllowed(kind, r.URL.Path) {
+		return kind, true
+	}
+	if strings.HasPrefix(r.URL.Path, "/sdcpp/v1/") {
+		return "sdcpp", true
+	}
+	return "", false
+}
+
+func webUIKindFromReferer(r *http.Request) (string, bool) {
+	referer := strings.TrimSpace(r.Header.Get("Referer"))
+	if referer == "" {
+		return "", false
+	}
+	parsed, err := url.Parse(referer)
+	if err != nil {
+		return "", false
+	}
+	if parsed.Host != "" && !strings.EqualFold(parsed.Host, r.Host) {
+		return "", false
+	}
+	return webUIKindFromPath(parsed.Path)
+}
+
+func webUIKindFromPath(path string) (string, bool) {
+	const prefix = "/router/webuis/"
+	if !strings.HasPrefix(path, prefix) {
+		return "", false
+	}
+	remainder := strings.TrimPrefix(path, prefix)
+	kind, _, _ := strings.Cut(remainder, "/")
+	if webUIKindKnown(kind) {
+		return kind, true
+	}
+	return "", false
+}
+
+func webUIKindKnown(kind string) bool {
+	switch kind {
+	case "kobold-lite", "kobold-lcpp", "kobold-sd", "kobold-music", "llama", "sdcpp":
+		return true
+	default:
+		return false
+	}
+}
+
+func webUIBackendPathAllowed(kind string, path string) bool {
+	switch kind {
+	case "sdcpp":
+		return webUIPathHasPrefix(path, "/sdcpp/v1/", "/sdapi/v1/", "/v1/images/") || path == "/v1/models"
+	case "llama":
+		return webUIPathHasPrefix(path, "/v1/", "/api/v1/") ||
+			webUIPathIs(path, "/completion", "/chat", "/infill", "/embedding", "/embeddings", "/rerank", "/tokenize", "/detokenize", "/props", "/slots", "/metrics", "/health")
+	case "kobold-lite", "kobold-lcpp":
+		return webUIPathHasPrefix(path, "/v1/", "/api/v1/", "/api/extra/") ||
+			webUIPathIs(path, "/api/generate", "/api/chat", "/api/show", "/api/tags", "/api/ps", "/api/version")
+	case "kobold-sd":
+		return webUIPathHasPrefix(path, "/sdapi/v1/", "/v1/images/", "/history/", "/view/", "/object_info/", "/upload/image") ||
+			webUIPathIs(path, "/prompt", "/queue", "/history", "/view", "/object_info", "/system_stats", "/interrupt")
+	case "kobold-music":
+		return webUIPathHasPrefix(path, "/api/extra/music/")
+	default:
+		return false
+	}
+}
+
+func webUIPathHasPrefix(path string, prefixes ...string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(path, prefix) || strings.TrimRight(prefix, "/") == path {
+			return true
+		}
+	}
+	return false
+}
+
+func webUIPathIs(path string, values ...string) bool {
+	for _, value := range values {
+		if path == value {
+			return true
+		}
+	}
+	return false
 }
 
 func isWebHopByHopHeader(key string) bool {

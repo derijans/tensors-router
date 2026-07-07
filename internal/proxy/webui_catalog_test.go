@@ -244,6 +244,119 @@ func TestLocalWebUIProxyStripsStablePrefixPreservesQueryAndRewritesRedirect(t *t
 	}
 }
 
+func TestLocalSdcppWebUIBackendAPIUsesBackendRoot(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "image.kcpps"), []byte(`{"backend_mode":"llama_sdcpp","nomodel":true,"sdmodel":"dream.safetensors"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/sdapi/v1/sd-models":
+			_, _ = w.Write([]byte(`[{"model_name":"ready"}]`))
+		case r.Method == http.MethodGet && r.URL.Path == "/sdcpp/v1/capabilities":
+			if r.URL.RawQuery != "format=json" {
+				http.Error(w, "bad query", http.StatusBadRequest)
+				return
+			}
+			_, _ = w.Write([]byte("sdcpp-root"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(backendServer.Close)
+
+	backend := &fakeBackend{url: mustParseURL(t, backendServer.URL), healthy: true}
+	service := NewService(ServiceConfig{
+		TextBackend:  backend,
+		ImageBackend: backend,
+		BackendMode:  BackendModeLlamaSDCPP,
+		Catalog:      catalog.New(dir),
+		Logger:       log.New(io.Discard, "", 0),
+	})
+	loadWebUIForTest(t, service, "sdcpp", "", "image-dream")
+	service.webUISession.set("sdcpp", true)
+
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/router/webuis/sdcpp/sdcpp/v1/capabilities?format=json", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected proxy status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Body.String() != "sdcpp-root" {
+		t.Fatalf("unexpected proxy body %q", recorder.Body.String())
+	}
+}
+
+func TestLocalKoboldSDWebUIBackendAPIUsesBackendRoot(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "image.kcpps"), []byte(`{"nomodel":true,"sdmodel":"dream.safetensors"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/sdapi/v1/sd-models":
+			_, _ = w.Write([]byte(`[{"model_name":"ready"}]`))
+		case r.Method == http.MethodPost && r.URL.Path == "/sdapi/v1/txt2img":
+			body, _ := io.ReadAll(r.Body)
+			if !strings.Contains(string(body), `"prompt":"cat"`) {
+				http.Error(w, "bad body", http.StatusBadRequest)
+				return
+			}
+			_, _ = w.Write([]byte("sdapi-root"))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(backendServer.Close)
+
+	backend := &fakeBackend{url: mustParseURL(t, backendServer.URL), healthy: true}
+	service := NewService(ServiceConfig{
+		Backend: backend,
+		Catalog: catalog.New(dir),
+		Logger:  log.New(io.Discard, "", 0),
+	})
+	loadWebUIForTest(t, service, "kobold-sd", "image", "image-dream")
+	service.webUISession.set("kobold-sd", true)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/router/webuis/kobold-sd/sdapi/v1/txt2img", strings.NewReader(`{"prompt":"cat"}`))
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected proxy status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Body.String() != "sdapi-root" {
+		t.Fatalf("unexpected proxy body %q", recorder.Body.String())
+	}
+}
+
+func TestRemoteWebUIBackendAPIUsesSlaveRootAndToken(t *testing.T) {
+	slave := newProxyReadyWebUIService(t)
+	loadWebUIForTest(t, slave, "kobold-lcpp", "text", "")
+	slave.clusterToken = "secret"
+	slaveServer := httptest.NewServer(slave)
+	defer slaveServer.Close()
+
+	service := NewService(ServiceConfig{
+		Backend:      &fakeBackend{url: mustParseURL(t, "http://127.0.0.1:1"), healthy: false},
+		Catalog:      catalog.New(t.TempDir()),
+		ClusterRole:  cluster.RoleMaster,
+		NodeID:       "master",
+		ClusterToken: "secret",
+		SlaveURLs:    []string{slaveServer.URL},
+		Logger:       log.New(io.Discard, "", 0),
+	})
+	service.webUISession.set("kobold-lcpp", true)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/router/webuis/kobold-lcpp/api/v1/generate?stream=1", strings.NewReader(`{"prompt":"hi"}`))
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected proxy status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Body.String() != "local:/api/v1/generate?stream=1" {
+		t.Fatalf("unexpected proxy body %q", recorder.Body.String())
+	}
+}
+
 func TestRemoteWebUIProxyUsesSlaveTokenAndRewritesNodeRedirect(t *testing.T) {
 	var sawToken atomic.Bool
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

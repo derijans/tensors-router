@@ -180,7 +180,7 @@ func (service *Service) forwardLocalWebUIProxy(ctx context.Context, original *ht
 		return nil, err
 	}
 	response = responseWithRelease(response, release)
-	rewriteWebUIResponseLocation(response, runtime.backend.URL(), definition, publicPrefix)
+	rewriteWebUIResponseLocation(response, runtime.backend.URL(), definition, publicPrefix, strippedPath)
 	return response, nil
 }
 
@@ -250,7 +250,7 @@ func writeWebUIProxyResponse(w http.ResponseWriter, response *http.Response) err
 	return writeProxyResponse(w, response, "", false)
 }
 
-func rewriteWebUIResponseLocation(response *http.Response, baseURL *url.URL, definition webUIDefinition, publicPrefix string) {
+func rewriteWebUIResponseLocation(response *http.Response, baseURL *url.URL, definition webUIDefinition, publicPrefix string, strippedPath string) {
 	if response == nil {
 		return
 	}
@@ -259,6 +259,9 @@ func rewriteWebUIResponseLocation(response *http.Response, baseURL *url.URL, def
 		return
 	}
 	backendPrefix := joinPath(baseURL.Path, definition.path)
+	if webUIBackendAPIPath(definition, strippedPath) {
+		backendPrefix = firstNonEmpty(baseURL.Path, "/")
+	}
 	if rewritten, ok := rewriteLocationPath(location, baseURL, backendPrefix, webUIProxyURL(publicPrefix, definition, "/")); ok {
 		response.Header.Set("Location", rewritten)
 	}
@@ -346,7 +349,48 @@ func webUIProxyPath(path string, prefix string) (webUIDefinition, string, bool, 
 }
 
 func webUIBackendPath(definition webUIDefinition, strippedPath string) string {
+	if webUIBackendAPIPath(definition, strippedPath) {
+		return strippedPath
+	}
 	return joinPath(definition.path, strippedPath)
+}
+
+func webUIBackendAPIPath(definition webUIDefinition, path string) bool {
+	switch definition.kind {
+	case "sdcpp":
+		return webUIPathHasPrefix(path, "/sdcpp/v1/", "/sdapi/v1/", "/v1/images/") || path == "/v1/models"
+	case "llama":
+		return webUIPathHasPrefix(path, "/v1/", "/api/v1/") ||
+			webUIPathIs(path, "/completion", "/chat", "/infill", "/embedding", "/embeddings", "/rerank", "/tokenize", "/detokenize", "/props", "/slots", "/metrics", "/health")
+	case "kobold-lite", "kobold-lcpp":
+		return webUIPathHasPrefix(path, "/v1/", "/api/v1/", "/api/extra/") ||
+			webUIPathIs(path, "/api/generate", "/api/chat", "/api/show", "/api/tags", "/api/ps", "/api/version")
+	case "kobold-sd":
+		return webUIPathHasPrefix(path, "/sdapi/v1/", "/v1/images/", "/history/", "/view/", "/object_info/", "/upload/image") ||
+			webUIPathIs(path, "/prompt", "/queue", "/history", "/view", "/object_info", "/system_stats", "/interrupt")
+	case "kobold-music":
+		return webUIPathHasPrefix(path, "/api/extra/music/")
+	default:
+		return false
+	}
+}
+
+func webUIPathHasPrefix(path string, prefixes ...string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(path, prefix) || strings.TrimRight(prefix, "/") == path {
+			return true
+		}
+	}
+	return false
+}
+
+func webUIPathIs(path string, values ...string) bool {
+	for _, value := range values {
+		if path == value {
+			return true
+		}
+	}
+	return false
 }
 
 func siteWebUIProxyURL(definition webUIDefinition, strippedPath string) string {
