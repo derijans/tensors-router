@@ -177,6 +177,78 @@ func TestServerProxiesWebUIRoutesWithCSRF(t *testing.T) {
 	}
 }
 
+func TestServerProxiesRouterWebUIPathWithSession(t *testing.T) {
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer router-secret" {
+			http.Error(w, "missing token", http.StatusUnauthorized)
+			return
+		}
+		if r.Header.Get("Cookie") != "" {
+			http.Error(w, "unexpected cookie", http.StatusBadRequest)
+			return
+		}
+		if r.Header.Get("Accept") != "text/html" {
+			http.Error(w, "bad accept", http.StatusBadRequest)
+			return
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/router/webuis/kobold-lite/api/save" || r.URL.RawQuery != "tab=1" {
+			http.NotFound(w, r)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != "payload" {
+			http.Error(w, "bad body", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "text/plain")
+		w.Header().Set("Location", "/router/webuis/kobold-lite/next?x=1")
+		w.WriteHeader(http.StatusFound)
+		_, _ = w.Write([]byte("proxied"))
+	}))
+	defer router.Close()
+
+	process := NewRouterProcess(RouterConfig{URL: router.URL}, t.TempDir())
+	server := NewServer(Config{Router: RouterConfig{URL: router.URL, Token: "router-secret"}}, process, NewSessionManager("admin-secret"))
+	cookie, _ := loginForServerTest(t, server)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/router/webuis/kobold-lite/api/save?tab=1", strings.NewReader("payload"))
+	request.AddCookie(cookie)
+	request.Header.Set("Accept", "text/html")
+	request.Header.Set("Authorization", "Bearer browser-token")
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusFound {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Body.String() != "proxied" {
+		t.Fatalf("unexpected body %q", recorder.Body.String())
+	}
+	if location := recorder.Header().Get("Location"); location != "/router/webuis/kobold-lite/next?x=1" {
+		t.Fatalf("unexpected location %q", location)
+	}
+}
+
+func TestServerRequiresSessionForRouterWebUIPath(t *testing.T) {
+	routerHit := false
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		routerHit = true
+		http.NotFound(w, r)
+	}))
+	defer router.Close()
+
+	process := NewRouterProcess(RouterConfig{URL: router.URL}, t.TempDir())
+	server := NewServer(Config{Router: RouterConfig{URL: router.URL}}, process, NewSessionManager("admin-secret"))
+
+	recorder := httptest.NewRecorder()
+	server.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/router/webuis/kobold-lite/", nil))
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized, got %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if routerHit {
+		t.Fatal("router should not be reached without a webui session")
+	}
+}
+
 func TestServerProxiesExternalRouterShutdown(t *testing.T) {
 	shutdownSeen := false
 	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

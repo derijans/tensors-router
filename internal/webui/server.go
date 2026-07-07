@@ -40,6 +40,10 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		server.handleAPI(w, r)
 		return
 	}
+	if strings.HasPrefix(r.URL.Path, "/router/webuis/") {
+		server.proxyRouterWebUI(w, r)
+		return
+	}
 	if r.URL.Path == "/" {
 		server.serveIndex(w)
 		return
@@ -173,17 +177,44 @@ func (server *Server) handleRouterAction(w http.ResponseWriter, r *http.Request,
 }
 
 func (server *Server) proxyRouter(w http.ResponseWriter, r *http.Request, method string, path string) {
-	if err := server.router.EnsureStarted(r.Context()); err != nil {
-		writeWebError(w, http.StatusBadGateway, err.Error())
+	request, hasBody, ok := server.newRouterProxyRequest(w, r, method, path)
+	if !ok {
 		return
 	}
+	request.Header.Set("Accept", "application/json")
+	if hasBody {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	server.forwardRouterProxyRequest(w, request, false)
+}
+
+func (server *Server) proxyRouterWebUI(w http.ResponseWriter, r *http.Request) {
+	if !server.sessions.Authorized(r) {
+		writeWebError(w, http.StatusUnauthorized, "unauthorized")
+		return
+	}
+	request, _, ok := server.newRouterProxyRequest(w, r, r.Method, r.URL.Path)
+	if !ok {
+		return
+	}
+	copyRouterWebUIHeaders(request.Header, r.Header)
+	server.forwardRouterProxyRequest(w, request, true)
+}
+
+func (server *Server) newRouterProxyRequest(w http.ResponseWriter, r *http.Request, method string, path string) (*http.Request, bool, bool) {
+	if err := server.router.EnsureStarted(r.Context()); err != nil {
+		writeWebError(w, http.StatusBadGateway, err.Error())
+		return nil, false, false
+	}
 	var body io.Reader
+	hasBody := false
 	if r.Body != nil {
 		content, err := io.ReadAll(r.Body)
 		if err != nil {
 			writeWebError(w, http.StatusBadRequest, err.Error())
-			return
+			return nil, false, false
 		}
+		hasBody = len(content) > 0
 		body = bytes.NewReader(content)
 	}
 	target := strings.TrimRight(server.router.URL(), "/") + path
@@ -193,16 +224,24 @@ func (server *Server) proxyRouter(w http.ResponseWriter, r *http.Request, method
 	request, err := http.NewRequestWithContext(r.Context(), method, target, body)
 	if err != nil {
 		writeWebError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	request.Header.Set("Accept", "application/json")
-	if body != nil {
-		request.Header.Set("Content-Type", "application/json")
+		return nil, false, false
 	}
 	if token := strings.TrimSpace(server.config.Router.Token); token != "" {
 		request.Header.Set("Authorization", "Bearer "+token)
 	}
-	response, err := server.client.Do(request)
+	return request, hasBody, true
+}
+
+func (server *Server) forwardRouterProxyRequest(w http.ResponseWriter, request *http.Request, preserveRedirects bool) {
+	client := server.client
+	if preserveRedirects {
+		copiedClient := *server.client
+		copiedClient.CheckRedirect = func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		}
+		client = &copiedClient
+	}
+	response, err := client.Do(request)
 	if err != nil {
 		writeWebError(w, http.StatusBadGateway, err.Error())
 		return
@@ -234,12 +273,44 @@ func writeWebError(w http.ResponseWriter, status int, message string) {
 
 func copyWebHeaders(dst http.Header, src http.Header) {
 	for key, values := range src {
-		if strings.EqualFold(key, "Content-Length") || strings.EqualFold(key, "Transfer-Encoding") {
+		if strings.EqualFold(key, "Content-Length") || isWebHopByHopHeader(key) {
 			continue
 		}
 		for _, value := range values {
 			dst.Add(key, value)
 		}
+	}
+}
+
+func copyRouterWebUIHeaders(dst http.Header, src http.Header) {
+	for key, values := range src {
+		if skipRouterWebUIHeader(key) {
+			continue
+		}
+		for _, value := range values {
+			dst.Add(key, value)
+		}
+	}
+}
+
+func skipRouterWebUIHeader(key string) bool {
+	if isWebHopByHopHeader(key) {
+		return true
+	}
+	switch strings.ToLower(key) {
+	case "authorization", "cookie":
+		return true
+	default:
+		return false
+	}
+}
+
+func isWebHopByHopHeader(key string) bool {
+	switch strings.ToLower(key) {
+	case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade":
+		return true
+	default:
+		return false
 	}
 }
 
