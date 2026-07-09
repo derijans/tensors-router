@@ -1,7 +1,16 @@
 import { deleteConfigFile, errorBody, previewConfigFile, applyConfigFile } from "./api";
 import { elements } from "./elements";
 import { state } from "./state";
-import { backendModeKey, backendModeLabels, backendModes, type BackendMode } from "./constants";
+import {
+  backendModeKey,
+  backendModeLabels,
+  backendModes,
+  unloadPolicies,
+  unloadPolicyKey,
+  unloadPolicyLabels,
+  type BackendMode,
+  type UnloadPolicy
+} from "./constants";
 import { allOptionDefinitions, optionDefinition, optionValue } from "./data";
 import {
   cloneValue,
@@ -31,6 +40,8 @@ import {
 import type { ConfigFileRequest, ConfigFileResponse, JsonValue, Model, Options, RefreshInventory, SelectChoice } from "./types";
 
 type ConfigSubmitter = (request: ConfigFileRequest) => Promise<ConfigFileResponse>;
+
+const primaryRuntimeKeys = [backendModeKey, unloadPolicyKey];
 
 export function renderSimpleCook(): void {
   syncSimpleCookSelection();
@@ -220,7 +231,7 @@ function renderSimpleSelectors(): void {
 function renderAddFieldSelect(): void {
   const fields = state.simpleCook.fields || {};
   const options = allOptionDefinitions()
-    .filter(definition => definition.key !== backendModeKey && !Object.hasOwn(fields, definition.key))
+    .filter(definition => !primaryRuntimeKeys.includes(definition.key) && !Object.hasOwn(fields, definition.key))
     .sort((left, right) => `${sectionForDefinition(left)}:${left.key}`.localeCompare(`${sectionForDefinition(right)}:${right.key}`));
   elements.simpleAddFieldSelect.innerHTML = options.map(definition => {
     const label = `${sectionLabels[sectionForDefinition(definition)] || "Other"} / ${definition.key}`;
@@ -289,14 +300,7 @@ function fieldRow(key: string, value: JsonValue | undefined, section: string, co
   const datalistID = `field-values-${safeID(key)}`;
   const choices = fieldChoices(key, definition, context);
   const compareClass = comparisonClass(key, section, context);
-  const input = key === backendModeKey
-    ? backendModeSelect(simpleBackendModeValue(), virtual)
-    : `
-        <input data-simple-field="${escapeAttribute(key)}" list="${escapeAttribute(datalistID)}" value="${escapeAttribute(optionInputValue(value))}">
-        <datalist id="${escapeAttribute(datalistID)}">
-          ${choices.map(choice => `<option value="${escapeAttribute(choice)}"></option>`).join("")}
-        </datalist>
-      `;
+  const input = simpleFieldInput(key, value, datalistID, choices, virtual);
   const modelButton = sectionModelKeys[section]
     ? `<button class="icon-button" type="button" title="Same model values" data-field-model-values="${escapeAttribute(key)}">M</button>`
     : "";
@@ -318,11 +322,39 @@ function fieldRow(key: string, value: JsonValue | undefined, section: string, co
   `;
 }
 
+function simpleFieldInput(key: string, value: JsonValue | undefined, datalistID: string, choices: string[], virtual: boolean): string {
+  if (key === backendModeKey) {
+    return backendModeSelect(simpleBackendModeValue(), virtual);
+  }
+  if (key === unloadPolicyKey) {
+    return unloadPolicySelect(optionInputValue(value), virtual);
+  }
+  return `
+    <input data-simple-field="${escapeAttribute(key)}" list="${escapeAttribute(datalistID)}" value="${escapeAttribute(optionInputValue(value))}">
+    <datalist id="${escapeAttribute(datalistID)}">
+      ${choices.map(choice => `<option value="${escapeAttribute(choice)}"></option>`).join("")}
+    </datalist>
+  `;
+}
+
 function backendModeSelect(value: string, virtual: boolean): string {
   const selectedValue = backendModes.includes(value as BackendMode) ? value : "kobold";
   return `
-    <select data-simple-backend-mode class="${virtual ? "virtual-backend-select" : ""}">
+    <select data-simple-backend-mode class="${virtual ? "virtual-backend-select virtual-runtime-select" : ""}">
       ${backendModes.map(mode => `<option value="${escapeAttribute(mode)}"${mode === selectedValue ? " selected" : ""}>${escapeHTML(backendModeLabels[mode])}</option>`).join("")}
+    </select>
+  `;
+}
+
+function unloadPolicySelect(value: string, virtual: boolean): string {
+  const selectedValue = unloadPolicies.includes(value as UnloadPolicy) ? value : "none";
+  const customOption = value && value !== selectedValue
+    ? `<option value="${escapeAttribute(value)}" selected>${escapeHTML(value)}</option>`
+    : "";
+  return `
+    <select data-simple-field="${escapeAttribute(unloadPolicyKey)}" class="${virtual ? "virtual-runtime-select" : ""}">
+      ${customOption}
+      ${unloadPolicies.map(policy => `<option value="${escapeAttribute(policy)}"${policy === selectedValue && !customOption ? " selected" : ""}>${escapeHTML(unloadPolicyLabels[policy])}</option>`).join("")}
     </select>
   `;
 }
@@ -362,21 +394,26 @@ function simpleConfigRequest(): ConfigFileRequest {
 }
 
 function simpleCookFieldGroups(fields: Options) {
-  const groups = groupedFieldKeys(fields, optionDefinition);
-  if (Object.hasOwn(fields, backendModeKey)) {
-    return groups;
-  }
+  const groups = groupedFieldKeys(fields, optionDefinition)
+    .map(group => ({
+      ...group,
+      keys: group.keys.filter(key => !primaryRuntimeKeys.includes(key))
+    }))
+    .filter(group => group.keys.length > 0);
   const runtimeGroup = groups.find(group => group.section === "runtime");
   if (runtimeGroup) {
-    runtimeGroup.keys = [backendModeKey, ...runtimeGroup.keys];
+    runtimeGroup.keys = [...primaryRuntimeKeys, ...runtimeGroup.keys];
     return groups;
   }
-  return [...groups, {section: "runtime", keys: [backendModeKey]}];
+  return [...groups, {section: "runtime", keys: [...primaryRuntimeKeys]}];
 }
 
 function fieldValue(key: string): JsonValue | undefined {
   if (key === backendModeKey && !Object.hasOwn(state.simpleCook.fields, backendModeKey)) {
     return simpleBackendModeValue();
+  }
+  if (key === unloadPolicyKey && !Object.hasOwn(state.simpleCook.fields, unloadPolicyKey)) {
+    return "none";
   }
   return state.simpleCook.fields[key];
 }
