@@ -64,7 +64,8 @@ type NativeServerConfig struct {
 }
 
 type LoggingConfig struct {
-	Enabled bool
+	Enabled           bool
+	BackendLogsToDisk bool
 }
 
 type UpdatesConfig struct {
@@ -145,7 +146,8 @@ func Defaults() Config {
 			HideWindow: true,
 		},
 		Logging: LoggingConfig{
-			Enabled: true,
+			Enabled:           true,
+			BackendLogsToDisk: false,
 		},
 		Updates: UpdatesConfig{
 			Enabled:        false,
@@ -609,6 +611,13 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 				return err
 			}
 			cfg.Logging.Enabled = parsed
+			return nil
+		case "backend_logs_to_disk":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return err
+			}
+			cfg.Logging.BackendLogsToDisk = parsed
 			return nil
 		}
 	case "updates":

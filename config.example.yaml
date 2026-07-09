@@ -46,6 +46,7 @@ sdcpp:
 
 logging:
   enabled: true
+  backend_logs_to_disk: false
 
 updates:
   enabled: false

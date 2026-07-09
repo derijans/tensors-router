@@ -61,6 +61,7 @@ sdcpp:
 
 logging:
   enabled: false
+  backend_logs_to_disk: true
 
 updates:
   enabled: false
@@ -138,6 +139,9 @@ analytics:
 	if cfg.Logging.Enabled {
 		t.Fatalf("logging should be disabled")
 	}
+	if !cfg.Logging.BackendLogsToDisk {
+		t.Fatalf("backend logs to disk should be enabled")
+	}
 	if cfg.Updates.Enabled {
 		t.Fatalf("updates should be disabled")
 	}
@@ -192,6 +196,9 @@ func TestLoadDefaultConfigWhenDefaultFileMissing(t *testing.T) {
 	}
 	if !cfg.Logging.Enabled {
 		t.Fatalf("default logging should be enabled")
+	}
+	if cfg.Logging.BackendLogsToDisk {
+		t.Fatalf("backend logs to disk should default to disabled")
 	}
 	if cfg.Updates.Enabled {
 		t.Fatalf("default updates should be disabled until checksum pins are configured")

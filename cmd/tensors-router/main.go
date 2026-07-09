@@ -264,44 +264,16 @@ func clusterClientTargets(cfg config.Config) []string {
 }
 
 func createBackends(ctx context.Context, cfg config.Config) (map[string]proxy.BackendFamilyConfig, []func(context.Context) error, error) {
-	koboldManager, err := kobold.NewManager(kobold.ProcessConfig{
-		BackendURL:   cfg.Kobold.BackendURL,
-		BinaryPath:   cfg.Kobold.BinaryPath,
-		ConfigDir:    cfg.Models.ConfigDir,
-		DataDir:      cfg.Kobold.DataDir,
-		ExtraArgs:    cfg.Kobold.ExtraArgs,
-		Multiuser:    cfg.Kobold.Multiuser,
-		Quiet:        cfg.Kobold.Quiet,
-		SkipLauncher: cfg.Kobold.SkipLauncher,
-		NoModel:      cfg.Kobold.NoModel,
-		HideWindow:   cfg.Kobold.HideWindow,
-		Logging:      cfg.Logging.Enabled,
-	})
+	koboldManager, err := kobold.NewManager(koboldProcessConfig(cfg))
 	if err != nil {
 		return nil, nil, err
 	}
 
-	llamaManager, err := native.NewLlamaManager(native.ProcessConfig{
-		BackendURL: cfg.Llama.BackendURL,
-		BinaryPath: cfg.Llama.BinaryPath,
-		ConfigDir:  cfg.Models.ConfigDir,
-		DataDir:    cfg.Llama.DataDir,
-		ExtraArgs:  cfg.Llama.ExtraArgs,
-		HideWindow: cfg.Llama.HideWindow,
-		Logging:    cfg.Logging.Enabled,
-	})
+	llamaManager, err := native.NewLlamaManager(llamaProcessConfig(cfg))
 	if err != nil {
 		return nil, nil, err
 	}
-	sdcppManager, err := native.NewSDCPPManager(native.ProcessConfig{
-		BackendURL: cfg.SDCPP.BackendURL,
-		BinaryPath: cfg.SDCPP.BinaryPath,
-		ConfigDir:  cfg.Models.ConfigDir,
-		DataDir:    cfg.SDCPP.DataDir,
-		ExtraArgs:  cfg.SDCPP.ExtraArgs,
-		HideWindow: cfg.SDCPP.HideWindow,
-		Logging:    cfg.Logging.Enabled,
-	})
+	sdcppManager, err := native.NewSDCPPManager(sdcppProcessConfig(cfg))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -330,6 +302,46 @@ func createBackends(ctx context.Context, cfg config.Config) (map[string]proxy.Ba
 		stopNativeManagers(llamaManager, sdcppManager),
 	}
 	return families, shutdownBackends, nil
+}
+
+func koboldProcessConfig(cfg config.Config) kobold.ProcessConfig {
+	return kobold.ProcessConfig{
+		BackendURL:   cfg.Kobold.BackendURL,
+		BinaryPath:   cfg.Kobold.BinaryPath,
+		ConfigDir:    cfg.Models.ConfigDir,
+		DataDir:      cfg.Kobold.DataDir,
+		ExtraArgs:    cfg.Kobold.ExtraArgs,
+		Multiuser:    cfg.Kobold.Multiuser,
+		Quiet:        cfg.Kobold.Quiet,
+		SkipLauncher: cfg.Kobold.SkipLauncher,
+		NoModel:      cfg.Kobold.NoModel,
+		HideWindow:   cfg.Kobold.HideWindow,
+		Logging:      cfg.Logging.BackendLogsToDisk,
+	}
+}
+
+func llamaProcessConfig(cfg config.Config) native.ProcessConfig {
+	return native.ProcessConfig{
+		BackendURL: cfg.Llama.BackendURL,
+		BinaryPath: cfg.Llama.BinaryPath,
+		ConfigDir:  cfg.Models.ConfigDir,
+		DataDir:    cfg.Llama.DataDir,
+		ExtraArgs:  cfg.Llama.ExtraArgs,
+		HideWindow: cfg.Llama.HideWindow,
+		Logging:    cfg.Logging.BackendLogsToDisk,
+	}
+}
+
+func sdcppProcessConfig(cfg config.Config) native.ProcessConfig {
+	return native.ProcessConfig{
+		BackendURL: cfg.SDCPP.BackendURL,
+		BinaryPath: cfg.SDCPP.BinaryPath,
+		ConfigDir:  cfg.Models.ConfigDir,
+		DataDir:    cfg.SDCPP.DataDir,
+		ExtraArgs:  cfg.SDCPP.ExtraArgs,
+		HideWindow: cfg.SDCPP.HideWindow,
+		Logging:    cfg.Logging.BackendLogsToDisk,
+	}
 }
 
 func stopNativeManagers(llamaManager *native.Manager, sdcppManager *native.Manager) func(context.Context) error {

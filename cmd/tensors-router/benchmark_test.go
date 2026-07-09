@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	routerbenchmark "tensors-router/internal/benchmark"
+	"tensors-router/internal/config"
 )
 
 func TestParseBenchmarkCommand(t *testing.T) {
@@ -38,5 +39,20 @@ func TestParseBenchmarkCommand(t *testing.T) {
 func TestParseBenchmarkCommandRequiresModel(t *testing.T) {
 	if _, err := parseBenchmarkCommand([]string{}); err == nil {
 		t.Fatal("expected model requirement")
+	}
+}
+
+func TestBackendProcessConfigsUseBackendDiskLogToggle(t *testing.T) {
+	cfg := config.Defaults()
+	cfg.Logging.Enabled = false
+
+	if koboldProcessConfig(cfg).Logging || llamaProcessConfig(cfg).Logging || sdcppProcessConfig(cfg).Logging {
+		t.Fatalf("backend process logging should ignore router logging toggle")
+	}
+
+	cfg.Logging.BackendLogsToDisk = true
+
+	if !koboldProcessConfig(cfg).Logging || !llamaProcessConfig(cfg).Logging || !sdcppProcessConfig(cfg).Logging {
+		t.Fatalf("backend process logging should follow backend disk log toggle")
 	}
 }

@@ -88,6 +88,7 @@ sdcpp:
 
 logging:
   enabled: true
+  backend_logs_to_disk: false
 
 updates:
   enabled: false
@@ -277,7 +278,9 @@ Requests must also match `server.allowed_cidrs`.
 
 ## Logging
 
-Set `logging.enabled: false` to suppress router event logs and discard KoboldCpp stdout/stderr instead of writing `koboldcpp.log`.
+Set `logging.enabled: false` to suppress router event logs.
+
+Set `logging.backend_logs_to_disk: true` to write backend process output to `koboldcpp.log`, `llama-server.log`, or `sd-server.log`. By default, managed backend stdout/stderr is discarded instead of written to disk.
 
 ## Reverse Proxy
 
