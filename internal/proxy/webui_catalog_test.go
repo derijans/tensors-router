@@ -359,6 +359,7 @@ func TestRemoteWebUIBackendAPIUsesSlaveRootAndToken(t *testing.T) {
 
 func TestRemoteWebUIProxyUsesSlaveTokenAndRewritesNodeRedirect(t *testing.T) {
 	var sawToken atomic.Bool
+	var discoveryRequests atomic.Int64
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") == "Bearer secret" {
 			sawToken.Store(true)
@@ -369,6 +370,7 @@ func TestRemoteWebUIProxyUsesSlaveTokenAndRewritesNodeRedirect(t *testing.T) {
 		}
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/site/webuis":
+			discoveryRequests.Add(1)
 			writeRemoteActiveWebUI(t, w, remoteURL(r), "slave-a")
 		case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/webuis/kobold-lite/panel":
 			if r.URL.RawQuery != "tab=1" {
@@ -404,6 +406,17 @@ func TestRemoteWebUIProxyUsesSlaveTokenAndRewritesNodeRedirect(t *testing.T) {
 	}
 	if location := recorder.Header().Get("Location"); location != "/router/webuis/kobold-lite/next?x=1" {
 		t.Fatalf("unexpected remote redirect location %q", location)
+	}
+	recorder = httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/router/webuis/kobold-lite/panel?tab=1", nil))
+	if recorder.Code != http.StatusFound || discoveryRequests.Load() != 1 {
+		t.Fatalf("route snapshot was not reused status=%d discoveries=%d", recorder.Code, discoveryRequests.Load())
+	}
+	service.invalidateWebUIRoutes()
+	recorder = httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/router/webuis/kobold-lite/panel?tab=1", nil))
+	if recorder.Code != http.StatusFound || discoveryRequests.Load() != 2 {
+		t.Fatalf("route snapshot invalidation failed status=%d discoveries=%d", recorder.Code, discoveryRequests.Load())
 	}
 }
 

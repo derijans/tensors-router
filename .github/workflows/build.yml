@@ -1,35 +1,38 @@
-name: Build executables
+name: Build, test, and publish
 
 on:
+  push:
+    branches: ["main"]
+  pull_request:
   release:
-    types:
-      - published
+    types: ["published"]
 
 permissions:
   contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  GO_VERSION: "1.26.5"
+  NODE_VERSION: "24"
 
 jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: "24"
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: webui/package-lock.json
 
@@ -41,14 +44,19 @@ jobs:
         working-directory: webui
         run: npm run check
 
-      - name: Test
+      - name: Test Go
         run: go test ./...
+
+      - name: Test concurrent state
+        run: go test -race ./internal/recipes ./internal/benchmark ./internal/catalog ./internal/proxy
+
+      - name: Check Go vulnerabilities
+        run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 
   build:
     name: Build ${{ matrix.target.name }}
     runs-on: ubuntu-latest
     needs: test
-
     strategy:
       fail-fast: false
       matrix:
@@ -84,21 +92,20 @@ jobs:
             binary: tensors-router-windows-arm64.exe
             webui_binary: tensor-router-webui-windows-arm64.exe
             archive: tensors-router-windows-arm64.zip
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
-          go-version-file: go.mod
+          go-version: ${{ env.GO_VERSION }}
           cache: true
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
         with:
-          node-version: "24"
+          node-version: ${{ env.NODE_VERSION }}
           cache: npm
           cache-dependency-path: webui/package-lock.json
 
@@ -110,34 +117,33 @@ jobs:
         working-directory: webui
         run: npm run build
 
-      - name: Build
+      - name: Build executables
         env:
           GOOS: ${{ matrix.target.goos }}
           GOARCH: ${{ matrix.target.goarch }}
-          CGO_ENABLED: 0
+          CGO_ENABLED: "0"
           TARGET_GOARM: ${{ matrix.target.goarm }}
           OUTPUT: dist/${{ matrix.target.binary }}
           WEBUI_OUTPUT: dist/${{ matrix.target.webui_binary }}
-          RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
+          VERSION: ${{ github.event.release.tag_name || github.sha }}
         run: |
           mkdir -p dist
           if [ -n "$TARGET_GOARM" ]; then
             export GOARM="$TARGET_GOARM"
           fi
           BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          LDFLAGS="-s -w -X tensors-router/internal/buildinfo.Version=$RELEASE_TAG_NAME -X tensors-router/internal/buildinfo.Commit=$GITHUB_SHA -X tensors-router/internal/buildinfo.Date=$BUILD_DATE"
+          LDFLAGS="-s -w -X tensors-router/internal/buildinfo.Version=$VERSION -X tensors-router/internal/buildinfo.Commit=$GITHUB_SHA -X tensors-router/internal/buildinfo.Date=$BUILD_DATE"
           go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "$OUTPUT" ./cmd/tensors-router
           go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "$WEBUI_OUTPUT" ./cmd/tensor-router-webui
 
-      - name: Package
+      - name: Package executables
         env:
           GOOS: ${{ matrix.target.goos }}
           BINARY: ${{ matrix.target.binary }}
           WEBUI_BINARY: ${{ matrix.target.webui_binary }}
           ARCHIVE: ${{ matrix.target.archive }}
         run: |
-          chmod +x "dist/$BINARY"
-          chmod +x "dist/$WEBUI_BINARY"
+          chmod +x "dist/$BINARY" "dist/$WEBUI_BINARY"
           if [ "$GOOS" = "windows" ]; then
             (cd dist && zip "$ARCHIVE" "$BINARY" "$WEBUI_BINARY")
           else
@@ -148,7 +154,7 @@ jobs:
           sha256sum "dist/$ARCHIVE" > "dist/$ARCHIVE.sha256"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: tensors-router-${{ matrix.target.name }}
           path: |
@@ -161,19 +167,66 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  containers:
+    name: Build container variants
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+
+      - name: Build node image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        with:
+          context: .
+          file: Containerfile
+          target: node
+          load: true
+          push: false
+          tags: local/tensors-router-node:ci
+          build-args: |
+            GO_VERSION=${{ env.GO_VERSION }}
+            VERSION=${{ github.sha }}
+            COMMIT=${{ github.sha }}
+
+      - name: Build WebUI image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        with:
+          context: .
+          file: Containerfile
+          target: webui
+          load: true
+          push: false
+          tags: local/tensors-router-webui:ci
+          build-args: |
+            GO_VERSION=${{ env.GO_VERSION }}
+            VERSION=${{ github.sha }}
+            COMMIT=${{ github.sha }}
+
+      - name: Verify image boundaries
+        run: |
+          docker image inspect local/tensors-router-node:ci --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp"]'
+          docker image inspect local/tensors-router-node:ci --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensors-router", "serve", "--config", "/config/config.yaml"]'
+          docker image inspect local/tensors-router-webui:ci --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp", "8443/tcp", "8444/tcp"]'
+          docker image inspect local/tensors-router-webui:ci --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensor-router-webui", "--config", "/config/webui.yaml"]'
+          test "$(docker run --rm --entrypoint /bin/sh local/tensors-router-node:ci -c 'test ! -e /usr/local/bin/tensor-router-webui && echo isolated')" = "isolated"
+
   release:
     name: Publish release assets
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     needs: build
     permissions:
       contents: write
-
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
       - name: Download build artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           path: release
           pattern: tensors-router-*
@@ -185,10 +238,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
           RELEASE_TAG_NAME: ${{ github.event.release.tag_name }}
         run: |
-          TAG_NAME="$RELEASE_TAG_NAME"
-
-          if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" release/* --clobber
+          if gh release view "$RELEASE_TAG_NAME" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG_NAME" release/* --clobber
           else
-            gh release create "$TAG_NAME" release/* --generate-notes --title "$TAG_NAME" --target "$GITHUB_SHA"
+            gh release create "$RELEASE_TAG_NAME" release/* --generate-notes --title "$RELEASE_TAG_NAME" --target "$GITHUB_SHA"
           fi

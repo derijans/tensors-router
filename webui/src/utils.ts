@@ -1,5 +1,5 @@
 import { isJsonValue } from "./json";
-import type { CookComponent, FileRecord, JsonValue, Model, OptionDefinition, ValidationIssue } from "./types";
+import type { CookComponent, FileRecord, JsonValue, Model, OptionDefinition, ParseResult, ValidationIssue } from "./types";
 
 export function escapeHTML(value: unknown): string {
   const entities: Record<string, string> = {
@@ -138,28 +138,47 @@ export function optionValueLabel(value: JsonValue | undefined): string {
   return JSON.stringify(value) ?? "";
 }
 
-export function parseOptionInput(definition: OptionDefinition | undefined, value: string): JsonValue {
+export function parseOptionInput(definition: OptionDefinition | undefined, value: string): ParseResult {
   const trimmed = value.trim();
   switch (definition?.value_type) {
-    case "bool":
-      return trimmed === "true" || trimmed === "1" || trimmed === "yes";
+    case "bool": {
+      const normalized = trimmed.toLowerCase();
+      const proposed = normalized === "true" || normalized === "1" || normalized === "yes";
+      if (normalized === "true" || normalized === "false") {
+        return {value: proposed, warnings: []};
+      }
+      return conversionResult(definition.key, value, proposed, "The value is converted to a boolean.");
+    }
     case "number": {
       const number = Number(trimmed);
-      return Number.isFinite(number) ? number : 0;
+      if (trimmed && Number.isFinite(number)) {
+        return {value: number, warnings: []};
+      }
+      return conversionResult(definition.key, value, 0, "The value is not a finite number and is converted to 0.");
     }
     case "json":
       if (!trimmed) {
-        return {};
+        return conversionResult(definition.key, value, {}, "Blank JSON is converted to an empty object.");
       }
       try {
         const parsed = JSON.parse(trimmed) as unknown;
-        return isJsonValue(parsed) ? parsed : value;
+        if (isJsonValue(parsed)) {
+          return {value: parsed, warnings: []};
+        }
+        return conversionResult(definition.key, value, value, "The parsed value is not supported JSON and is kept as a string.");
       } catch {
-        return value;
+        return conversionResult(definition.key, value, value, "Invalid JSON is kept as a string.");
       }
     default:
-      return value;
+      return {value, warnings: []};
   }
+}
+
+function conversionResult(field: string, original: string, proposed: JsonValue, reason: string): ParseResult {
+  return {
+    value: proposed,
+    warnings: [{field, original, proposed, reason}]
+  };
 }
 
 export function emptyComparableValue(value: JsonValue | undefined): boolean {

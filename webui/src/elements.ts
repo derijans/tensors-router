@@ -6,6 +6,7 @@ export const elements = {
   loginForm: getRequiredElement("loginForm", HTMLFormElement),
   tokenInput: getRequiredElement("tokenInput", HTMLInputElement),
   loginError: getRequiredElement("loginError", HTMLElement),
+  operationStatus: getRequiredElement("operationStatus", HTMLElement),
   logoutButton: getRequiredElement("logoutButton", HTMLButtonElement),
   refreshButton: getRequiredElement("refreshButton", HTMLButtonElement),
   launchButton: getRequiredElement("launchButton", HTMLButtonElement),
@@ -57,7 +58,7 @@ export const elements = {
   simpleConfigEditor: getRequiredElement("simpleConfigEditor", HTMLElement),
   simpleFieldSidebar: getRequiredElement("simpleFieldSidebar", HTMLElement),
   previewButton: getRequiredElement("previewButton", HTMLButtonElement),
-  cookOutput: getRequiredElement("cookOutput", HTMLPreElement),
+  cookOutput: getRequiredElement("cookOutput", HTMLElement),
   recipeCount: getRequiredElement("recipeCount", HTMLElement),
   recipesList: getRequiredElement("recipesList", HTMLElement),
   advancedBackendSelect: getRequiredElement("advancedBackendSelect", HTMLSelectElement),
@@ -74,5 +75,7 @@ export const elements = {
   constructorFieldDialog: getRequiredElement("constructorFieldDialog", HTMLDialogElement),
   constructorFieldDialogBody: getRequiredElement("constructorFieldDialogBody", HTMLElement),
   webuiDialog: getRequiredElement("webuiDialog", HTMLDialogElement),
-  webuiDialogBody: getRequiredElement("webuiDialogBody", HTMLElement)
+  webuiDialogBody: getRequiredElement("webuiDialogBody", HTMLElement),
+  safetyDialog: getRequiredElement("safetyDialog", HTMLDialogElement),
+  safetyDialogBody: getRequiredElement("safetyDialogBody", HTMLElement)
 };

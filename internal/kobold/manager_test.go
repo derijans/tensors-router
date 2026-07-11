@@ -39,6 +39,15 @@ func TestLaunchArguments(t *testing.T) {
 	expectPresent(t, args, "--quiet")
 }
 
+func TestNewManagerRejectsNonLoopbackAndBindOverrides(t *testing.T) {
+	if _, err := NewManager(ProcessConfig{BackendURL: "http://192.168.1.20:5001", Multiuser: 1}); err == nil {
+		t.Fatal("expected non-loopback backend rejection")
+	}
+	if _, err := NewManager(ProcessConfig{BackendURL: "http://127.0.0.1:5001", Multiuser: 1, ExtraArgs: []string{"--host=0.0.0.0"}}); err == nil {
+		t.Fatal("expected bind override rejection")
+	}
+}
+
 func TestReloadConfigUsesAdminEndpoint(t *testing.T) {
 	var reloaded string
 	var sawAuthorization bool

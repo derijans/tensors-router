@@ -9,16 +9,21 @@ import (
 	"tensors-router/internal/recipes"
 )
 
+const analyticsRequestMetadataLimit = 1 << 20
+
 func (service *Service) newAnalyticsEvent(started time.Time, r *http.Request, body []byte, modelID string, section string, backendMode string) routeranalytics.Event {
 	event := routeranalytics.Event{
-		NodeID:      service.nodeID,
-		ModelID:     strings.TrimSpace(modelID),
-		Section:     strings.TrimSpace(section),
-		BackendMode: strings.TrimSpace(backendMode),
-		Route:       routeranalytics.RouteClass(r.URL.Path),
-		StartedAt:   started,
+		NodeID:       service.nodeID,
+		ModelID:      strings.TrimSpace(modelID),
+		Section:      strings.TrimSpace(section),
+		BackendMode:  strings.TrimSpace(backendMode),
+		Route:        routeranalytics.RouteClass(r.URL.Path),
+		StartedAt:    started,
+		RequestBytes: int64(len(body)),
 	}
-	routeranalytics.ApplyRequest(&event, r.URL.Path, body, r.Header.Get("Content-Type"))
+	if len(body) <= analyticsRequestMetadataLimit {
+		routeranalytics.ApplyRequest(&event, r.URL.Path, body, r.Header.Get("Content-Type"))
+	}
 	return event
 }
 

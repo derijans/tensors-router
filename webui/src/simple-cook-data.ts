@@ -149,7 +149,7 @@ export function defaultConfigForNode(node: NodeInventory | null): Options {
 
 export function defaultFieldValue(definition: OptionDefinition | undefined): JsonValue {
   if (definition?.default !== undefined && definition.default !== "") {
-    return parseOptionInput(definition, definition.default);
+    return parseOptionInput(definition, definition.default).value;
   }
   switch (definition?.value_type) {
     case "bool":

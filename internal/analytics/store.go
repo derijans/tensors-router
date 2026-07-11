@@ -13,14 +13,16 @@ import (
 )
 
 const (
-	defaultBufferLimit = 10000
-	flushTriggerSize   = 1000
+	defaultBufferLimit  = 10000
+	flushTriggerSize    = 1000
+	defaultRawRetention = 30 * 24 * time.Hour
 )
 
 type StoreConfig struct {
 	NodeID        string
 	DatabasePath  string
 	FlushInterval time.Duration
+	RawRetention  time.Duration
 	Logger        *log.Logger
 }
 
@@ -28,6 +30,7 @@ type Store struct {
 	db            *sql.DB
 	nodeID        string
 	flushInterval time.Duration
+	rawRetention  time.Duration
 	bufferLimit   int
 	logger        *log.Logger
 	mu            sync.Mutex
@@ -50,6 +53,13 @@ func NewStore(config StoreConfig) (*Store, error) {
 	if config.FlushInterval <= 0 {
 		return nil, fmt.Errorf("analytics flush interval must be positive")
 	}
+	rawRetention := config.RawRetention
+	if rawRetention == 0 {
+		rawRetention = defaultRawRetention
+	}
+	if rawRetention < 0 {
+		return nil, fmt.Errorf("analytics raw retention must be positive")
+	}
 	if err := os.MkdirAll(filepath.Dir(databasePath), 0o755); err != nil {
 		return nil, err
 	}
@@ -71,6 +81,7 @@ func NewStore(config StoreConfig) (*Store, error) {
 		db:            db,
 		nodeID:        nodeID,
 		flushInterval: config.FlushInterval,
+		rawRetention:  rawRetention,
 		bufferLimit:   defaultBufferLimit,
 		logger:        logger,
 		flushSignal:   make(chan struct{}, 1),
@@ -106,13 +117,35 @@ func (store *Store) Flush(ctx context.Context) error {
 	}
 	events := store.takeBufferedEvents()
 	if len(events) == 0 {
-		return nil
+		return store.pruneRawEvents(ctx, time.Now())
 	}
 	if err := store.writeEvents(ctx, events); err != nil {
 		store.requeue(events)
 		return err
 	}
-	return nil
+	return store.pruneRawEvents(ctx, time.Now())
+}
+
+func (store *Store) pruneRawEvents(ctx context.Context, now time.Time) error {
+	if store == nil || store.rawRetention <= 0 {
+		return nil
+	}
+	cutoff := rawRetentionCutoff(now, store.rawRetention)
+	_, err := store.db.ExecContext(ctx, `DELETE FROM analytics_events WHERE finished_at < ?`, cutoff)
+	return err
+}
+
+func (store *Store) rawRetentionCutoff(now time.Time) int64 {
+	if store == nil || store.rawRetention <= 0 {
+		return 0
+	}
+	return rawRetentionCutoff(now, store.rawRetention)
+}
+
+func rawRetentionCutoff(now time.Time, retention time.Duration) int64 {
+	cutoff := now.UTC().Add(-retention)
+	year, month, day := cutoff.Date()
+	return time.Date(year, month, day, 0, 0, 0, 0, time.UTC).UnixMilli()
 }
 
 func (store *Store) Close(ctx context.Context) error {
@@ -228,6 +261,8 @@ func (store *Store) normalizeEvent(event Event) Event {
 		event.LoadVRAMDelta = event.LoadVRAMAfter - event.LoadVRAMBefore
 	}
 	event.VRAMPeakPercent = nonNegativeFloat(event.VRAMPeakPercent)
+	event.RequestBytes = nonNegativeInt64(event.RequestBytes)
+	event.ResponseBytes = nonNegativeInt64(event.ResponseBytes)
 	event.LoadVRAMBefore = nonNegativeInt64(event.LoadVRAMBefore)
 	event.LoadVRAMAfter = nonNegativeInt64(event.LoadVRAMAfter)
 	event.LoadVRAMDelta = nonNegativeInt64(event.LoadVRAMDelta)
@@ -255,12 +290,12 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 
 	insertEvent, err := tx.PrepareContext(ctx, `INSERT INTO analytics_events (
 		node_id, model_id, section, backend_mode, event_type, route, config_filename, status_code, success,
-		started_at, finished_at, duration_ms, input_tokens, output_tokens,
+		started_at, finished_at, duration_ms, request_bytes, response_bytes, input_tokens, output_tokens,
 		total_tokens, tokens_per_second, image_count, image_width, image_height,
 		image_type, audio_seconds, audio_tokens, load_vram_before_mb, load_vram_after_mb,
 		load_vram_delta_mb, work_vram_start_mb, work_vram_max_mb, work_vram_end_mb,
 		model_vram_estimate_mb, vram_total_mb, vram_peak_percent
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -287,6 +322,8 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 			event.StartedAt.UnixMilli(),
 			event.FinishedAt.UnixMilli(),
 			event.DurationMS,
+			event.RequestBytes,
+			event.ResponseBytes,
 			event.InputTokens,
 			event.OutputTokens,
 			event.TotalTokens,

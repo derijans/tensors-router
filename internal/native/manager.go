@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"tensors-router/internal/backendendpoint"
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/processcontrol"
 )
@@ -54,8 +55,11 @@ func NewSDCPPManager(config ProcessConfig) (*Manager, error) {
 }
 
 func newManager(config ProcessConfig, defaultPort string, readinessPath string, logName string, argumentBuilder func(catalog.RuntimeConfig, string, string, string) ([]string, error)) (*Manager, error) {
-	backendURL, err := url.Parse(config.BackendURL)
+	backendURL, err := backendendpoint.ParseLoopback(config.BackendURL)
 	if err != nil {
+		return nil, err
+	}
+	if err := backendendpoint.RejectConflictingArgs(config.ExtraArgs, "--host", "--port", "--listen-ip", "--listen-port"); err != nil {
 		return nil, err
 	}
 	return &Manager{

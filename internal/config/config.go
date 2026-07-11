@@ -4,13 +4,15 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
+
+	"tensors-router/internal/backendendpoint"
 )
 
 type Config struct {
+	Security  SecurityConfig
 	Server    ServerConfig
 	Auth      AuthConfig
 	Models    ModelsConfig
@@ -22,6 +24,8 @@ type Config struct {
 	Updates   UpdatesConfig
 	Cluster   ClusterConfig
 	Analytics AnalyticsConfig
+	Limits    LimitsConfig
+	Warnings  []string
 }
 
 type ServerConfig struct {
@@ -30,7 +34,9 @@ type ServerConfig struct {
 }
 
 type AuthConfig struct {
-	BearerKeys []string
+	InferenceKeys []string
+	AdminKeys     []string
+	BearerKeys    []string
 }
 
 type ModelsConfig struct {
@@ -64,8 +70,11 @@ type NativeServerConfig struct {
 }
 
 type LoggingConfig struct {
+	Mode              string
 	Enabled           bool
 	BackendLogsToDisk bool
+	legacyEnabledSet  bool
+	modeSet           bool
 }
 
 type UpdatesConfig struct {
@@ -92,16 +101,21 @@ type ClusterConfig struct {
 }
 
 type AnalyticsConfig struct {
-	Enabled       bool
-	VRAMEnabled   bool
-	FlushInterval time.Duration
-	DatabasePath  string
+	Enabled            bool
+	VRAMEnabled        bool
+	FlushInterval      time.Duration
+	DatabasePath       string
+	RawRetention       time.Duration
+	VRAMSampleInterval time.Duration
 }
 
 func Defaults() Config {
 	return Config{
+		Security: SecurityConfig{
+			Profile: SecurityProfileSecure,
+		},
 		Server: ServerConfig{
-			Bind: "0.0.0.0:8080",
+			Bind: "127.0.0.1:8080",
 			AllowedCIDRs: []string{
 				"127.0.0.0/8",
 				"::1/128",
@@ -111,7 +125,9 @@ func Defaults() Config {
 			},
 		},
 		Auth: AuthConfig{
-			BearerKeys: []string{},
+			InferenceKeys: []string{},
+			AdminKeys:     []string{},
+			BearerKeys:    []string{},
 		},
 		Models: ModelsConfig{
 			ConfigDir: "./kcpps",
@@ -146,6 +162,7 @@ func Defaults() Config {
 			HideWindow: true,
 		},
 		Logging: LoggingConfig{
+			Mode:              LoggingModeNormal,
 			Enabled:           true,
 			BackendLogsToDisk: false,
 		},
@@ -168,35 +185,54 @@ func Defaults() Config {
 			HealthInterval: 15 * time.Second,
 		},
 		Analytics: AnalyticsConfig{
-			Enabled:       false,
-			VRAMEnabled:   true,
-			FlushInterval: 3 * time.Minute,
+			Enabled:            false,
+			VRAMEnabled:        true,
+			FlushInterval:      3 * time.Minute,
+			RawRetention:       30 * 24 * time.Hour,
+			VRAMSampleInterval: time.Second,
+		},
+		Limits: LimitsConfig{
+			MaxControlBodyMB:    8,
+			ReplayBufferMB:      64,
+			MemoryBudgetMB:      2048,
+			MaxStreamRequestGB:  32,
+			MaxStreamResponseGB: 32,
+			SelectorScanMB:      64,
+			DrainTimeout:        15 * time.Minute,
 		},
 	}
 }
 
 func Load(path string) (Config, error) {
+	return LoadWithOptions(path, LoadOptions{})
+}
+
+func LoadWithOptions(path string, options LoadOptions) (Config, error) {
 	cfg := Defaults()
-	if path == "" {
-		return cfg, validate(&cfg)
+	if strings.TrimSpace(path) == "" {
+		return cfg, fmt.Errorf("router configuration path is required")
 	}
 
 	content, err := os.ReadFile(path)
 	if err != nil {
-		if os.IsNotExist(err) && filepath.Base(path) == "config.yaml" {
-			return cfg, validate(&cfg)
-		}
 		return cfg, err
 	}
 
 	if err := parseYAML(content, &cfg); err != nil {
 		return cfg, err
 	}
+	if strings.TrimSpace(options.SecurityProfile) != "" {
+		cfg.Security.Profile = strings.TrimSpace(options.SecurityProfile)
+	}
+	finalizeCompatibility(&cfg)
 
 	return cfg, validate(&cfg)
 }
 
 func validate(cfg *Config) error {
+	if err := validateSecurity(cfg); err != nil {
+		return err
+	}
 	if cfg.Server.Bind == "" {
 		return fmt.Errorf("server.bind is required")
 	}
@@ -213,11 +249,11 @@ func validate(cfg *Config) error {
 	default:
 		return fmt.Errorf("backend.mode must be kobold or llama_sdcpp")
 	}
-	if cfg.Kobold.BackendURL == "" {
-		return fmt.Errorf("kobold.backend_url is required")
-	}
-	if _, err := url.ParseRequestURI(cfg.Kobold.BackendURL); err != nil {
+	if _, err := backendendpoint.ParseLoopback(cfg.Kobold.BackendURL); err != nil {
 		return fmt.Errorf("kobold.backend_url is invalid: %w", err)
+	}
+	if err := backendendpoint.RejectConflictingArgs(cfg.Kobold.ExtraArgs, "--host", "--port"); err != nil {
+		return fmt.Errorf("kobold.%w", err)
 	}
 	if cfg.Kobold.BinaryPath == "" {
 		return fmt.Errorf("kobold.binary_path is required")
@@ -272,6 +308,15 @@ func validate(cfg *Config) error {
 	if cfg.Analytics.FlushInterval <= 0 {
 		return fmt.Errorf("analytics.flush_interval must be positive")
 	}
+	if cfg.Analytics.RawRetention <= 0 {
+		return fmt.Errorf("analytics.raw_retention must be positive")
+	}
+	if cfg.Analytics.VRAMSampleInterval <= 0 {
+		return fmt.Errorf("analytics.vram_sample_interval must be positive")
+	}
+	if err := validateLimits(cfg.Limits); err != nil {
+		return err
+	}
 	if cfg.Cluster.Role != "standalone" && strings.TrimSpace(cfg.Cluster.Token) == "" {
 		return fmt.Errorf("cluster.token is required when cluster.role is not standalone")
 	}
@@ -302,11 +347,11 @@ func validate(cfg *Config) error {
 }
 
 func validateNativeServerConfig(section string, server NativeServerConfig) error {
-	if server.BackendURL == "" {
-		return fmt.Errorf("%s.backend_url is required", section)
-	}
-	if _, err := url.ParseRequestURI(server.BackendURL); err != nil {
+	if _, err := backendendpoint.ParseLoopback(server.BackendURL); err != nil {
 		return fmt.Errorf("%s.backend_url is invalid: %w", section, err)
+	}
+	if err := backendendpoint.RejectConflictingArgs(server.ExtraArgs, "--host", "--port", "--listen-ip", "--listen-port"); err != nil {
+		return fmt.Errorf("%s.%w", section, err)
 	}
 	if server.BinaryPath == "" {
 		return fmt.Errorf("%s.binary_path is required", section)
@@ -532,6 +577,11 @@ func splitListItems(value string) []string {
 
 func setScalarValue(cfg *Config, section string, key string, value string) error {
 	switch section {
+	case "security":
+		if key == "profile" {
+			cfg.Security.Profile = value
+			return nil
+		}
 	case "server":
 		if key == "bind" {
 			cfg.Server.Bind = value
@@ -605,12 +655,17 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 		return setNativeServerScalar(&cfg.SDCPP, section, key, value)
 	case "logging":
 		switch key {
+		case "mode":
+			cfg.Logging.Mode = value
+			cfg.Logging.modeSet = true
+			return nil
 		case "enabled":
 			parsed, err := strconv.ParseBool(value)
 			if err != nil {
 				return err
 			}
 			cfg.Logging.Enabled = parsed
+			cfg.Logging.legacyEnabledSet = true
 			return nil
 		case "backend_logs_to_disk":
 			parsed, err := strconv.ParseBool(value)
@@ -716,9 +771,54 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 		case "database_path":
 			cfg.Analytics.DatabasePath = value
 			return nil
+		case "raw_retention":
+			parsed, err := time.ParseDuration(value)
+			if err != nil {
+				return err
+			}
+			cfg.Analytics.RawRetention = parsed
+			return nil
+		case "vram_sample_interval":
+			parsed, err := time.ParseDuration(value)
+			if err != nil {
+				return err
+			}
+			cfg.Analytics.VRAMSampleInterval = parsed
+			return nil
+		}
+	case "limits":
+		switch key {
+		case "max_control_body_mb":
+			return setPositiveInt64(&cfg.Limits.MaxControlBodyMB, value)
+		case "replay_buffer_mb":
+			return setPositiveInt64(&cfg.Limits.ReplayBufferMB, value)
+		case "memory_budget_mb":
+			return setPositiveInt64(&cfg.Limits.MemoryBudgetMB, value)
+		case "max_stream_request_gb":
+			return setPositiveInt64(&cfg.Limits.MaxStreamRequestGB, value)
+		case "max_stream_response_gb":
+			return setPositiveInt64(&cfg.Limits.MaxStreamResponseGB, value)
+		case "selector_scan_mb":
+			return setPositiveInt64(&cfg.Limits.SelectorScanMB, value)
+		case "drain_timeout":
+			parsed, err := time.ParseDuration(value)
+			if err != nil {
+				return err
+			}
+			cfg.Limits.DrainTimeout = parsed
+			return nil
 		}
 	}
 	return fmt.Errorf("unknown key %s.%s", section, key)
+}
+
+func setPositiveInt64(target *int64, value string) error {
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return err
+	}
+	*target = parsed
+	return nil
 }
 
 func setNativeServerScalar(server *NativeServerConfig, section string, key string, value string) error {
@@ -754,7 +854,14 @@ func setListValue(cfg *Config, section string, key string, values []string) erro
 			return nil
 		}
 	case "auth":
-		if key == "bearer_keys" {
+		switch key {
+		case "inference_keys":
+			cfg.Auth.InferenceKeys = values
+			return nil
+		case "admin_keys":
+			cfg.Auth.AdminKeys = values
+			return nil
+		case "bearer_keys":
 			cfg.Auth.BearerKeys = values
 			return nil
 		}
@@ -795,7 +902,14 @@ func appendListValue(cfg *Config, section string, key string, value string) erro
 			return nil
 		}
 	case "auth":
-		if key == "bearer_keys" {
+		switch key {
+		case "inference_keys":
+			cfg.Auth.InferenceKeys = append(cfg.Auth.InferenceKeys, value)
+			return nil
+		case "admin_keys":
+			cfg.Auth.AdminKeys = append(cfg.Auth.AdminKeys, value)
+			return nil
+		case "bearer_keys":
 			cfg.Auth.BearerKeys = append(cfg.Auth.BearerKeys, value)
 			return nil
 		}

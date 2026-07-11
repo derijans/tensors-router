@@ -59,13 +59,13 @@ func (service *Service) withBenchmarks(models []cluster.Model) []cluster.Model {
 	if service.benchmarkStore == nil {
 		return models
 	}
+	keys := make([]routerbenchmark.ModelKey, len(models))
 	for index := range models {
-		benchmark, ok, err := service.benchmarkStore.ModelBenchmark(models[index].NodeID, models[index].LocalID)
-		if err != nil {
-			service.logger.Printf("benchmark model lookup failed node=%q model=%q error=%v", models[index].NodeID, models[index].LocalID, err)
-			continue
-		}
-		if ok {
+		keys[index] = routerbenchmark.ModelKey{NodeID: models[index].NodeID, ModelID: models[index].LocalID}
+	}
+	benchmarks := service.benchmarkStore.ModelBenchmarks(keys)
+	for index, key := range keys {
+		if benchmark, ok := benchmarks[key]; ok {
 			models[index].Benchmark = &benchmark
 		}
 	}

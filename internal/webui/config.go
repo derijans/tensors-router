@@ -9,17 +9,33 @@ import (
 )
 
 type Config struct {
-	Server ServerConfig
-	Router RouterConfig
+	Security SecurityConfig
+	Server   ServerConfig
+	Router   RouterConfig
+	Logging  LoggingConfig
+	Warnings []string
+}
+
+type SecurityConfig struct {
+	Profile string
+}
+
+type LoggingConfig struct {
+	Mode             string
+	Enabled          bool
+	legacyEnabledSet bool
+	modeSet          bool
 }
 
 type ServerConfig struct {
-	Bind       string
-	StateDir   string
-	CertFile   string
-	KeyFile    string
-	CertHosts  []string
-	AdminToken string
+	Bind               string
+	BackendUIBind      string
+	BackendUIPublicURL string
+	StateDir           string
+	CertFile           string
+	KeyFile            string
+	CertHosts          []string
+	AdminToken         string
 }
 
 type RouterConfig struct {
@@ -30,13 +46,24 @@ type RouterConfig struct {
 	Args              []string
 	StartWhenMissing  bool
 	ShutdownWithWebUI bool
+	SecurityProfile   string
+}
+
+type ConfigOverrides struct {
+	SecurityProfile string
+	Bind            string
+	RouterURL       string
+	RouterToken     string
+	AdminToken      string
 }
 
 func DefaultConfig(executableDir string) Config {
 	return Config{
+		Security: SecurityConfig{Profile: SecurityProfileSecure},
 		Server: ServerConfig{
-			Bind:     "127.0.0.1:8443",
-			StateDir: filepath.Join(executableDir, "webui-state"),
+			Bind:          "127.0.0.1:8443",
+			BackendUIBind: "127.0.0.1:8444",
+			StateDir:      filepath.Join(executableDir, "webui-state"),
 		},
 		Router: RouterConfig{
 			URL:               "",
@@ -46,34 +73,36 @@ func DefaultConfig(executableDir string) Config {
 			StartWhenMissing:  true,
 			ShutdownWithWebUI: true,
 		},
+		Logging: LoggingConfig{
+			Mode:    LoggingModeNormal,
+			Enabled: true,
+		},
 	}
 }
 
 func LoadConfig(path string, executableDir string) (Config, error) {
+	return LoadConfigWithOverrides(path, executableDir, ConfigOverrides{})
+}
+
+func LoadConfigWithOverrides(path string, executableDir string, overrides ConfigOverrides) (Config, error) {
 	cfg := DefaultConfig(executableDir)
-	if strings.TrimSpace(path) == "" {
-		return cfg, nil
-	}
-	content, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return cfg, nil
+	if strings.TrimSpace(path) != "" {
+		content, err := os.ReadFile(path)
+		if err != nil {
+			if !os.IsNotExist(err) {
+				return cfg, err
+			}
+		} else if err := parseWebUIConfig(content, &cfg); err != nil {
+			return cfg, err
 		}
-		return cfg, err
 	}
-	if err := parseWebUIConfig(content, &cfg); err != nil {
-		return cfg, err
-	}
-	if cfg.Server.Bind == "" {
-		return cfg, fmt.Errorf("server.bind is required")
-	}
-	if cfg.Server.StateDir == "" {
-		return cfg, fmt.Errorf("server.state_dir is required")
-	}
+	applyConfigOverrides(&cfg, overrides)
 	if cfg.Router.ConfigPath == "" {
 		cfg.Router.ConfigPath = filepath.Join(executableDir, "config.yaml")
 	}
-	return cfg, nil
+	cfg.Router.SecurityProfile = cfg.Security.Profile
+	finalizeWebUICompatibility(&cfg)
+	return validateWebUIConfig(cfg)
 }
 
 func routerExecutableName() string {
@@ -153,10 +182,21 @@ func parseWebUIConfig(content []byte, cfg *Config) error {
 
 func setWebUIScalarValue(cfg *Config, section string, key string, value string) error {
 	switch section {
+	case "security":
+		if key == "profile" {
+			cfg.Security.Profile = value
+			return nil
+		}
 	case "server":
 		switch key {
 		case "bind":
 			cfg.Server.Bind = value
+			return nil
+		case "backend_ui_bind":
+			cfg.Server.BackendUIBind = value
+			return nil
+		case "backend_ui_public_url":
+			cfg.Server.BackendUIPublicURL = value
 			return nil
 		case "state_dir":
 			cfg.Server.StateDir = value
@@ -198,6 +238,21 @@ func setWebUIScalarValue(cfg *Config, section string, key string, value string) 
 				return err
 			}
 			cfg.Router.ShutdownWithWebUI = parsed
+			return nil
+		}
+	case "logging":
+		switch key {
+		case "mode":
+			cfg.Logging.Mode = value
+			cfg.Logging.modeSet = true
+			return nil
+		case "enabled":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return err
+			}
+			cfg.Logging.Enabled = parsed
+			cfg.Logging.legacyEnabledSet = true
 			return nil
 		}
 	}

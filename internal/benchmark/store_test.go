@@ -2,6 +2,7 @@ package benchmark
 
 import (
 	"encoding/json"
+	"errors"
 	"testing"
 )
 
@@ -52,6 +53,48 @@ func TestStoreSavesLatestAndOptionDiffs(t *testing.T) {
 	}
 	if string(changes[1].Previous) != `"4"` || string(changes[1].Current) != `"8"` {
 		t.Fatalf("unexpected change values %#v", changes[1])
+	}
+}
+
+func TestStoreBulkLookupUsesPublishedSnapshot(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SaveRun("node-a", "model-a", TypeSection, []Summary{summaryForTest(1)}, nil); err != nil {
+		t.Fatal(err)
+	}
+	keys := []ModelKey{{NodeID: "node-a", ModelID: "model-a"}, {NodeID: "node-a", ModelID: "missing"}}
+	benchmarks := store.ModelBenchmarks(keys)
+	benchmark, ok := benchmarks[keys[0]]
+	if !ok || benchmark.Latest == nil {
+		t.Fatalf("bulk lookup missed record %#v", benchmarks)
+	}
+	benchmark.Latest.Status = StatusFailed
+	reloaded := store.ModelBenchmarks(keys)[keys[0]]
+	if reloaded.Latest == nil || reloaded.Latest.Status != StatusSuccess {
+		t.Fatalf("bulk result mutated snapshot %#v", reloaded)
+	}
+}
+
+func TestStorePublishesOnlyAfterPersistence(t *testing.T) {
+	store, err := NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SaveRun("node-a", "model-a", TypeSection, []Summary{summaryForTest(1)}, nil); err != nil {
+		t.Fatal(err)
+	}
+	store.persist = func(storeFile) error { return errors.New("write failed") }
+	if _, err := store.SaveRun("node-a", "model-a", TypeSection, []Summary{summaryForTest(2)}, nil); err == nil {
+		t.Fatal("expected persistence failure")
+	}
+	record, ok, err := store.Record("node-a", "model-a")
+	if err != nil || !ok {
+		t.Fatalf("record missing ok=%v err=%v", ok, err)
+	}
+	if len(record.History) != 1 {
+		t.Fatalf("failed write changed published snapshot %#v", record)
 	}
 }
 

@@ -72,3 +72,71 @@ func TestGuardRequiresBearerWhenConfigured(t *testing.T) {
 		t.Fatalf("unexpected status %d", recorder.Code)
 	}
 }
+
+func TestPolicySeparatesInferenceAdminAndClusterCredentials(t *testing.T) {
+	policy, err := NewPolicy(PolicyConfig{
+		AllowedCIDRs:  []string{"127.0.0.0/8"},
+		Profile:       ProfileSecure,
+		InferenceKeys: []string{"inference"},
+		AdminKeys:     []string{"admin"},
+		ClusterToken:  "cluster",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		path   string
+		token  string
+		status int
+	}{
+		{"/v1/models", "inference", http.StatusNoContent},
+		{"/v1/models", "admin", http.StatusUnauthorized},
+		{"/router/v1/load", "admin", http.StatusNoContent},
+		{"/router/v1/load", "inference", http.StatusUnauthorized},
+		{"/router/v1/models", "admin", http.StatusNoContent},
+		{"/router/v1/models", "inference", http.StatusUnauthorized},
+		{"/router/v1/node/models", "cluster", http.StatusNoContent},
+		{"/router/v1/node/models", "admin", http.StatusUnauthorized},
+		{"/v1/models", "cluster", http.StatusUnauthorized},
+	}
+	for _, testCase := range cases {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodGet, testCase.path, nil)
+		request.RemoteAddr = "127.0.0.1:1234"
+		request.Header.Set("Authorization", "Bearer "+testCase.token)
+		policy.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusNoContent)
+		})).ServeHTTP(recorder, request)
+		if recorder.Code != testCase.status {
+			t.Fatalf("path %s token %s: got %d want %d", testCase.path, testCase.token, recorder.Code, testCase.status)
+		}
+	}
+}
+
+func TestTrustedLANSkipsPublicAuthButRequiresClusterToken(t *testing.T) {
+	policy, err := NewPolicy(PolicyConfig{
+		AllowedCIDRs: []string{"127.0.0.0/8"},
+		Profile:      ProfileTrustedLAN,
+		ClusterToken: "cluster",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := policy.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	publicRecorder := httptest.NewRecorder()
+	publicRequest := httptest.NewRequest(http.MethodPost, "/router/v1/shutdown", nil)
+	publicRequest.RemoteAddr = "127.0.0.1:1234"
+	handler.ServeHTTP(publicRecorder, publicRequest)
+	if publicRecorder.Code != http.StatusNoContent {
+		t.Fatalf("trusted LAN public route status %d", publicRecorder.Code)
+	}
+	clusterRecorder := httptest.NewRecorder()
+	clusterRequest := httptest.NewRequest(http.MethodGet, "/router/v1/node/models", nil)
+	clusterRequest.RemoteAddr = "127.0.0.1:1234"
+	handler.ServeHTTP(clusterRecorder, clusterRequest)
+	if clusterRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("trusted LAN cluster route status %d", clusterRecorder.Code)
+	}
+}

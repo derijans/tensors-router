@@ -28,6 +28,10 @@ import {
 import { closestElement, elementTarget, queryElements } from "./dom";
 import { elements } from "./elements";
 import { state } from "./state";
+import { confirmDestructive, registerSafetyDialog } from "./dialogs";
+import { confirmDiscardDirtyWork, markConstructorClean, markSimpleCookClean, registerDirtyStateGuard } from "./dirty-state";
+import { registerOperationRetry, runOperation } from "./operations";
+import { clearConversionWarnings, invalidateAcceptedConversions } from "./conversions";
 import {
   addOption,
   addPayload,
@@ -155,9 +159,13 @@ elements.loginForm.addEventListener("submit", event => {
   void submitLogin();
 });
 
-elements.logoutButton.addEventListener("click", () => runTask(handleLogout));
+elements.logoutButton.addEventListener("click", () => runTask(async () => {
+  if (await confirmDiscardDirtyWork("Logging out")) {
+    await handleLogout();
+  }
+}, "logout", "session", "Logging out…"));
 
-elements.refreshButton.addEventListener("click", () => runTask(refreshAll));
+elements.refreshButton.addEventListener("click", () => runTask(refreshAll, "refresh-all", "refresh", "Refreshing data…"));
 elements.webuiFilterInput.addEventListener("input", () => updateWebUIFilter(elements.webuiFilterInput.value));
 elements.webuiGrid.addEventListener("click", event => {
   const target = elementTarget(event);
@@ -175,19 +183,19 @@ elements.webuiGrid.addEventListener("change", event => {
   const target = elementTarget(event);
   const toggleID = target?.dataset.webuiToggle;
   if (toggleID && target instanceof HTMLInputElement) {
-    runTask(() => setWebUIEnabled(toggleID, target.checked));
+    runTask(() => setWebUIEnabled(toggleID, target.checked), `webui-toggle-${toggleID}`, "webui", "Updating backend UI…");
   }
 });
 elements.filterInput.addEventListener("input", renderTables);
 elements.modelsTable.addEventListener("click", event => {
   const modelID = elementTarget(event)?.dataset.loadConfig;
   if (modelID) {
-    runTask(() => loadSelectedConfig(modelID, refreshInventory));
+    runTask(() => loadSelectedConfig(modelID, refreshInventory), `model-load-${modelID}`, "webui", "Loading model…");
   }
 });
 elements.benchmarkModelSelect.addEventListener("change", () => {
   selectBenchmarkModel(elements.benchmarkModelSelect.value);
-  runTask(loadSelectedBenchmark);
+  runTask(loadSelectedBenchmark, "benchmark-load", "benchmark", "Loading benchmark…");
 });
 elements.benchmarkTypeSelect.addEventListener("change", () => selectBenchmarkType(elements.benchmarkTypeSelect.value));
 elements.benchmarkAllSections.addEventListener("change", () => toggleAllBenchmarkSections(elements.benchmarkAllSections.checked));
@@ -195,46 +203,80 @@ elements.benchmarkSections.addEventListener("change", updateBenchmarkSections);
 elements.runBenchmarkButton.addEventListener("click", () => runTask(async () => {
   await runSelectedBenchmark();
   await refreshInventory();
-}));
+}, "benchmark-run", "benchmark", "Running benchmark…"));
 elements.analyticsPeriodSelect.addEventListener("change", () => runTask(async () => {
   updateAnalyticsPeriod(elements.analyticsPeriodSelect.value);
   await loadAnalytics();
-}));
+}, "analytics-period", "analytics", "Loading analytics…"));
 elements.analyticsNodeSelect.addEventListener("change", () => runTask(async () => {
   updateAnalyticsNode(elements.analyticsNodeSelect.value);
   await loadAnalytics();
-}));
+}, "analytics-node", "analytics", "Loading analytics…"));
 elements.analyticsModelSelect.addEventListener("change", () => runTask(async () => {
   updateAnalyticsModel(elements.analyticsModelSelect.value);
   await loadAnalytics();
-}));
+}, "analytics-model", "analytics", "Loading analytics…"));
 elements.analyticsSectionSelect.addEventListener("change", () => runTask(async () => {
   updateAnalyticsSection(elements.analyticsSectionSelect.value);
   await loadAnalytics();
-}));
-elements.analyticsRefreshButton.addEventListener("click", () => runTask(loadAnalytics));
+}, "analytics-section", "analytics", "Loading analytics…"));
+elements.analyticsRefreshButton.addEventListener("click", () => runTask(loadAnalytics, "analytics-refresh", "analytics", "Loading analytics…"));
 elements.constructorFilterInput.addEventListener("input", renderConstructor);
 
-elements.launchButton.addEventListener("click", () => runTask(handleLaunchRouter));
+elements.launchButton.addEventListener("click", () => runTask(handleLaunchRouter, "router-launch", "router", "Launching router…"));
 
-elements.restartButton.addEventListener("click", () => runTask(handleRestartRouter));
+elements.restartButton.addEventListener("click", () => runTask(async () => {
+  if (await confirmDestructive("Restart router?", "Active requests may be interrupted if they cannot finish during the drain period.", "Restart")) {
+    await handleRestartRouter();
+  }
+}, "router-restart", "router", "Restarting router…"));
 
-elements.shutdownButton.addEventListener("click", () => runTask(handleShutdownRouter));
+elements.shutdownButton.addEventListener("click", () => runTask(async () => {
+  if (await confirmDestructive("Shutdown router?", "The router will stop accepting new work and drain active transfers.", "Shutdown")) {
+    await handleShutdownRouter();
+  }
+}, "router-shutdown", "router", "Shutting down router…"));
 
-elements.forceKillButton.addEventListener("click", () => runTask(handleForceKillRouter));
+elements.forceKillButton.addEventListener("click", () => runTask(async () => {
+  if (await confirmDestructive("Force-kill router?", "Active requests will be terminated immediately and may fail.", "Force kill")) {
+    await handleForceKillRouter();
+  }
+}, "router-force-kill", "router", "Force-killing router…"));
 
-elements.previewButton.addEventListener("click", () => runTask(previewSimpleCook));
+elements.previewButton.addEventListener("click", () => runTask(previewSimpleCook, "quick-preview", "cook", "Preparing preview…"));
 elements.cookForm.addEventListener("submit", event => {
   event.preventDefault();
-  void applySimpleCook(refreshInventory);
+  runTask(() => applySimpleCook(refreshInventory), "quick-apply", "cook", "Applying config…");
 });
-elements.simpleNodeSelect.addEventListener("change", () => selectSimpleNode(elements.simpleNodeSelect.value));
-elements.simpleConfigSelect.addEventListener("change", () => selectSimpleConfig(elements.simpleConfigSelect.value));
+elements.simpleNodeSelect.addEventListener("change", () => runTask(async () => {
+  if (await confirmDiscardDirtyWork("Changing nodes")) {
+    selectSimpleNode(elements.simpleNodeSelect.value);
+  } else {
+    renderSimpleCook();
+  }
+}, "quick-node-change", "cook-selection", "Changing node…"));
+elements.simpleConfigSelect.addEventListener("change", () => runTask(async () => {
+  if (await confirmDiscardDirtyWork("Changing configurations")) {
+    selectSimpleConfig(elements.simpleConfigSelect.value);
+  } else {
+    renderSimpleCook();
+  }
+}, "quick-config-change", "cook-selection", "Changing config…"));
 elements.simpleFieldFilter.addEventListener("input", () => updateSimpleFieldFilter(elements.simpleFieldFilter.value));
+elements.cookIdInput.addEventListener("input", invalidateAcceptedConversions);
+elements.advancedCookIdInput.addEventListener("input", invalidateAcceptedConversions);
 elements.simpleAddFieldButton.addEventListener("click", addSelectedSimpleField);
-elements.simpleNewButton.addEventListener("click", newSimpleConfig);
-elements.simpleCopyButton.addEventListener("click", copySimpleConfig);
-elements.simpleDeleteButton.addEventListener("click", () => runTask(() => deleteSimpleConfig(refreshInventory)));
+elements.simpleNewButton.addEventListener("click", () => runTask(async () => {
+  if (await confirmDiscardDirtyWork("Creating a new configuration")) {
+    newSimpleConfig();
+  }
+}, "quick-new", "cook-selection", "Opening new config…"));
+elements.simpleCopyButton.addEventListener("click", () => runTask(async () => {
+  if (await confirmDiscardDirtyWork("Copying this configuration")) {
+    copySimpleConfig();
+  }
+}, "quick-copy", "cook-selection", "Copying config…"));
+elements.simpleDeleteButton.addEventListener("click", () => runTask(() => deleteSimpleConfig(refreshInventory), "quick-delete", "cook", "Deleting config…"));
 elements.simpleConfigEditor.addEventListener("change", event => updateSimpleField(event.target));
 elements.simpleConfigEditor.addEventListener("toggle", event => updateSimpleSectionOpen(event.target), true);
 elements.simpleConfigEditor.addEventListener("click", event => {
@@ -262,9 +304,14 @@ elements.simpleFieldSidebar.addEventListener("click", event => {
   }
 });
 
-elements.advancedPreviewButton.addEventListener("click", () => runTask(previewAdvancedCook));
-elements.advancedApplyButton.addEventListener("click", () => runTask(() => applyAdvancedCook(refreshInventory)));
-elements.clearConstructorButton.addEventListener("click", clearConstructor);
+elements.advancedPreviewButton.addEventListener("click", () => runTask(previewAdvancedCook, "constructor-preview", "cook", "Preparing preview…"));
+elements.advancedApplyButton.addEventListener("click", () => runTask(() => applyAdvancedCook(refreshInventory), "constructor-apply", "cook", "Applying cook plan…"));
+elements.clearConstructorButton.addEventListener("click", () => runTask(async () => {
+  if (await confirmDestructive("Clear constructor?", "All selected lanes and option changes will be discarded.", "Clear")) {
+    clearConstructor();
+    markConstructorClean();
+  }
+}, "constructor-clear", "cook-selection", "Clearing constructor…"));
 elements.advancedBackendSelect.addEventListener("change", () => updateConstructorBackendMode(elements.advancedBackendSelect.value));
 
 elements.paletteList.addEventListener("dragstart", event => {
@@ -322,7 +369,11 @@ elements.constructorLanes.addEventListener("click", event => {
   const target = elementTarget(event);
   const clearLaneName = target?.dataset.clearLane;
   if (clearLaneName) {
-    clearLane(clearLaneName);
+    runTask(async () => {
+      if (await confirmDestructive("Clear lane?", `The ${clearLaneName} selection and its overrides will be discarded.`, "Clear lane")) {
+        clearLane(clearLaneName);
+      }
+    }, `lane-clear-${clearLaneName}`, "cook-selection", "Clearing lane…");
     return;
   }
   const editLaneName = target?.dataset.editLaneFields;
@@ -355,12 +406,12 @@ elements.webuiDialog.addEventListener("click", event => {
   }
   const enableID = target?.dataset.webuiEnable;
   if (enableID) {
-    runTask(() => setWebUIEnabled(enableID, true));
+    runTask(() => setWebUIEnabled(enableID, true), `webui-enable-${enableID}`, "webui", "Enabling backend UI…");
     return;
   }
   const loadID = target?.dataset.webuiLoad;
   if (loadID) {
-    runTask(() => loadSelectedWebUIModel(loadID, target.dataset.webuiLoadModel || "", target.dataset.webuiLoadImage || ""));
+    runTask(() => loadSelectedWebUIModel(loadID, target.dataset.webuiLoadModel || "", target.dataset.webuiLoadImage || ""), `webui-load-${loadID}`, "webui", "Loading backend UI model…");
   }
 });
 
@@ -386,9 +437,13 @@ elements.usedModelsList.addEventListener("click", event => {
 });
 
 elements.recipesList.addEventListener("click", event => {
-  void handleRecipeClick(event);
+  runTask(() => handleRecipeClick(event), "recipe-delete", "cook", "Deleting recipe…");
 });
 
+registerSafetyDialog();
+registerOperationRetry();
+registerDirtyStateGuard();
+markConstructorClean();
 void bootstrap();
 
 async function submitLogin(): Promise<void> {
@@ -406,6 +461,9 @@ async function submitLogin(): Promise<void> {
 async function handleLogout(): Promise<void> {
   await logout();
   state.csrf = "";
+  markSimpleCookClean();
+  markConstructorClean();
+  clearConversionWarnings();
   showLogin();
 }
 
@@ -438,13 +496,16 @@ async function handleRecipeClick(event: Event): Promise<void> {
   if (!id) {
     return;
   }
+  if (!await confirmDestructive("Delete recipe?", `Delete ${id}? This removes the public split route.`, "Delete")) {
+    return;
+  }
   await deleteRecipe(id);
   await refreshInventory();
   renderRecipes();
 }
 
-function runTask(task: () => Promise<void>): void {
-  void task();
+function runTask(task: () => Promise<void>, key = "general", group = "general", label = "Working…"): void {
+  void runOperation({key, group, label, task}).catch(() => undefined);
 }
 
 function isCookMode(value: string | undefined): value is CookMode {

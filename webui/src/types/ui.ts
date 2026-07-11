@@ -1,5 +1,5 @@
 import type { AnalyticsQuery, AnalyticsResponse, BenchmarkRecord, BenchmarkSection, BenchmarkType, CookComponent, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, RouterProcessStatus, WebUICatalogResponse } from "./api";
-import type { Options } from "./json";
+import type { JsonValue, Options } from "./json";
 
 export type CookMode = "quick" | "constructor";
 
@@ -59,6 +59,27 @@ export interface ConstructorFieldEditor {
   pendingPayload?: PaletteComponentPayload;
 }
 
+export interface ConversionWarning {
+  field: string;
+  original: string;
+  proposed: JsonValue;
+  reason: string;
+}
+
+export interface ParseResult {
+  value: JsonValue;
+  warnings: ConversionWarning[];
+}
+
+export interface OperationStatus {
+  key: string;
+  group: string;
+  label: string;
+  pending: boolean;
+  error: string;
+  retry?: () => Promise<unknown>;
+}
+
 export interface FieldRenderContext {
   node: NodeInventory | null;
   nodeFiles: FileRecord[];
@@ -110,6 +131,7 @@ export interface AppState {
     configID: string;
     fields: Options;
     cleanFields: Options;
+    cleanID: string;
     mode: SimpleCookMode;
     fieldFilter: string;
     openSections: string[];
@@ -126,7 +148,11 @@ export interface AppState {
     fieldPresets: FieldPreset[];
     showUsedAll: boolean;
     showOptionsAll: boolean;
+    cleanSnapshot: string;
   };
+  operations: Record<string, OperationStatus>;
+  conversionWarnings: Record<string, ConversionWarning>;
+  acceptedConversionSignature: string;
   palettePayloads: Record<string, PalettePayload>;
 }
 

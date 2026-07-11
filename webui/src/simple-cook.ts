@@ -1,6 +1,10 @@
 import { deleteConfigFile, errorBody, previewConfigFile, applyConfigFile } from "./api";
 import { elements } from "./elements";
 import { state } from "./state";
+import { clearConversionScope, confirmPendingConversions, discardConversion, invalidateAcceptedConversions, recordConversion } from "./conversions";
+import { cookResultHTML } from "./cook-result";
+import { confirmDestructive } from "./dialogs";
+import { markSimpleCookClean } from "./dirty-state";
 import {
   backendModeKey,
   backendModeLabels,
@@ -94,6 +98,8 @@ export function newSimpleConfig(): void {
   state.simpleCook.mode = "new";
   state.simpleCook.fields = defaultConfigForNode(node);
   state.simpleCook.cleanFields = {};
+  state.simpleCook.cleanID = "";
+  clearConversionScope("quick");
   state.simpleCook.openSections = [];
   elements.cookIdInput.value = suggestedConfigID(node, "new-config");
   renderSimpleCook();
@@ -105,6 +111,8 @@ export function copySimpleConfig(): void {
   state.simpleCook.configID = "";
   state.simpleCook.fields = cloneValue(state.simpleCook.fields);
   state.simpleCook.cleanFields = {};
+  state.simpleCook.cleanID = "";
+  clearConversionScope("quick");
   state.simpleCook.openSections = [];
   elements.cookIdInput.value = suggestedConfigID(selectedNode(), `${config?.local_id || "config"}-copy`);
   renderSimpleCook();
@@ -117,6 +125,7 @@ export function addSelectedSimpleField(): void {
   }
   const definition = optionDefinition(key);
   state.simpleCook.fields[key] = defaultFieldValue(definition);
+  invalidateAcceptedConversions();
   renderSimpleCook();
 }
 
@@ -126,6 +135,7 @@ export function updateSimpleField(target: EventTarget | null): void {
   }
   if (target instanceof HTMLSelectElement && target.dataset.simpleBackendMode !== undefined) {
     state.simpleCook.fields[backendModeKey] = target.value;
+    invalidateAcceptedConversions();
     renderSimpleCook();
     return;
   }
@@ -133,12 +143,16 @@ export function updateSimpleField(target: EventTarget | null): void {
   if (!key) {
     return;
   }
-  state.simpleCook.fields[key] = parseOptionInput(optionDefinition(key), target.value);
+  const parsed = parseOptionInput(optionDefinition(key), target.value);
+  state.simpleCook.fields[key] = parsed.value;
+  recordConversion("quick", key, parsed);
   renderSimpleCook();
 }
 
 export function removeSimpleField(key: string): void {
   delete state.simpleCook.fields[key];
+  discardConversion("quick", key);
+  invalidateAcceptedConversions();
   if (state.simpleCook.sidebar?.key === key) {
     state.simpleCook.sidebar = null;
   }
@@ -151,10 +165,20 @@ export function showSimpleFieldValues(key: string, type: "field" | "model"): voi
 }
 
 export async function previewSimpleCook(): Promise<void> {
+  if (!await confirmPendingConversions("quick")) {
+    return;
+  }
   await submitSimpleConfig(previewConfigFile);
 }
 
 export async function applySimpleCook(refreshInventory: RefreshInventory): Promise<void> {
+  if (!await confirmPendingConversions("quick")) {
+    return;
+  }
+  const request = simpleConfigRequest();
+  if (request.overwrite && !await confirmDestructive("Overwrite config?", `Applying ${request.id || "this config"} replaces the existing configuration.`, "Overwrite")) {
+    return;
+  }
   const result = await submitSimpleConfig(applyConfigFile);
   if (!result) {
     return;
@@ -162,7 +186,9 @@ export async function applySimpleCook(refreshInventory: RefreshInventory): Promi
   state.simpleCook.mode = "edit";
   state.simpleCook.configID = result.id || "";
   state.simpleCook.fields = cloneValue(result.options ?? state.simpleCook.fields);
-  state.simpleCook.cleanFields = cloneValue(state.simpleCook.fields);
+  elements.cookIdInput.value = result.id || elements.cookIdInput.value;
+  markSimpleCookClean();
+  clearConversionScope("quick");
   await refreshInventory();
 }
 
@@ -171,7 +197,7 @@ export async function deleteSimpleConfig(refreshInventory: RefreshInventory): Pr
   if (!config) {
     return;
   }
-  if (!window.confirm(`Delete ${config.filename || config.local_id}?`)) {
+  if (!await confirmDestructive("Delete config?", `Delete ${config.filename || config.local_id}? This cannot be undone.`, "Delete")) {
     return;
   }
   try {
@@ -186,6 +212,7 @@ export async function deleteSimpleConfig(refreshInventory: RefreshInventory): Pr
     await refreshInventory();
   } catch (error) {
     showSimpleCookError(error);
+    throw error;
   }
 }
 
@@ -371,11 +398,11 @@ function sidebarValueRow(row: { value: string; config: string }): string {
 async function submitSimpleConfig(submitter: ConfigSubmitter): Promise<ConfigFileResponse | null> {
   try {
     const result = await submitter(simpleConfigRequest());
-    elements.cookOutput.textContent = JSON.stringify(result, null, 2);
+    elements.cookOutput.innerHTML = cookResultHTML(result);
     return result;
   } catch (error) {
     showSimpleCookError(error);
-    return null;
+    throw error;
   }
 }
 
@@ -435,6 +462,8 @@ function loadSimpleConfig(model: Model | null): void {
   state.simpleCook.sidebar = null;
   state.simpleCook.openSections = [];
   elements.cookIdInput.value = model?.local_id || suggestedConfigID(selectedNode(), "new-config");
+  state.simpleCook.cleanID = elements.cookIdInput.value.trim();
+  clearConversionScope("quick");
 }
 
 function fillSelect(select: HTMLSelectElement, options: SelectChoice[]): void {
@@ -446,7 +475,7 @@ function fillSelect(select: HTMLSelectElement, options: SelectChoice[]): void {
 }
 
 function showSimpleCookError(error: unknown): void {
-  elements.cookOutput.textContent = JSON.stringify(errorBody(error), null, 2);
+  elements.cookOutput.innerHTML = cookResultHTML(errorBody(error));
 }
 
 function sectionForDefinition(definition: { section?: string }): string {

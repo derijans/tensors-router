@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>tensor-router-webui</title>
-  <script type="module" crossorigin src="/assets/index-4MErE7X5.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-B0JFJFB-.css">
+  <script type="module" crossorigin src="/assets/index-BTAIoaNt.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-McYZ9Pyk.css">
 </head>
 <body>
   <main class="shell">
@@ -36,8 +36,9 @@
           </div>
         </div>
         <div class="top-actions">
-          <button id="refreshButton" type="button">Refresh</button>
-          <button id="logoutButton" type="button">Logout</button>
+          <div id="operationStatus" class="operation-status"></div>
+          <button id="refreshButton" type="button" data-operation-group="refresh">Refresh</button>
+          <button id="logoutButton" type="button" data-operation-group="session">Logout</button>
         </div>
       </header>
 
@@ -59,10 +60,10 @@
             <p class="muted">runtime and process control</p>
           </div>
           <div class="button-strip">
-            <button id="launchButton" type="button">Launch</button>
-            <button id="restartButton" type="button">Restart</button>
-            <button id="shutdownButton" type="button">Shutdown</button>
-            <button id="forceKillButton" type="button">Force kill</button>
+            <button id="launchButton" type="button" data-operation-group="router">Launch</button>
+            <button id="restartButton" type="button" data-operation-group="router">Restart</button>
+            <button id="shutdownButton" type="button" data-operation-group="router">Shutdown</button>
+            <button id="forceKillButton" type="button" data-operation-group="router">Force kill</button>
           </div>
         </div>
         <div id="routerStatus" class="status-grid"></div>
@@ -150,22 +151,22 @@
             <h2>Benchmarks</h2>
             <p class="muted">run and compare config performance</p>
           </div>
-          <button id="runBenchmarkButton" type="button">Run</button>
+          <button id="runBenchmarkButton" type="button" data-operation-group="benchmark">Run</button>
         </div>
         <div class="benchmark-controls">
           <label>
             Config
-            <select id="benchmarkModelSelect"></select>
+            <select id="benchmarkModelSelect" data-operation-group="benchmark"></select>
           </label>
           <label>
             Type
-            <select id="benchmarkTypeSelect">
+            <select id="benchmarkTypeSelect" data-operation-group="benchmark">
               <option value="general">General</option>
               <option value="section">Section</option>
             </select>
           </label>
           <label class="toggle-row">
-            <input id="benchmarkAllSections" type="checkbox" checked>
+            <input id="benchmarkAllSections" type="checkbox" checked data-operation-group="benchmark">
             <span>All sections</span>
           </label>
           <div id="benchmarkSections" class="section-checks"></div>
@@ -183,24 +184,24 @@
             <h2>Analytics</h2>
             <p class="muted">usage, throughput, and media volume</p>
           </div>
-          <button id="analyticsRefreshButton" type="button">Refresh</button>
+          <button id="analyticsRefreshButton" type="button" data-operation-group="analytics">Refresh</button>
         </div>
         <div class="analytics-controls">
           <label>
             Period
-            <select id="analyticsPeriodSelect"></select>
+            <select id="analyticsPeriodSelect" data-operation-group="analytics"></select>
           </label>
           <label>
             Node
-            <select id="analyticsNodeSelect"></select>
+            <select id="analyticsNodeSelect" data-operation-group="analytics"></select>
           </label>
           <label>
             Model
-            <select id="analyticsModelSelect"></select>
+            <select id="analyticsModelSelect" data-operation-group="analytics"></select>
           </label>
           <label>
             Section
-            <select id="analyticsSectionSelect"></select>
+            <select id="analyticsSectionSelect" data-operation-group="analytics"></select>
           </label>
         </div>
         <div id="analyticsStatus"></div>
@@ -294,11 +295,11 @@
             <aside class="simple-controls">
               <label>
                 Node
-                <select id="simpleNodeSelect"></select>
+                <select id="simpleNodeSelect" data-operation-group="cook-selection"></select>
               </label>
               <label>
                 Config
-                <select id="simpleConfigSelect"></select>
+                <select id="simpleConfigSelect" data-operation-group="cook-selection"></select>
               </label>
               <label>
                 Config id
@@ -313,14 +314,14 @@
                 <select id="simpleAddFieldSelect"></select>
               </label>
               <div class="button-strip">
-                <button id="simpleAddFieldButton" type="button">Add</button>
-                <button id="simpleNewButton" type="button">New</button>
-                <button id="simpleCopyButton" type="button">Copy</button>
-                <button id="simpleDeleteButton" type="button">Delete</button>
+                <button id="simpleAddFieldButton" type="button" data-operation-group="cook-selection">Add</button>
+                <button id="simpleNewButton" type="button" data-operation-group="cook-selection">New</button>
+                <button id="simpleCopyButton" type="button" data-operation-group="cook-selection">Copy</button>
+                <button id="simpleDeleteButton" type="button" data-operation-group="cook">Delete</button>
               </div>
               <div class="cook-actions">
-                <button id="previewButton" type="button">Preview</button>
-                <button type="submit">Save</button>
+                <button id="previewButton" type="button" data-operation-group="cook">Preview</button>
+                <button type="submit" data-operation-group="cook">Save</button>
               </div>
             </aside>
 
@@ -355,9 +356,9 @@
               <input id="constructorFilterInput" type="search" placeholder="Model, option, node">
             </label>
             <div class="cook-actions">
-              <button id="clearConstructorButton" type="button">Clear</button>
-              <button id="advancedPreviewButton" type="button">Preview</button>
-              <button id="advancedApplyButton" type="button">Apply</button>
+              <button id="clearConstructorButton" type="button" data-operation-group="cook-selection">Clear</button>
+              <button id="advancedPreviewButton" type="button" data-operation-group="cook">Preview</button>
+              <button id="advancedApplyButton" type="button" data-operation-group="cook">Apply</button>
             </div>
           </div>
 
@@ -395,7 +396,7 @@
           </div>
         </section>
 
-        <pre id="cookOutput" class="output"></pre>
+        <div id="cookOutput" class="output"></div>
       </section>
 
       <section class="tab-panel" data-panel="recipes">
@@ -417,6 +418,10 @@
 
   <dialog id="webuiDialog" class="field-dialog">
     <div id="webuiDialogBody" class="field-dialog-body"></div>
+  </dialog>
+
+  <dialog id="safetyDialog" class="field-dialog safety-dialog">
+    <div id="safetyDialogBody" class="field-dialog-body"></div>
   </dialog>
 
 </body>

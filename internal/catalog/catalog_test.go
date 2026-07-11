@@ -2,9 +2,12 @@ package catalog
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestListReturnsPublicIDsWithoutKcppsExtension(t *testing.T) {
@@ -283,6 +286,9 @@ func TestHashStoreCachesFileHashesAndDropsMissingFiles(t *testing.T) {
 	if listed[0].ModelHash == "" {
 		t.Fatalf("expected model hash")
 	}
+	if err := models.Flush(); err != nil {
+		t.Fatal(err)
+	}
 	cachePath := filepath.Join(storeDir, "hash-cache.json")
 	cache, err := os.ReadFile(cachePath)
 	if err != nil {
@@ -295,7 +301,10 @@ func TestHashStoreCachesFileHashesAndDropsMissingFiles(t *testing.T) {
 	if err := os.Remove(modelPath); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := models.List(); err != nil {
+	if err := models.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	if err := models.Flush(); err != nil {
 		t.Fatal(err)
 	}
 	cache, err = os.ReadFile(cachePath)
@@ -304,6 +313,92 @@ func TestHashStoreCachesFileHashesAndDropsMissingFiles(t *testing.T) {
 	}
 	if cacheHasPath(t, cache, modelPath) {
 		t.Fatalf("cache kept missing model path: %s", string(cache))
+	}
+}
+
+func TestCatalogRefreshPublishesCompleteSnapshots(t *testing.T) {
+	dir := t.TempDir()
+	writeCatalogFile(t, dir, "a.kcpps", `{}`)
+	catalog := New(dir)
+	writeCatalogFile(t, dir, "b.kcpps", `{}`)
+
+	models, err := catalog.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 {
+		t.Fatalf("catalog changed without refresh %#v", models)
+	}
+	models[0].ID = "mutated"
+	if err := catalog.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	models, err = catalog.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 2 || models[0].ID != "a" || models[1].ID != "b" {
+		t.Fatalf("refresh did not publish complete cloned snapshot %#v", models)
+	}
+}
+
+func TestCatalogKeepsLastSnapshotWhenRefreshFails(t *testing.T) {
+	dir := t.TempDir()
+	writeCatalogFile(t, dir, "a.kcpps", `{}`)
+	catalog := New(dir)
+	catalog.readDir = func(string) ([]os.DirEntry, error) { return nil, errors.New("scan failed") }
+	if err := catalog.Refresh(); err == nil {
+		t.Fatal("expected refresh failure")
+	}
+	models, err := catalog.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0].ID != "a" {
+		t.Fatalf("failed refresh replaced snapshot %#v", models)
+	}
+}
+
+func TestHashStoreDebouncesDirtyWrites(t *testing.T) {
+	store, err := NewHashStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.flushDelay = 20 * time.Millisecond
+	var writes atomic.Int32
+	written := make(chan struct{}, 2)
+	store.persist = func(hashCache) error {
+		writes.Add(1)
+		written <- struct{}{}
+		return nil
+	}
+	first := filepath.Join(t.TempDir(), "first.gguf")
+	second := filepath.Join(t.TempDir(), "second.gguf")
+	if err := os.WriteFile(first, []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(second, []byte("second"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store.StartScan()
+	if _, ok := store.HashFile(first); !ok {
+		t.Fatal("first hash failed")
+	}
+	if _, ok := store.HashFile(second); !ok {
+		t.Fatal("second hash failed")
+	}
+	store.FinishScan()
+	select {
+	case <-written:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("debounced flush did not run")
+	}
+	time.Sleep(60 * time.Millisecond)
+	if writes.Load() != 1 {
+		t.Fatalf("expected one debounced write, got %d", writes.Load())
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
 

@@ -119,6 +119,15 @@ func TestLlamaLaunchArgumentsFromKcpps(t *testing.T) {
 	}
 }
 
+func TestNewManagersRejectNonLoopbackAndBindOverrides(t *testing.T) {
+	if _, err := NewLlamaManager(ProcessConfig{BackendURL: "http://192.168.1.20:5002"}); err == nil {
+		t.Fatal("expected non-loopback backend rejection")
+	}
+	if _, err := NewSDCPPManager(ProcessConfig{BackendURL: "http://127.0.0.1:7860", ExtraArgs: []string{"--listen-ip", "0.0.0.0"}}); err == nil {
+		t.Fatal("expected bind override rejection")
+	}
+}
+
 func TestLlamaEmbeddingLaunchArgumentsEnableEmbeddings(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "embed.kcpps"), []byte(`{

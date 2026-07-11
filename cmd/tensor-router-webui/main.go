@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -20,8 +22,8 @@ import (
 )
 
 const (
-	webUIServerShutdownTimeout   = 15 * time.Second
-	managedRouterShutdownTimeout = 45 * time.Second
+	webUIServerShutdownTimeout   = 16 * time.Minute
+	managedRouterShutdownTimeout = 16*time.Minute + 30*time.Second
 )
 
 func main() {
@@ -44,6 +46,7 @@ func run(args []string) error {
 	routerURL := flags.String("router-url", "", "router url")
 	routerToken := flags.String("router-token", "", "router bearer token")
 	adminToken := flags.String("admin-token", "", "webui admin token")
+	securityProfile := flags.String("security-profile", "", "security profile")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -53,15 +56,27 @@ func run(args []string) error {
 		return err
 	}
 	executableDir := filepath.Dir(executablePath)
-	cfg, err := webui.LoadConfig(*configPath, executableDir)
+	profileOverride := webui.ResolveSecurityProfile(*securityProfile, os.Getenv("TENSORS_ROUTER_SECURITY_PROFILE"))
+	adminTokenOverride := firstNonEmpty(*adminToken, os.Getenv("TENSORS_ROUTER_WEBUI_TOKEN"), os.Getenv("TENSOR_ROUTER_WEBUI_TOKEN"))
+	cfg, err := webui.LoadConfigWithOverrides(*configPath, executableDir, webui.ConfigOverrides{
+		SecurityProfile: profileOverride,
+		Bind:            *bind,
+		RouterURL:       *routerURL,
+		RouterToken:     *routerToken,
+		AdminToken:      adminTokenOverride,
+	})
 	if err != nil {
 		return err
 	}
-	log.Printf("tensor-router-webui build %s", buildinfo.Current())
-	applyFlagOverrides(&cfg, *bind, *routerURL, *routerToken, *adminToken)
+	startupLogger, runtimeLogger := webUILoggers(cfg.Logging.Mode)
+	startupLogger.Printf("tensor-router-webui build %s", buildinfo.Current())
+	startupLogger.Printf("startup config profile=%s bind=%s router_managed=%t logging=%s", cfg.Security.Profile, cfg.Server.Bind, strings.TrimSpace(cfg.Router.URL) == "", cfg.Logging.Mode)
+	for _, warning := range cfg.Warnings {
+		startupLogger.Printf("configuration warning: %s", warning)
+	}
 	token := webUIToken(cfg)
 	if token.generated {
-		log.Printf("generated webui admin token: %s", token.value)
+		runtimeLogger.Printf("generated webui admin token: %s", token.value)
 	}
 
 	certFile, keyFile, err := webui.CertificateFiles(cfg.Server)
@@ -73,33 +88,58 @@ func run(args []string) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	if err := routerProcess.EnsureStarted(ctx); err != nil {
-		log.Printf("router auto-launch failed: %v", err)
+		runtimeLogger.Printf("router auto-launch failed: %v", err)
 	}
 
 	handler := webui.NewServer(cfg, routerProcess, webui.NewSessionManager(token.value))
-	server := webui.WebHTTPServer(cfg.Server.Bind, handler)
-	errs := make(chan error, 1)
+	adminServer := webui.WebHTTPServer(cfg.Server.Bind, handler.AdminHandler())
+	backendUIServer := webui.WebHTTPServer(cfg.Server.BackendUIBind, handler.BackendUIHandler())
+	errs := make(chan error, 2)
 	go func() {
 		addr := webui.NormalizeBind(cfg.Server.Bind)
-		log.Printf("tensor-router-webui listening on https://%s", addr)
-		errs <- server.ListenAndServeTLS(certFile, keyFile)
+		startupLogger.Printf("admin listener ready address=https://%s", addr)
+		errs <- adminServer.ListenAndServeTLS(certFile, keyFile)
+	}()
+	go func() {
+		addr := webui.NormalizeBind(cfg.Server.BackendUIBind)
+		startupLogger.Printf("backend UI listener ready address=https://%s", addr)
+		errs <- backendUIServer.ListenAndServeTLS(certFile, keyFile)
 	}()
 
 	select {
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), webUIServerShutdownTimeout)
-		defer cancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
-			return err
+		return shutdownWebUIRuntime(routerProcess, adminServer, backendUIServer)
+	case listenerErr := <-errs:
+		shutdownErr := shutdownWebUIRuntime(routerProcess, adminServer, backendUIServer)
+		if listenerErr == nil || errors.Is(listenerErr, http.ErrServerClosed) {
+			return shutdownErr
 		}
-		return shutdownManagedRouter(routerProcess)
-	case err := <-errs:
-		if err == nil || err == http.ErrServerClosed {
-			return nil
-		}
-		_ = shutdownManagedRouter(routerProcess)
-		return err
+		return errors.Join(listenerErr, shutdownErr)
 	}
+}
+
+func shutdownWebUIRuntime(routerProcess *webui.RouterProcess, servers ...*http.Server) error {
+	routerResult := make(chan error, 1)
+	go func() {
+		routerResult <- shutdownManagedRouter(routerProcess)
+	}()
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), webUIServerShutdownTimeout)
+	defer cancel()
+	serverResults := make(chan error, len(servers))
+	for _, server := range servers {
+		go func(server *http.Server) {
+			if err := server.Shutdown(shutdownCtx); err != nil {
+				serverResults <- errors.Join(err, server.Close())
+				return
+			}
+			serverResults <- nil
+		}(server)
+	}
+	var shutdownErr error
+	for range servers {
+		shutdownErr = errors.Join(shutdownErr, <-serverResults)
+	}
+	return errors.Join(shutdownErr, <-routerResult)
 }
 
 func shutdownManagedRouter(routerProcess *webui.RouterProcess) error {
@@ -114,32 +154,34 @@ type tokenValue struct {
 }
 
 func webUIToken(cfg webui.Config) tokenValue {
-	for _, value := range []string{
-		cfg.Server.AdminToken,
-		os.Getenv("TENSORS_ROUTER_WEBUI_TOKEN"),
-		os.Getenv("TENSOR_ROUTER_WEBUI_TOKEN"),
-	} {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			return tokenValue{value: value}
-		}
+	if cfg.Security.Profile == webui.SecurityProfileTrustedLAN {
+		return tokenValue{}
+	}
+	if value := strings.TrimSpace(cfg.Server.AdminToken); value != "" {
+		return tokenValue{value: value}
 	}
 	return tokenValue{value: randomToken(), generated: true}
 }
 
-func applyFlagOverrides(cfg *webui.Config, bind string, routerURL string, routerToken string, adminToken string) {
-	if strings.TrimSpace(bind) != "" {
-		cfg.Server.Bind = strings.TrimSpace(bind)
+func webUILoggers(mode string) (*log.Logger, *log.Logger) {
+	discard := log.New(io.Discard, "", 0)
+	switch mode {
+	case webui.LoggingModeNormal:
+		return log.Default(), log.Default()
+	case webui.LoggingModeStartupOnly:
+		return log.Default(), discard
+	default:
+		return discard, discard
 	}
-	if strings.TrimSpace(routerURL) != "" {
-		cfg.Router.URL = strings.TrimSpace(routerURL)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
 	}
-	if strings.TrimSpace(routerToken) != "" {
-		cfg.Router.Token = strings.TrimSpace(routerToken)
-	}
-	if strings.TrimSpace(adminToken) != "" {
-		cfg.Server.AdminToken = strings.TrimSpace(adminToken)
-	}
+	return ""
 }
 
 func randomToken() string {

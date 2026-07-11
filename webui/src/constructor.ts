@@ -13,6 +13,7 @@ import {
   usedPaths
 } from "./data";
 import { localValidation } from "./constructor-data";
+import { clearConstructorConversions, clearConversionScope, discardConversion, invalidateAcceptedConversions, recordConversion } from "./conversions";
 import {
   chip,
   escapeAttribute,
@@ -50,6 +51,7 @@ export function addPayload(payload: PalettePayload | undefined, lane?: string): 
     return;
   }
   state.constructor.lanes[targetLane] = payload;
+  invalidateAcceptedConversions();
   renderConstructor();
 }
 
@@ -61,6 +63,7 @@ export function addOption(key: string): void {
   if (!Object.hasOwn(state.constructor.options, key)) {
     state.constructor.options[key] = defaultOptionValue(definition);
   }
+  invalidateAcceptedConversions();
   renderConstructor();
 }
 
@@ -72,6 +75,8 @@ export function clearConstructor(): void {
   state.constructor.backendTouched = false;
   state.constructor.options = {};
   state.constructor.fieldEditor = null;
+  clearConstructorConversions();
+  invalidateAcceptedConversions();
   renderConstructor();
 }
 
@@ -81,6 +86,8 @@ export function clearLane(lane: string): void {
   }
   state.constructor.lanes[lane] = null;
   state.constructor.laneOptions[lane] = {};
+  clearConversionScope(`lane-${lane}`);
+  invalidateAcceptedConversions();
   renderConstructor();
 }
 
@@ -99,18 +106,17 @@ export function updateOptionInput(target: EventTarget | null): void {
   if (!key) {
     return;
   }
-  try {
-    state.constructor.options[key] = parseOptionInput(optionDefinition(key), target.value);
-    target.setCustomValidity("");
-    renderValidation();
-  } catch {
-    target.setCustomValidity("Invalid JSON");
-    target.reportValidity();
-  }
+  const parsed = parseOptionInput(optionDefinition(key), target.value);
+  state.constructor.options[key] = parsed.value;
+  recordConversion("constructor", key, parsed);
+  target.setCustomValidity("");
+  renderValidation();
 }
 
 export function removeOption(key: string): void {
   delete state.constructor.options[key];
+  discardConversion("constructor", key);
+  invalidateAcceptedConversions();
   renderConstructor();
 }
 
@@ -133,6 +139,7 @@ export function updateLaneTarget(target: EventTarget | null): void {
     return;
   }
   state.constructor.targetNodes[lane] = target.value;
+  invalidateAcceptedConversions();
   renderConstructor();
 }
 
@@ -142,6 +149,7 @@ export function updateConstructorBackendMode(value: string): void {
   }
   state.constructor.backendMode = value;
   state.constructor.backendTouched = true;
+  invalidateAcceptedConversions();
   renderConstructor();
 }
 

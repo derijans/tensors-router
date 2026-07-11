@@ -17,7 +17,7 @@ export function renderBenchmarks(): void {
   elements.benchmarkAllSections.checked = selectedAllSections();
   elements.benchmarkSections.innerHTML = benchmarkSections.map(section => `
     <label class="toggle-row">
-      <input type="checkbox" value="${escapeAttribute(section)}" data-benchmark-section="${escapeAttribute(section)}" ${state.benchmark.sections.includes(section) ? "checked" : ""} ${state.benchmark.type === "general" || selectedAllSections() ? "disabled" : ""}>
+      <input type="checkbox" value="${escapeAttribute(section)}" data-operation-group="benchmark" data-benchmark-section="${escapeAttribute(section)}" ${state.benchmark.sections.includes(section) ? "checked" : ""} ${state.benchmark.type === "general" || selectedAllSections() ? "disabled" : ""}>
       <span>${escapeHTML(section)}</span>
     </label>
   `).join("");

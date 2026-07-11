@@ -10,14 +10,25 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
+
+	"tensors-router/internal/atomicfile"
 )
 
 type HashStore struct {
-	path  string
-	mu    sync.Mutex
-	cache hashCache
-	seen  map[string]struct{}
+	path       string
+	mu         sync.Mutex
+	flushMu    sync.Mutex
+	cache      hashCache
+	seen       map[string]struct{}
+	dirty      bool
+	revision   uint64
+	flushDelay time.Duration
+	flushTimer *time.Timer
+	persist    func(hashCache) error
 }
+
+const defaultHashFlushDelay = 500 * time.Millisecond
 
 type hashCache struct {
 	Version int                         `json:"version"`
@@ -68,13 +79,15 @@ func NewHashStore(storeDir string) (*HashStore, error) {
 		return nil, err
 	}
 	store := &HashStore{
-		path: filepath.Join(storeDir, "hash-cache.json"),
+		path:       filepath.Join(storeDir, "hash-cache.json"),
+		flushDelay: defaultHashFlushDelay,
 		cache: hashCache{
 			Version: 1,
 			Files:   map[string]cachedFileRecord{},
 		},
 		seen: map[string]struct{}{},
 	}
+	store.persist = store.persistCache
 	content, err := os.ReadFile(store.path)
 	if err == nil {
 		var loaded hashCache
@@ -91,21 +104,92 @@ func (store *HashStore) StartScan() {
 	store.mu.Unlock()
 }
 
-func (store *HashStore) Save() error {
+func (store *HashStore) FinishScan() {
 	store.mu.Lock()
-	defer store.mu.Unlock()
-
+	changed := false
 	for path := range store.cache.Files {
 		if _, ok := store.seen[path]; !ok {
 			delete(store.cache.Files, path)
+			changed = true
 		}
 	}
+	if changed {
+		store.markDirtyLocked()
+	}
+	store.mu.Unlock()
+}
 
-	content, err := json.MarshalIndent(store.cache, "", "  ")
+func (store *HashStore) Save() error {
+	return store.Flush()
+}
+
+func (store *HashStore) Flush() error {
+	if store == nil {
+		return nil
+	}
+	store.flushMu.Lock()
+	defer store.flushMu.Unlock()
+	store.mu.Lock()
+	if store.flushTimer != nil {
+		store.flushTimer.Stop()
+		store.flushTimer = nil
+	}
+	if !store.dirty {
+		store.mu.Unlock()
+		return nil
+	}
+	cache := cloneHashCache(store.cache)
+	revision := store.revision
+	store.mu.Unlock()
+
+	if err := store.persist(cache); err != nil {
+		return err
+	}
+
+	store.mu.Lock()
+	if store.revision == revision {
+		store.dirty = false
+	}
+	if store.dirty {
+		store.scheduleFlushLocked()
+	}
+	store.mu.Unlock()
+	return nil
+}
+
+func (store *HashStore) Close() error {
+	return store.Flush()
+}
+
+func (store *HashStore) persistCache(cache hashCache) error {
+	content, err := json.MarshalIndent(cache, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(store.path, content, 0o644)
+	return atomicfile.Write(store.path, content, 0o644)
+}
+
+func (store *HashStore) markDirtyLocked() {
+	store.dirty = true
+	store.revision++
+	store.scheduleFlushLocked()
+}
+
+func (store *HashStore) scheduleFlushLocked() {
+	if store.flushTimer != nil {
+		store.flushTimer.Stop()
+	}
+	store.flushTimer = time.AfterFunc(store.flushDelay, func() {
+		_ = store.Flush()
+	})
+}
+
+func cloneHashCache(cache hashCache) hashCache {
+	cloned := hashCache{Version: cache.Version, Files: make(map[string]cachedFileRecord, len(cache.Files))}
+	for path, record := range cache.Files {
+		cloned.Files[path] = record
+	}
+	return cloned
 }
 
 func (store *HashStore) ModelHash(configContent []byte) string {
@@ -147,6 +231,7 @@ func (store *HashStore) HashFile(path string) (string, bool) {
 		ModTimeNano: info.ModTime().UnixNano(),
 		Hash:        hash,
 	}
+	store.markDirtyLocked()
 	store.mu.Unlock()
 	return hash, true
 }

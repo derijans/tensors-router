@@ -48,6 +48,9 @@ kcpps/sdxl.kcpps with sdmodel C:\models\juggernautXL.safetensors -> image model 
 Main config fields:
 
 ```yaml
+security:
+  profile: "secure"
+
 server:
   bind: "127.0.0.1:8080"
   allowed_cidrs:
@@ -55,7 +58,8 @@ server:
     - "::1/128"
 
 auth:
-  bearer_keys: []
+  inference_keys: []
+  admin_keys: []
 
 models:
   config_dir: "./kcpps"
@@ -87,7 +91,7 @@ sdcpp:
   extra_args: []
 
 logging:
-  enabled: true
+  mode: "normal"
   backend_logs_to_disk: false
 
 updates:
@@ -110,9 +114,20 @@ cluster:
   store_dir: "./router-store"
   sync_interval: "60s"
   health_interval: "15s"
+
+limits:
+  max_control_body_mb: 8
+  replay_buffer_mb: 64
+  memory_budget_mb: 2048
+  max_stream_request_gb: 32
+  max_stream_response_gb: 32
+  selector_scan_mb: 64
+  drain_timeout: "15m"
 ```
 
 `models.file_roots` is optional and used only by the management web UI model-file inventory and cooking APIs. The scanner is limited to those roots.
+
+`limits.memory_budget_mb` covers retained request bodies and bounded transformation working sets; it must be at least twice `limits.replay_buffer_mb` plus 32 MiB.
 
 ## Download Backends
 
@@ -140,6 +155,12 @@ cp webui.example.yaml webui.yaml
 ```
 
 If `router.url` is empty, `tensor-router-webui` looks beside itself for `tensors-router`, launches it with `router.config_path`, and stops that managed router process when the web UI exits. If `router.url` is set, the router is treated as external and launch/restart/kill controls are disabled. The web UI serves HTTPS with a self-signed certificate from `server.state_dir` unless cert files are configured. Generated certificates include localhost, loopback IPs, and local interface IPs for wildcard binds. Set `server.cert_hosts` for browser-facing DNS names or public/NAT IPs the process cannot infer.
+
+The WebUI also supports `security.profile: secure | trusted_lan` and the same CLI/environment precedence as the router. Secure non-loopback WebUI binds require `server.admin_token`. Trusted-LAN mode skips WebUI login and CSRF authentication while preserving router cluster authentication.
+
+Backend UIs are served from the separate `server.backend_ui_bind` listener, which defaults to `127.0.0.1:8444`; the management UI remains on `server.bind`. Do not configure those listeners to the same address. Set `server.backend_ui_public_url` to the browser-visible HTTPS origin when NAT or port mapping prevents automatic derivation. Secure mode crosses origins with short-lived, single-use tickets, and neither admin cookies nor caller credentials are forwarded to backend processes.
+
+Container and GPU deployment examples are in [docs/containers.md](docs/containers.md). Release publishing creates `ghcr.io/<owner>/<repository>/tensors-router-node:<version>` and `ghcr.io/<owner>/<repository>/tensors-router-webui:<version>`.
 
 ## Troubleshooting
 
@@ -266,19 +287,31 @@ Cluster model records include `backend_mode`. Masters use the text lane health f
 
 ## Auth
 
-Optional bearer keys:
+Secure mode separates model inference, administration, and cluster credentials:
 
 ```yaml
+security:
+  profile: "secure"
+
 auth:
-  bearer_keys:
-    - "change-me"
+  inference_keys:
+    - "inference-key"
+  admin_keys:
+    - "admin-key"
+
+cluster:
+  token: "cluster-key"
 ```
 
-Requests must also match `server.allowed_cidrs`.
+Inference keys authorize model APIs. Admin keys authorize site APIs, benchmarks, load, unload, and shutdown. The cluster token is accepted only by `/router/v1/node/...`. `auth.bearer_keys` remains accepted as a deprecated inference-only alias and emits a startup warning.
+
+`security.profile: trusted_lan` skips inference, router administration, and WebUI login checks. Cluster authentication, CIDR checks, backend isolation, header filtering, and resource limits remain enabled. The effective profile uses `--security-profile` first, then `TENSORS_ROUTER_SECURITY_PROFILE`, then the config value, with `secure` as the default. A managed WebUI passes its profile to its child router; an external router keeps its own setting.
+
+Secure mode defaults to `127.0.0.1`. A non-loopback secure bind requires both inference and admin credentials. Router startup fails when its configuration file is missing or a credential contains a known placeholder such as `change-me`.
 
 ## Logging
 
-Set `logging.enabled: false` to suppress router event logs.
+Set `logging.mode` to `normal`, `startup_only`, or `quiet`. The deprecated `logging.enabled` setting maps `true` to `normal` and `false` to `quiet`.
 
 Set `logging.backend_logs_to_disk: true` to write backend process output to `koboldcpp.log`, `llama-server.log`, or `sd-server.log`. By default, managed backend stdout/stderr is discarded instead of written to disk.
 

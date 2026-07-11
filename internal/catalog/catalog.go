@@ -7,12 +7,21 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 )
 
 type Catalog struct {
-	scanMu    sync.Mutex
+	refreshMu sync.Mutex
 	dir       string
 	hashStore *HashStore
+	snapshot  atomic.Pointer[catalogSnapshot]
+	readDir   func(string) ([]os.DirEntry, error)
+}
+
+type catalogSnapshot struct {
+	models  []Model
+	byID    map[string]Model
+	loadErr error
 }
 
 const AllImageConfigs = "*"
@@ -39,7 +48,11 @@ type Model struct {
 }
 
 func New(dir string) *Catalog {
-	return &Catalog{dir: dir}
+	catalog := &Catalog{dir: dir, readDir: os.ReadDir}
+	if err := catalog.Refresh(); err != nil {
+		catalog.snapshot.Store(newCatalogSnapshot(nil, err))
+	}
+	return catalog
 }
 
 func NewWithStore(dir string, storeDir string) (*Catalog, error) {
@@ -47,24 +60,61 @@ func NewWithStore(dir string, storeDir string) (*Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Catalog{dir: dir, hashStore: hashStore}, nil
+	catalog := &Catalog{dir: dir, hashStore: hashStore, readDir: os.ReadDir}
+	if err := catalog.Refresh(); err != nil {
+		return nil, err
+	}
+	return catalog, nil
 }
 
 func (catalog *Catalog) List() ([]Model, error) {
-	catalog.scanMu.Lock()
-	defer catalog.scanMu.Unlock()
+	snapshot := catalog.snapshot.Load()
+	if snapshot == nil {
+		return nil, nil
+	}
+	if snapshot.loadErr != nil {
+		return nil, snapshot.loadErr
+	}
+	return cloneModels(snapshot.models), nil
+}
+
+func (catalog *Catalog) Refresh() error {
+	catalog.refreshMu.Lock()
+	defer catalog.refreshMu.Unlock()
 
 	if catalog.hashStore != nil {
 		catalog.hashStore.StartScan()
 	}
-	entries, err := os.ReadDir(catalog.dir)
+	models, err := catalog.scanModels()
+	if err != nil {
+		return err
+	}
+	if catalog.hashStore != nil {
+		catalog.hashStore.FinishScan()
+	}
+	catalog.snapshot.Store(newCatalogSnapshot(models, nil))
+	return nil
+}
+
+func (catalog *Catalog) Flush() error {
+	if catalog == nil || catalog.hashStore == nil {
+		return nil
+	}
+	return catalog.hashStore.Flush()
+}
+
+func (catalog *Catalog) Close() error {
+	return catalog.Flush()
+}
+
+func (catalog *Catalog) scanModels() ([]Model, error) {
+	readDir := catalog.readDir
+	if readDir == nil {
+		readDir = os.ReadDir
+	}
+	entries, err := readDir(catalog.dir)
 	if err != nil {
 		if os.IsNotExist(err) {
-			if catalog.hashStore != nil {
-				if saveErr := catalog.hashStore.Save(); saveErr != nil {
-					return nil, saveErr
-				}
-			}
 			return []Model{}, nil
 		}
 		return nil, err
@@ -93,11 +143,6 @@ func (catalog *Catalog) List() ([]Model, error) {
 	sort.Slice(models, func(left, right int) bool {
 		return models[left].ID < models[right].ID
 	})
-	if catalog.hashStore != nil {
-		if err := catalog.hashStore.Save(); err != nil {
-			return nil, err
-		}
-	}
 	return models, nil
 }
 
@@ -105,16 +150,15 @@ func (catalog *Catalog) Resolve(id string) (Model, bool, error) {
 	if id != filepath.Base(id) {
 		return Model{}, false, nil
 	}
-	models, err := catalog.List()
-	if err != nil {
-		return Model{}, false, err
+	snapshot := catalog.snapshot.Load()
+	if snapshot == nil {
+		return Model{}, false, nil
 	}
-	for _, model := range models {
-		if model.ID == id {
-			return model, true, nil
-		}
+	if snapshot.loadErr != nil {
+		return Model{}, false, snapshot.loadErr
 	}
-	return Model{}, false, nil
+	model, ok := snapshot.byID[id]
+	return cloneModel(model), ok, nil
 }
 
 func (catalog *Catalog) ListLLM() ([]Model, error) {
@@ -225,6 +269,65 @@ func (catalog *Catalog) withMetadata(model Model) Model {
 		model.ModelHash = ModelReferenceHash(content, nil)
 	}
 	return model
+}
+
+func newCatalogSnapshot(models []Model, loadErr error) *catalogSnapshot {
+	cloned := cloneModels(models)
+	snapshot := &catalogSnapshot{
+		models:  cloned,
+		byID:    make(map[string]Model, len(cloned)),
+		loadErr: loadErr,
+	}
+	for _, model := range cloned {
+		snapshot.byID[model.ID] = model
+	}
+	return snapshot
+}
+
+func cloneModels(models []Model) []Model {
+	cloned := make([]Model, len(models))
+	for index := range models {
+		cloned[index] = cloneModel(models[index])
+	}
+	return cloned
+}
+
+func cloneModel(model Model) Model {
+	cloned := model
+	if model.Options != nil {
+		cloned.Options = make(map[string]json.RawMessage, len(model.Options))
+		for key, value := range model.Options {
+			cloned.Options[key] = append(json.RawMessage(nil), value...)
+		}
+	}
+	cloned.Capabilities = cloneCapabilities(model.Capabilities)
+	return cloned
+}
+
+func cloneCapabilities(capabilities Capabilities) Capabilities {
+	cloned := capabilities
+	if capabilities.Image != nil {
+		image := *capabilities.Image
+		image.LoRA = append([]string{}, capabilities.Image.LoRA...)
+		cloned.Image = &image
+	}
+	if capabilities.Embeddings != nil {
+		embeddings := *capabilities.Embeddings
+		cloned.Embeddings = &embeddings
+	}
+	if capabilities.Multimodal != nil {
+		multimodal := *capabilities.Multimodal
+		cloned.Multimodal = &multimodal
+	}
+	if capabilities.Voice != nil {
+		voice := *capabilities.Voice
+		cloned.Voice = &voice
+	}
+	if capabilities.Music != nil {
+		music := *capabilities.Music
+		cloned.Music = &music
+	}
+	return cloned
 }
 
 func hasLLMModel(metadata configMetadata) bool {

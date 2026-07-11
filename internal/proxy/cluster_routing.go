@@ -66,7 +66,7 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 	}
 
-	if err := writeModelProxyResponse(w, response, publicID, true); err != nil {
+	if err := service.writeModelProxyResponse(w, response, publicID, true); err != nil {
 		return
 	}
 }
@@ -115,6 +115,7 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return true
 	}
+	jobBackendMode := modelBackendMode
 	route, release, ok := service.registry.AcquireImage(publicImageID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readinessImage), activeConfigFilename)
 	if !ok {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("image model %q has no available replicas", publicImageID))
@@ -137,6 +138,7 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 			return true
 		}
+		jobBackendMode = routeBackendMode
 		if routeBackendMode == BackendModeLlamaSDCPP && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
 			if err := service.loadLocalRuntimeForRequest(r.Context(), routeBackendMode, route.PublicID, route.Filename, readinessText); err != nil {
 				release()
@@ -157,12 +159,21 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", forwardErr.Error())
 		return true
 	}
+	if isSdcppJobSubmissionPath(r.URL.Path) {
+		response = service.responseWithSdcppJobTracking(response, sdcppJobTarget{
+			publicImageID:  publicImageID,
+			configFilename: route.Filename,
+			backendMode:    jobBackendMode,
+			remote:         route.Remote,
+			nodeURL:        route.NodeURL,
+		})
+	}
 	response = responseWithRelease(response, release)
 	if recordAnalytics {
 		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 	}
 
-	if err := writeProxyResponse(w, response, publicImageID, true); err != nil {
+	if err := service.writeProxyResponse(w, response, publicImageID, true); err != nil {
 		return true
 	}
 	return true
@@ -196,7 +207,7 @@ func (service *Service) handleRegistryImageOptions(w http.ResponseWriter, r *htt
 			return true
 		}
 		response = responseWithRelease(response, release)
-		if err := writeProxyResponse(w, response, publicImageID, true); err != nil {
+		if err := service.writeProxyResponse(w, response, publicImageID, true); err != nil {
 			return true
 		}
 		return true
@@ -287,7 +298,7 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 	if recordAnalytics {
 		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 	}
-	if err := writeProxyResponse(w, response, publicID, false); err != nil {
+	if err := service.writeProxyResponse(w, response, publicID, false); err != nil {
 		return
 	}
 }
@@ -336,14 +347,14 @@ func (service *Service) forwardRemote(ctx context.Context, original *http.Reques
 	if err != nil {
 		return nil, err
 	}
-	target.Path = joinPath(target.Path, original.URL.Path)
+	target.Path = joinPath(target.Path, "/router/v1/node/inference"+original.URL.Path)
 	target.RawQuery = original.URL.RawQuery
 
 	request, err := http.NewRequestWithContext(ctx, original.Method, target.String(), bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}
-	copyRequestHeaders(request.Header, original.Header)
+	copyClusterRequestHeaders(request.Header, original.Header)
 	request.Header.Set("Authorization", "Bearer "+service.clusterToken)
 	request.Host = target.Host
 	return service.client.Do(request)

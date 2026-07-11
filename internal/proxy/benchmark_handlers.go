@@ -13,6 +13,9 @@ func (service *Service) handleBenchmarkRun(w http.ResponseWriter, r *http.Reques
 		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
 		return
 	}
+	if service.rejectModelLoadWhileDraining(w) {
+		return
+	}
 	var request routerbenchmark.RunRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
@@ -27,6 +30,9 @@ func (service *Service) handleBenchmarkRun(w http.ResponseWriter, r *http.Reques
 }
 
 func (service *Service) handleNodeBenchmarkRun(w http.ResponseWriter, r *http.Request) {
+	if service.rejectModelLoadWhileDraining(w) {
+		return
+	}
 	var request routerbenchmark.RunRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())

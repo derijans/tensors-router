@@ -1469,3 +1469,55 @@ td {
     white-space: normal;
   }
 }
+.operation-status {
+  min-width: 12rem;
+  font-size: 0.85rem;
+}
+
+.operation-status .error-text {
+  display: inline;
+}
+
+.operation-status button {
+  margin-left: 0.5rem;
+}
+
+.safety-dialog {
+  max-width: min(42rem, calc(100vw - 2rem));
+}
+
+.dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  margin-top: 1.25rem;
+}
+
+.dialog-warning {
+  border-left: 0.25rem solid var(--amber, #d99022);
+  padding-left: 0.9rem;
+}
+
+.conversion-table {
+  width: 100%;
+  margin-top: 1rem;
+  border-collapse: collapse;
+}
+
+.conversion-table th,
+.conversion-table td {
+  padding: 0.5rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.cook-result-grid {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.cook-result-grid pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

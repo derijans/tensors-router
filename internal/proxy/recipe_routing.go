@@ -50,7 +50,7 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 	if recordAnalytics {
 		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 	}
-	if err := writeModelProxyResponse(w, response, publicID, true); err != nil {
+	if err := service.writeModelProxyResponse(w, response, publicID, true); err != nil {
 		return true
 	}
 	return true
@@ -69,6 +69,7 @@ func (service *Service) handleRecipeImageRequest(w http.ResponseWriter, r *http.
 	var analyticsEvent routeranalytics.Event
 	var workFinalizer analyticsEventFinalizer
 	recordAnalytics := false
+	jobBackendMode := ""
 	if component.NodeID != service.nodeID {
 		route.Remote = true
 		response, err = service.forwardRemote(r.Context(), request, requestBody, route)
@@ -78,6 +79,7 @@ func (service *Service) handleRecipeImageRequest(w http.ResponseWriter, r *http.
 			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", modeErr.Error())
 			return true
 		}
+		jobBackendMode = backendMode
 		if backendMode == BackendModeLlamaSDCPP && component.ModelID != "" {
 			if err := service.loadLocalRuntimeForRequest(r.Context(), backendMode, component.ModelID, component.ConfigFilename, readinessText); err != nil {
 				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
@@ -96,10 +98,19 @@ func (service *Service) handleRecipeImageRequest(w http.ResponseWriter, r *http.
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return true
 	}
+	if isSdcppJobSubmissionPath(r.URL.Path) {
+		response = service.responseWithSdcppJobTracking(response, sdcppJobTarget{
+			publicImageID:  publicImageID,
+			configFilename: component.ConfigFilename,
+			backendMode:    jobBackendMode,
+			remote:         route.Remote,
+			nodeURL:        route.NodeURL,
+		})
+	}
 	if recordAnalytics {
 		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 	}
-	if err := writeProxyResponse(w, response, publicImageID, true); err != nil {
+	if err := service.writeProxyResponse(w, response, publicImageID, true); err != nil {
 		return true
 	}
 	return true
@@ -231,7 +242,7 @@ func (service *Service) handleRecipeAudioRequest(w http.ResponseWriter, r *http.
 	if recordAnalytics {
 		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 	}
-	if err := writeProxyResponse(w, response, publicID, false); err != nil {
+	if err := service.writeProxyResponse(w, response, publicID, false); err != nil {
 		return true
 	}
 	return true

@@ -72,7 +72,7 @@ export function renderTables(): void {
       <td>${escapeHTML(benchmarkCompactLabel(model))}</td>
       <td>${model.available ? "yes" : "no"}</td>
       <td>
-        <button type="button" data-load-config="${escapeAttribute(model.public_id || model.local_id)}">Load</button>
+        <button type="button" data-operation-group="webui" data-load-config="${escapeAttribute(model.public_id || model.local_id)}">Load</button>
       </td>
     </tr>
   `).join("");

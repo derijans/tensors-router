@@ -22,6 +22,8 @@ func TestStoreFlushesAndQueriesAnalytics(t *testing.T) {
 		StartedAt:       now.Add(-2 * time.Second),
 		FinishedAt:      now,
 		DurationMS:      2000,
+		RequestBytes:    123,
+		ResponseBytes:   456,
 		InputTokens:     10,
 		OutputTokens:    5,
 		TokensPerSecond: 2.5,
@@ -71,6 +73,9 @@ func TestStoreFlushesAndQueriesAnalytics(t *testing.T) {
 	}
 	if len(response.Recent) != 2 || response.Recent[0].ModelID != "image-a" {
 		t.Fatalf("unexpected recent rows %#v", response.Recent)
+	}
+	if response.Recent[1].RequestBytes != 123 || response.Recent[1].ResponseBytes != 456 {
+		t.Fatalf("unexpected transfer counts %#v", response.Recent[1])
 	}
 }
 
@@ -420,4 +425,60 @@ func newTestStore(t *testing.T, nodeID string) *Store {
 		}
 	})
 	return store
+}
+
+func TestRawRetentionKeepsHistoricalRollupQueriesComplete(t *testing.T) {
+	store, err := NewStore(StoreConfig{
+		NodeID:        "node-a",
+		DatabasePath:  filepath.Join(t.TempDir(), "analytics.sqlite"),
+		FlushInterval: time.Hour,
+		RawRetention:  24 * time.Hour,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := store.Close(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	})
+
+	now := time.Now().UTC()
+	old := now.Add(-72 * time.Hour)
+	recent := now.Add(-12 * time.Hour)
+	store.Record(Event{ModelID: "old", Section: SectionLLM, StatusCode: 200, Success: true, StartedAt: old, FinishedAt: old, TotalTokens: 7})
+	store.Record(Event{ModelID: "recent", Section: SectionImage, StatusCode: 200, Success: true, StartedAt: recent, FinishedAt: recent, TotalTokens: 3, ImageCount: 1})
+	if err := store.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	var rawCount int
+	if err := store.db.QueryRow(`SELECT COUNT(*) FROM analytics_events`).Scan(&rawCount); err != nil {
+		t.Fatal(err)
+	}
+	if rawCount != 1 {
+		t.Fatalf("unexpected retained raw count %d", rawCount)
+	}
+
+	response, err := store.Query(context.Background(), Query{Period: PeriodAll, StartMS: old.Add(-time.Hour).UnixMilli(), EndMS: now.UnixMilli()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Summary.RequestCount != 2 || response.Summary.TotalTokens != 10 || len(response.Models) != 2 {
+		t.Fatalf("historical rollups were incomplete %#v", response)
+	}
+	if len(response.Recent) != 1 || response.Recent[0].ModelID != "recent" {
+		t.Fatalf("recent events should remain raw-only %#v", response.Recent)
+	}
+}
+
+func TestStoreRejectsNegativeRawRetention(t *testing.T) {
+	_, err := NewStore(StoreConfig{
+		DatabasePath:  filepath.Join(t.TempDir(), "analytics.sqlite"),
+		FlushInterval: time.Hour,
+		RawRetention:  -time.Hour,
+	})
+	if err == nil {
+		t.Fatal("expected raw retention validation error")
+	}
 }

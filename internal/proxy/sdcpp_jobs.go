@@ -7,21 +7,36 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"time"
+)
+
+const (
+	maxSdcppJobs       = 10000
+	maxSdcppJobIDBytes = 1024
+	sdcppJobLifetime   = 24 * time.Hour
 )
 
 type sdcppJobTarget struct {
 	publicImageID  string
 	configFilename string
 	backendMode    string
+	remote         bool
+	nodeURL        string
 }
 
 type sdcppJobStore struct {
 	mu   sync.Mutex
-	jobs map[string]sdcppJobTarget
+	jobs map[string]sdcppJobEntry
+	now  func() time.Time
+}
+
+type sdcppJobEntry struct {
+	target    sdcppJobTarget
+	expiresAt time.Time
 }
 
 func newSdcppJobStore() *sdcppJobStore {
-	return &sdcppJobStore{jobs: map[string]sdcppJobTarget{}}
+	return &sdcppJobStore{jobs: map[string]sdcppJobEntry{}, now: time.Now}
 }
 
 func (store *sdcppJobStore) routeForPath(path string) (sdcppJobTarget, bool) {
@@ -31,31 +46,68 @@ func (store *sdcppJobStore) routeForPath(path string) (sdcppJobTarget, bool) {
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	target, ok := store.jobs[jobID]
-	return target, ok
+	store.removeExpiredLocked()
+	entry, ok := store.jobs[jobID]
+	return entry.target, ok
 }
 
 func (store *sdcppJobStore) remember(jobID string, target sdcppJobTarget) {
 	jobID = strings.TrimSpace(jobID)
-	if jobID == "" {
+	if jobID == "" || len(jobID) > maxSdcppJobIDBytes {
 		return
 	}
 	store.mu.Lock()
-	store.jobs[jobID] = target
-	store.mu.Unlock()
+	defer store.mu.Unlock()
+	store.removeExpiredLocked()
+	if len(store.jobs) >= maxSdcppJobs {
+		store.removeOldestLocked()
+	}
+	store.jobs[jobID] = sdcppJobEntry{target: target, expiresAt: store.now().Add(sdcppJobLifetime)}
+}
+
+func (store *sdcppJobStore) removeExpiredLocked() {
+	now := store.now()
+	for jobID, entry := range store.jobs {
+		if !now.Before(entry.expiresAt) {
+			delete(store.jobs, jobID)
+		}
+	}
+}
+
+func (store *sdcppJobStore) removeOldestLocked() {
+	oldestID := ""
+	var oldestExpiry time.Time
+	for jobID, entry := range store.jobs {
+		if oldestID == "" || entry.expiresAt.Before(oldestExpiry) {
+			oldestID = jobID
+			oldestExpiry = entry.expiresAt
+		}
+	}
+	if oldestID != "" {
+		delete(store.jobs, oldestID)
+	}
 }
 
 func (service *Service) responseWithSdcppJobTracking(response *http.Response, target sdcppJobTarget) *http.Response {
 	if response == nil || response.Body == nil || response.StatusCode < 200 || response.StatusCode >= 300 || !isJSONResponse(response.Header) {
 		return response
 	}
-	body, err := io.ReadAll(response.Body)
-	_ = response.Body.Close()
+	if response.ContentLength > backendResponseMetadataLimit {
+		return response
+	}
+	originalBody := response.Body
+	body, err := io.ReadAll(io.LimitReader(originalBody, backendResponseMetadataLimit+1))
 	if err != nil {
+		_ = originalBody.Close()
 		response.Body = io.NopCloser(bytes.NewReader(nil))
 		response.ContentLength = 0
 		return response
 	}
+	if len(body) > backendResponseMetadataLimit {
+		response.Body = replayReadCloser{Reader: io.MultiReader(bytes.NewReader(body), originalBody), closer: originalBody}
+		return response
+	}
+	_ = originalBody.Close()
 	if jobID := sdcppJobIDFromResponse(body); jobID != "" {
 		service.sdcppJobs.remember(jobID, target)
 	}

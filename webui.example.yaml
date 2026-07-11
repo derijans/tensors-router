@@ -1,10 +1,15 @@
+security:
+  profile: "secure"
+
 server:
   bind: "127.0.0.1:8443"
+  backend_ui_bind: "127.0.0.1:8444"
+  backend_ui_public_url: ""
   state_dir: "./webui-state"
   cert_file: ""
   key_file: ""
   cert_hosts: []
-  admin_token: "change-me"
+  admin_token: ""
 
 router:
   url: ""
@@ -14,3 +19,6 @@ router:
   start_when_missing: true
   shutdown_with_webui: true
   args: []
+
+logging:
+  mode: "normal"

@@ -25,7 +25,7 @@ func TestSplitRecipeRoutesTextAndImageToDifferentNodes(t *testing.T) {
 	var imageSawAuthorization bool
 
 	textNode := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/chat/completions" {
+		if r.URL.Path != "/router/v1/node/inference/v1/chat/completions" {
 			t.Fatalf("unexpected text path %s", r.URL.Path)
 		}
 		textSawAuthorization = r.Header.Get("Authorization") == "Bearer secret"
@@ -40,7 +40,7 @@ func TestSplitRecipeRoutesTextAndImageToDifferentNodes(t *testing.T) {
 	defer textNode.Close()
 
 	imageNode := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/images/generations" {
+		if r.URL.Path != "/router/v1/node/inference/v1/images/generations" {
 			t.Fatalf("unexpected image path %s", r.URL.Path)
 		}
 		imageSawAuthorization = r.Header.Get("Authorization") == "Bearer secret"

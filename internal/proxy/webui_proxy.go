@@ -44,7 +44,7 @@ func (service *Service) handleSiteWebUIProxy(w http.ResponseWriter, r *http.Requ
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
-	if err := writeWebUIProxyResponse(w, response); err != nil {
+	if err := writeWebUIProxyResponse(service, w, response); err != nil {
 		return
 	}
 }
@@ -66,7 +66,7 @@ func (service *Service) handleNodeWebUIProxy(w http.ResponseWriter, r *http.Requ
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
-	if err := writeWebUIProxyResponse(w, response); err != nil {
+	if err := writeWebUIProxyResponse(service, w, response); err != nil {
 		return
 	}
 }
@@ -90,7 +90,7 @@ func (service *Service) acquireLocalWebUIProxyRoute(ctx context.Context, definit
 	return routes[0], func() {}, true
 }
 
-func (service *Service) activeWebUIRoutes(ctx context.Context, definition webUIDefinition) ([]cluster.Route, error) {
+func (service *Service) discoverActiveWebUIRoutes(ctx context.Context, definition webUIDefinition) ([]cluster.Route, error) {
 	routes, err := service.localActiveWebUIRoutes(ctx, definition)
 	if err != nil {
 		return nil, err
@@ -246,8 +246,8 @@ func readProxyRequestBody(original *http.Request) ([]byte, error) {
 	return io.ReadAll(original.Body)
 }
 
-func writeWebUIProxyResponse(w http.ResponseWriter, response *http.Response) error {
-	return writeProxyResponse(w, response, "", false)
+func writeWebUIProxyResponse(service *Service, w http.ResponseWriter, response *http.Response) error {
+	return service.writeProxyResponse(w, response, "", false)
 }
 
 func rewriteWebUIResponseLocation(response *http.Response, baseURL *url.URL, definition webUIDefinition, publicPrefix string, strippedPath string) {

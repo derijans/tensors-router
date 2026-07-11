@@ -217,6 +217,9 @@ func (service *Service) handleSiteWebUILoad(w http.ResponseWriter, r *http.Reque
 		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
 		return
 	}
+	if service.rejectModelLoadWhileDraining(w) {
+		return
+	}
 	request, err := readWebUILoadRequest(r)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
@@ -233,6 +236,9 @@ func (service *Service) handleSiteWebUILoad(w http.ResponseWriter, r *http.Reque
 }
 
 func (service *Service) handleNodeSiteWebUILoad(w http.ResponseWriter, r *http.Request) {
+	if service.rejectModelLoadWhileDraining(w) {
+		return
+	}
 	request, err := readWebUILoadRequest(r)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
@@ -375,12 +381,16 @@ func (service *Service) markRemoteActiveWebUIs(ctx context.Context, entries []We
 	for index := range entries {
 		entryByID[entries[index].ID] = &entries[index]
 	}
-	for _, nodeURL := range service.remoteInventoryURLs() {
-		var remote WebUICatalogResponse
-		if err := service.clusterClient.JSON(ctx, http.MethodGet, nodeURL, "/router/v1/node/site/webuis", nil, &remote); err != nil {
+	results := fanOutNodes(ctx, service.remoteInventoryURLs(), func(nodeContext context.Context, nodeURL string) (WebUICatalogResponse, error) {
+		var response WebUICatalogResponse
+		err := service.clusterClient.JSON(nodeContext, http.MethodGet, nodeURL, "/router/v1/node/site/webuis", nil, &response)
+		return response, err
+	})
+	for _, result := range results {
+		if result.Err != nil {
 			continue
 		}
-		for _, remoteEntry := range remote.Data {
+		for _, remoteEntry := range result.Value.Data {
 			entry := entryByID[remoteEntry.ID]
 			if entry == nil || !remoteEntry.Active {
 				continue

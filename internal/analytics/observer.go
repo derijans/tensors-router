@@ -34,6 +34,7 @@ func NewResponseObserver(sink EventSink, event Event, contentType string, body i
 func (observer *ResponseObserver) Read(p []byte) (int, error) {
 	read, readErr := observer.body.Read(p)
 	if read > 0 {
+		observer.event.ResponseBytes += int64(read)
 		observer.observe(p[:read])
 	}
 	if readErr == io.EOF {

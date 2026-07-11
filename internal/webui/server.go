@@ -5,10 +5,19 @@ import (
 	"encoding/json"
 	"io"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"tensors-router/internal/transportbody"
+)
+
+const (
+	backendTicketQueryKey     = "tensors_router_ticket"
+	maxWebUIControlBodyBytes  = 8 * transportbody.MiB
+	maxWebUIProxyResponseSize = 32 * transportbody.GiB
 )
 
 type Server struct {
@@ -18,6 +27,7 @@ type Server struct {
 	client   *http.Client
 	static   http.Handler
 	assets   fs.FS
+	access   *proxyAccessManager
 }
 
 type loginRequest struct {
@@ -33,15 +43,27 @@ func NewServer(config Config, router *RouterProcess, sessions *SessionManager) *
 		client:   &http.Client{Timeout: 0},
 		static:   http.FileServer(http.FS(assets)),
 		assets:   assets,
+		access:   newProxyAccessManager(),
 	}
 }
 
 func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if path, ok := webUIBackendProxyPath(r); ok {
-		server.proxyRouterWebUIPath(w, r, path)
-		return
-	}
+	server.serveAdminHTTP(w, r)
+}
+
+func (server *Server) AdminHandler() http.Handler {
+	return http.HandlerFunc(server.serveAdminHTTP)
+}
+
+func (server *Server) BackendUIHandler() http.Handler {
+	return http.HandlerFunc(server.serveBackendUIHTTP)
+}
+
+func (server *Server) serveAdminHTTP(w http.ResponseWriter, r *http.Request) {
 	if strings.HasPrefix(r.URL.Path, "/api/") {
+		if limitAdminAPIRequestBody(w, r) {
+			return
+		}
 		server.handleAPI(w, r)
 		return
 	}
@@ -54,6 +76,41 @@ func (server *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	server.static.ServeHTTP(w, r)
+}
+
+func limitAdminAPIRequestBody(w http.ResponseWriter, r *http.Request) bool {
+	if r.Body == nil || !stateChangingMethod(r.Method) {
+		return false
+	}
+	if r.ContentLength > maxWebUIControlBodyBytes {
+		writeWebError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		return true
+	}
+	content, err := io.ReadAll(io.LimitReader(r.Body, maxWebUIControlBodyBytes+1))
+	_ = r.Body.Close()
+	if err != nil {
+		writeWebError(w, http.StatusBadRequest, err.Error())
+		return true
+	}
+	if int64(len(content)) > maxWebUIControlBodyBytes {
+		writeWebError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		return true
+	}
+	r.Body = io.NopCloser(bytes.NewReader(content))
+	r.ContentLength = int64(len(content))
+	return false
+}
+
+func (server *Server) serveBackendUIHTTP(w http.ResponseWriter, r *http.Request) {
+	kind, path, ok := backendUIRouterPath(r)
+	if !ok {
+		writeWebError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if !server.authorizeBackendUIRequest(w, r, kind) {
+		return
+	}
+	server.proxyRouterWebUIPath(w, r, path)
 }
 
 func (server *Server) serveIndex(w http.ResponseWriter) {
@@ -72,11 +129,11 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		server.handleLogin(w, r)
 		return
 	}
-	if !server.sessions.Authorized(r) {
+	if server.authenticationRequired() && !server.sessions.Authorized(r) {
 		writeWebError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	if stateChangingMethod(r.Method) && !server.sessions.ValidCSRF(r) {
+	if server.authenticationRequired() && stateChangingMethod(r.Method) && !server.sessions.ValidCSRF(r) {
 		writeWebError(w, http.StatusForbidden, "invalid csrf token")
 		return
 	}
@@ -133,6 +190,10 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (server *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
+	if !server.authenticationRequired() {
+		writeWebJSON(w, http.StatusOK, map[string]any{"authenticated": true, "csrf": ""})
+		return
+	}
 	var request loginRequest
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		writeWebError(w, http.StatusBadRequest, err.Error())
@@ -150,6 +211,10 @@ func (server *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (server *Server) handleSession(w http.ResponseWriter, r *http.Request) {
+	if !server.authenticationRequired() {
+		writeWebJSON(w, http.StatusOK, map[string]any{"authenticated": true, "csrf": ""})
+		return
+	}
 	session, ok := server.sessions.Session(r)
 	if !ok {
 		writeWebError(w, http.StatusUnauthorized, "unauthorized")
@@ -182,7 +247,7 @@ func (server *Server) handleRouterAction(w http.ResponseWriter, r *http.Request,
 }
 
 func (server *Server) proxyRouter(w http.ResponseWriter, r *http.Request, method string, path string) {
-	request, hasBody, ok := server.newRouterProxyRequest(w, r, method, path)
+	request, hasBody, ok := server.newRouterProxyRequest(w, r, method, path, false)
 	if !ok {
 		return
 	}
@@ -194,15 +259,25 @@ func (server *Server) proxyRouter(w http.ResponseWriter, r *http.Request, method
 }
 
 func (server *Server) proxyRouterWebUI(w http.ResponseWriter, r *http.Request) {
-	server.proxyRouterWebUIPath(w, r, r.URL.Path)
-}
-
-func (server *Server) proxyRouterWebUIPath(w http.ResponseWriter, r *http.Request, path string) {
-	if !server.sessions.Authorized(r) {
+	kind, ok := webUIKindFromPath(r.URL.Path)
+	if !ok {
+		writeWebError(w, http.StatusNotFound, "not found")
+		return
+	}
+	if server.authenticationRequired() && !server.sessions.Authorized(r) {
 		writeWebError(w, http.StatusUnauthorized, "unauthorized")
 		return
 	}
-	request, _, ok := server.newRouterProxyRequest(w, r, r.Method, path)
+	target, err := server.backendUIURL(r, kind)
+	if err != nil {
+		writeWebError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	http.Redirect(w, r, target, http.StatusFound)
+}
+
+func (server *Server) proxyRouterWebUIPath(w http.ResponseWriter, r *http.Request, path string) {
+	request, _, ok := server.newRouterProxyRequest(w, r, r.Method, path, true)
 	if !ok {
 		return
 	}
@@ -210,7 +285,77 @@ func (server *Server) proxyRouterWebUIPath(w http.ResponseWriter, r *http.Reques
 	server.forwardRouterProxyRequest(w, request, true)
 }
 
-func (server *Server) newRouterProxyRequest(w http.ResponseWriter, r *http.Request, method string, path string) (*http.Request, bool, bool) {
+func (server *Server) backendUIURL(r *http.Request, kind string) (string, error) {
+	origin, err := server.backendUIOrigin(r)
+	if err != nil {
+		return "", err
+	}
+	target, err := url.Parse(origin)
+	if err != nil {
+		return "", err
+	}
+	target.Path = r.URL.Path
+	query := r.URL.Query()
+	if server.authenticationRequired() {
+		query.Set(backendTicketQueryKey, server.access.Issue(kind))
+	}
+	target.RawQuery = query.Encode()
+	return target.String(), nil
+}
+
+func (server *Server) backendUIOrigin(r *http.Request) (string, error) {
+	if configured := strings.TrimSpace(server.config.Server.BackendUIPublicURL); configured != "" {
+		return strings.TrimRight(configured, "/"), nil
+	}
+	_, port, err := net.SplitHostPort(NormalizeBind(server.config.Server.BackendUIBind))
+	if err != nil {
+		return "", err
+	}
+	host := requestHostname(r.Host)
+	if host == "" {
+		return "", &net.AddrError{Err: "missing request host", Addr: r.Host}
+	}
+	return "https://" + net.JoinHostPort(host, port), nil
+}
+
+func requestHostname(hostPort string) string {
+	hostPort = strings.TrimSpace(hostPort)
+	if host, _, err := net.SplitHostPort(hostPort); err == nil {
+		return host
+	}
+	return strings.Trim(hostPort, "[]")
+}
+
+func (server *Server) authorizeBackendUIRequest(w http.ResponseWriter, r *http.Request, kind string) bool {
+	if !server.authenticationRequired() {
+		return true
+	}
+	ticket := strings.TrimSpace(r.URL.Query().Get(backendTicketQueryKey))
+	if ticket != "" {
+		if r.Method != http.MethodGet || !server.access.Exchange(w, ticket, kind) {
+			writeWebError(w, http.StatusUnauthorized, "invalid or expired backend UI ticket")
+			return false
+		}
+		target := *r.URL
+		query := target.Query()
+		query.Del(backendTicketQueryKey)
+		target.RawQuery = query.Encode()
+		w.Header().Set("Cache-Control", "no-store")
+		http.Redirect(w, r, target.String(), http.StatusFound)
+		return false
+	}
+	if !server.access.Authorized(r, kind) {
+		writeWebError(w, http.StatusUnauthorized, "unauthorized")
+		return false
+	}
+	return true
+}
+
+func (server *Server) authenticationRequired() bool {
+	return server.config.Security.Profile != SecurityProfileTrustedLAN
+}
+
+func (server *Server) newRouterProxyRequest(w http.ResponseWriter, r *http.Request, method string, path string, streamBody bool) (*http.Request, bool, bool) {
 	if err := server.router.EnsureStarted(r.Context()); err != nil {
 		writeWebError(w, http.StatusBadGateway, err.Error())
 		return nil, false, false
@@ -218,13 +363,23 @@ func (server *Server) newRouterProxyRequest(w http.ResponseWriter, r *http.Reque
 	var body io.Reader
 	hasBody := false
 	if r.Body != nil {
-		content, err := io.ReadAll(r.Body)
-		if err != nil {
-			writeWebError(w, http.StatusBadRequest, err.Error())
-			return nil, false, false
+		if streamBody {
+			body = r.Body
+			hasBody = r.ContentLength != 0
+		} else {
+			content, err := io.ReadAll(io.LimitReader(r.Body, maxWebUIControlBodyBytes+1))
+			_ = r.Body.Close()
+			if err != nil {
+				writeWebError(w, http.StatusBadRequest, err.Error())
+				return nil, false, false
+			}
+			if int64(len(content)) > maxWebUIControlBodyBytes {
+				writeWebError(w, http.StatusRequestEntityTooLarge, "request body too large")
+				return nil, false, false
+			}
+			hasBody = len(content) > 0
+			body = bytes.NewReader(content)
 		}
-		hasBody = len(content) > 0
-		body = bytes.NewReader(content)
 	}
 	target := strings.TrimRight(server.router.URL(), "/") + path
 	if strings.TrimSpace(r.URL.RawQuery) != "" {
@@ -234,6 +389,9 @@ func (server *Server) newRouterProxyRequest(w http.ResponseWriter, r *http.Reque
 	if err != nil {
 		writeWebError(w, http.StatusBadRequest, err.Error())
 		return nil, false, false
+	}
+	if streamBody {
+		request.ContentLength = r.ContentLength
 	}
 	if token := strings.TrimSpace(server.config.Router.Token); token != "" {
 		request.Header.Set("Authorization", "Bearer "+token)
@@ -256,9 +414,25 @@ func (server *Server) forwardRouterProxyRequest(w http.ResponseWriter, request *
 		return
 	}
 	defer response.Body.Close()
+	if response.ContentLength > maxWebUIProxyResponseSize {
+		writeWebError(w, http.StatusBadGateway, "router response body too large")
+		return
+	}
 	copyWebHeaders(w.Header(), response.Header)
 	w.WriteHeader(response.StatusCode)
-	_, _ = io.Copy(w, response.Body)
+	_, _ = transportbody.CopyResponse(webFlushingWriter{ResponseWriter: w}, response.Body, maxWebUIProxyResponseSize)
+}
+
+type webFlushingWriter struct {
+	http.ResponseWriter
+}
+
+func (writer webFlushingWriter) Write(content []byte) (int, error) {
+	written, err := writer.ResponseWriter.Write(content)
+	if flusher, ok := writer.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
+	return written, err
 }
 
 func stateChangingMethod(method string) bool {
@@ -292,8 +466,9 @@ func copyWebHeaders(dst http.Header, src http.Header) {
 }
 
 func copyRouterWebUIHeaders(dst http.Header, src http.Header) {
+	blocked := webConnectionHeaderNames(src)
 	for key, values := range src {
-		if skipRouterWebUIHeader(key) {
+		if _, connected := blocked[strings.ToLower(key)]; connected || skipRouterWebUIHeader(key) {
 			continue
 		}
 		for _, value := range values {
@@ -307,11 +482,24 @@ func skipRouterWebUIHeader(key string) bool {
 		return true
 	}
 	switch strings.ToLower(key) {
-	case "authorization", "cookie":
+	case "authorization", "cookie", "forwarded", "proxy-connection", "x-real-ip":
 		return true
 	default:
-		return false
+		lower := strings.ToLower(key)
+		return strings.HasPrefix(lower, "x-forwarded-") || strings.HasPrefix(lower, "proxy-")
 	}
+}
+
+func webConnectionHeaderNames(header http.Header) map[string]struct{} {
+	blocked := map[string]struct{}{}
+	for _, value := range header.Values("Connection") {
+		for _, name := range strings.Split(value, ",") {
+			if name = strings.ToLower(strings.TrimSpace(name)); name != "" {
+				blocked[name] = struct{}{}
+			}
+		}
+	}
+	return blocked
 }
 
 func webUIBackendProxyPath(r *http.Request) (string, bool) {
@@ -320,6 +508,18 @@ func webUIBackendProxyPath(r *http.Request) (string, bool) {
 		return "", false
 	}
 	return "/router/webuis/" + kind + "/" + strings.TrimLeft(r.URL.Path, "/"), true
+}
+
+func backendUIRouterPath(r *http.Request) (string, string, bool) {
+	if kind, ok := webUIKindFromPath(r.URL.Path); ok {
+		return kind, r.URL.Path, true
+	}
+	kind, ok := webUIBackendProxyKind(r)
+	if !ok {
+		return "", "", false
+	}
+	path, ok := webUIBackendProxyPath(r)
+	return kind, path, ok
 }
 
 func webUIBackendProxyKind(r *http.Request) (string, bool) {

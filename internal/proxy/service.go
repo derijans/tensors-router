@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	routeranalytics "tensors-router/internal/analytics"
@@ -26,6 +27,7 @@ import (
 	"tensors-router/internal/hardware"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/recipes"
+	"tensors-router/internal/transportbody"
 )
 
 type Backend interface {
@@ -77,6 +79,8 @@ type ServiceConfig struct {
 	Hardware             hardware.Source
 	Logger               *log.Logger
 	Shutdown             func()
+	TransportLimits      transportbody.Limits
+	MaxControlBodyBytes  int64
 }
 
 type Service struct {
@@ -87,6 +91,8 @@ type Service struct {
 	backendFamilies      map[string]*backendFamily
 	backendSwitch        *backendFamilySwitchState
 	webUISession         *webUISession
+	webUIRouteMu         sync.Mutex
+	webUIRoutes          atomic.Pointer[webUIRouteSnapshot]
 	catalog              ModelCatalog
 	registry             *cluster.Registry
 	clusterToken         string
@@ -102,6 +108,7 @@ type Service struct {
 	analyticsStore       *routeranalytics.Store
 	vramAnalyticsEnabled bool
 	vramSource           hardware.VRAMSource
+	vramSampler          *hardware.VRAMSampler
 	vramSampleInterval   time.Duration
 	hardware             hardware.Source
 	client               *http.Client
@@ -109,6 +116,10 @@ type Service struct {
 	shutdown             func()
 	benchmarkMu          sync.Mutex
 	sdcppJobs            *sdcppJobStore
+	transportLimits      transportbody.Limits
+	transportBudget      *transportbody.Budget
+	maxControlBodyBytes  int64
+	draining             atomic.Bool
 
 	backendRetryAttempts int
 	backendRetryDelay    time.Duration
@@ -116,13 +127,14 @@ type Service struct {
 }
 
 const (
-	defaultBackendRetryAttempts = 300
-	defaultBackendRetryDelay    = 1 * time.Second
-	defaultBackendRetryMaxDelay = 2 * time.Second
-	backendErrorBodyLimit       = 1024
-	modelOperationTimeout       = 15 * time.Minute
-	BackendModeKobold           = backendmode.Kobold
-	BackendModeLlamaSDCPP       = backendmode.LlamaSDCPP
+	defaultBackendRetryAttempts  = 300
+	defaultBackendRetryDelay     = 1 * time.Second
+	defaultBackendRetryMaxDelay  = 2 * time.Second
+	backendErrorBodyLimit        = 1024
+	backendResponseMetadataLimit = 1 << 20
+	modelOperationTimeout        = 15 * time.Minute
+	BackendModeKobold            = backendmode.Kobold
+	BackendModeLlamaSDCPP        = backendmode.LlamaSDCPP
 )
 
 type backendReadiness string
@@ -207,8 +219,14 @@ func NewService(config ServiceConfig) *Service {
 		vramSampleInterval = 250 * time.Millisecond
 	}
 	vramSource := config.VRAMSource
+	var vramSampler *hardware.VRAMSampler
 	if config.VRAMAnalyticsEnabled && vramSource == nil {
-		vramSource = hardware.NewVRAMReader()
+		vramSampler = hardware.NewVRAMSampler(hardware.NewVRAMReader(), vramSampleInterval)
+		vramSource = vramSampler
+	}
+	maxControlBodyBytes := config.MaxControlBodyBytes
+	if maxControlBodyBytes <= 0 {
+		maxControlBodyBytes = 8 * transportbody.MiB
 	}
 	nodeID := strings.TrimSpace(config.NodeID)
 	if nodeID == "" {
@@ -258,11 +276,14 @@ func NewService(config ServiceConfig) *Service {
 		analyticsStore:       config.AnalyticsStore,
 		vramAnalyticsEnabled: config.VRAMAnalyticsEnabled,
 		vramSource:           vramSource,
+		vramSampler:          vramSampler,
 		vramSampleInterval:   vramSampleInterval,
 		hardware:             config.Hardware,
 		logger:               logger,
 		shutdown:             config.Shutdown,
 		sdcppJobs:            newSdcppJobStore(),
+		transportLimits:      config.TransportLimits.Normalized(),
+		maxControlBodyBytes:  maxControlBodyBytes,
 		client: &http.Client{
 			Timeout: 0,
 		},
@@ -270,6 +291,7 @@ func NewService(config ServiceConfig) *Service {
 		backendRetryDelay:    defaultBackendRetryDelay,
 		backendRetryMaxDelay: defaultBackendRetryMaxDelay,
 	}
+	service.transportBudget = transportbody.NewBudget(service.transportLimits.MemoryBudgetBytes)
 	if service.clusterClient == nil {
 		service.clusterClient = cluster.NewClient(config.ClusterToken)
 	}
@@ -379,6 +401,20 @@ func (service *Service) PreloadModel(ctx context.Context, modelID string) error 
 }
 
 func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	workingSet, ok := service.reserveTransportWorkingSet(r)
+	if !ok {
+		writeTransportError(w, transportbody.ErrBufferCapacity)
+		return
+	}
+	if workingSet != nil {
+		defer workingSet.Release()
+	}
+	if service.prepareOrHandleTransport(w, r, workingSet) {
+		return
+	}
+	if service.limitControlRequestBody(w, r) {
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/router/v1/") {
 		service.handleRouterEndpoint(w, r)
 		return
@@ -430,6 +466,21 @@ func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+}
+
+func (service *Service) BeginDrain() {
+	service.draining.Store(true)
+}
+
+func (service *Service) Draining() bool {
+	return service.draining.Load()
+}
+
+func (service *Service) Close(ctx context.Context) error {
+	if service.vramSampler == nil {
+		return nil
+	}
+	return service.vramSampler.Close(ctx)
 }
 
 func (service *Service) handleModels(w http.ResponseWriter) {
@@ -548,6 +599,17 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 
 	if !hasModel {
 		if target, ok := service.sdcppJobs.routeForPath(r.URL.Path); ok {
+			if target.remote {
+				response, err := service.forwardRemote(r.Context(), r, body, cluster.Route{NodeURL: target.nodeURL, Remote: true})
+				if err != nil {
+					openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+					return
+				}
+				if err := service.writeProxyResponse(w, response, target.publicImageID, false); err != nil {
+					return
+				}
+				return
+			}
 			started := time.Now()
 			analyticsEvent := service.newAnalyticsEvent(started, r, body, target.publicImageID, routeranalytics.SectionImage, target.backendMode)
 			response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, target.publicImageID, target.configFilename, true, readinessImage, target.backendMode)
@@ -557,7 +619,7 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 				return
 			}
 			response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
-			if err := writeProxyResponse(w, response, target.publicImageID, false); err != nil {
+			if err := service.writeProxyResponse(w, response, target.publicImageID, false); err != nil {
 				return
 			}
 			return
@@ -573,7 +635,7 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 				return
 			}
-			if err := writeProxyResponse(w, response, "", false); err != nil {
+			if err := service.writeProxyResponse(w, response, "", false); err != nil {
 				return
 			}
 			return
@@ -633,7 +695,7 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 	}
 	response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 
-	if err := writeProxyResponse(w, response, model.ImageID, hasModel); err != nil {
+	if err := service.writeProxyResponse(w, response, model.ImageID, hasModel); err != nil {
 		return
 	}
 }
@@ -725,7 +787,7 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 	if analyticsModelID != "" {
 		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 	}
-	if err := writeProxyResponse(w, response, modelID, false); err != nil {
+	if err := service.writeProxyResponse(w, response, modelID, false); err != nil {
 		return
 	}
 }
@@ -935,7 +997,7 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 	}
 
-	if err := writeModelProxyResponse(w, response, modelID, hasModel); err != nil {
+	if err := service.writeModelProxyResponse(w, response, modelID, hasModel); err != nil {
 		return
 	}
 }
@@ -971,17 +1033,30 @@ func (service *Service) clusterRouteBackendMode(route cluster.Route, model clust
 }
 
 func writeModelProxyResponse(w http.ResponseWriter, response *http.Response, virtualModelID string, rewriteModel bool) error {
+	return writeModelProxyResponseWithLimit(w, response, virtualModelID, rewriteModel, transportbody.DefaultLimits().MaxResponseBytes)
+}
+
+func (service *Service) writeModelProxyResponse(w http.ResponseWriter, response *http.Response, virtualModelID string, rewriteModel bool) error {
+	return writeModelProxyResponseWithLimit(w, response, virtualModelID, rewriteModel, service.transportLimits.MaxResponseBytes)
+}
+
+func writeModelProxyResponseWithLimit(w http.ResponseWriter, response *http.Response, virtualModelID string, rewriteModel bool, maxResponseBytes int64) error {
 	if !rewriteModel {
-		return writeProxyResponse(w, response, virtualModelID, false)
+		return writeProxyResponseWithLimit(w, response, virtualModelID, false, maxResponseBytes)
 	}
 	if response == nil || response.Body == nil {
 		return writeMissingBackendResponse(w)
 	}
 	defer response.Body.Close()
+	if response.ContentLength > maxResponseBytes {
+		writeTransportError(w, transportbody.ErrResponseTooLarge)
+		return nil
+	}
+	response.Body = limitProxyResponseBody(response.Body, maxResponseBytes)
 	if isEventStream(response.Header) {
 		return writeEventStreamResponse(w, response, virtualModelID)
 	}
-	return writeJSONResponseWithVirtualModel(w, response, virtualModelID)
+	return writeJSONResponseWithVirtualModel(w, response, virtualModelID, maxResponseBytes)
 }
 
 func (service *Service) forwardWithFallback(ctx context.Context, original *http.Request, body []byte, modelID string, configFilename string, hasModel bool, readiness backendReadiness, mode string) (*http.Response, error) {
@@ -1179,11 +1254,22 @@ func (service *Service) successRetryResult(response *http.Response, path string)
 		return backendRetryResult{retry: true, status: response.StatusCode, err: err}
 	}
 
-	body, err := io.ReadAll(response.Body)
-	_ = response.Body.Close()
+	if response.ContentLength > backendResponseMetadataLimit {
+		return backendRetryResult{status: response.StatusCode}
+	}
+	body, err := io.ReadAll(io.LimitReader(response.Body, backendResponseMetadataLimit+1))
 	if err != nil {
+		_ = response.Body.Close()
 		return backendRetryResult{retry: true, status: response.StatusCode, err: err}
 	}
+	if len(body) > backendResponseMetadataLimit {
+		response.Body = replayReadCloser{
+			Reader: io.MultiReader(bytes.NewReader(body), response.Body),
+			closer: response.Body,
+		}
+		return backendRetryResult{status: response.StatusCode}
+	}
+	_ = response.Body.Close()
 	if len(bytes.TrimSpace(body)) == 0 {
 		return backendRetryResult{retry: true, status: response.StatusCode}
 	}
@@ -1331,7 +1417,6 @@ func drainResponseBodyPreview(response *http.Response) string {
 		return ""
 	}
 	body, _ := io.ReadAll(io.LimitReader(response.Body, backendErrorBodyLimit+1))
-	_, _ = io.Copy(io.Discard, response.Body)
 	_ = response.Body.Close()
 	if len(body) > backendErrorBodyLimit {
 		body = body[:backendErrorBodyLimit]
@@ -1430,6 +1515,7 @@ func (service *Service) finishBackendFamilySwitch(mode string) {
 	close(state.changed)
 	state.changed = make(chan struct{})
 	state.mu.Unlock()
+	service.invalidateWebUIRoutes()
 }
 
 func (service *Service) stopBackendFamily(ctx context.Context, mode string) error {
@@ -1903,39 +1989,42 @@ func jsonStringSelector(raw map[string]json.RawMessage, key string) (string, boo
 }
 
 func writeProxyResponse(w http.ResponseWriter, response *http.Response, virtualModelID string, rewriteModel bool) error {
+	return writeProxyResponseWithLimit(w, response, virtualModelID, rewriteModel, transportbody.DefaultLimits().MaxResponseBytes)
+}
+
+func (service *Service) writeProxyResponse(w http.ResponseWriter, response *http.Response, virtualModelID string, rewriteModel bool) error {
+	return writeProxyResponseWithLimit(w, response, virtualModelID, rewriteModel, service.transportLimits.MaxResponseBytes)
+}
+
+func writeProxyResponseWithLimit(w http.ResponseWriter, response *http.Response, virtualModelID string, rewriteModel bool, maxResponseBytes int64) error {
 	if response == nil || response.Body == nil {
 		return writeMissingBackendResponse(w)
 	}
 	defer response.Body.Close()
+	if response.ContentLength > maxResponseBytes {
+		writeTransportError(w, transportbody.ErrResponseTooLarge)
+		return nil
+	}
+	response.Body = limitProxyResponseBody(response.Body, maxResponseBytes)
 
 	if rewriteModel && response.StatusCode >= 200 && response.StatusCode < 300 && isEventStream(response.Header) {
 		return writeEventStreamResponse(w, response, virtualModelID)
 	}
 	if rewriteModel && response.StatusCode >= 200 && response.StatusCode < 300 && isJSONResponse(response.Header) {
-		return writeJSONResponseWithVirtualModel(w, response, virtualModelID)
+		return writeJSONResponseWithVirtualModel(w, response, virtualModelID, maxResponseBytes)
 	}
 
 	copyResponseHeaders(w.Header(), response.Header)
 	w.WriteHeader(response.StatusCode)
 
-	flusher, _ := w.(http.Flusher)
-	buffer := make([]byte, 32*1024)
-	for {
-		read, readErr := response.Body.Read(buffer)
-		if read > 0 {
-			if _, err := w.Write(buffer[:read]); err != nil {
-				return err
-			}
-			if flusher != nil {
-				flusher.Flush()
-			}
-		}
-		if readErr == io.EOF {
-			return nil
-		}
-		if readErr != nil {
-			return readErr
-		}
+	_, err := transportbody.Copy(flushingWriter{ResponseWriter: w}, response.Body)
+	return err
+}
+
+func limitProxyResponseBody(body io.ReadCloser, maxResponseBytes int64) io.ReadCloser {
+	return &readerReadCloser{
+		Reader: transportbody.LimitResponse(body, maxResponseBytes),
+		Closer: body,
 	}
 }
 
@@ -1944,7 +2033,10 @@ func writeMissingBackendResponse(w http.ResponseWriter) error {
 	return nil
 }
 
-func writeJSONResponseWithVirtualModel(w http.ResponseWriter, response *http.Response, virtualModelID string) error {
+func writeJSONResponseWithVirtualModel(w http.ResponseWriter, response *http.Response, virtualModelID string, maxResponseBytes int64) error {
+	if response.ContentLength < 0 || response.ContentLength > backendResponseMetadataLimit {
+		return streamJSONResponseWithVirtualModel(w, response, virtualModelID, maxResponseBytes)
+	}
 	body, err := io.ReadAll(response.Body)
 	if err != nil {
 		return err
@@ -1961,6 +2053,22 @@ func writeJSONResponseWithVirtualModel(w http.ResponseWriter, response *http.Res
 	w.Header().Del("Content-Length")
 	w.WriteHeader(response.StatusCode)
 	_, err = w.Write(body)
+	return err
+}
+
+func streamJSONResponseWithVirtualModel(w http.ResponseWriter, response *http.Response, virtualModelID string, maxResponseBytes int64) error {
+	source := transportbody.NewJSONTransformReadCloser(response.Body, transportbody.JSONRewrite{
+		Replacements: map[string]transportbody.StringReplacement{
+			transportbody.PathModel: {To: virtualModelID},
+		},
+		EscapeHTML: true,
+	})
+	defer source.Close()
+	copyResponseHeaders(w.Header(), response.Header)
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Del("Content-Length")
+	w.WriteHeader(response.StatusCode)
+	_, err := transportbody.CopyResponse(flushingWriter{ResponseWriter: w}, source, maxResponseBytes)
 	return err
 }
 
@@ -2153,19 +2261,13 @@ func skipWhitespace(body []byte, start int) int {
 }
 
 func copyRequestHeaders(dst http.Header, src http.Header) {
-	for key, values := range src {
-		if isHopByHopHeader(key) {
-			continue
-		}
-		for _, value := range values {
-			dst.Add(key, value)
-		}
-	}
+	copyBackendHeaders(dst, src)
 }
 
 func copyResponseHeaders(dst http.Header, src http.Header) {
+	blocked := connectionHeaderNames(src)
 	for key, values := range src {
-		if isHopByHopHeader(key) {
+		if _, skip := blocked[strings.ToLower(key)]; skip || strings.EqualFold(key, "Set-Cookie") {
 			continue
 		}
 		for _, value := range values {

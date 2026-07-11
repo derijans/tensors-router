@@ -19,6 +19,7 @@ type Registry struct {
 	busy      map[string]int
 	next      map[string]int
 	view      []Model
+	revision  uint64
 }
 
 func NewRegistry(role string, localID string, localURL string) *Registry {
@@ -100,6 +101,12 @@ func (registry *Registry) Models() []Model {
 	defer registry.mu.Unlock()
 
 	return cloneModels(registry.view)
+}
+
+func (registry *Registry) Revision() uint64 {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	return registry.revision
 }
 
 func (registry *Registry) NodeURLs() []string {
@@ -295,6 +302,7 @@ func (registry *Registry) rebuildLocked() {
 		return candidates[left].PublicID < candidates[right].PublicID
 	})
 	registry.view = candidates
+	registry.revision++
 }
 
 func (registry *Registry) candidatesLocked() []Model {

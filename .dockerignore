@@ -1,0 +1,16 @@
+.git
+.github
+.gocache
+.tmp
+bin
+data
+dist
+models
+node_modules
+router-store
+tensor-router-webui
+tensor-router-webui.exe
+tensors-router
+tensors-router.exe
+webui/node_modules
+

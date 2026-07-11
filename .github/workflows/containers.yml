@@ -1,0 +1,78 @@
+name: Publish container images
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Image version tag
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  GO_VERSION: "1.26.5"
+
+jobs:
+  publish:
+    name: Publish tensors-router-${{ matrix.target }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [node, webui]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+
+      - name: Log in to GHCR
+        uses: docker/login-action@465a07811f14bebb1938fbed4728c6a1ff8901fc
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve image coordinates
+        id: image
+        shell: bash
+        env:
+          RELEASE_VERSION: ${{ github.event.release.tag_name }}
+          MANUAL_VERSION: ${{ inputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          VERSION="${RELEASE_VERSION:-$MANUAL_VERSION}"
+          if [[ ! "$VERSION" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
+            echo "Invalid container version: $VERSION" >&2
+            exit 1
+          fi
+          echo "name=ghcr.io/${GITHUB_REPOSITORY,,}/tensors-router-$TARGET" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build and publish
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        with:
+          context: .
+          file: Containerfile
+          target: ${{ matrix.target }}
+          push: true
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}
+            ${{ steps.image.outputs.name }}:latest
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ steps.image.outputs.version }}
+          build-args: |
+            GO_VERSION=${{ env.GO_VERSION }}
+            VERSION=${{ steps.image.outputs.version }}
+            COMMIT=${{ github.sha }}

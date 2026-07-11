@@ -7,7 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"tensors-router/internal/atomicfile"
 )
 
 const (
@@ -40,12 +43,25 @@ type Recipe struct {
 }
 
 type Store struct {
-	mu   sync.Mutex
-	path string
+	mu       sync.Mutex
+	path     string
+	snapshot atomic.Pointer[recipeSnapshot]
+	persist  func([]Recipe) error
 }
 
 type storeFile struct {
 	Recipes []Recipe `json:"recipes"`
+}
+
+type recipeSnapshot struct {
+	recipes    []Recipe
+	components map[string]map[string]recipeComponentEntry
+	images     map[string]recipeComponentEntry
+}
+
+type recipeComponentEntry struct {
+	recipe    Recipe
+	component Component
 }
 
 func NewStore(dir string) (*Store, error) {
@@ -56,16 +72,21 @@ func NewStore(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	return &Store{path: filepath.Join(dir, "split-recipes.json")}, nil
+	store := &Store{path: filepath.Join(dir, "split-recipes.json")}
+	recipes, err := loadRecipes(store.path)
+	if err != nil {
+		return nil, err
+	}
+	store.persist = store.persistRecipes
+	store.snapshot.Store(newRecipeSnapshot(recipes))
+	return store, nil
 }
 
 func (store *Store) List() ([]Recipe, error) {
 	if store == nil {
 		return []Recipe{}, nil
 	}
-	store.mu.Lock()
-	defer store.mu.Unlock()
-	return store.loadLocked()
+	return cloneRecipes(store.snapshot.Load().recipes), nil
 }
 
 func (store *Store) Save(recipe Recipe, overwrite bool) error {
@@ -78,10 +99,7 @@ func (store *Store) Save(recipe Recipe, overwrite bool) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 
-	recipes, err := store.loadLocked()
-	if err != nil {
-		return err
-	}
+	recipes := cloneRecipes(store.snapshot.Load().recipes)
 	if recipe.PublicID == "" {
 		recipe.PublicID = recipe.ID
 	}
@@ -102,7 +120,11 @@ func (store *Store) Save(recipe Recipe, overwrite bool) error {
 	if !replaced {
 		recipes = append(recipes, recipe)
 	}
-	return store.saveLocked(recipes)
+	if err := store.persist(recipes); err != nil {
+		return err
+	}
+	store.snapshot.Store(newRecipeSnapshot(recipes))
+	return nil
 }
 
 func (store *Store) Delete(id string) error {
@@ -116,10 +138,7 @@ func (store *Store) Delete(id string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 
-	recipes, err := store.loadLocked()
-	if err != nil {
-		return err
-	}
+	recipes := cloneRecipes(store.snapshot.Load().recipes)
 	filtered := recipes[:0]
 	found := false
 	for _, recipe := range recipes {
@@ -132,7 +151,11 @@ func (store *Store) Delete(id string) error {
 	if !found {
 		return fmt.Errorf("recipe %q was not found", id)
 	}
-	return store.saveLocked(filtered)
+	if err := store.persist(filtered); err != nil {
+		return err
+	}
+	store.snapshot.Store(newRecipeSnapshot(filtered))
+	return nil
 }
 
 func (store *Store) Text(id string) (Recipe, Component, bool) {
@@ -147,16 +170,11 @@ func (store *Store) Image(publicImageID string) (Recipe, Component, bool) {
 	if store == nil || strings.TrimSpace(publicImageID) == "" {
 		return Recipe{}, Component{}, false
 	}
-	recipes, err := store.List()
-	if err != nil {
+	entry, ok := store.snapshot.Load().images[publicImageID]
+	if !ok {
 		return Recipe{}, Component{}, false
 	}
-	for _, recipe := range recipes {
-		if recipe.PublicImageID == publicImageID && recipe.Image != nil {
-			return recipe, *recipe.Image, true
-		}
-	}
-	return Recipe{}, Component{}, false
+	return cloneRecipe(entry.recipe), entry.component, true
 }
 
 func (store *Store) Voice(id string) (Recipe, Component, bool) {
@@ -171,20 +189,11 @@ func (store *Store) component(id string, kind string) (Recipe, Component, bool) 
 	if store == nil || strings.TrimSpace(id) == "" {
 		return Recipe{}, Component{}, false
 	}
-	recipes, err := store.List()
-	if err != nil {
+	entry, ok := store.snapshot.Load().components[kind][id]
+	if !ok {
 		return Recipe{}, Component{}, false
 	}
-	for _, recipe := range recipes {
-		if recipe.PublicID != id {
-			continue
-		}
-		component := recipeComponent(recipe, kind)
-		if component != nil {
-			return recipe, *component, true
-		}
-	}
-	return Recipe{}, Component{}, false
+	return cloneRecipe(entry.recipe), entry.component, true
 }
 
 func recipeComponent(recipe Recipe, kind string) *Component {
@@ -204,8 +213,8 @@ func recipeComponent(recipe Recipe, kind string) *Component {
 	}
 }
 
-func (store *Store) loadLocked() ([]Recipe, error) {
-	content, err := os.ReadFile(store.path)
+func loadRecipes(path string) ([]Recipe, error) {
+	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return []Recipe{}, nil
@@ -225,16 +234,67 @@ func (store *Store) loadLocked() ([]Recipe, error) {
 	return body.Recipes, nil
 }
 
-func (store *Store) saveLocked(recipes []Recipe) error {
+func (store *Store) persistRecipes(recipes []Recipe) error {
 	body, err := json.MarshalIndent(storeFile{Recipes: recipes}, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmpPath := store.path + ".tmp"
-	if err := os.WriteFile(tmpPath, body, 0o600); err != nil {
-		return err
+	return atomicfile.Write(store.path, body, 0o600)
+}
+
+func newRecipeSnapshot(recipes []Recipe) *recipeSnapshot {
+	snapshot := &recipeSnapshot{
+		recipes: cloneRecipes(recipes),
+		components: map[string]map[string]recipeComponentEntry{
+			KindText:       {},
+			KindEmbeddings: {},
+			KindVoice:      {},
+			KindMusic:      {},
+		},
+		images: map[string]recipeComponentEntry{},
 	}
-	return os.Rename(tmpPath, store.path)
+	for _, recipe := range snapshot.recipes {
+		for _, kind := range []string{KindText, KindEmbeddings, KindVoice, KindMusic} {
+			component := recipeComponent(recipe, kind)
+			if component == nil {
+				continue
+			}
+			if _, exists := snapshot.components[kind][recipe.PublicID]; !exists {
+				snapshot.components[kind][recipe.PublicID] = recipeComponentEntry{recipe: recipe, component: *component}
+			}
+		}
+		if recipe.Image != nil && recipe.PublicImageID != "" {
+			if _, exists := snapshot.images[recipe.PublicImageID]; !exists {
+				snapshot.images[recipe.PublicImageID] = recipeComponentEntry{recipe: recipe, component: *recipe.Image}
+			}
+		}
+	}
+	return snapshot
+}
+
+func cloneRecipes(recipes []Recipe) []Recipe {
+	cloned := make([]Recipe, len(recipes))
+	for index := range recipes {
+		cloned[index] = cloneRecipe(recipes[index])
+	}
+	return cloned
+}
+
+func cloneRecipe(recipe Recipe) Recipe {
+	recipe.Text = cloneComponent(recipe.Text)
+	recipe.Image = cloneComponent(recipe.Image)
+	recipe.Embeddings = cloneComponent(recipe.Embeddings)
+	recipe.Voice = cloneComponent(recipe.Voice)
+	recipe.Music = cloneComponent(recipe.Music)
+	return recipe
+}
+
+func cloneComponent(component *Component) *Component {
+	if component == nil {
+		return nil
+	}
+	cloned := *component
+	return &cloned
 }
 
 func validateRecipe(recipe Recipe) error {

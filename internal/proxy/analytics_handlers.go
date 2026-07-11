@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"time"
@@ -37,25 +38,29 @@ func (service *Service) handleNodeAnalytics(w http.ResponseWriter, r *http.Reque
 func (service *Service) analyticsResponse(r *http.Request, query routeranalytics.Query) routeranalytics.Response {
 	responses := []routeranalytics.Response{service.localAnalyticsResponse(r, query)}
 	if service.clusterRole == cluster.RoleMaster {
-		for _, nodeURL := range service.remoteInventoryURLs() {
+		results := fanOutNodes(r.Context(), service.remoteInventoryURLs(), func(nodeContext context.Context, nodeURL string) (routeranalytics.Response, error) {
 			var remote routeranalytics.Response
 			path := "/router/v1/node/analytics"
 			if strings.TrimSpace(r.URL.RawQuery) != "" {
 				path += "?" + r.URL.RawQuery
 			}
-			if err := service.clusterClient.JSON(r.Context(), http.MethodGet, nodeURL, path, nil, &remote); err != nil {
+			err := service.clusterClient.JSON(nodeContext, http.MethodGet, nodeURL, path, nil, &remote)
+			return remote, err
+		})
+		for _, result := range results {
+			if result.Err != nil {
 				responses = append(responses, routeranalytics.Response{
 					From:        query.StartMS,
 					To:          query.EndMS,
 					Granularity: routeranalytics.Granularity(query),
 					NodeErrors: []routeranalytics.NodeError{{
-						NodeURL: nodeURL,
-						Error:   err.Error(),
+						NodeURL: result.Target,
+						Error:   result.Err.Error(),
 					}},
 				})
 				continue
 			}
-			responses = append(responses, remote)
+			responses = append(responses, result.Value)
 		}
 	}
 	return routeranalytics.Merge(responses...)

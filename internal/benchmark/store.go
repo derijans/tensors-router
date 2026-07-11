@@ -9,13 +9,18 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
+
+	"tensors-router/internal/atomicfile"
 )
 
 const HistoryLimit = 25
 
 type Store struct {
-	mu   sync.Mutex
-	path string
+	mu       sync.Mutex
+	path     string
+	snapshot atomic.Pointer[storeFile]
+	persist  func(storeFile) error
 }
 
 type storeFile struct {
@@ -28,6 +33,11 @@ type storedRecord struct {
 	CurrentOptions map[string]json.RawMessage `json:"current_options,omitempty"`
 }
 
+type ModelKey struct {
+	NodeID  string
+	ModelID string
+}
+
 func NewStore(dir string) (*Store, error) {
 	dir = strings.TrimSpace(dir)
 	if dir == "" {
@@ -36,25 +46,41 @@ func NewStore(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
 	}
-	return &Store{path: filepath.Join(dir, "benchmarks.json")}, nil
+	store := &Store{path: filepath.Join(dir, "benchmarks.json")}
+	file, err := loadStoreFile(store.path)
+	if err != nil {
+		return nil, err
+	}
+	store.persist = store.persistStoreFile
+	store.snapshot.Store(&file)
+	return store, nil
 }
 
 func (store *Store) Record(nodeID string, modelID string) (Record, bool, error) {
 	if store == nil {
 		return Record{}, false, nil
 	}
-	store.mu.Lock()
-	defer store.mu.Unlock()
-
-	file, err := store.loadLocked()
-	if err != nil {
-		return Record{}, false, err
-	}
-	stored, ok := file.Records[recordKey(nodeID, modelID)]
+	stored, ok := store.snapshot.Load().Records[recordKey(nodeID, modelID)]
 	if !ok {
 		return Record{}, false, nil
 	}
-	return stored.Record, true, nil
+	return cloneRecord(stored.Record), true, nil
+}
+
+func (store *Store) ModelBenchmarks(keys []ModelKey) map[ModelKey]ModelBenchmark {
+	result := make(map[ModelKey]ModelBenchmark, len(keys))
+	if store == nil {
+		return result
+	}
+	snapshot := store.snapshot.Load()
+	for _, key := range keys {
+		stored, ok := snapshot.Records[recordKey(key.NodeID, key.ModelID)]
+		if !ok {
+			continue
+		}
+		result[key] = modelBenchmarkFromRecord(stored.Record)
+	}
+	return result
 }
 
 func (store *Store) ModelBenchmark(nodeID string, modelID string) (ModelBenchmark, bool, error) {
@@ -75,10 +101,7 @@ func (store *Store) SaveRun(nodeID string, modelID string, runType string, secti
 	store.mu.Lock()
 	defer store.mu.Unlock()
 
-	file, err := store.loadLocked()
-	if err != nil {
-		return Record{}, err
-	}
+	file := cloneStoreFile(*store.snapshot.Load())
 	key := recordKey(nodeID, modelID)
 	stored := file.Records[key]
 	stored.NodeID = strings.TrimSpace(nodeID)
@@ -100,18 +123,19 @@ func (store *Store) SaveRun(nodeID string, modelID string, runType string, secti
 		stored.History = append([]Summary{}, stored.History[len(stored.History)-HistoryLimit:]...)
 	}
 	file.Records[key] = stored
-	if err := store.saveLocked(file); err != nil {
+	if err := store.persist(file); err != nil {
 		return Record{}, err
 	}
-	return stored.Record, nil
+	store.snapshot.Store(&file)
+	return cloneRecord(stored.Record), nil
 }
 
-func (store *Store) loadLocked() (storeFile, error) {
+func loadStoreFile(path string) (storeFile, error) {
 	file := storeFile{
 		Version: 1,
 		Records: map[string]storedRecord{},
 	}
-	content, err := os.ReadFile(store.path)
+	content, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return file, nil
@@ -133,16 +157,62 @@ func (store *Store) loadLocked() (storeFile, error) {
 	return file, nil
 }
 
-func (store *Store) saveLocked(file storeFile) error {
+func (store *Store) persistStoreFile(file storeFile) error {
 	body, err := json.MarshalIndent(file, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmpPath := store.path + ".tmp"
-	if err := os.WriteFile(tmpPath, body, 0o600); err != nil {
-		return err
+	return atomicfile.Write(store.path, body, 0o600)
+}
+
+func modelBenchmarkFromRecord(record Record) ModelBenchmark {
+	cloned := cloneRecord(record)
+	return ModelBenchmark{Latest: cloned.Latest, Sections: cloned.Sections}
+}
+
+func cloneStoreFile(file storeFile) storeFile {
+	cloned := storeFile{Version: file.Version, Records: make(map[string]storedRecord, len(file.Records))}
+	for key, stored := range file.Records {
+		cloned.Records[key] = storedRecord{
+			Record:         cloneRecord(stored.Record),
+			CurrentOptions: cloneOptions(stored.CurrentOptions),
+		}
 	}
-	return os.Rename(tmpPath, store.path)
+	return cloned
+}
+
+func cloneRecord(record Record) Record {
+	cloned := record
+	if record.Latest != nil {
+		latest := cloneSummary(*record.Latest)
+		cloned.Latest = &latest
+	}
+	if record.Sections != nil {
+		cloned.Sections = make(map[string]Summary, len(record.Sections))
+		for key, summary := range record.Sections {
+			cloned.Sections[key] = cloneSummary(summary)
+		}
+	}
+	cloned.History = make([]Summary, len(record.History))
+	for index := range record.History {
+		cloned.History[index] = cloneSummary(record.History[index])
+	}
+	return cloned
+}
+
+func cloneSummary(summary Summary) Summary {
+	cloned := summary
+	cloned.Metrics = append([]Metric{}, summary.Metrics...)
+	cloned.OptionChanges = make([]OptionChange, len(summary.OptionChanges))
+	for index, change := range summary.OptionChanges {
+		cloned.OptionChanges[index] = OptionChange{
+			Key:      change.Key,
+			Kind:     change.Kind,
+			Previous: cloneRaw(change.Previous),
+			Current:  cloneRaw(change.Current),
+		}
+	}
+	return cloned
 }
 
 func aggregateSummary(runType string, sections []Summary) Summary {

@@ -132,18 +132,20 @@ func (service *Service) siteInventory(ctx context.Context) (siteapi.InventoryRes
 	}
 	nodes := []siteapi.NodeInventory{localNode}
 	if service.clusterRole == cluster.RoleMaster {
-		for _, nodeURL := range service.remoteInventoryURLs() {
+		results := fanOutNodes(ctx, service.remoteInventoryURLs(), func(nodeContext context.Context, nodeURL string) (siteapi.NodeInventory, error) {
 			remoteNode := siteapi.NodeInventory{
 				NodeURL:   nodeURL,
 				Source:    cluster.SourceSlave,
 				Role:      cluster.RoleSlave,
 				Available: false,
 			}
-			err := service.clusterClient.JSON(ctx, http.MethodGet, nodeURL, "/router/v1/node/site/inventory", nil, &remoteNode)
-			if err != nil {
-				remoteNode.Error = err.Error()
-				nodes = append(nodes, remoteNode)
-				continue
+			err := service.clusterClient.JSON(nodeContext, http.MethodGet, nodeURL, "/router/v1/node/site/inventory", nil, &remoteNode)
+			return remoteNode, err
+		})
+		for _, result := range results {
+			remoteNode := result.Value
+			if result.Err != nil {
+				remoteNode.Error = result.Err.Error()
 			}
 			nodes = append(nodes, remoteNode)
 		}
@@ -218,6 +220,12 @@ func (service *Service) localSource() string {
 }
 
 func (service *Service) refreshLocalRegistry() error {
+	defer service.invalidateWebUIRoutes()
+	if refresher, ok := service.catalog.(interface{ Refresh() error }); ok {
+		if err := refresher.Refresh(); err != nil {
+			return err
+		}
+	}
 	if service.registry == nil {
 		return nil
 	}

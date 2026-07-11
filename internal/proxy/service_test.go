@@ -1760,10 +1760,12 @@ func TestSdcppJobsRouteBackToSubmittingImageConfig(t *testing.T) {
 		"second": `{"nomodel":true,"sdmodel":"C:\\models\\second.safetensors"}`,
 	})
 	imageBackend = createdImageBackend
+	useTinyTransportLimits(service)
 
 	submitRecorder := httptest.NewRecorder()
 	submitRequest := httptest.NewRequest(http.MethodPost, "/sdcpp/v1/img_gen", strings.NewReader(`{"model":"first-first","prompt":"cat"}`))
 	submitRequest.Header.Set("Content-Type", "application/json")
+	submitRequest.Header.Set("X-Tensors-Model", "first-first")
 	service.ServeHTTP(submitRecorder, submitRequest)
 	if submitRecorder.Code != http.StatusOK {
 		t.Fatalf("unexpected submit status %d body %s", submitRecorder.Code, submitRecorder.Body.String())
@@ -1772,6 +1774,7 @@ func TestSdcppJobsRouteBackToSubmittingImageConfig(t *testing.T) {
 	switchRecorder := httptest.NewRecorder()
 	switchRequest := httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{"model":"second-second","prompt":"dog"}`))
 	switchRequest.Header.Set("Content-Type", "application/json")
+	switchRequest.Header.Set("X-Tensors-Model", "second-second")
 	service.ServeHTTP(switchRecorder, switchRequest)
 	if switchRecorder.Code != http.StatusOK {
 		t.Fatalf("unexpected switch status %d body %s", switchRecorder.Code, switchRecorder.Body.String())
@@ -2017,7 +2020,7 @@ func TestClusterRemoteRequestRewritesModelBothWays(t *testing.T) {
 	var sawAuthorization bool
 	var sawLocalModel bool
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/chat/completions" {
+		if r.URL.Path != "/router/v1/node/inference/v1/chat/completions" {
 			t.Fatalf("unexpected remote path %s", r.URL.Path)
 		}
 		sawAuthorization = r.Header.Get("Authorization") == "Bearer secret"
@@ -2067,7 +2070,7 @@ func TestClusterRemoteTextAPIRequestRewritesModelBothWays(t *testing.T) {
 	var sawAuthorization bool
 	var sawLocalModel bool
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/chat" {
+		if r.URL.Path != "/router/v1/node/inference/api/chat" {
 			t.Fatalf("unexpected remote path %s", r.URL.Path)
 		}
 		sawAuthorization = r.Header.Get("Authorization") == "Bearer secret"
@@ -2136,7 +2139,7 @@ func TestClusterRemoteImageRequestRewritesModelBothWays(t *testing.T) {
 	var sawAuthorization bool
 	var sawLocalImageModel bool
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/images/generations" {
+		if r.URL.Path != "/router/v1/node/inference/v1/images/generations" {
 			t.Fatalf("unexpected remote path %s", r.URL.Path)
 		}
 		sawAuthorization = r.Header.Get("Authorization") == "Bearer secret"
@@ -2171,6 +2174,48 @@ func TestClusterRemoteImageRequestRewritesModelBothWays(t *testing.T) {
 	}
 	if backend.reloads.Load() != 0 {
 		t.Fatalf("local backend should not reload for remote image request, got %d", backend.reloads.Load())
+	}
+}
+
+func TestClusterStreamedSdcppJobPollReturnsToSubmittingNode(t *testing.T) {
+	var pollSeen atomic.Bool
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer secret" {
+			http.Error(w, "missing token", http.StatusUnauthorized)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/router/v1/node/inference/sdcpp/v1/vid_gen":
+			_, _ = w.Write([]byte(`{"job_id":"remote-job"}`))
+		case "/router/v1/node/inference/sdcpp/v1/jobs/remote-job":
+			pollSeen.Store(true)
+			_, _ = w.Write([]byte(`{"id":"remote-job","status":"done"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer remote.Close()
+
+	registry := newConflictingImageRegistry(t, remote.URL)
+	service, backend := newTestServiceWithRegistry(t, registry, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), "secret")
+	useTinyTransportLimits(service)
+	submit := httptest.NewRequest(http.MethodPost, "/sdcpp/v1/vid_gen", strings.NewReader(`{"model":"same-2-dream","prompt":"video"}`))
+	submit.Header.Set("Content-Type", "application/json")
+	submit.Header.Set("X-Tensors-Model", "same-2-dream")
+	submitRecorder := httptest.NewRecorder()
+	service.ServeHTTP(submitRecorder, submit)
+	if submitRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected submit status %d body=%s", submitRecorder.Code, submitRecorder.Body.String())
+	}
+
+	pollRecorder := httptest.NewRecorder()
+	service.ServeHTTP(pollRecorder, httptest.NewRequest(http.MethodGet, "/sdcpp/v1/jobs/remote-job", nil))
+	if pollRecorder.Code != http.StatusOK || !pollSeen.Load() {
+		t.Fatalf("remote job poll status=%d seen=%t body=%s", pollRecorder.Code, pollSeen.Load(), pollRecorder.Body.String())
+	}
+	if backend.reloads.Load() != 0 {
+		t.Fatalf("remote job unexpectedly loaded the local backend %d times", backend.reloads.Load())
 	}
 }
 
@@ -2516,7 +2561,7 @@ func TestClusterRemoteEmbeddingsRequestRewritesModelBothWays(t *testing.T) {
 	var sawAuthorization bool
 	var sawLocalModel bool
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/embeddings" {
+		if r.URL.Path != "/router/v1/node/inference/v1/embeddings" {
 			t.Fatalf("unexpected remote path %s", r.URL.Path)
 		}
 		sawAuthorization = r.Header.Get("Authorization") == "Bearer secret"
@@ -2565,7 +2610,7 @@ func TestClusterRemoteEmbeddingsRequestCanUsePublicImageID(t *testing.T) {
 	var sawAuthorization bool
 	var sawLocalModel bool
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/embeddings" {
+		if r.URL.Path != "/router/v1/node/inference/v1/embeddings" {
 			t.Fatalf("unexpected remote path %s", r.URL.Path)
 		}
 		sawAuthorization = r.Header.Get("Authorization") == "Bearer secret"

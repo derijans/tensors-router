@@ -53,6 +53,10 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		if service.requireClusterToken(w, r) {
 			service.handleNodeModels(w)
 		}
+	case strings.HasPrefix(r.URL.Path, "/router/v1/node/inference/"):
+		if service.requireClusterToken(w, r) {
+			service.handleNodeInference(w, r)
+		}
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/site/inventory":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeSiteInventory(w, r)
@@ -101,6 +105,14 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		if service.requireClusterToken(w, r) {
 			service.handleNodeRegister(w, r)
 		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/load":
+		if service.requireClusterToken(w, r) {
+			service.handleRouterLoad(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/unload":
+		if service.requireClusterToken(w, r) {
+			service.handleRouterUnload(w, r)
+		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/load":
 		service.handleRouterLoad(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/unload":
@@ -110,6 +122,21 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	default:
 		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
 	}
+}
+
+func (service *Service) handleNodeInference(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/router/v1/node/inference")
+	if path == "" || path[0] != '/' || (!isTextPath(path) && !isImagePath(path) && !isVoicePath(path) && !isMusicPath(path)) {
+		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		return
+	}
+	forwarded := r.Clone(r.Context())
+	forwardedURL := *r.URL
+	forwardedURL.Path = path
+	forwarded.URL = &forwardedURL
+	forwarded.Header = r.Header.Clone()
+	forwarded.Header.Del("Authorization")
+	service.ServeHTTP(w, forwarded)
 }
 
 func (service *Service) handleRouterModels(w http.ResponseWriter) {
@@ -175,9 +202,9 @@ func (service *Service) handleNodeRegister(w http.ResponseWriter, r *http.Reques
 func (service *Service) allowRegisteredNodeURL(nodeURL string) error {
 	nodeURL = strings.TrimSpace(nodeURL)
 	if nodeURL == "" {
-		return nil
+		return fmt.Errorf("node url is required")
 	}
-	if len(service.slaveURLs) > 0 && !configuredBaseURL(nodeURL, service.slaveURLs) {
+	if !configuredBaseURL(nodeURL, service.slaveURLs) {
 		return fmt.Errorf("node url %q is not configured", nodeURL)
 	}
 	return service.clusterClient.AllowBaseURLs(nodeURL)
@@ -193,6 +220,9 @@ func configuredBaseURL(nodeURL string, configured []string) bool {
 }
 
 func (service *Service) handleRouterLoad(w http.ResponseWriter, r *http.Request) {
+	if service.rejectModelLoadWhileDraining(w) {
+		return
+	}
 	control, err := readModelControlRequest(r, true)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())

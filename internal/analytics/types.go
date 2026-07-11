@@ -32,6 +32,8 @@ type Event struct {
 	StartedAt       time.Time `json:"started_at"`
 	FinishedAt      time.Time `json:"finished_at"`
 	DurationMS      int64     `json:"duration_ms"`
+	RequestBytes    int64     `json:"request_bytes,omitempty"`
+	ResponseBytes   int64     `json:"response_bytes,omitempty"`
 	InputTokens     int64     `json:"input_tokens,omitempty"`
 	OutputTokens    int64     `json:"output_tokens,omitempty"`
 	TotalTokens     int64     `json:"total_tokens,omitempty"`
@@ -163,6 +165,8 @@ type RecentEvent struct {
 	StartedAt       int64   `json:"started_at"`
 	FinishedAt      int64   `json:"finished_at"`
 	DurationMS      int64   `json:"duration_ms"`
+	RequestBytes    int64   `json:"request_bytes,omitempty"`
+	ResponseBytes   int64   `json:"response_bytes,omitempty"`
 	InputTokens     int64   `json:"input_tokens,omitempty"`
 	OutputTokens    int64   `json:"output_tokens,omitempty"`
 	TotalTokens     int64   `json:"total_tokens,omitempty"`

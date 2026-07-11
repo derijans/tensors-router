@@ -26,6 +26,7 @@ import (
 	"tensors-router/internal/native"
 	"tensors-router/internal/proxy"
 	"tensors-router/internal/recipes"
+	"tensors-router/internal/transportbody"
 	routerupdate "tensors-router/internal/update"
 )
 
@@ -60,18 +61,21 @@ func run(args []string) error {
 func runServe(args []string) error {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	configPath := flags.String("config", "config.yaml", "config file")
+	securityProfile := flags.String("security-profile", "", "security profile")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 
-	cfg, err := config.Load(*configPath)
+	profileOverride := config.ResolveSecurityProfile(*securityProfile, os.Getenv("TENSORS_ROUTER_SECURITY_PROFILE"))
+	cfg, err := config.LoadWithOptions(*configPath, config.LoadOptions{SecurityProfile: profileOverride})
 	if err != nil {
 		return err
 	}
-	log.Printf("tensors-router build %s", buildinfo.Current())
-	serveLogger := log.Default()
-	if !cfg.Logging.Enabled {
-		serveLogger = log.New(io.Discard, "", 0)
+	startupLogger, serveLogger := configuredLoggers(cfg.Logging.Mode)
+	startupLogger.Printf("tensors-router build %s", buildinfo.Current())
+	startupLogger.Printf("startup config profile=%s bind=%s node=%s role=%s backend=%s logging=%s", cfg.Security.Profile, cfg.Server.Bind, cfg.Cluster.NodeID, cfg.Cluster.Role, cfg.Backend.Mode, cfg.Logging.Mode)
+	for _, warning := range cfg.Warnings {
+		startupLogger.Printf("configuration warning: %s", warning)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
@@ -87,22 +91,29 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
+	var analyticsStore *routeranalytics.Store
+	var routerService *proxy.Service
+	var shutdownBackends []func(context.Context) error
+	runtimeCleaned := false
+	cleanupRuntime := func() error {
+		if runtimeCleaned {
+			return nil
+		}
+		runtimeCleaned = true
+		return closeRouterRuntime(routerService, modelCatalog, analyticsStore, shutdownBackends, serveLogger)
+	}
+	defer func() {
+		if err := cleanupRuntime(); err != nil {
+			serveLogger.Printf("runtime cleanup failed: %v", err)
+		}
+	}()
 	benchmarkStore, err := routerbenchmark.NewStore(cfg.Cluster.StoreDir)
 	if err != nil {
 		return err
 	}
-	analyticsStore, err := newAnalyticsStore(cfg, serveLogger)
+	analyticsStore, err = newAnalyticsStore(cfg, serveLogger)
 	if err != nil {
 		return err
-	}
-	if analyticsStore != nil {
-		defer func() {
-			shutdownContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := analyticsStore.Close(shutdownContext); err != nil {
-				serveLogger.Printf("analytics shutdown failed: %v", err)
-			}
-		}()
 	}
 	localModels, err := modelCatalog.List()
 	if err != nil {
@@ -130,25 +141,19 @@ func runServe(args []string) error {
 	}
 	routercluster.SyncConfiguredSlaves(ctx, syncConfig, registry, clusterClient, serveLogger)
 
-	backendFamilies, shutdownBackends, err := createBackends(ctx, cfg)
+	backendFamilies, backendShutdowns, err := createBackends(ctx, cfg)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		shutdownContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		for _, shutdownBackend := range shutdownBackends {
-			if err := shutdownBackend(shutdownContext); err != nil {
-				serveLogger.Printf("backend stop failed: %v", err)
-			}
-		}
-	}()
+	shutdownBackends = backendShutdowns
 
-	bearerKeys := append([]string{}, cfg.Auth.BearerKeys...)
-	if len(cfg.Auth.BearerKeys) > 0 && strings.TrimSpace(cfg.Cluster.Token) != "" {
-		bearerKeys = append(bearerKeys, cfg.Cluster.Token)
-	}
-	guard, err := auth.NewGuard(cfg.Server.AllowedCIDRs, bearerKeys)
+	authPolicy, err := auth.NewPolicy(auth.PolicyConfig{
+		AllowedCIDRs:  cfg.Server.AllowedCIDRs,
+		Profile:       cfg.Security.Profile,
+		InferenceKeys: cfg.Auth.InferenceKeys,
+		AdminKeys:     cfg.Auth.AdminKeys,
+		ClusterToken:  cfg.Cluster.Token,
+	})
 	if err != nil {
 		return err
 	}
@@ -170,9 +175,19 @@ func runServe(args []string) error {
 		BenchmarkStore:       benchmarkStore,
 		AnalyticsStore:       analyticsStore,
 		VRAMAnalyticsEnabled: cfg.Analytics.Enabled && cfg.Analytics.VRAMEnabled,
+		VRAMSampleInterval:   cfg.Analytics.VRAMSampleInterval,
 		Logger:               serveLogger,
 		Shutdown:             routerShutdownFunc(cfg, shutdownRequested),
+		TransportLimits: transportbody.Limits{
+			ReplayBufferBytes: cfg.Limits.ReplayBufferMB * transportbody.MiB,
+			MemoryBudgetBytes: cfg.Limits.MemoryBudgetMB * transportbody.MiB,
+			MaxRequestBytes:   cfg.Limits.MaxStreamRequestGB * transportbody.GiB,
+			MaxResponseBytes:  cfg.Limits.MaxStreamResponseGB * transportbody.GiB,
+			SelectorScanBytes: cfg.Limits.SelectorScanMB * transportbody.MiB,
+		},
+		MaxControlBodyBytes: cfg.Limits.MaxControlBodyMB * transportbody.MiB,
 	})
+	routerService = router
 	routercluster.StartSync(ctx, syncConfig, registry, clusterClient, serveLogger)
 	startupModel := strings.TrimSpace(cfg.Models.StartupModel)
 	if startupModel != "" {
@@ -185,40 +200,64 @@ func runServe(args []string) error {
 
 	server := &http.Server{
 		Addr:              cfg.Server.Bind,
-		Handler:           guard.Middleware(router),
+		Handler:           authPolicy.Middleware(router),
 		ReadHeaderTimeout: 15 * time.Second,
 	}
 
 	errs := make(chan error, 1)
 	go func() {
-		serveLogger.Printf("listening on %s", cfg.Server.Bind)
+		startupLogger.Printf("listener ready address=%s", cfg.Server.Bind)
 		errs <- server.ListenAndServe()
 	}()
 
+	var serveErr error
 	select {
 	case <-ctx.Done():
-		return shutdownServer(server)
 	case <-shutdownRequested:
-		return shutdownServer(server)
-	case err := <-errs:
-		if errors.Is(err, http.ErrServerClosed) {
-			return nil
+	case listenerErr := <-errs:
+		if !errors.Is(listenerErr, http.ErrServerClosed) {
+			serveErr = listenerErr
 		}
-		return err
 	}
+	router.BeginDrain()
+	drainErr := shutdownServer(server, cfg.Limits.DrainTimeout)
+	cleanupErr := cleanupRuntime()
+	return errors.Join(serveErr, drainErr, cleanupErr)
 }
 
-func shutdownServer(server *http.Server) error {
-	shutdownContext, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+func shutdownServer(server *http.Server, timeout time.Duration) error {
+	shutdownContext, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	if err := server.Shutdown(shutdownContext); err != nil {
-		return err
+		return errors.Join(err, server.Close())
 	}
 	return nil
 }
 
+func closeRouterRuntime(router *proxy.Service, modelCatalog *catalog.Catalog, analyticsStore *routeranalytics.Store, shutdownBackends []func(context.Context) error, logger *log.Logger) error {
+	shutdownContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	var closeErr error
+	if analyticsStore != nil {
+		closeErr = errors.Join(closeErr, analyticsStore.Close(shutdownContext))
+	}
+	if modelCatalog != nil {
+		closeErr = errors.Join(closeErr, modelCatalog.Close())
+	}
+	if router != nil {
+		closeErr = errors.Join(closeErr, router.Close(shutdownContext))
+	}
+	for _, shutdownBackend := range shutdownBackends {
+		if err := shutdownBackend(shutdownContext); err != nil {
+			logger.Printf("backend stop failed: %v", err)
+			closeErr = errors.Join(closeErr, err)
+		}
+	}
+	return closeErr
+}
+
 func routerShutdownFunc(cfg config.Config, shutdownRequested chan<- struct{}) func() {
-	if !bearerAuthConfigured(cfg.Auth.BearerKeys) {
+	if cfg.Security.Profile == config.SecurityProfileSecure && !bearerAuthConfigured(cfg.Auth.AdminKeys) {
 		return nil
 	}
 	return func() {
@@ -226,6 +265,18 @@ func routerShutdownFunc(cfg config.Config, shutdownRequested chan<- struct{}) fu
 		case shutdownRequested <- struct{}{}:
 		default:
 		}
+	}
+}
+
+func configuredLoggers(mode string) (*log.Logger, *log.Logger) {
+	discard := log.New(io.Discard, "", 0)
+	switch mode {
+	case config.LoggingModeNormal:
+		return log.Default(), log.Default()
+	case config.LoggingModeStartupOnly:
+		return log.Default(), discard
+	default:
+		return discard, discard
 	}
 }
 
@@ -250,6 +301,7 @@ func newAnalyticsStore(cfg config.Config, logger *log.Logger) (*routeranalytics.
 		NodeID:        cfg.Cluster.NodeID,
 		DatabasePath:  databasePath,
 		FlushInterval: cfg.Analytics.FlushInterval,
+		RawRetention:  cfg.Analytics.RawRetention,
 		Logger:        logger,
 	})
 }
@@ -360,11 +412,13 @@ func stopNativeManagers(llamaManager *native.Manager, sdcppManager *native.Manag
 func runDownload(args []string) error {
 	flags := flag.NewFlagSet("download", flag.ContinueOnError)
 	configPath := flags.String("config", "config.yaml", "config file")
+	securityProfile := flags.String("security-profile", "", "security profile")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
 
-	cfg, err := config.Load(*configPath)
+	profileOverride := config.ResolveSecurityProfile(*securityProfile, os.Getenv("TENSORS_ROUTER_SECURITY_PROFILE"))
+	cfg, err := config.LoadWithOptions(*configPath, config.LoadOptions{SecurityProfile: profileOverride})
 	if err != nil {
 		return err
 	}
@@ -394,12 +448,15 @@ func withModelBenchmarks(models []routercluster.Model, store *routerbenchmark.St
 	if store == nil {
 		return models
 	}
+	keys := make([]routerbenchmark.ModelKey, len(models))
 	for index := range models {
-		benchmark, ok, err := store.ModelBenchmark(models[index].NodeID, models[index].LocalID)
-		if err != nil || !ok {
-			continue
+		keys[index] = routerbenchmark.ModelKey{NodeID: models[index].NodeID, ModelID: models[index].LocalID}
+	}
+	benchmarks := store.ModelBenchmarks(keys)
+	for index, key := range keys {
+		if benchmark, ok := benchmarks[key]; ok {
+			models[index].Benchmark = &benchmark
 		}
-		models[index].Benchmark = &benchmark
 	}
 	return models
 }

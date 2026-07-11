@@ -1,5 +1,8 @@
+security:
+  profile: "secure"
+
 server:
-  bind: "0.0.0.0:8080"
+  bind: "127.0.0.1:8080"
   allowed_cidrs:
     - "127.0.0.0/8"
     - "::1/128"
@@ -8,7 +11,8 @@ server:
     - "192.168.0.0/16"
 
 auth:
-  bearer_keys: []
+  inference_keys: []
+  admin_keys: []
 
 models:
   config_dir: "./kcpps"
@@ -45,7 +49,7 @@ sdcpp:
   extra_args: []
 
 logging:
-  enabled: true
+  mode: "normal"
   backend_logs_to_disk: false
 
 updates:
@@ -74,3 +78,14 @@ analytics:
   vram_enabled: true
   flush_interval: "3m"
   database_path: ""
+  raw_retention: "720h"
+  vram_sample_interval: "1s"
+
+limits:
+  max_control_body_mb: 8
+  replay_buffer_mb: 64
+  memory_budget_mb: 2048
+  max_stream_request_gb: 32
+  max_stream_response_gb: 32
+  selector_scan_mb: 64
+  drain_timeout: "15m"

@@ -1,0 +1,24 @@
+security:
+  profile: "trusted_lan"
+
+server:
+  bind: "0.0.0.0:8443"
+  backend_ui_bind: "0.0.0.0:8444"
+  backend_ui_public_url: ""
+  state_dir: "/data/webui-state"
+  cert_file: ""
+  key_file: ""
+  cert_hosts: []
+  admin_token: ""
+
+router:
+  url: ""
+  token: ""
+  binary_path: "/usr/local/bin/tensors-router"
+  config_path: "/config/config.yaml"
+  start_when_missing: true
+  shutdown_with_webui: true
+  args: []
+
+logging:
+  mode: "startup_only"

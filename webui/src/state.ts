@@ -65,6 +65,7 @@ export const state: AppState = {
     configID: "",
     fields: {},
     cleanFields: {},
+    cleanID: "",
     mode: "edit",
     fieldFilter: "",
     openSections: [],
@@ -80,7 +81,11 @@ export const state: AppState = {
     fieldEditor: null,
     fieldPresets: [],
     showUsedAll: false,
-    showOptionsAll: false
+    showOptionsAll: false,
+    cleanSnapshot: ""
   },
+  operations: {},
+  conversionWarnings: {},
+  acceptedConversionSignature: "",
   palettePayloads: {}
 };

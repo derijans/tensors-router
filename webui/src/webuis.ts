@@ -46,6 +46,7 @@ export async function setWebUIEnabled(id: string, enabled: boolean): Promise<voi
     state.webuis.data = await setWebUISession({id, enabled});
   } catch (error) {
     state.webuis.error = error instanceof Error ? error.message : String(error);
+    throw error;
   } finally {
     renderWebUIs();
   }
@@ -95,6 +96,7 @@ export async function loadSelectedWebUIModel(id: string, modelID: string, imageI
     state.webuis.action = `Loaded ${response.model_id || response.image_id || entry.name}`;
   } catch (error) {
     state.webuis.error = error instanceof Error ? error.message : String(error);
+    throw error;
   } finally {
     renderWebUIs();
   }
@@ -131,7 +133,7 @@ function renderWebUICard(entry: WebUIEntry): string {
           <div class="webui-url">${escapeHTML(entry.url)}</div>
         </div>
         <label class="toggle-row">
-          <input type="checkbox" data-webui-toggle="${escapeAttribute(entry.id)}" ${entry.enabled ? "checked" : ""}>
+          <input type="checkbox" data-operation-group="webui" data-webui-toggle="${escapeAttribute(entry.id)}" ${entry.enabled ? "checked" : ""}>
           <span>Enable</span>
         </label>
       </div>
@@ -162,7 +164,7 @@ function showWebUIDialog(entry: WebUIEntry): void {
     </div>
     <div class="webui-url">${escapeHTML(entry.url)}</div>
     <div class="webui-dialog-actions">
-      ${data.canEnable ? `<button type="button" data-webui-enable="${escapeAttribute(entry.id)}">Enable</button>` : ""}
+      ${data.canEnable ? `<button type="button" data-operation-group="webui" data-webui-enable="${escapeAttribute(entry.id)}">Enable</button>` : ""}
     </div>
     <div class="webui-model-list">
       ${data.canLoad ? data.models.map(model => renderWebUIModelRow(entry, model)).join("") : `<div class="detail-empty">No compatible models</div>`}
@@ -182,7 +184,7 @@ function renderWebUIModelRow(entry: WebUIEntry, model: WebUICompatibleModel): st
         ${chip(model.node_id, "cyan")}
         ${chip(model.active ? "active" : "available", model.active ? "lime" : "amber")}
       </div>
-      <button type="button" data-webui-load="${escapeAttribute(entry.id)}" data-webui-load-model="${escapeAttribute(model.model_id)}" data-webui-load-image="${escapeAttribute(model.image_id || "")}">Load</button>
+      <button type="button" data-operation-group="webui" data-webui-load="${escapeAttribute(entry.id)}" data-webui-load-model="${escapeAttribute(model.model_id)}" data-webui-load-image="${escapeAttribute(model.image_id || "")}">Load</button>
     </div>
   `;
 }

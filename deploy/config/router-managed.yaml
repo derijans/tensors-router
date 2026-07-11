@@ -1,0 +1,90 @@
+security:
+  profile: "trusted_lan"
+
+server:
+  bind: "0.0.0.0:8080"
+  allowed_cidrs:
+    - "127.0.0.0/8"
+    - "::1/128"
+    - "10.0.0.0/8"
+    - "172.16.0.0/12"
+    - "192.168.0.0/16"
+
+auth:
+  inference_keys: []
+  admin_keys: []
+
+models:
+  config_dir: "/data/configs"
+  startup_model: ""
+  file_roots: ["/models"]
+
+backend:
+  mode: "kobold"
+
+kobold:
+  backend_url: "http://127.0.0.1:5001"
+  binary_path: "/bin/koboldcpp"
+  data_dir: "/data/kobold"
+  multiuser: 1
+  quiet: true
+  skip_launcher: true
+  no_model: true
+  hide_window: true
+  extra_args: []
+
+llama:
+  backend_url: "http://127.0.0.1:5002"
+  binary_path: "/bin/llama-server"
+  data_dir: "/data/llama"
+  hide_window: true
+  extra_args: []
+
+sdcpp:
+  backend_url: "http://127.0.0.1:7860"
+  binary_path: "/bin/sd-server"
+  data_dir: "/data/sdcpp"
+  hide_window: true
+  extra_args: []
+
+logging:
+  mode: "startup_only"
+  backend_logs_to_disk: false
+
+updates:
+  enabled: false
+  check_interval: "168h"
+  binary_url: "https://koboldai.org/cpplinuxrocm"
+  binary_sha256: ""
+  llama_binary_url: ""
+  llama_binary_sha256: ""
+  sdcpp_binary_url: ""
+  sdcpp_binary_sha256: ""
+
+cluster:
+  role: "standalone"
+  node_id: "managed-router"
+  public_url: ""
+  master_url: ""
+  slave_urls: []
+  token: ""
+  store_dir: "/data/router"
+  sync_interval: "60s"
+  health_interval: "15s"
+
+analytics:
+  enabled: true
+  vram_enabled: true
+  flush_interval: "3m"
+  database_path: "/data/analytics.sqlite"
+  raw_retention: "720h"
+  vram_sample_interval: "1s"
+
+limits:
+  max_control_body_mb: 8
+  replay_buffer_mb: 64
+  memory_budget_mb: 2048
+  max_stream_request_gb: 32
+  max_stream_response_gb: 32
+  selector_scan_mb: 64
+  drain_timeout: "15m"

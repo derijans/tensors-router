@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const maxClusterJSONBytes = int64(8 * 1024 * 1024)
+
 type Client struct {
 	token   string
 	client  *http.Client
@@ -22,11 +24,12 @@ type Client struct {
 
 func NewClient(token string, baseURLs ...string) *Client {
 	client := &Client{
-		token: token,
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		token:   token,
 		allowed: map[string]string{},
+	}
+	client.client = &http.Client{
+		Timeout:       30 * time.Second,
+		CheckRedirect: client.checkRedirect,
 	}
 	_ = client.AllowBaseURLs(baseURLs...)
 	return client
@@ -66,7 +69,7 @@ func (client *Client) Register(ctx context.Context, masterURL string, snapshot S
 
 func (client *Client) Load(ctx context.Context, nodeURL string, modelID string) error {
 	body := map[string]string{"model": modelID}
-	return client.JSON(ctx, http.MethodPost, nodeURL, "/router/v1/load", body, nil)
+	return client.JSON(ctx, http.MethodPost, nodeURL, "/router/v1/node/load", body, nil)
 }
 
 func (client *Client) Unload(ctx context.Context, nodeURL string, modelID string, target string) error {
@@ -77,7 +80,7 @@ func (client *Client) Unload(ctx context.Context, nodeURL string, modelID string
 	if strings.TrimSpace(target) != "" {
 		body["target"] = strings.TrimSpace(target)
 	}
-	return client.JSON(ctx, http.MethodPost, nodeURL, "/router/v1/unload", body, nil)
+	return client.JSON(ctx, http.MethodPost, nodeURL, "/router/v1/node/unload", body, nil)
 }
 
 func (client *Client) JSON(ctx context.Context, method string, baseURL string, path string, requestBody any, responseBody any) error {
@@ -91,6 +94,9 @@ func (client *Client) JSON(ctx context.Context, method string, baseURL string, p
 		content, err := json.Marshal(requestBody)
 		if err != nil {
 			return err
+		}
+		if int64(len(content)) > maxClusterJSONBytes {
+			return fmt.Errorf("cluster request body exceeds %d bytes", maxClusterJSONBytes)
 		}
 		body = bytes.NewReader(content)
 	}
@@ -112,9 +118,15 @@ func (client *Client) JSON(ctx context.Context, method string, baseURL string, p
 	}
 	defer response.Body.Close()
 
-	content, err := io.ReadAll(response.Body)
+	if response.ContentLength > maxClusterJSONBytes {
+		return fmt.Errorf("cluster response body exceeds %d bytes", maxClusterJSONBytes)
+	}
+	content, err := io.ReadAll(io.LimitReader(response.Body, maxClusterJSONBytes+1))
 	if err != nil {
 		return err
+	}
+	if int64(len(content)) > maxClusterJSONBytes {
+		return fmt.Errorf("cluster response body exceeds %d bytes", maxClusterJSONBytes)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
 		return fmt.Errorf("cluster request failed with status %d: %s", response.StatusCode, strings.TrimSpace(string(content)))
@@ -145,6 +157,44 @@ func (client *Client) allowedBaseURL(baseURL string) (string, error) {
 		return "", fmt.Errorf("cluster target %q is not allowed", normalized)
 	}
 	return allowed, nil
+}
+
+func (client *Client) checkRedirect(request *http.Request, previous []*http.Request) error {
+	if len(previous) >= 10 {
+		return fmt.Errorf("cluster redirect limit exceeded")
+	}
+	if err := client.validateRedirectURL(request.URL); err != nil {
+		request.Header.Del("Authorization")
+		return err
+	}
+	request.Header.Del("Authorization")
+	if client.token != "" {
+		request.Header.Set("Authorization", "Bearer "+client.token)
+	}
+	return nil
+}
+
+func (client *Client) validateRedirectURL(target *url.URL) error {
+	if target == nil || target.User != nil || (target.Scheme != "http" && target.Scheme != "https") {
+		return fmt.Errorf("cluster redirect target is invalid")
+	}
+	client.mu.RLock()
+	allowedValues := make([]string, 0, len(client.allowed))
+	for _, value := range client.allowed {
+		allowedValues = append(allowedValues, value)
+	}
+	client.mu.RUnlock()
+	for _, value := range allowedValues {
+		allowed, err := url.Parse(value)
+		if err != nil || !strings.EqualFold(target.Scheme, allowed.Scheme) || !strings.EqualFold(target.Host, allowed.Host) {
+			continue
+		}
+		basePath := strings.TrimRight(allowed.Path, "/")
+		if basePath == "" || target.Path == basePath || strings.HasPrefix(target.Path, basePath+"/") {
+			return nil
+		}
+	}
+	return fmt.Errorf("cluster redirect target %q is not allowed", target.String())
 }
 
 func joinedURL(baseURL string, path string) (string, error) {

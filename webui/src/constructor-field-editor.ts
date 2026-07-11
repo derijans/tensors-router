@@ -12,6 +12,7 @@ import { allOptionDefinitions, nodeByID, optionDefinition } from "./data";
 import { elements } from "./elements";
 import { state } from "./state";
 import { defaultFieldValue } from "./simple-cook-data";
+import { invalidateAcceptedConversions, recordConversion } from "./conversions";
 import {
   chip,
   escapeAttribute,
@@ -117,11 +118,13 @@ export function handleFieldEditorInput(target: EventTarget | null): void {
     return;
   }
   try {
-    editor.draft[key] = parseOptionInput(optionDefinition(key), target.value);
+    const parsed = parseOptionInput(optionDefinition(key), target.value);
+    editor.draft[key] = parsed.value;
+    recordConversion(`lane-${editor.lane}`, key, parsed);
     target.setCustomValidity("");
     renderFieldEditor();
   } catch {
-    target.setCustomValidity("Invalid JSON");
+    target.setCustomValidity("Invalid value");
     target.reportValidity();
   }
 }
@@ -177,6 +180,7 @@ function applyFieldEditor(): void {
   }
   const source = sourceOptionsForEditor(state.constructor.lanes[editor.lane]);
   state.constructor.laneOptions[editor.lane] = changedDraftValues(editor.draft, source);
+  invalidateAcceptedConversions();
   closeFieldEditor();
 }
 
@@ -219,6 +223,7 @@ function applySelectedPreset(): void {
     return;
   }
   Object.assign(editor.draft, cloneOptions(preset.values));
+  invalidateAcceptedConversions();
   renderFieldEditor();
 }
 

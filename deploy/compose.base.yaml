@@ -1,0 +1,50 @@
+name: tensors-router
+
+services:
+  router-node:
+    profiles: ["node"]
+    image: "${TENSORS_ROUTER_NODE_IMAGE:-ghcr.io/example/tensors-router-node:latest}"
+    build:
+      context: ..
+      dockerfile: Containerfile
+      target: node
+    init: true
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 16m
+    ports:
+      - "8080:8080"
+    volumes:
+      - "./config/node.yaml:/config/config.yaml:ro"
+      - "./models:/models:ro"
+      - "./bin:/bin:ro"
+      - "./data/node:/data"
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+
+  router-webui:
+    profiles: ["webui"]
+    image: "${TENSORS_ROUTER_WEBUI_IMAGE:-ghcr.io/example/tensors-router-webui:latest}"
+    build:
+      context: ..
+      dockerfile: Containerfile
+      target: webui
+    init: true
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 16m
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+      - "8444:8444"
+    volumes:
+      - "./config/router-managed.yaml:/config/config.yaml:ro"
+      - "./config/webui.yaml:/config/webui.yaml:ro"
+      - "./config/certs:/config/certs:ro"
+      - "./models:/models:ro"
+      - "./bin:/bin:ro"
+      - "./data/webui:/data"
+    tmpfs:
+      - /tmp:size=64m,mode=1777

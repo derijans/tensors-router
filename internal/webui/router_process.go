@@ -15,6 +15,11 @@ import (
 	"tensors-router/internal/siteapi"
 )
 
+const (
+	managedRouterDrainGrace  = 16 * time.Minute
+	managedRouterKillTimeout = 5 * time.Second
+)
+
 type RouterProcess struct {
 	mu       sync.Mutex
 	config   RouterConfig
@@ -117,13 +122,12 @@ func (process *RouterProcess) Launch(ctx context.Context) error {
 		process.mu.Unlock()
 		return err
 	}
-	args := []string{"serve", "--config", process.config.ConfigPath}
-	args = append(args, process.config.Args...)
+	args := routerLaunchArguments(process.config)
 	cmd := exec.CommandContext(context.Background(), binaryPath, args...)
 	cmd.Dir = filepath.Dir(binaryPath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	if err := processcontrol.Start(cmd, processcontrol.Options{ParentDeathGracePeriod: 35 * time.Second}); err != nil {
+	if err := processcontrol.Start(cmd, processcontrol.Options{ParentDeathGracePeriod: managedRouterDrainGrace}); err != nil {
 		process.lastErr = err.Error()
 		process.mu.Unlock()
 		return err
@@ -135,6 +139,15 @@ func (process *RouterProcess) Launch(ctx context.Context) error {
 	go process.waitForExit(cmd, waitDone)
 	process.mu.Unlock()
 	return process.waitHealthy(ctx, 30*time.Second)
+}
+
+func routerLaunchArguments(config RouterConfig) []string {
+	args := []string{"serve", "--config", config.ConfigPath}
+	args = append(args, config.Args...)
+	if profile := strings.TrimSpace(config.SecurityProfile); profile != "" {
+		args = append(args, "--security-profile", profile)
+	}
+	return args
 }
 
 func (process *RouterProcess) Kill(ctx context.Context) error {
@@ -245,9 +258,9 @@ func (process *RouterProcess) waitForExit(cmd *exec.Cmd, waitDone chan<- error) 
 }
 
 func stopRouterProcess(ctx context.Context, cmd *exec.Cmd, waitDone <-chan error) error {
-	return processcontrol.Stop(ctx, cmd, waitDone, 35*time.Second, 5*time.Second)
+	return processcontrol.Stop(ctx, cmd, waitDone, managedRouterDrainGrace, managedRouterKillTimeout)
 }
 
 func forceRouterProcess(cmd *exec.Cmd, waitDone <-chan error) error {
-	return processcontrol.ForceStop(cmd, waitDone, 5*time.Second)
+	return processcontrol.ForceStop(cmd, waitDone, managedRouterKillTimeout)
 }

@@ -13,6 +13,7 @@ export async function loadSelectedConfig(modelID: string, refreshInventory: () =
     await refreshInventory();
   } catch (error) {
     setModelActionStatus(error instanceof Error ? error.message : String(error), true);
+    throw error;
   }
 }
 

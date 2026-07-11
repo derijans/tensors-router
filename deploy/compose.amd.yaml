@@ -1,0 +1,13 @@
+services:
+  router-node:
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add: ["video", "render"]
+
+  router-webui:
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add: ["video", "render"]
+

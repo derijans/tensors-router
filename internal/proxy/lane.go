@@ -99,6 +99,7 @@ func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.
 			clearVRAMLoadStateLocked(state)
 			notifyActiveConfigLocked(state)
 			state.mu.Unlock()
+			service.invalidateWebUIRoutes()
 			return nil, false, err
 		}
 		state.filename = configFilename
@@ -108,6 +109,7 @@ func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
 		service.recordVRAMLoad(modelID, configFilename, readiness, runtime.mode, vramLoad)
+		service.invalidateWebUIRoutes()
 		return release, true, nil
 	}
 }
@@ -152,6 +154,7 @@ func (service *Service) unloadRuntime(ctx context.Context, runtime *backendRunti
 		state.switching = false
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
+		service.invalidateWebUIRoutes()
 		return err
 	}
 }

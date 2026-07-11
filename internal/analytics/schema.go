@@ -25,6 +25,8 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			started_at INTEGER NOT NULL,
 			finished_at INTEGER NOT NULL,
 			duration_ms INTEGER NOT NULL,
+			request_bytes INTEGER NOT NULL DEFAULT 0,
+			response_bytes INTEGER NOT NULL DEFAULT 0,
 			input_tokens INTEGER NOT NULL DEFAULT 0,
 			output_tokens INTEGER NOT NULL DEFAULT 0,
 			total_tokens INTEGER NOT NULL DEFAULT 0,
@@ -90,7 +92,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 	}
-	_, err := db.ExecContext(ctx, `PRAGMA user_version = 2`)
+	_, err := db.ExecContext(ctx, `PRAGMA user_version = 3`)
 	return err
 }
 
@@ -104,6 +106,8 @@ func migrationColumns() []migrationColumn {
 	return []migrationColumn{
 		{"analytics_events", "event_type", "TEXT NOT NULL DEFAULT 'request'"},
 		{"analytics_events", "config_filename", "TEXT NOT NULL DEFAULT ''"},
+		{"analytics_events", "request_bytes", "INTEGER NOT NULL DEFAULT 0"},
+		{"analytics_events", "response_bytes", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_events", "load_vram_before_mb", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_events", "load_vram_after_mb", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_events", "load_vram_delta_mb", "INTEGER NOT NULL DEFAULT 0"},

@@ -21,6 +21,8 @@ auth:
   bearer_keys:
     - "alpha"
     - "beta"
+  admin_keys:
+    - "admin-alpha"
 
 models:
   config_dir: "./models"
@@ -106,6 +108,9 @@ analytics:
 	if !reflect.DeepEqual(cfg.Auth.BearerKeys, []string{"alpha", "beta"}) {
 		t.Fatalf("unexpected bearer keys %#v", cfg.Auth.BearerKeys)
 	}
+	if !reflect.DeepEqual(cfg.Auth.InferenceKeys, []string{"alpha", "beta"}) || !reflect.DeepEqual(cfg.Auth.AdminKeys, []string{"admin-alpha"}) {
+		t.Fatalf("unexpected split auth %#v", cfg.Auth)
+	}
 	if !reflect.DeepEqual(cfg.Kobold.ExtraArgs, []string{"--flashattention", "--quiet"}) {
 		t.Fatalf("unexpected extra args %#v", cfg.Kobold.ExtraArgs)
 	}
@@ -139,6 +144,9 @@ analytics:
 	if cfg.Logging.Enabled {
 		t.Fatalf("logging should be disabled")
 	}
+	if cfg.Logging.Mode != LoggingModeQuiet || len(cfg.Warnings) != 2 {
+		t.Fatalf("unexpected compatibility result mode=%q warnings=%#v", cfg.Logging.Mode, cfg.Warnings)
+	}
 	if !cfg.Logging.BackendLogsToDisk {
 		t.Fatalf("backend logs to disk should be enabled")
 	}
@@ -171,43 +179,9 @@ analytics:
 	}
 }
 
-func TestLoadDefaultConfigWhenDefaultFileMissing(t *testing.T) {
-	cfg, err := Load(filepath.Join(t.TempDir(), "config.yaml"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cfg.Kobold.BinaryPath != "./bin/kobold/koboldcpp" {
-		t.Fatalf("unexpected binary path %q", cfg.Kobold.BinaryPath)
-	}
-	if cfg.Models.StartupModel != "" {
-		t.Fatalf("unexpected startup model %q", cfg.Models.StartupModel)
-	}
-	if cfg.Backend.Mode != "kobold" {
-		t.Fatalf("unexpected default backend mode %q", cfg.Backend.Mode)
-	}
-	if !cfg.Kobold.Quiet || !cfg.Kobold.SkipLauncher || !cfg.Kobold.NoModel || !cfg.Kobold.HideWindow {
-		t.Fatalf("default kobold bool settings should be enabled")
-	}
-	if cfg.Llama.BackendURL != "http://127.0.0.1:5002" || cfg.SDCPP.BackendURL != "http://127.0.0.1:7860" {
-		t.Fatalf("unexpected native defaults llama=%#v sdcpp=%#v", cfg.Llama, cfg.SDCPP)
-	}
-	if cfg.Llama.BinaryPath != "./bin/llama/llama-b9495/llama-server" || cfg.SDCPP.BinaryPath != "./bin/stable-diffusion/build/bin/sd-server" {
-		t.Fatalf("unexpected native binary defaults llama=%q sdcpp=%q", cfg.Llama.BinaryPath, cfg.SDCPP.BinaryPath)
-	}
-	if !cfg.Logging.Enabled {
-		t.Fatalf("default logging should be enabled")
-	}
-	if cfg.Logging.BackendLogsToDisk {
-		t.Fatalf("backend logs to disk should default to disabled")
-	}
-	if cfg.Updates.Enabled {
-		t.Fatalf("default updates should be disabled until checksum pins are configured")
-	}
-	if cfg.Cluster.Role != "standalone" || cfg.Cluster.NodeID != "local" {
-		t.Fatalf("unexpected default cluster %#v", cfg.Cluster)
-	}
-	if cfg.Analytics.Enabled || !cfg.Analytics.VRAMEnabled || cfg.Analytics.FlushInterval != 3*time.Minute || cfg.Analytics.DatabasePath != "" {
-		t.Fatalf("unexpected default analytics config %#v", cfg.Analytics)
+func TestLoadRejectsMissingRouterConfig(t *testing.T) {
+	if _, err := Load(filepath.Join(t.TempDir(), "config.yaml")); err == nil {
+		t.Fatal("expected missing router config error")
 	}
 }
 
@@ -316,5 +290,126 @@ kobold:
 
 	if _, err := Load(path); err == nil {
 		t.Fatalf("expected removed host url key error")
+	}
+}
+
+func TestLoadSecurityProfileOverrideHasPrecedence(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+security:
+  profile: "secure"
+server:
+  bind: "0.0.0.0:8080"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected secure non-loopback credentials error")
+	}
+	cfg, err := LoadWithOptions(path, LoadOptions{SecurityProfile: SecurityProfileTrustedLAN})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Security.Profile != SecurityProfileTrustedLAN {
+		t.Fatalf("unexpected profile %q", cfg.Security.Profile)
+	}
+}
+
+func TestLoadRejectsCredentialPlaceholder(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+auth:
+  inference_keys: ["change-me"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected placeholder rejection")
+	}
+}
+
+func TestLoadRejectsNonLoopbackManagedBackend(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+kobold:
+  backend_url: "http://192.168.1.20:5001"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected backend loopback rejection")
+	}
+}
+
+func TestLoadRejectsBackendBindOverride(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+kobold:
+  extra_args: ["--host=0.0.0.0"]
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected backend bind override rejection")
+	}
+}
+
+func TestLoadRejectsUnlimitedTransportLimit(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+limits:
+  max_stream_request_gb: 0
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected zero limit rejection")
+	}
+}
+
+func TestDefaultsIncludeSecureStreamingAndRetentionValues(t *testing.T) {
+	cfg := Defaults()
+	if cfg.Security.Profile != SecurityProfileSecure || cfg.Server.Bind != "127.0.0.1:8080" {
+		t.Fatalf("unexpected secure defaults %#v", cfg)
+	}
+	if cfg.Limits.ReplayBufferMB != 64 || cfg.Limits.MemoryBudgetMB != 2048 || cfg.Limits.DrainTimeout != 15*time.Minute {
+		t.Fatalf("unexpected limits %#v", cfg.Limits)
+	}
+	if cfg.Analytics.RawRetention != 30*24*time.Hour || cfg.Analytics.VRAMSampleInterval != time.Second {
+		t.Fatalf("unexpected analytics defaults %#v", cfg.Analytics)
+	}
+}
+
+func TestResolveSecurityProfilePrefersCLI(t *testing.T) {
+	if got := ResolveSecurityProfile(SecurityProfileSecure, SecurityProfileTrustedLAN); got != SecurityProfileSecure {
+		t.Fatalf("unexpected resolved profile %q", got)
+	}
+	if got := ResolveSecurityProfile("", SecurityProfileTrustedLAN); got != SecurityProfileTrustedLAN {
+		t.Fatalf("unexpected environment profile %q", got)
+	}
+}
+
+func TestContainerRouterExamplesAreValid(t *testing.T) {
+	for _, name := range []string{"node.yaml", "router-managed.yaml"} {
+		if _, err := Load(filepath.Join("..", "..", "deploy", "config", name)); err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+	}
+}
+
+func TestLoadRejectsIncoherentOrOverflowingTransportLimits(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	for _, content := range []string{
+		"limits:\n  replay_buffer_mb: 65\n  memory_budget_mb: 64\n",
+		"limits:\n  replay_buffer_mb: 1\n  memory_budget_mb: 33\n",
+		"limits:\n  max_stream_request_gb: 9223372036854775807\n",
+	} {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := Load(path); err == nil {
+			t.Fatalf("expected limit validation error for %q", content)
+		}
 	}
 }

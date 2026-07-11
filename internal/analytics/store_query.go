@@ -55,6 +55,9 @@ func (store *Store) Query(ctx context.Context, query Query) (Response, error) {
 }
 
 func (store *Store) querySummary(ctx context.Context, query Query) (Summary, error) {
+	if store.queryUsesRollups(query) {
+		return store.queryRollupSummary(ctx, query)
+	}
 	where, args := eventWhere(query)
 	row := store.db.QueryRowContext(ctx, `SELECT
 		COALESCE(SUM(CASE WHEN event_type = 'request' THEN 1 ELSE 0 END), 0),
@@ -146,6 +149,9 @@ func (store *Store) queryTimeline(ctx context.Context, query Query, granularity 
 }
 
 func (store *Store) querySections(ctx context.Context, query Query) ([]SectionUsage, error) {
+	if store.queryUsesRollups(query) {
+		return store.queryRollupSections(ctx, query)
+	}
 	where, args := eventWhere(query)
 	rows, err := store.db.QueryContext(ctx, `SELECT
 		section,
@@ -176,6 +182,9 @@ func (store *Store) querySections(ctx context.Context, query Query) ([]SectionUs
 }
 
 func (store *Store) queryModels(ctx context.Context, query Query) ([]ModelUsage, error) {
+	if store.queryUsesRollups(query) {
+		return store.queryRollupModels(ctx, query)
+	}
 	where, args := eventWhere(query)
 	rows, err := store.db.QueryContext(ctx, `SELECT
 		node_id,
@@ -209,6 +218,9 @@ func (store *Store) queryModels(ctx context.Context, query Query) ([]ModelUsage,
 }
 
 func (store *Store) queryNodes(ctx context.Context, query Query) ([]NodeUsage, error) {
+	if store.queryUsesRollups(query) {
+		return store.queryRollupNodes(ctx, query)
+	}
 	where, args := eventWhere(query)
 	rows, err := store.db.QueryContext(ctx, `SELECT
 		node_id,
@@ -243,7 +255,7 @@ func (store *Store) queryRecent(ctx context.Context, query Query) ([]RecentEvent
 	where, args := eventWhere(query)
 	rows, err := store.db.QueryContext(ctx, `SELECT
 		node_id, model_id, section, backend_mode, event_type, route, config_filename, status_code, success,
-		started_at, finished_at, duration_ms, input_tokens, output_tokens,
+		started_at, finished_at, duration_ms, request_bytes, response_bytes, input_tokens, output_tokens,
 		total_tokens, tokens_per_second, image_count, image_width, image_height,
 		image_type, audio_seconds, audio_tokens, load_vram_before_mb, load_vram_after_mb,
 		load_vram_delta_mb, work_vram_start_mb, work_vram_max_mb, work_vram_end_mb,
@@ -272,6 +284,8 @@ func (store *Store) queryRecent(ctx context.Context, query Query) ([]RecentEvent
 			&item.StartedAt,
 			&item.FinishedAt,
 			&item.DurationMS,
+			&item.RequestBytes,
+			&item.ResponseBytes,
 			&item.InputTokens,
 			&item.OutputTokens,
 			&item.TotalTokens,
