@@ -12,6 +12,7 @@ func DisabledResponse(query Query) Response {
 		From:        query.StartMS,
 		To:          query.EndMS,
 		Granularity: Granularity(query),
+		Filters:     emptyFilters(),
 	}
 }
 
@@ -32,6 +33,10 @@ func (store *Store) Query(ctx context.Context, query Query) (Response, error) {
 		From:        normalized.StartMS,
 		To:          normalized.EndMS,
 		Granularity: Granularity(normalized),
+		Filters:     emptyFilters(),
+	}
+	if response.Filters, err = store.queryFilters(ctx, normalized); err != nil {
+		return Response{}, err
 	}
 	if response.Summary, err = store.querySummary(ctx, normalized); err != nil {
 		return Response{}, err
@@ -52,6 +57,46 @@ func (store *Store) Query(ctx context.Context, query Query) (Response, error) {
 		return Response{}, err
 	}
 	return response, nil
+}
+
+func (store *Store) queryFilters(ctx context.Context, query Query) (Filters, error) {
+	query.NodeID = ""
+	query.ModelID = ""
+	query.Section = ""
+	if store.queryUsesRollups(query) {
+		return store.queryRollupFilters(ctx, query)
+	}
+	where, args := eventWhere(query)
+	nodeIDs, err := store.queryDistinctValues(ctx, "SELECT DISTINCT node_id FROM analytics_events "+where+" AND node_id <> '' ORDER BY node_id", args)
+	if err != nil {
+		return Filters{}, err
+	}
+	modelIDs, err := store.queryDistinctValues(ctx, "SELECT DISTINCT model_id FROM analytics_events "+where+" AND model_id <> '' ORDER BY model_id", args)
+	if err != nil {
+		return Filters{}, err
+	}
+	return Filters{NodeIDs: nodeIDs, ModelIDs: modelIDs}, nil
+}
+
+func (store *Store) queryDistinctValues(ctx context.Context, statement string, args []any) ([]string, error) {
+	rows, err := store.db.QueryContext(ctx, statement, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	values := []string{}
+	for rows.Next() {
+		var value string
+		if err := rows.Scan(&value); err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
+func emptyFilters() Filters {
+	return Filters{NodeIDs: []string{}, ModelIDs: []string{}}
 }
 
 func (store *Store) querySummary(ctx context.Context, query Query) (Summary, error) {

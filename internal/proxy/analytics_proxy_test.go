@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -212,6 +213,7 @@ func TestSiteAnalyticsAggregatesRemoteNodes(t *testing.T) {
 		}
 		_ = json.NewEncoder(w).Encode(routeranalytics.Response{
 			Enabled: true,
+			Filters: routeranalytics.Filters{NodeIDs: []string{"slave-a"}, ModelIDs: []string{"remote"}},
 			Summary: routeranalytics.Summary{
 				RequestCount:    2,
 				SuccessCount:    2,
@@ -275,6 +277,42 @@ func TestSiteAnalyticsAggregatesRemoteNodes(t *testing.T) {
 	}
 	if remoteNode := analyticsNodeByID(response.Nodes, "slave-a"); remoteNode.LoadCount != 1 || remoteNode.VRAMPeakMB != 6144 || remoteNode.ModelVRAMMB != 5000 {
 		t.Fatalf("unexpected remote node analytics %#v", response.Nodes)
+	}
+	if !slices.Equal(response.Filters.NodeIDs, []string{"master", "slave-a"}) || !slices.Equal(response.Filters.ModelIDs, []string{"local", "remote"}) {
+		t.Fatalf("unexpected aggregate filter choices %#v", response.Filters)
+	}
+}
+
+func TestSiteAnalyticsForwardsActiveFiltersToClusterNodes(t *testing.T) {
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query := r.URL.Query()
+		if query.Get("period") != routeranalytics.Period7Days || query.Get("node_id") != "node-b" || query.Get("model_id") != "image-b" || query.Get("section") != routeranalytics.SectionImage {
+			t.Fatalf("unexpected forwarded analytics filters %q", r.URL.RawQuery)
+		}
+		_ = json.NewEncoder(w).Encode(routeranalytics.Response{Enabled: true, Filters: routeranalytics.Filters{NodeIDs: []string{"node-b"}, ModelIDs: []string{"image-b"}}})
+	}))
+	defer remote.Close()
+
+	backendURL, err := url.Parse("http://local-backend")
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(ServiceConfig{
+		Backend:       &fakeBackend{url: backendURL, healthy: true},
+		Catalog:       catalog.New(t.TempDir()),
+		ClusterRole:   cluster.RoleMaster,
+		NodeID:        "master",
+		NodeURL:       "http://master",
+		SlaveURLs:     []string{remote.URL},
+		ClusterToken:  "secret",
+		ClusterClient: cluster.NewClient("secret", remote.URL),
+		Logger:        log.New(io.Discard, "", 0),
+	})
+
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/router/v1/site/analytics?period=7d&node_id=node-b&model_id=image-b&section=image", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
 	}
 }
 

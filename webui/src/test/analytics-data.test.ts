@@ -3,19 +3,23 @@ import { analyticsModelChoices, analyticsNodeChoices, chartPoints, formatDuratio
 import { testInventory, testModel, testNode } from "./factories";
 
 describe("analytics data helpers", () => {
-  it("builds sorted unique node and model choices", () => {
+  it("builds sorted unique analytics identifiers from history and live inventory", () => {
     const alpha = testModel("alpha");
     alpha.node_id = "node-b";
     const beta = testModel("beta");
     beta.node_id = "node-a";
+    const image = testModel("image-config");
+    image.has_llm = false;
+    image.has_image = true;
+    image.image_id = "image-local";
     const inventory = testInventory([], [], [alpha, beta]);
     inventory.nodes = [
       testNode([beta]),
-      {...testNode([alpha]), node_id: "node-b"}
+      {...testNode([alpha, image]), node_id: "node-b"}
     ];
 
-    expect(analyticsNodeChoices(inventory).map(choice => choice.value)).toEqual(["", "node-a", "node-b"]);
-    expect(analyticsModelChoices(inventory).map(choice => choice.value)).toEqual(["", "alpha", "beta"]);
+    expect(analyticsNodeChoices(inventory, ["historical-node", "node-b"]).map(choice => choice.value)).toEqual(["", "historical-node", "node-a", "node-b"]);
+    expect(analyticsModelChoices(inventory, ["archived", "image-local"]).map(choice => choice.value)).toEqual(["", "alpha", "archived", "beta", "image-local"]);
   });
 
   it("normalizes empty filter fields away", () => {

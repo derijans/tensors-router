@@ -77,6 +77,11 @@ export interface AnalyticsQuery {
   section?: string;
 }
 
+export interface AnalyticsFilters {
+  node_ids: string[];
+  model_ids: string[];
+}
+
 export interface AnalyticsSummary {
   request_count: number;
   success_count: number;
@@ -196,6 +201,7 @@ export interface AnalyticsResponse {
   from: number;
   to: number;
   granularity: string;
+  filters?: AnalyticsFilters;
   summary: AnalyticsSummary;
   timeline: AnalyticsTimeline[];
   sections: AnalyticsSectionUsage[];

@@ -34,19 +34,19 @@ export interface ChartPointSeries {
   ticks: ChartTick[];
 }
 
-export function analyticsNodeChoices(inventory: InventoryResponse | null): SelectChoice[] {
-  const nodes = (inventory?.nodes ?? [])
+export function analyticsNodeChoices(inventory: InventoryResponse | null, historicalNodeIDs: string[] = []): SelectChoice[] {
+  const liveNodeIDs = (inventory?.nodes ?? [])
     .map(node => node.node_id)
     .filter(nonEmptyString);
-  return [{value: "", label: "All nodes"}, ...uniqueSorted(nodes).map(node => ({value: node, label: node}))];
+  return [{value: "", label: "All nodes"}, ...uniqueSorted([...historicalNodeIDs, ...liveNodeIDs]).map(node => ({value: node, label: node}))];
 }
 
-export function analyticsModelChoices(inventory: InventoryResponse | null): SelectChoice[] {
-  const models = (inventory?.nodes ?? [])
+export function analyticsModelChoices(inventory: InventoryResponse | null, historicalModelIDs: string[] = []): SelectChoice[] {
+  const liveModelIDs = (inventory?.nodes ?? [])
     .flatMap(node => node.models ?? [])
-    .map(model => model.local_id || model.public_id)
+    .flatMap(model => analyticsModelIDs(model))
     .filter(nonEmptyString);
-  return [{value: "", label: "All models"}, ...uniqueSorted(models).map(model => ({value: model, label: model}))];
+  return [{value: "", label: "All models"}, ...uniqueSorted([...historicalModelIDs, ...liveModelIDs]).map(model => ({value: model, label: model}))];
 }
 
 export function normalizedAnalyticsQuery(query: AnalyticsQuery): AnalyticsQuery {
@@ -147,6 +147,17 @@ function formatTickDate(value: number | undefined): string {
 
 function uniqueSorted(values: string[]): string[] {
   return Array.from(new Set(values)).sort((left, right) => left.localeCompare(right));
+}
+
+function analyticsModelIDs(model: InventoryResponse["nodes"][number]["models"][number]): string[] {
+  const modelIDs: string[] = [];
+  if (model.has_llm || model.has_embeddings || model.has_multimodal || model.has_voice || model.has_music) {
+    modelIDs.push(model.local_id || model.public_id);
+  }
+  if (model.has_image) {
+    modelIDs.push(model.image_id || model.local_id || model.public_id);
+  }
+  return modelIDs;
 }
 
 function nonEmptyString(value: string | undefined): value is string {

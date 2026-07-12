@@ -81,9 +81,10 @@ export function updateAnalyticsSection(value: string): void {
 
 function renderAnalyticsControls(): void {
   const query = normalizedAnalyticsQuery(state.analytics.query);
+  const filters = state.analytics.data?.filters;
   elements.analyticsPeriodSelect.innerHTML = optionsHTML(analyticsPeriods, query.period);
-  elements.analyticsNodeSelect.innerHTML = optionsHTML(choicesWithSelected(analyticsNodeChoices(state.inventory), query.node_id), query.node_id || "");
-  elements.analyticsModelSelect.innerHTML = optionsHTML(choicesWithSelected(analyticsModelChoices(state.inventory), query.model_id), query.model_id || "");
+  elements.analyticsNodeSelect.innerHTML = optionsHTML(choicesWithSelected(analyticsNodeChoices(state.inventory, filters?.node_ids), query.node_id), query.node_id || "");
+  elements.analyticsModelSelect.innerHTML = optionsHTML(choicesWithSelected(analyticsModelChoices(state.inventory, filters?.model_ids), query.model_id), query.model_id || "");
   elements.analyticsSectionSelect.innerHTML = optionsHTML(analyticsSections, query.section || "");
 }
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -231,6 +232,7 @@ func TestMergeCombinesVRAMAnalytics(t *testing.T) {
 	response := Merge(
 		Response{
 			Enabled: true,
+			Filters: Filters{NodeIDs: []string{"node-a"}, ModelIDs: []string{"llm"}},
 			Summary: Summary{
 				RequestCount:    1,
 				SuccessCount:    1,
@@ -258,6 +260,7 @@ func TestMergeCombinesVRAMAnalytics(t *testing.T) {
 		},
 		Response{
 			Enabled: true,
+			Filters: Filters{NodeIDs: []string{"node-b", "node-a"}, ModelIDs: []string{"image"}},
 			Summary: Summary{
 				RequestCount:    2,
 				SuccessCount:    1,
@@ -303,13 +306,16 @@ func TestMergeCombinesVRAMAnalytics(t *testing.T) {
 	if len(response.Nodes) != 1 || response.Nodes[0].AverageLoadMS != 2500 || response.Nodes[0].VRAMPeakMB != 6144 {
 		t.Fatalf("unexpected merged nodes %#v", response.Nodes)
 	}
+	if !slices.Equal(response.Filters.NodeIDs, []string{"node-a", "node-b"}) || !slices.Equal(response.Filters.ModelIDs, []string{"image", "llm"}) {
+		t.Fatalf("unexpected merged filter choices %#v", response.Filters)
+	}
 }
 
 func TestStoreFiltersByNodeModelAndSection(t *testing.T) {
 	store := newTestStore(t, "node-a")
 	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
-	store.Record(Event{NodeID: "node-a", ModelID: "same", Section: SectionLLM, StatusCode: 200, Success: true, StartedAt: now, FinishedAt: now})
-	store.Record(Event{NodeID: "node-b", ModelID: "same", Section: SectionImage, StatusCode: 200, Success: true, StartedAt: now, FinishedAt: now, ImageCount: 1})
+	store.Record(Event{NodeID: "node-a", ModelID: "llm-a", Section: SectionLLM, StatusCode: 200, Success: true, StartedAt: now, FinishedAt: now})
+	store.Record(Event{NodeID: "node-b", ModelID: "image-a", Section: SectionImage, StatusCode: 200, Success: true, StartedAt: now, FinishedAt: now, ImageCount: 1})
 	if err := store.Flush(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +325,7 @@ func TestStoreFiltersByNodeModelAndSection(t *testing.T) {
 		StartMS: now.Add(-time.Hour).UnixMilli(),
 		EndMS:   now.Add(time.Hour).UnixMilli(),
 		NodeID:  "node-b",
-		ModelID: "same",
+		ModelID: "image-a",
 		Section: SectionImage,
 	})
 	if err != nil {
@@ -327,6 +333,9 @@ func TestStoreFiltersByNodeModelAndSection(t *testing.T) {
 	}
 	if response.Summary.RequestCount != 1 || response.Summary.ImageCount != 1 {
 		t.Fatalf("unexpected filtered response %#v", response.Summary)
+	}
+	if !slices.Equal(response.Filters.NodeIDs, []string{"node-a", "node-b"}) || !slices.Equal(response.Filters.ModelIDs, []string{"image-a", "llm-a"}) {
+		t.Fatalf("unexpected independent filter choices %#v", response.Filters)
 	}
 }
 
@@ -466,6 +475,9 @@ func TestRawRetentionKeepsHistoricalRollupQueriesComplete(t *testing.T) {
 	}
 	if response.Summary.RequestCount != 2 || response.Summary.TotalTokens != 10 || len(response.Models) != 2 {
 		t.Fatalf("historical rollups were incomplete %#v", response)
+	}
+	if !slices.Equal(response.Filters.NodeIDs, []string{"node-a"}) || !slices.Equal(response.Filters.ModelIDs, []string{"old", "recent"}) {
+		t.Fatalf("historical filter choices were incomplete %#v", response.Filters)
 	}
 	if len(response.Recent) != 1 || response.Recent[0].ModelID != "recent" {
 		t.Fatalf("recent events should remain raw-only %#v", response.Recent)

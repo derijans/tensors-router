@@ -10,6 +10,19 @@ func (store *Store) queryUsesRollups(query Query) bool {
 	return cutoff > 0 && query.StartMS < cutoff
 }
 
+func (store *Store) queryRollupFilters(ctx context.Context, query Query) (Filters, error) {
+	where, args := dailyRollupWhere(query)
+	nodeIDs, err := store.queryDistinctValues(ctx, "SELECT DISTINCT node_id FROM analytics_rollups "+where+" AND node_id <> '' ORDER BY node_id", args)
+	if err != nil {
+		return Filters{}, err
+	}
+	modelIDs, err := store.queryDistinctValues(ctx, "SELECT DISTINCT model_id FROM analytics_rollups "+where+" AND model_id <> '' ORDER BY model_id", args)
+	if err != nil {
+		return Filters{}, err
+	}
+	return Filters{NodeIDs: nodeIDs, ModelIDs: modelIDs}, nil
+}
+
 func (store *Store) queryRollupSummary(ctx context.Context, query Query) (Summary, error) {
 	where, args := dailyRollupWhere(query)
 	row := store.db.QueryRowContext(ctx, `SELECT

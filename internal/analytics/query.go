@@ -78,11 +78,13 @@ func Granularity(query Query) string {
 }
 
 func Merge(responses ...Response) Response {
-	merged := Response{}
+	merged := Response{Filters: emptyFilters()}
 	timelineByBucket := map[int64]*Timeline{}
 	sectionsByName := map[string]*SectionUsage{}
 	modelsByKey := map[string]*ModelUsage{}
 	nodesByName := map[string]*NodeUsage{}
+	filterNodeIDs := map[string]struct{}{}
+	filterModelIDs := map[string]struct{}{}
 
 	for _, response := range responses {
 		merged.Enabled = merged.Enabled || response.Enabled
@@ -94,6 +96,16 @@ func Merge(responses ...Response) Response {
 		}
 		if merged.Granularity == "" {
 			merged.Granularity = response.Granularity
+		}
+		for _, nodeID := range response.Filters.NodeIDs {
+			if nodeID != "" {
+				filterNodeIDs[nodeID] = struct{}{}
+			}
+		}
+		for _, modelID := range response.Filters.ModelIDs {
+			if modelID != "" {
+				filterModelIDs[modelID] = struct{}{}
+			}
 		}
 		addSummary(&merged.Summary, response.Summary)
 		for _, item := range response.Timeline {
@@ -162,10 +174,23 @@ func Merge(responses ...Response) Response {
 	if len(merged.Recent) > 100 {
 		merged.Recent = merged.Recent[:100]
 	}
+	merged.Filters = Filters{
+		NodeIDs:  sortedFilterValues(filterNodeIDs),
+		ModelIDs: sortedFilterValues(filterModelIDs),
+	}
 	if merged.Summary.RequestCount > 0 {
 		merged.Summary.FailureCount = merged.Summary.RequestCount - merged.Summary.SuccessCount
 	}
 	return merged
+}
+
+func sortedFilterValues(values map[string]struct{}) []string {
+	result := make([]string, 0, len(values))
+	for value := range values {
+		result = append(result, value)
+	}
+	sort.Strings(result)
+	return result
 }
 
 func addSummary(left *Summary, right Summary) {

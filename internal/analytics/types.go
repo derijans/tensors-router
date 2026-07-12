@@ -69,6 +69,7 @@ type Response struct {
 	From        int64          `json:"from"`
 	To          int64          `json:"to"`
 	Granularity string         `json:"granularity"`
+	Filters     Filters        `json:"filters"`
 	Summary     Summary        `json:"summary"`
 	Timeline    []Timeline     `json:"timeline"`
 	Sections    []SectionUsage `json:"sections"`
@@ -76,6 +77,11 @@ type Response struct {
 	Nodes       []NodeUsage    `json:"nodes"`
 	Recent      []RecentEvent  `json:"recent"`
 	NodeErrors  []NodeError    `json:"node_errors,omitempty"`
+}
+
+type Filters struct {
+	NodeIDs  []string `json:"node_ids"`
+	ModelIDs []string `json:"model_ids"`
 }
 
 type Summary struct {
