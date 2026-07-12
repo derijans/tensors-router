@@ -1,4 +1,5 @@
 .gocache/
+.go-build-cache/
 .tmp/
 
 dist/
