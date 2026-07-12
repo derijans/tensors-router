@@ -1,0 +1,31 @@
+name: tensors-router-webui
+
+services:
+  router:
+    image: ghcr.io/derijans/tensors-router/tensors-router-webui:latest
+    pull_policy: always
+    container_name: tensors-router-webui
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 16m
+    working_dir: /opt/router
+    entrypoint:
+      - /opt/router/tensor-router-webui-linux-amd64
+      - --config
+      - /opt/router/webui.yaml
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+      - "8444:8444"
+    volumes:
+      - /media/main/VM/cobold/router:/opt/router:ro
+      - /media/main/VM/cobold/router/data:/opt/router/data
+      - /media/main/VM/cobold/router/router-store:/opt/router/router-store
+      - /media/main/VM/cobold/router/webui-state:/opt/router/webui-state
+    tmpfs:
+      - /tmp:size=64m,mode=1777

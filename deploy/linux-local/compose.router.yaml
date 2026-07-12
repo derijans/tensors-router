@@ -1,0 +1,29 @@
+name: tensors-router
+
+services:
+  router:
+    image: ghcr.io/derijans/tensors-router/tensors-router-node:latest
+    pull_policy: always
+    container_name: tensors-router
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 16m
+    working_dir: /opt/router
+    entrypoint:
+      - /opt/router/tensors-router-linux-amd64
+      - serve
+      - --config
+      - /opt/router/config.yaml
+    ports:
+      - "8080:8080"
+    volumes:
+      - /media/main/VM/cobold/router:/opt/router:ro
+      - /media/main/VM/cobold/router/data:/opt/router/data
+      - /media/main/VM/cobold/router/router-store:/opt/router/router-store
+    tmpfs:
+      - /tmp:size=64m,mode=1777
