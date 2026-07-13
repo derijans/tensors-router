@@ -76,5 +76,6 @@ type OptionDefinition struct {
 	ModelRole  string   `json:"model_role,omitempty"`
 	Default    string   `json:"default,omitempty"`
 	Source     string   `json:"source,omitempty"`
+	Legacy     bool     `json:"legacy,omitempty"`
 	Known      bool     `json:"known"`
 }

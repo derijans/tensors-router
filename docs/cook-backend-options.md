@@ -31,7 +31,8 @@ Rules:
 | `routermode`, `autoswapmode`, `reqtimeout` | mixed | observed + custom | Kobold router/admin behavior. |
 | `password`, `ssl`, `nocertify`, `remotetunnel` | mixed | observed + custom | Security/exposure fields. |
 | `multiuser`, `multiplayer`, `websearch`, `maxrequestsize` | mixed | observed + custom | Server behavior. |
-| `onready`, `preloadstory`, `savedatafile`, `mcpfile`, `downloaddir` | path/string | node files + custom | Runtime side files. |
+| `onready`, `preloadstory`, `savedatafile`, `mcpfile`, `downloaddir` | path/string | node files + custom | Runtime side files. `allow-config-onready` is intentionally not cookable. |
+| `sse_ping_interval` | number | seconds + custom | llama.cpp server-sent event heartbeat interval. |
 | `device`, `rpcmode`, `rpcport`, `rpchost`, `rpcdevice`, `rpctargets` | mixed | `disabled`, `connect`, `host` where applicable | Device/RPC fields. |
 
 ## LLM
@@ -44,7 +45,7 @@ Rules:
 | `contextsize` | number | `4096`, `8192`, `16384`, `32768`, `65536`, custom | Kobold range 256-262144. |
 | `gpulayers` | number/string | `-1`, `0`, `auto`, `all`, custom | Backend-specific. |
 | `batchsize` | number | `-1`, `16`, `32`, `64`, `128`, `256`, `512`, `1024`, `2048`, `4096` | Kobold and llama.cpp verified. |
-| `splitmode` | enum | `none`, `layer`, `row`, `tensor` | llama.cpp verified. |
+| `splitmode` | enum | `none`, `layer`, `tensor` | Prefer layer or tensor splitting. Row splitting is deprecated guidance for new configurations. |
 | `tensor_split` | list/string | observed + custom | Multi-GPU ratios. |
 | `maingpu` | number/string | GPU indexes, `main`, `CPU`, custom | GPU picker. |
 | `usecuda`, `usevulkan`, `usecpu` | mixed | detected backend + custom | GPU backend choice. |
@@ -52,6 +53,10 @@ Rules:
 | `quantkv` | enum | `f16`, `bf16`, `q8_0`, `q5_1`, `q4_0`, `0`, `1`, `2`, `3` | Kobold verified. |
 | `cache_type_k`, `cache_type_v` | enum | `f32`, `f16`, `bf16`, `q8_0`, `q4_0`, `q4_1`, `iq4_nl`, `q5_0`, `q5_1` | llama.cpp server. |
 | `flashattention`, `noflashattention` | bool | `true`, `false` | Compatibility/deprecated handling. |
+| `reasoningeffort` | enum | `default`, `none`, `low`, `medium`, `high` | Current KoboldCpp reasoning effort values. |
+| `swapadding` | number | non-negative value + custom | KoboldCpp swap-add amount. |
+| `defaultgenamt` | number | `64`-`32768`, default `1536` | Current KoboldCpp default generation amount range. |
+| `spec_draft_p_min` | number | probability + custom | llama.cpp speculative draft minimum probability. |
 | `ropeconfig`, `overridenativecontext`, `overridekv`, `overridetensors` | mixed | observed + custom | Advanced model metadata. |
 | `lora`, `loramult`, `draftmodel`, `draftamount`, `draftgpulayers`, `draftgpusplit` | mixed | node files + custom | LLM LoRA/speculative decode. |
 | `jinja`, `jinja_tools`, `jinja_kwargs`, `jinjatemplate`, `jinjathink` | mixed | `default`, `true`, `false` where applicable | Template fields. |
@@ -61,7 +66,7 @@ Rules:
 | Key | Type | Values | Notes |
 | --- | --- | --- | --- |
 | `mmproj` | model path | node multimodal files + custom | Projector file. |
-| `mmprojcpu` | bool | `true`, `false` | Projector CPU/offload. |
+| `mmprojcpu`, `mmproj_auto` | bool | `true`, `false` | Projector CPU/offload and optional automatic projector discovery. |
 | `visionmaxres` | number | `512`, `768`, `1024`, `1536`, `2048`, custom | Kobold range. |
 | `visionmintokens`, `visionmaxtokens` | number | `-1`, observed + custom | Vision token controls. |
 | `embeddingsmodel` | model path | node embedding files + custom | Embedding model dropdown. |
@@ -83,8 +88,12 @@ Rules:
 | `sdmaingpu`, `sdvaedevice`, `sdclipdevice` | string/number | GPU indexes, `main`, `CPU`, custom | Device dropdown. |
 | `sdflashattention`, `sdoffloadcpu` | bool | `true`, `false` | Image memory/perf. |
 | `sdconvdirect` | enum | `off`, `full`, `vaeonly` | Kobold verified. |
-| `sampling_method` | enum | `euler`, `euler_a`, `heun`, `dpm2`, `dpm++2s_a`, `dpm++2m`, `dpm++2mv2`, `ipndm`, `ipndm_v`, `lcm`, `ddim_trailing`, `tcd`, `res_multistep`, `res_2s`, `er_sde`, `euler_cfg_pp`, `euler_a_cfg_pp` | stable-diffusion.cpp. |
-| `scheduler` | enum | `discrete`, `karras`, `exponential`, `ays`, `gits`, `smoothstep`, `sgm_uniform`, `simple`, `kl_optimal`, `lcm`, `bong_tangent`, `ltx2` | stable-diffusion.cpp. |
+| `sampling_method` | enum | includes `dpm++2m_sde`, `dpm++2m_sde_bt`, and prior values | stable-diffusion.cpp. |
+| `scheduler` | enum | includes `logit_normal`, `flux2`, `flux`, `beta`, and prior values | stable-diffusion.cpp. |
+| `sdmaxvram` | string/number | `cuda0=6,vulkan0=4`, legacy numeric MiB values | Per-device VRAM assignments; numeric JSON remains supported. |
+| `sdautofit`, `sdsplitmode`, `sdcircular`, `sdcircularx`, `sdcirculary` | mixed | bool/string + custom | Current stable-diffusion.cpp loading and padding flags. |
+| `sdstreaming` | bool | `true`, `false` | Current flag-only streaming interface. |
+| `sdstreamlayers` | number | legacy values + custom | Legacy numeric streaming interface for older binaries. |
 | `type` | enum | `f32`, `f16`, `q4_0`, `q4_1`, `q5_0`, `q5_1`, `q8_0`, `q2_K`, `q3_K`, `q4_K` | stable-diffusion.cpp. |
 | `rng`, `sampler_rng` | enum | `std_default`, `cuda`, `cpu` | stable-diffusion.cpp. |
 | `prediction`, `lora_apply_mode` | enum | `eps`, `v`, `edm_v`, `sd3_flow`, `flux_flow`, `flux2_flow`; `auto`, `immediately`, `at_runtime` | stable-diffusion.cpp. |

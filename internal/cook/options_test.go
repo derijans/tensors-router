@@ -121,6 +121,51 @@ func TestOptionCatalogIncludesReleaseCatchUpKeys(t *testing.T) {
 	}
 }
 
+func TestOptionCatalogIncludesCurrentCompatibilityOptions(t *testing.T) {
+	tests := []struct {
+		key        string
+		valueType  string
+		nativeFlag string
+		legacy     bool
+	}{
+		{key: "mmproj_auto", valueType: ValueBool, nativeFlag: "--mmproj-auto"},
+		{key: "spec_draft_p_min", valueType: ValueNumber, nativeFlag: "--spec-draft-p-min"},
+		{key: "sse_ping_interval", valueType: ValueNumber, nativeFlag: "--sse-ping-interval"},
+		{key: "sdautofit", valueType: ValueBool, nativeFlag: "--autofit"},
+		{key: "sdsplitmode", valueType: ValueString, nativeFlag: "--split-mode"},
+		{key: "sdstreaming", valueType: ValueBool, nativeFlag: "--streaming"},
+		{key: "sdcircular", valueType: ValueBool, nativeFlag: "--circular"},
+		{key: "sdcircularx", valueType: ValueBool, nativeFlag: "--circular-x"},
+		{key: "sdcirculary", valueType: ValueBool, nativeFlag: "--circular-y"},
+		{key: "sdmaxvram", valueType: ValueString, nativeFlag: "--max-vram"},
+		{key: "sdstreamlayers", valueType: ValueNumber, nativeFlag: "--stream-layers", legacy: true},
+		{key: "swapadding", valueType: ValueNumber},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.key, func(t *testing.T) {
+			definition, ok := OptionDefinitionForKey(testCase.key)
+			if !ok {
+				t.Fatalf("missing option %q", testCase.key)
+			}
+			if definition.ValueType != testCase.valueType || definition.NativeFlag != testCase.nativeFlag || definition.Legacy != testCase.legacy {
+				t.Fatalf("unexpected definition %#v", definition)
+			}
+		})
+	}
+	if definition, ok := OptionDefinitionForKey("reasoningeffort"); !ok || definition.Default != "default" || !containsString(definition.Choices, "none") {
+		t.Fatalf("unexpected reasoning effort definition %#v", definition)
+	}
+	if definition, ok := OptionDefinitionForKey("defaultgenamt"); !ok || definition.Default != "1536" || !containsString(definition.Choices, "32768") {
+		t.Fatalf("unexpected default generation amount definition %#v", definition)
+	}
+	if definition, ok := OptionDefinitionForKey("sampling_method"); !ok || !containsString(definition.Choices, "dpm++2m_sde_bt") {
+		t.Fatalf("missing current sampling method %#v", definition)
+	}
+	if definition, ok := OptionDefinitionForKey("scheduler"); !ok || !containsString(definition.Choices, "logit_normal") || !containsString(definition.Choices, "beta") {
+		t.Fatalf("missing current scheduler choices %#v", definition)
+	}
+}
+
 func containsString(values []string, expected string) bool {
 	for _, value := range values {
 		if value == expected {

@@ -480,7 +480,10 @@ func clusterImageModelVisible(model cluster.Model, activeConfigFilename string) 
 }
 
 func modelSupportsOpenAIPath(model catalog.Model, path string) bool {
-	if path == "/v1/embeddings" {
+	if isEmbeddingsPath(path) {
+		if path == "/api/embed" {
+			return model.HasEmbeddings
+		}
 		return model.HasEmbeddings || model.HasLLM
 	}
 	if isCorePath(path) {
@@ -501,7 +504,10 @@ func modelSupportsTextLane(model catalog.Model) bool {
 }
 
 func registryModelSupportsOpenAIPath(model cluster.Model, path string) bool {
-	if path == "/v1/embeddings" {
+	if isEmbeddingsPath(path) {
+		if path == "/api/embed" {
+			return model.HasEmbeddings
+		}
 		return model.HasEmbeddings || model.HasLLM
 	}
 	if isCorePath(path) {

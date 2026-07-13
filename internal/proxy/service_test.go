@@ -19,6 +19,7 @@ import (
 
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
+	"tensors-router/internal/openai"
 )
 
 type fakeBackend struct {
@@ -1554,6 +1555,83 @@ func TestEmbeddingsPassThroughWithModelValidation(t *testing.T) {
 
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected status %d", recorder.Code)
+	}
+}
+
+func TestKoboldEmbedUsesOnlyEmbeddingModels(t *testing.T) {
+	var forwardedModel string
+	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"embed"}]}`))
+			return
+		}
+		if r.URL.Path != "/api/embed" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		forwardedModel, _, err = openai.ModelFromJSON(body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"embed","data":[]}`))
+	}), map[string]string{
+		"embed": `{"nomodel":true,"embeddingsmodel":"C:\\models\\embed.gguf"}`,
+		"text":  `{"model_param":"C:\\models\\text.gguf"}`,
+	})
+
+	request := httptest.NewRequest(http.MethodPost, "/api/embed", strings.NewReader(`{"model":"embed","input":"hello"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || forwardedModel != "embed" || !strings.Contains(recorder.Body.String(), `"model":"embed"`) {
+		t.Fatalf("unexpected embed response status=%d model=%q body=%s", recorder.Code, forwardedModel, recorder.Body.String())
+	}
+
+	request = httptest.NewRequest(http.MethodPost, "/api/embed", strings.NewReader(`{"model":"text","input":"hello"}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder = httptest.NewRecorder()
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("expected text-only model to be rejected, got %d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestVoiceDiscoveryAndPingCompatibilityRoutes(t *testing.T) {
+	var forwarded bool
+	service, backend := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/audio/voices" {
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+		forwarded = true
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+
+	voiceRecorder := httptest.NewRecorder()
+	service.ServeHTTP(voiceRecorder, httptest.NewRequest(http.MethodGet, "/v1/audio/voices", nil))
+	if voiceRecorder.Code != http.StatusOK || !forwarded {
+		t.Fatalf("voice discovery failed status=%d body=%s", voiceRecorder.Code, voiceRecorder.Body.String())
+	}
+
+	pingRecorder := httptest.NewRecorder()
+	service.ServeHTTP(pingRecorder, httptest.NewRequest(http.MethodGet, "/ping", nil))
+	if pingRecorder.Code != http.StatusOK || pingRecorder.Body.String() != "{\"status\":\"healthy\"}\n" || backend.reloads.Load() != 0 {
+		t.Fatalf("unexpected ping status=%d body=%q reloads=%d", pingRecorder.Code, pingRecorder.Body.String(), backend.reloads.Load())
+	}
+}
+
+func TestVoiceDiscoveryRejectsSplitBackend(t *testing.T) {
+	service, _, _ := newSplitTestServiceWithConfigContents(t, readyTextHandler(t), readyImageHandler(t), map[string]string{
+		"voice": `{"talkermodel":"C:\\models\\talker.gguf"}`,
+	})
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/audio/voices", nil))
+	if recorder.Code != http.StatusNotImplemented || !strings.Contains(recorder.Body.String(), `"type":"unsupported_backend"`) {
+		t.Fatalf("unexpected split discovery response status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

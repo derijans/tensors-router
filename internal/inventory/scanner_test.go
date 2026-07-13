@@ -114,6 +114,31 @@ func TestScanSkipsSymlinkEscapes(t *testing.T) {
 	}
 }
 
+func TestScanRecognizesOnlySafeTensorsIndexManifests(t *testing.T) {
+	root := packageTempDir(t)
+	manifestPath := filepath.Join(root, "model.safetensors.index.json")
+	if err := os.WriteFile(manifestPath, []byte(`{"weight_map":{}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "unrelated.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	files, err := Scan([]string{root}, nil, "node-a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	manifest := findFileRecord(files, manifestPath)
+	if manifest == nil || manifest.Extension != ".safetensors.index.json" || manifest.Role != RoleImage {
+		t.Fatalf("unexpected manifest record %#v", manifest)
+	}
+	for _, file := range files {
+		if file.Basename == "unrelated.json" {
+			t.Fatalf("ordinary json was scanned: %#v", files)
+		}
+	}
+}
+
 func findFileRecord(files []FileRecord, path string) *FileRecord {
 	clean := filepath.Clean(path)
 	for index := range files {

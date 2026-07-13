@@ -302,6 +302,7 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	appendStringArg(&args, "--spec-type", metadata.SpecType)
 	appendStringArg(&args, "--spec-draft-type-k", metadata.SpecDraftTypeK)
 	appendStringArg(&args, "--spec-draft-type-v", metadata.SpecDraftTypeV)
+	appendFloatArg(&args, "--spec-draft-p-min", metadata.SpecDraftPMin)
 	if !metadata.UseMMap {
 		args = append(args, "--no-mmap")
 	}
@@ -319,6 +320,7 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	if metadata.MMProjCPU {
 		args = append(args, "--no-mmproj-offload")
 	}
+	appendOptionalBoolArg(&args, "--mmproj-auto", "--no-mmproj-auto", metadata.MMProjAuto)
 	appendIntArg(&args, "--image-min-tokens", positive(metadata.VisionMinTokens))
 	appendIntArg(&args, "--image-max-tokens", positive(metadata.VisionMaxTokens))
 	appendStringArg(&args, "--model-vocoder", metadata.Code2WAVModel)
@@ -331,6 +333,7 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	appendStringArg(&args, "--models-preset", metadata.ModelsPreset)
 	appendIntArg(&args, "--models-max", metadata.ModelsMax)
 	appendOptionalBoolArg(&args, "--models-autoload", "--no-models-autoload", metadata.ModelsAutoload)
+	appendIntArg(&args, "--sse-ping-interval", metadata.SSEPingInterval)
 	return args, nil
 }
 
@@ -364,7 +367,7 @@ func sdcppArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	appendStringArg(&args, "--backend", metadata.SDBackend)
 	appendStringArg(&args, "--params-backend", metadata.SDParamsBackend)
 	appendStringListArg(&args, "--rpc-servers", metadata.SDRPCServers)
-	appendIntArg(&args, "--max-vram", metadata.SDMaxVRAM)
+	appendStringArg(&args, "--max-vram", nativeSingleString(metadata.SDMaxVRAM))
 	appendIntArg(&args, "--stream-layers", metadata.SDStreamLayers)
 	appendStringListArg(&args, "--tensor-type-rules", metadata.SDTensorTypeRules)
 	appendStringArg(&args, "--vae-format", metadata.SDVAEFormat)
@@ -388,6 +391,22 @@ func sdcppArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	}
 	if metadata.SDVAECPU {
 		args = append(args, "--vae-on-cpu")
+	}
+	if metadata.SDStreaming {
+		args = append(args, "--streaming")
+	}
+	if metadata.SDAutoFit {
+		args = append(args, "--autofit")
+	}
+	appendStringArg(&args, "--split-mode", metadata.SDSplitMode)
+	if metadata.SDCircular {
+		args = append(args, "--circular")
+	}
+	if metadata.SDCircularX {
+		args = append(args, "--circular-x")
+	}
+	if metadata.SDCircularY {
+		args = append(args, "--circular-y")
 	}
 	if metadata.SDTiledVAE > 0 {
 		tileSize := strconv.Itoa(metadata.SDTiledVAE) + "x" + strconv.Itoa(metadata.SDTiledVAE)
@@ -458,6 +477,14 @@ func nativeStringValues(value any) []string {
 	default:
 		return nil
 	}
+}
+
+func nativeSingleString(value any) string {
+	values := nativeStringValues(value)
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
 }
 
 func positive(value int) int {

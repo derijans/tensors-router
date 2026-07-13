@@ -435,6 +435,11 @@ func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if r.Method == http.MethodGet && r.URL.Path == "/ping" {
+		openai.WriteJSON(w, http.StatusOK, map[string]string{"status": "healthy"})
+		return
+	}
+
 	if r.Method == http.MethodGet && r.URL.Path == "/sdapi/v1/sd-models" {
 		service.handleImageModels(w)
 		return
@@ -2319,12 +2324,12 @@ func isCorePath(path string) bool {
 }
 
 func isEmbeddingsPath(path string) bool {
-	return path == "/v1/embeddings" || path == "/api/extra/embeddings"
+	return path == "/v1/embeddings" || path == "/api/embed" || path == "/api/extra/embeddings"
 }
 
 func isVoicePath(path string) bool {
 	switch path {
-	case "/v1/audio/speech", "/v1/audio/transcriptions", "/v1/audio/translations", "/api/extra/tts", "/api/extra/transcribe":
+	case "/v1/audio/speech", "/v1/audio/transcriptions", "/v1/audio/translations", "/v1/audio/voices", "/audio/voices", "/api/extra/tts", "/api/extra/transcribe":
 		return true
 	default:
 		return false
@@ -2353,6 +2358,8 @@ func isTextPath(path string) bool {
 		return true
 	}
 	switch path {
+	case "/api/embed":
+		return true
 	case "/api/v1/generate",
 		"/api/extra/generate/stream",
 		"/api/extra/embeddings",
@@ -2374,6 +2381,8 @@ func textPathRequiresModel(path string) bool {
 		return true
 	}
 	switch path {
+	case "/api/embed":
+		return true
 	case "/v1/responses",
 		"/v1/responses/input_tokens",
 		"/v1/messages",

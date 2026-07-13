@@ -126,7 +126,7 @@ var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option("blasbatchsize", "BLAS Batch Size", LaneText, ValueNumber, "", false, "kobold"),
 	option("reasoningeffort", "Reasoning Effort", LaneText, ValueString, "", false, "kobold"),
 	option("usemtp", "Use MTP", LaneText, ValueBool, "", false, "kobold"),
-	option("swapadding", "Swap Adding", LaneText, ValueBool, "", false, "kobold"),
+	option("swapadding", "Swap Adding", LaneText, ValueNumber, "", false, "kobold"),
 	option("useswa", "Use SWA", LaneText, ValueBool, "", false, "kobold"),
 	option("noswa", "No SWA", LaneText, ValueBool, "", false, "kobold"),
 	option("smartcache", "Smart Cache", LaneText, ValueBool, "", false, "kobold"),
@@ -151,6 +151,7 @@ var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option("spec_type", "Speculative Type", LaneText, ValueString, "--spec-type", false, "llama_sdcpp"),
 	option("spec_draft_type_k", "Draft Cache Type K", LaneText, ValueString, "--spec-draft-type-k", false, "llama_sdcpp"),
 	option("spec_draft_type_v", "Draft Cache Type V", LaneText, ValueString, "--spec-draft-type-v", false, "llama_sdcpp"),
+	option("spec_draft_p_min", "Draft Minimum Probability", LaneText, ValueNumber, "--spec-draft-p-min", false, "llama_sdcpp"),
 	option("jinja", "Jinja", LaneText, ValueBool, "--jinja", false, "kobold", "llama_sdcpp"),
 	option("jinja_tools", "Jinja Tools", LaneText, ValueBool, "", false, "kobold", "llama_sdcpp"),
 	option("jinja_kwargs", "Jinja Kwargs", LaneText, ValueJSON, "", false, "kobold", "llama_sdcpp"),
@@ -158,6 +159,7 @@ var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option("jinjathink", "Jinja Think", LaneText, ValueString, "", false, "kobold", "llama_sdcpp"),
 	option("mmproj", "Multimodal Projector", LaneMultimodal, ValueJSON, "--mmproj", false, "kobold", "llama_sdcpp"),
 	option("mmprojcpu", "Projector On CPU", LaneMultimodal, ValueBool, "--no-mmproj-offload", false, "kobold", "llama_sdcpp"),
+	option("mmproj_auto", "Automatically Find Projector", LaneMultimodal, ValueBool, "--mmproj-auto", false, "llama_sdcpp"),
 	option("visionmaxres", "Vision Max Resolution", LaneMultimodal, ValueNumber, "", false, "kobold", "llama_sdcpp"),
 	option("visionmintokens", "Vision Min Tokens", LaneMultimodal, ValueNumber, "--image-min-tokens", false, "kobold", "llama_sdcpp"),
 	option("visionmaxtokens", "Vision Max Tokens", LaneMultimodal, ValueNumber, "--image-max-tokens", false, "kobold", "llama_sdcpp"),
@@ -172,6 +174,7 @@ var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option("models_preset", "Models Preset", LaneRuntime, ValueString, "--models-preset", false, "llama_sdcpp"),
 	option("models_max", "Max Loaded Models", LaneRuntime, ValueNumber, "--models-max", false, "llama_sdcpp"),
 	option("models_autoload", "Models Autoload", LaneRuntime, ValueBool, "--models-autoload", false, "llama_sdcpp"),
+	option("sse_ping_interval", "SSE Ping Interval", LaneRuntime, ValueNumber, "--sse-ping-interval", false, "llama_sdcpp"),
 	option("sdmodel", "Image Model", LaneImage, ValueString, "--model", false, "kobold", "llama_sdcpp"),
 	option("sddiffusionmodel", "Diffusion Model", LaneImage, ValueString, "--diffusion-model", false, "llama_sdcpp"),
 	option("sdhighnoisediffusionmodel", "High Noise Diffusion Model", LaneImage, ValueString, "--high-noise-diffusion-model", false, "llama_sdcpp"),
@@ -224,8 +227,14 @@ var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option("sdbackend", "Image Backend", LaneImage, ValueString, "--backend", false, "llama_sdcpp"),
 	option("sdparamsbackend", "Image Params Backend", LaneImage, ValueString, "--params-backend", false, "llama_sdcpp"),
 	option("sdrpcservers", "Image RPC Servers", LaneImage, ValueJSON, "--rpc-servers", false, "llama_sdcpp"),
-	option("sdmaxvram", "Image Max VRAM", LaneImage, ValueNumber, "--max-vram", false, "llama_sdcpp"),
+	option("sdmaxvram", "Image Max VRAM", LaneImage, ValueString, "--max-vram", false, "llama_sdcpp"),
 	option("sdstreamlayers", "Stream Layers", LaneImage, ValueNumber, "--stream-layers", false, "llama_sdcpp"),
+	option("sdstreaming", "Streaming", LaneImage, ValueBool, "--streaming", false, "llama_sdcpp"),
+	option("sdautofit", "Image Auto Fit", LaneImage, ValueBool, "--autofit", false, "llama_sdcpp"),
+	option("sdsplitmode", "Image Split Mode", LaneImage, ValueString, "--split-mode", false, "llama_sdcpp"),
+	option("sdcircular", "Circular Padding", LaneImage, ValueBool, "--circular", false, "llama_sdcpp"),
+	option("sdcircularx", "Circular Padding X", LaneImage, ValueBool, "--circular-x", false, "llama_sdcpp"),
+	option("sdcirculary", "Circular Padding Y", LaneImage, ValueBool, "--circular-y", false, "llama_sdcpp"),
 	option("sdtensortyperules", "Tensor Type Rules", LaneImage, ValueJSON, "--tensor-type-rules", false, "llama_sdcpp"),
 	option("sdvaeformat", "VAE Format", LaneImage, ValueString, "--vae-format", false, "llama_sdcpp"),
 	option("type", "Type", LaneImage, ValueString, "--type", false, "llama_sdcpp"),
@@ -395,6 +404,7 @@ type optionMetadata struct {
 	defaultValue string
 	source       string
 	section      string
+	legacy       bool
 }
 
 func enrichOptionCatalog(values []OptionDefinition) []OptionDefinition {
@@ -409,6 +419,7 @@ func enrichOptionCatalog(values []OptionDefinition) []OptionDefinition {
 		values[index].ModelRole = metadata.modelRole
 		values[index].Default = metadata.defaultValue
 		values[index].Source = metadata.source
+		values[index].Legacy = metadata.legacy
 		if values[index].Source == "" {
 			values[index].Source = defaultSource(values[index].Backends)
 		}
@@ -469,6 +480,7 @@ var optionMetadataByKey = map[string]optionMetadata{
 	"jinjathink":                 meta(values("default", "none", "openai", "deepseek", "qwen"), "", "default", SourceKoboldCPP, ""),
 	"mmproj":                     meta(nil, "multimodal", "", SourceLlamaCPPServer, SectionEmbed),
 	"mmprojcpu":                  meta(boolChoices(), "", "false", SourceLlamaCPPServer, SectionEmbed),
+	"mmproj_auto":                meta(boolChoices(), "", "", SourceLlamaCPPServer, SectionEmbed),
 	"visionmaxres":               meta(values("512", "768", "1024", "1536", "2048"), "", "1024", SourceKoboldCPP, SectionEmbed),
 	"visionmintokens":            meta(values("-1"), "", "-1", SourceLlamaCPPServer, SectionEmbed),
 	"visionmaxtokens":            meta(values("-1"), "", "-1", SourceLlamaCPPServer, SectionEmbed),
@@ -522,7 +534,7 @@ var optionMetadataByKey = map[string]optionMetadata{
 	"parallelrequests":           meta(values("1", "2", "4", "8", "16"), "", "", SourceKoboldCPP, ""),
 	"gendefaults":                meta(nil, "", "", SourceKoboldCPP, ""),
 	"gendefaultsoverwrite":       meta(boolChoices(), "", "", SourceKoboldCPP, ""),
-	"defaultgenamt":              meta(values("1", "2", "4", "8"), "", "", SourceKoboldCPP, ""),
+	"defaultgenamt":              meta(values("64", "128", "256", "512", "1024", "1536", "2048", "4096", "8192", "16384", "32768"), "", "1536", SourceKoboldCPP, ""),
 	"genlimit":                   meta(values("0", "1", "2", "4", "8", "16"), "", "", SourceKoboldCPP, ""),
 	"promptlimit":                meta(values("0", "1024", "4096", "8192", "16384"), "", "", SourceKoboldCPP, ""),
 	"ratelimit":                  meta(values("0", "1", "2", "4", "8", "16"), "", "", SourceKoboldCPP, ""),
@@ -535,9 +547,9 @@ var optionMetadataByKey = map[string]optionMetadata{
 	"kv_unified":                 meta(boolChoices(), "", "", SourceLlamaCPPServer, ""),
 	"cache_idle_slots":           meta(boolChoices(), "", "true", SourceLlamaCPPServer, ""),
 	"swa_full":                   meta(boolChoices(), "", "false", SourceLlamaCPPServer, ""),
-	"reasoningeffort":            meta(values("low", "medium", "high"), "", "", SourceKoboldCPP, ""),
+	"reasoningeffort":            meta(values("default", "none", "low", "medium", "high"), "", "default", SourceKoboldCPP, ""),
 	"usemtp":                     meta(boolChoices(), "", "", SourceKoboldCPP, ""),
-	"swapadding":                 meta(boolChoices(), "", "", SourceKoboldCPP, ""),
+	"swapadding":                 meta(values("0", "1", "2", "4", "8", "16"), "", "", SourceKoboldCPP, ""),
 	"useswa":                     meta(boolChoices(), "", "", SourceKoboldCPP, ""),
 	"noswa":                      meta(boolChoices(), "", "", SourceKoboldCPP, ""),
 	"smartcache":                 meta(boolChoices(), "", "", SourceKoboldCPP, ""),
@@ -552,6 +564,7 @@ var optionMetadataByKey = map[string]optionMetadata{
 	"spec_type":                  meta(values("none", "draft-simple", "draft-eagle3", "draft-mtp", "ngram-simple", "ngram-map-k", "ngram-map-k4v", "ngram-mod", "ngram-cache"), "", "none", SourceLlamaCPPServer, ""),
 	"spec_draft_type_k":          meta(cacheTypeChoices(), "", "f16", SourceLlamaCPPServer, ""),
 	"spec_draft_type_v":          meta(cacheTypeChoices(), "", "f16", SourceLlamaCPPServer, ""),
+	"spec_draft_p_min":           meta(nil, "", "", SourceLlamaCPPServer, ""),
 	"api_key_file":               meta(nil, "", "", SourceLlamaCPPServer, SectionRuntime),
 	"log_prompts_dir":            meta(nil, "", "", SourceLlamaCPPServer, SectionRuntime),
 	"agent":                      meta(boolChoices(), "", "false", SourceLlamaCPPServer, SectionRuntime),
@@ -559,6 +572,7 @@ var optionMetadataByKey = map[string]optionMetadata{
 	"models_preset":              meta(nil, "", "", SourceLlamaCPPServer, SectionRuntime),
 	"models_max":                 meta(values("0", "1", "2", "4", "8"), "", "4", SourceLlamaCPPServer, SectionRuntime),
 	"models_autoload":            meta(boolChoices(), "", "true", SourceLlamaCPPServer, SectionRuntime),
+	"sse_ping_interval":          meta(nil, "", "", SourceLlamaCPPServer, SectionRuntime),
 	"sddiffusionmodel":           meta(nil, "image", "", SourceStableDiffusionCPP, ""),
 	"sdhighnoisediffusionmodel":  meta(nil, "image", "", SourceStableDiffusionCPP, ""),
 	"sdunconddiffusionmodel":     meta(nil, "image", "", SourceStableDiffusionCPP, ""),
@@ -584,8 +598,14 @@ var optionMetadataByKey = map[string]optionMetadata{
 	"sdbackend":                  meta(nil, "", "", SourceStableDiffusionCPP, ""),
 	"sdparamsbackend":            meta(nil, "", "", SourceStableDiffusionCPP, ""),
 	"sdrpcservers":               meta(nil, "", "", SourceStableDiffusionCPP, ""),
-	"sdmaxvram":                  meta(values("0", "4096", "8192", "12288", "16384", "24576"), "", "", SourceStableDiffusionCPP, ""),
-	"sdstreamlayers":             meta(values("0", "1", "2", "4", "8", "16"), "", "", SourceStableDiffusionCPP, ""),
+	"sdmaxvram":                  meta(values("0", "4096", "8192", "12288", "16384", "24576", "cuda0=6,vulkan0=4"), "", "", SourceStableDiffusionCPP, ""),
+	"sdstreamlayers":             legacyMeta(values("0", "1", "2", "4", "8", "16"), "", "", SourceStableDiffusionCPP, ""),
+	"sdstreaming":                meta(boolChoices(), "", "", SourceStableDiffusionCPP, ""),
+	"sdautofit":                  meta(boolChoices(), "", "", SourceStableDiffusionCPP, ""),
+	"sdsplitmode":                meta(values("none", "layer"), "", "", SourceStableDiffusionCPP, ""),
+	"sdcircular":                 meta(boolChoices(), "", "", SourceStableDiffusionCPP, ""),
+	"sdcircularx":                meta(boolChoices(), "", "", SourceStableDiffusionCPP, ""),
+	"sdcirculary":                meta(boolChoices(), "", "", SourceStableDiffusionCPP, ""),
 	"sdtensortyperules":          meta(nil, "", "", SourceStableDiffusionCPP, ""),
 	"sdvaeformat":                meta(nil, "vae", "", SourceStableDiffusionCPP, ""),
 	"talkermodel":                meta(nil, "voice", "", SourceLlamaCPPServer, SectionVoice),
@@ -600,6 +620,12 @@ func meta(choices []string, modelRole string, defaultValue string, source string
 		source:       source,
 		section:      section,
 	}
+}
+
+func legacyMeta(choices []string, modelRole string, defaultValue string, source string, section string) optionMetadata {
+	metadata := meta(choices, modelRole, defaultValue, source, section)
+	metadata.legacy = true
+	return metadata
 }
 
 func defaultSection(lane string) string {
@@ -642,11 +668,11 @@ func cacheTypeChoices() []string {
 }
 
 func samplingMethodChoices() []string {
-	return values("euler", "euler_a", "heun", "dpm2", "dpm++2s_a", "dpm++2m", "dpm++2mv2", "ipndm", "ipndm_v", "lcm", "ddim_trailing", "tcd", "res_multistep", "res_2s", "er_sde", "euler_cfg_pp", "euler_a_cfg_pp")
+	return values("euler", "euler_a", "heun", "dpm2", "dpm++2s_a", "dpm++2m", "dpm++2m_sde", "dpm++2m_sde_bt", "dpm++2mv2", "ipndm", "ipndm_v", "lcm", "ddim_trailing", "tcd", "res_multistep", "res_2s", "er_sde", "euler_cfg_pp", "euler_a_cfg_pp")
 }
 
 func schedulerChoices() []string {
-	return values("discrete", "karras", "exponential", "ays", "gits", "smoothstep", "sgm_uniform", "simple", "kl_optimal", "lcm", "bong_tangent", "ltx2")
+	return values("discrete", "karras", "exponential", "ays", "gits", "smoothstep", "sgm_uniform", "simple", "kl_optimal", "lcm", "bong_tangent", "ltx2", "logit_normal", "flux2", "flux", "beta")
 }
 
 func values(items ...string) []string {

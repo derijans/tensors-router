@@ -36,6 +36,7 @@ type RuntimeConfig struct {
 	SpecType                  string  `json:"spec_type"`
 	SpecDraftTypeK            string  `json:"spec_draft_type_k"`
 	SpecDraftTypeV            string  `json:"spec_draft_type_v"`
+	SpecDraftPMin             float64 `json:"spec_draft_p_min"`
 	APIKeyFile                string  `json:"api_key_file"`
 	LogPromptsDir             string  `json:"log_prompts_dir"`
 	Agent                     bool    `json:"agent"`
@@ -43,6 +44,7 @@ type RuntimeConfig struct {
 	ModelsPreset              string  `json:"models_preset"`
 	ModelsMax                 int     `json:"models_max"`
 	ModelsAutoload            *bool   `json:"models_autoload"`
+	SSEPingInterval           int     `json:"sse_ping_interval"`
 	SDModel                   string  `json:"sdmodel"`
 	SDDiffusionModel          string  `json:"sddiffusionmodel"`
 	SDHighNoiseDiffusionModel string  `json:"sdhighnoisediffusionmodel"`
@@ -58,8 +60,14 @@ type RuntimeConfig struct {
 	SDBackend                 string  `json:"sdbackend"`
 	SDParamsBackend           string  `json:"sdparamsbackend"`
 	SDRPCServers              any     `json:"sdrpcservers"`
-	SDMaxVRAM                 int     `json:"sdmaxvram"`
+	SDMaxVRAM                 any     `json:"sdmaxvram"`
 	SDStreamLayers            int     `json:"sdstreamlayers"`
+	SDStreaming               bool    `json:"sdstreaming"`
+	SDAutoFit                 bool    `json:"sdautofit"`
+	SDSplitMode               string  `json:"sdsplitmode"`
+	SDCircular                bool    `json:"sdcircular"`
+	SDCircularX               bool    `json:"sdcircularx"`
+	SDCircularY               bool    `json:"sdcirculary"`
 	SDTensorTypeRules         any     `json:"sdtensortyperules"`
 	SDVAEFormat               string  `json:"sdvaeformat"`
 	SDLoRAModelDir            string  `json:"sdloramodeldir"`
@@ -89,6 +97,7 @@ type RuntimeConfig struct {
 	EmbeddingsGPU             bool    `json:"embeddingsgpu"`
 	MMProj                    any     `json:"mmproj"`
 	MMProjCPU                 bool    `json:"mmprojcpu"`
+	MMProjAuto                *bool   `json:"mmproj_auto"`
 	VisionMaxRes              int     `json:"visionmaxres"`
 	VisionMinTokens           int     `json:"visionmintokens"`
 	VisionMaxTokens           int     `json:"visionmaxtokens"`

@@ -90,7 +90,7 @@ func scanRoot(root string, references map[string][]pathReference, nodeID string)
 		if entry.IsDir() {
 			return nil
 		}
-		if !allowedExtension(filepath.Ext(path)) {
+		if !allowedInventoryFile(path) {
 			return nil
 		}
 		info, err := entry.Info()
@@ -118,7 +118,7 @@ func scanSymlink(path string, root string, references map[string][]pathReference
 	if err != nil {
 		return nil
 	}
-	if info.IsDir() || !allowedExtension(filepath.Ext(path)) {
+	if info.IsDir() || !allowedInventoryFile(path) {
 		return nil
 	}
 	*files = append(*files, fileRecord(path, info, references, nodeID))
@@ -130,7 +130,7 @@ func fileRecord(path string, info os.FileInfo, references map[string][]pathRefer
 	if err == nil {
 		path = absolutePath
 	}
-	extension := strings.ToLower(filepath.Ext(path))
+	extension := inventoryExtension(path)
 	roles, referencedBy := inferredRoles(path, extension, references)
 	return FileRecord{
 		Path:         filepath.Clean(path),
@@ -260,7 +260,7 @@ func insideRoot(root string, path string) bool {
 
 func roleFromExtension(extension string) string {
 	switch strings.ToLower(extension) {
-	case ".safetensors", ".ckpt":
+	case ".safetensors", ".safetensors.index.json", ".ckpt":
 		return RoleImage
 	case ".gguf", ".bin":
 		return RoleLLM
@@ -278,6 +278,21 @@ func allowedExtension(extension string) bool {
 	default:
 		return false
 	}
+}
+
+func allowedInventoryFile(path string) bool {
+	return allowedExtension(filepath.Ext(path)) || isSafeTensorsIndexManifest(path)
+}
+
+func inventoryExtension(path string) string {
+	if isSafeTensorsIndexManifest(path) {
+		return ".safetensors.index.json"
+	}
+	return strings.ToLower(filepath.Ext(path))
+}
+
+func isSafeTensorsIndexManifest(path string) bool {
+	return strings.HasSuffix(strings.ToLower(filepath.Base(path)), ".safetensors.index.json")
 }
 
 func sortedKeys(values map[string]struct{}) []string {

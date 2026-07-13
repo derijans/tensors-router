@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"tensors-router/internal/catalog"
 )
 
 func TestLlamaLaunchArgumentsFromKcpps(t *testing.T) {
@@ -162,6 +164,53 @@ func TestLlamaEmbeddingLaunchArgumentsEnableEmbeddings(t *testing.T) {
 	if !reflect.DeepEqual(args, expected) {
 		t.Fatalf("unexpected args %#v", args)
 	}
+}
+
+func TestCurrentReleaseArgumentsPreserveOptionalAndAssignmentValues(t *testing.T) {
+	mmprojAuto := true
+	llamaArgs, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{
+		ModelParam:      "C:/models/text.gguf",
+		MMProjAuto:      &mmprojAuto,
+		SpecDraftPMin:   0.15,
+		SSEPingInterval: 10,
+	}, "llama")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"--mmproj-auto", "--spec-draft-p-min", "0.15", "--sse-ping-interval", "10"} {
+		if !containsArgument(llamaArgs, expected) {
+			t.Fatalf("missing llama argument %q in %#v", expected, llamaArgs)
+		}
+	}
+
+	sdcppArgs, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{
+		SDModel:        "C:/models/image.safetensors",
+		SDMaxVRAM:      "cuda0=6,vulkan0=4",
+		SDStreamLayers: 4,
+		SDStreaming:    true,
+		SDAutoFit:      true,
+		SDSplitMode:    "layer",
+		SDCircular:     true,
+		SDCircularX:    true,
+		SDCircularY:    true,
+	}, "sdcpp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"--max-vram", "cuda0=6,vulkan0=4", "--stream-layers", "4", "--streaming", "--autofit", "--split-mode", "layer", "--circular", "--circular-x", "--circular-y"} {
+		if !containsArgument(sdcppArgs, expected) {
+			t.Fatalf("missing stable-diffusion.cpp argument %q in %#v", expected, sdcppArgs)
+		}
+	}
+}
+
+func containsArgument(args []string, expected string) bool {
+	for _, arg := range args {
+		if arg == expected {
+			return true
+		}
+	}
+	return false
 }
 
 func TestSDCPPLaunchArgumentsFromKcpps(t *testing.T) {
