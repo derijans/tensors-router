@@ -1620,7 +1620,16 @@ func (service *Service) localBackendAvailableForRoute(ctx context.Context, mode 
 	if service.currentBackendMode() != resolvedMode {
 		return true
 	}
+	if localRuntimeAcceptsQueuedRequest(runtime) {
+		return true
+	}
 	return runtime.backend.Healthy(ctx)
+}
+
+func localRuntimeAcceptsQueuedRequest(runtime *backendRuntime) bool {
+	runtime.state.mu.Lock()
+	defer runtime.state.mu.Unlock()
+	return runtime.state.filename == "" || runtime.state.switching || runtime.state.switchWaiters > 0
 }
 
 func (service *Service) currentConfigFilename() string {

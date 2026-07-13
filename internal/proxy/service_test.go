@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -2091,6 +2092,126 @@ func TestClusterModelsEndpointHidesNodeIdentityAndIndexesConflicts(t *testing.T)
 	}
 	if strings.Contains(recorder.Body.String(), "slave-a") {
 		t.Fatalf("node identity leaked: %s", recorder.Body.String())
+	}
+}
+
+func TestClusterFirstLocalRequestLoadsWhenBackendStartsUnhealthy(t *testing.T) {
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
+	if err := registry.UpdateLocal([]cluster.Model{testClusterModel("a", "master", "model-hash", "config-hash", cluster.SourceMaster)}); err != nil {
+		t.Fatal(err)
+	}
+
+	service, backend := newTestServiceWithRegistry(t, registry, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/models":
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"backend"}]}`))
+		case "/v1/chat/completions":
+			_, _ = w.Write([]byte(`{"model":"backend","choices":[{"message":{"content":"ok"}}]}`))
+		default:
+			t.Fatalf("unexpected backend path %s", r.URL.Path)
+		}
+	}), "secret")
+	backend.healthy = false
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"a","messages":[]}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if backend.reloads.Load() != 1 {
+		t.Fatalf("expected startup request to load one model, got %d reloads", backend.reloads.Load())
+	}
+}
+
+func TestClusterLocalRequestQueuesDuringModelLoad(t *testing.T) {
+	for _, requestedModel := range []string{"a", "b"} {
+		t.Run(requestedModel, func(t *testing.T) {
+			service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"model":"backend","choices":[{"message":{"content":"ok"}}]}`))
+			}), map[string]string{"a": `{}`, "b": `{}`})
+			models, err := service.catalog.List()
+			if err != nil {
+				t.Fatal(err)
+			}
+			registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
+			if err := registry.UpdateLocal(cluster.LocalModels(models, "master", "http://master", cluster.SourceMaster)); err != nil {
+				t.Fatal(err)
+			}
+			service.registry = registry
+			backend.healthy = false
+
+			loadStarted := make(chan struct{})
+			continueLoad := make(chan struct{})
+			var loadStartedOnce sync.Once
+			var continueLoadOnce sync.Once
+			t.Cleanup(func() {
+				continueLoadOnce.Do(func() { close(continueLoad) })
+			})
+			backend.onReload = func(filename string) {
+				if filename != "a.kcpps" {
+					return
+				}
+				loadStartedOnce.Do(func() { close(loadStarted) })
+				<-continueLoad
+			}
+
+			loadDone := make(chan error, 1)
+			go func() {
+				loadDone <- service.loadLocalModel(context.Background(), "a", "a")
+			}()
+			select {
+			case <-loadStarted:
+			case <-time.After(time.Second):
+				t.Fatal("initial model load did not start")
+			}
+
+			type requestResult struct {
+				status int
+				body   string
+			}
+			requestDone := make(chan requestResult, 1)
+			go func() {
+				recorder := httptest.NewRecorder()
+				body := fmt.Sprintf(`{"model":%q,"messages":[]}`, requestedModel)
+				request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+				request.Header.Set("Content-Type", "application/json")
+				service.ServeHTTP(recorder, request)
+				requestDone <- requestResult{status: recorder.Code, body: recorder.Body.String()}
+			}()
+
+			select {
+			case result := <-requestDone:
+				continueLoadOnce.Do(func() { close(continueLoad) })
+				t.Fatalf("request returned during model load with status %d body %s", result.status, result.body)
+			case <-time.After(50 * time.Millisecond):
+			}
+			continueLoadOnce.Do(func() { close(continueLoad) })
+
+			if err := <-loadDone; err != nil {
+				t.Fatalf("initial model load failed: %v", err)
+			}
+			select {
+			case result := <-requestDone:
+				if result.status != http.StatusOK {
+					t.Fatalf("queued request status %d body %s", result.status, result.body)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("queued request did not finish")
+			}
+
+			expectedReloads := int32(1)
+			if requestedModel == "b" {
+				expectedReloads = 2
+			}
+			if backend.reloads.Load() != expectedReloads {
+				t.Fatalf("expected %d reloads, got %d", expectedReloads, backend.reloads.Load())
+			}
+		})
 	}
 }
 
