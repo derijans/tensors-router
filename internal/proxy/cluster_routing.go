@@ -29,7 +29,12 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 		return
 	}
 
-	requestBody := rewriteRequestModel(body, route.LocalID)
+	profile := service.localChatTemplateProfile(route.Filename, route.Remote)
+	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, route.LocalID, readinessText, profile, true)
+	if transformErr != nil {
+		writeTransportError(w, transformErr)
+		return
+	}
 	var response *http.Response
 	var err error
 	var analyticsEvent routeranalytics.Event

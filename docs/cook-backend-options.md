@@ -21,6 +21,7 @@ Rules:
 | --- | --- | --- | --- |
 | `backend_mode` | enum | `kobold`, `llama_sdcpp` | Router runtime mode. |
 | `router_unload_policy` | enum | `none`, `text`, `image`, `embeddings`, `voice`, `music`, `all` | Router-owned unload target policy before loading a different config. |
+| `router_jinja_kwargs_precedence` | enum | `config`, `client` | Router-owned merge precedence for `chat_template_kwargs`; defaults to `config`. |
 | `baseconfig` | path | node `.kcpps` files + custom | Verified KoboldCPP admin/base config option. |
 | `config` | path | node `.kcpps` files + custom | Load settings from config. |
 | `host` | string | node backend host + custom | Router-owned when managed. |
@@ -59,7 +60,8 @@ Rules:
 | `spec_draft_p_min` | number | probability + custom | llama.cpp speculative draft minimum probability. |
 | `ropeconfig`, `overridenativecontext`, `overridekv`, `overridetensors` | mixed | observed + custom | Advanced model metadata. |
 | `lora`, `loramult`, `draftmodel`, `draftamount`, `draftgpulayers`, `draftgpusplit` | mixed | node files + custom | LLM LoRA/speculative decode. |
-| `jinja`, `jinja_tools`, `jinja_kwargs`, `jinjatemplate`, `jinjathink` | mixed | `default`, `true`, `false` where applicable | Template fields. |
+| `jinja`, `jinja_tools`, `jinja_kwargs`, `jinjatemplate`, `jinjathink` | mixed | `default`, `true`, `false` where applicable | Template fields. `jinja_kwargs` must be an object or JSON-encoded object string; Cook persists it as a compact encoded-object string. |
+| `router_jinja_kwargs_precedence` | enum | `Config wins`, `Client wins` | Quick Cook and Constructor place this selector directly below Jinja Kwargs. It controls `/v1/chat/completions` request merging and defaults to Config wins. |
 
 ## Multimodal / Embeddings
 

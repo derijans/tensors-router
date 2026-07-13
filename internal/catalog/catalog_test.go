@@ -265,6 +265,52 @@ func TestConfigHashIgnoresPathsButKeepsRuntimeValues(t *testing.T) {
 	}
 }
 
+func TestChatTemplateProfileKeepsVirtualVariantsDistinctAndPhysicallyCompatible(t *testing.T) {
+	think := []byte(`{"model_param":"C:/models/model.gguf","jinja_kwargs":"{\"enable_thinking\":true,\"mode\":\"chat\"}"}`)
+	noThink := []byte(`{"model_param":"C:/models/model.gguf","jinja_kwargs":{"enable_thinking":false,"mode":"chat"}}`)
+	differentKeys := []byte(`{"model_param":"C:/models/model.gguf","jinja_kwargs":{"enable_thinking":false,"reasoning_format":"deepseek"}}`)
+	differentRuntime := []byte(`{"model_param":"C:/models/model.gguf","contextsize":8192,"jinja_kwargs":{"enable_thinking":false,"mode":"chat"}}`)
+
+	thinkProfile := ChatTemplateProfileForConfig(think)
+	noThinkProfile := ChatTemplateProfileForConfig(noThink)
+	differentKeysProfile := ChatTemplateProfileForConfig(differentKeys)
+	differentRuntimeProfile := ChatTemplateProfileForConfig(differentRuntime)
+
+	if !thinkProfile.Valid() || !noThinkProfile.Valid() {
+		t.Fatalf("expected valid profiles think=%#v noThink=%#v", thinkProfile, noThinkProfile)
+	}
+	if ConfigHash(think) == ConfigHash(noThink) {
+		t.Fatal("virtual variants must retain separate config hashes")
+	}
+	if !thinkProfile.SharesPhysicalRuntimeWith(noThinkProfile) {
+		t.Fatalf("matching Jinja key sets should share a physical runtime: %q %q", thinkProfile.PhysicalLoadFingerprint(), noThinkProfile.PhysicalLoadFingerprint())
+	}
+	if thinkProfile.SharesPhysicalRuntimeWith(differentKeysProfile) {
+		t.Fatal("different Jinja key sets must not share a physical runtime")
+	}
+	if thinkProfile.SharesPhysicalRuntimeWith(differentRuntimeProfile) {
+		t.Fatal("different non-Jinja config values must not share a physical runtime")
+	}
+	if thinkProfile.Precedence() != JinjaKwargsPrecedenceConfig {
+		t.Fatalf("unexpected default precedence %q", thinkProfile.Precedence())
+	}
+}
+
+func TestMalformedJinjaKwargsRemainCatalogedButDoNotShareRuntime(t *testing.T) {
+	dir := t.TempDir()
+	writeCatalogFile(t, dir, "manual.kcpps", `{"model_param":"model.gguf","jinja_kwargs":"not-json"}`)
+	models, err := New(dir).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0].ID != "manual" {
+		t.Fatalf("manual config disappeared: %#v", models)
+	}
+	if models[0].ChatTemplate.Valid() {
+		t.Fatal("malformed Jinja kwargs must not produce a reusable profile")
+	}
+}
+
 func TestHashStoreCachesFileHashesAndDropsMissingFiles(t *testing.T) {
 	dir := t.TempDir()
 	storeDir := t.TempDir()

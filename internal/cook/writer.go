@@ -385,7 +385,40 @@ func NormalizedOptions(options Options) (Options, error) {
 	if _, _, err := UnloadPolicyOption(result); err != nil {
 		return nil, err
 	}
+	if err := normalizeJinjaOptions(result); err != nil {
+		return nil, err
+	}
 	return result, nil
+}
+
+func normalizeJinjaOptions(options Options) error {
+	if value, ok := options[catalog.JinjaKwargsKey]; ok && !isJSONNull(value) {
+		normalized, configured, err := catalog.NormalizeJinjaKwargs(value)
+		if err != nil {
+			return err
+		}
+		if configured {
+			encoded, err := json.Marshal(string(normalized))
+			if err != nil {
+				return err
+			}
+			options[catalog.JinjaKwargsKey] = encoded
+		}
+	}
+	if value, ok := options[catalog.RouterJinjaKwargsPrecedenceKey]; ok && !isJSONNull(value) {
+		precedence, configured, err := catalog.NormalizeJinjaKwargsPrecedence(value)
+		if err != nil {
+			return err
+		}
+		if configured {
+			encoded, err := json.Marshal(precedence)
+			if err != nil {
+				return err
+			}
+			options[catalog.RouterJinjaKwargsPrecedenceKey] = encoded
+		}
+	}
+	return nil
 }
 
 func componentSource(component Component) string {

@@ -983,9 +983,10 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	requestBody := body
-	if hasModel && backendModelID != modelID {
-		requestBody = rewriteRequestModel(body, backendModelID)
+	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, backendModelID, readinessText, selectedModel.ChatTemplate, hasModel && backendModelID != modelID)
+	if transformErr != nil {
+		writeTransportError(w, transformErr)
+		return
 	}
 
 	started := time.Now()

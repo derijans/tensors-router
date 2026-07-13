@@ -186,7 +186,7 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 
 ## Routing Behavior
 
-The router reloads the whole `.kcpps` file. It does not patch selected fields.
+The router normally reloads the whole `.kcpps` file. It does not patch selected fields, except for compatible Jinja kwargs variants described below.
 
 Set `models.startup_model` to preload one LLM config before the router starts listening. Leave it empty to keep lazy loading.
 
@@ -244,6 +244,22 @@ Only one KoboldCpp config is active at a time. LLM and image requests share one 
 In `llama_sdcpp` mode, combined LLM+image configs expose both lanes independently. Selecting the text model starts `llama-server`; selecting the image model starts `sd-server`; explicit `/router/v1/load` on a combined config starts both. The two lanes have separate gates, so a text model switch does not block an unrelated image request unless an unload policy targets that lane.
 
 Set `router_unload_policy` in `.kcpps` to unload active runtimes before loading a different config. Valid values are `none`, `text`, `image`, `embeddings`, `voice`, `music`, and `all`. Current runtimes map `image` to the image backend, while `text`, `embeddings`, `voice`, and `music` map to the text backend; `all` aggregates every current target. Future backend splits should add a target value instead of changing what existing values mean.
+
+### Jinja kwargs virtual models
+
+For `/v1/chat/completions` only, text configs may set `jinja_kwargs` as either a JSON-encoded object string or a direct JSON object. The router merges those values into the request's `chat_template_kwargs`. `router_jinja_kwargs_precedence` is optional: `config` is the default and makes configured values win on overlapping keys; `client` lets client values win. A `null` client value is treated as absent. When configured kwargs are active, non-object or duplicate `chat_template_kwargs` fields are rejected.
+
+Each config remains a separate advertised model with its own config hash. Compatible variants can share one loaded runtime without an unload, reload, readiness check, or VRAM-load event. Compatibility requires every non-Jinja config value and the sorted top-level Jinja key set to match; changing a key set or any other runtime setting reloads normally. Manually authored malformed `jinja_kwargs` remain listed but fall back to normal reload behavior.
+
+This requires KoboldCpp v1.114.1 or newer and the repository's supported llama.cpp baseline (b9986). For example, `think.kcpps` and `no-think.kcpps` can differ only in `enable_thinking` while sharing the same physical runtime:
+
+```json
+{
+  "model_param": "model.gguf",
+  "jinja_kwargs": "{\"enable_thinking\":true}",
+  "router_jinja_kwargs_precedence": "config"
+}
+```
 
 ## Router Registry
 

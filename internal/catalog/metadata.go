@@ -115,6 +115,8 @@ type RuntimeConfig struct {
 	MusicDiffusion            string  `json:"musicdiffusion"`
 	MusicVAE                  string  `json:"musicvae"`
 	MusicLowVRAM              bool    `json:"musiclowvram"`
+
+	RouterJinjaKwargsPrecedence string `json:"router_jinja_kwargs_precedence"`
 }
 
 type configMetadata = RuntimeConfig

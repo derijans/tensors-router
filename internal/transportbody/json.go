@@ -32,8 +32,14 @@ type StringReplacement struct {
 }
 
 type JSONRewrite struct {
-	Replacements map[string]StringReplacement
-	EscapeHTML   bool
+	Replacements       map[string]StringReplacement
+	EscapeHTML         bool
+	ChatTemplateKwargs *ChatTemplateKwargsRewrite
+}
+
+type ChatTemplateKwargsRewrite struct {
+	Configured json.RawMessage
+	ConfigWins bool
 }
 
 type JSONFields struct {
@@ -81,11 +87,13 @@ func NewJSONTransformReadCloser(source io.ReadCloser, rewrite JSONRewrite) io.Re
 }
 
 type jsonContainer struct {
-	kind     byte
-	state    int
-	key      string
-	root     bool
-	override bool
+	kind                   byte
+	state                  int
+	key                    string
+	root                   bool
+	override               bool
+	fieldCount             int
+	chatTemplateKwargsSeen bool
 }
 
 type jsonProcessor struct {
@@ -99,6 +107,16 @@ type jsonProcessor struct {
 }
 
 func processJSON(source io.Reader, destination io.Writer, rewrite JSONRewrite) (JSONFields, error) {
+	if rewrite.ChatTemplateKwargs != nil {
+		if _, err := mergeChatTemplateKwargs(rewrite.ChatTemplateKwargs.Configured, nil, rewrite.ChatTemplateKwargs.ConfigWins); err != nil {
+			return JSONFields{}, err
+		}
+		configured := append(json.RawMessage(nil), rewrite.ChatTemplateKwargs.Configured...)
+		rewrite.ChatTemplateKwargs = &ChatTemplateKwargsRewrite{
+			Configured: configured,
+			ConfigWins: rewrite.ChatTemplateKwargs.ConfigWins,
+		}
+	}
 	processor := &jsonProcessor{
 		reader:  bufio.NewReaderSize(source, 32*1024),
 		writer:  bufio.NewWriterSize(destination, 32*1024),
@@ -177,6 +195,15 @@ func (processor *jsonProcessor) consume(value byte) error {
 					return ErrInvalidJSON
 				}
 			}
+			if container.root {
+				container.fieldCount++
+				if processor.rewrite.ChatTemplateKwargs != nil && container.key == "chat_template_kwargs" {
+					if container.chatTemplateKwargsSeen {
+						return ErrDuplicateChatTemplateKwargs
+					}
+					container.chatTemplateKwargsSeen = true
+				}
+			}
 			container.state = objectColonState
 			return nil
 		case objectColonState:
@@ -230,6 +257,18 @@ func (processor *jsonProcessor) consumeValue(value byte, parentIndex int) error 
 	}
 	if replacementPath(path) && value != '"' {
 		return ErrInvalidJSON
+	}
+	if processor.shouldMergeChatTemplateKwargs(*parent, path) {
+		client, err := readRawJSONValue(processor.reader, value)
+		if err != nil {
+			return err
+		}
+		merged, err := mergeChatTemplateKwargs(processor.rewrite.ChatTemplateKwargs.Configured, client, processor.rewrite.ChatTemplateKwargs.ConfigWins)
+		if err != nil {
+			return err
+		}
+		_, err = processor.writer.Write(merged)
+		return err
 	}
 	switch value {
 	case '"':
@@ -295,6 +334,27 @@ func (processor *jsonProcessor) consumeValue(value byte, parentIndex int) error 
 }
 
 func (processor *jsonProcessor) closeContainer(value byte) error {
+	container := processor.stack[len(processor.stack)-1]
+	if container.root && processor.rewrite.ChatTemplateKwargs != nil && !container.chatTemplateKwargsSeen {
+		if container.fieldCount > 0 {
+			if err := processor.writer.WriteByte(','); err != nil {
+				return err
+			}
+		}
+		encodedKey, err := json.Marshal("chat_template_kwargs")
+		if err != nil {
+			return err
+		}
+		if _, err := processor.writer.Write(encodedKey); err != nil {
+			return err
+		}
+		if err := processor.writer.WriteByte(':'); err != nil {
+			return err
+		}
+		if _, err := processor.writer.Write(processor.rewrite.ChatTemplateKwargs.Configured); err != nil {
+			return err
+		}
+	}
 	if err := processor.writer.WriteByte(value); err != nil {
 		return err
 	}
@@ -303,6 +363,10 @@ func (processor *jsonProcessor) closeContainer(value byte) error {
 		processor.complete = true
 	}
 	return nil
+}
+
+func (processor *jsonProcessor) shouldMergeChatTemplateKwargs(parent jsonContainer, path string) bool {
+	return processor.rewrite.ChatTemplateKwargs != nil && parent.root && path == "chat_template_kwargs"
 }
 
 func (processor *jsonProcessor) valuePath(container jsonContainer) string {

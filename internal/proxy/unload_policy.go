@@ -23,9 +23,9 @@ func (service *Service) enforceUnloadPolicy(ctx context.Context, mode string, fi
 		return err
 	}
 	different := make([]*backendRuntime, 0, len(runtimes))
+	profile := service.chatTemplateProfileForConfig(filename)
 	for _, runtime := range uniqueRuntimeList(runtimes) {
-		activeFilename := currentRuntimeConfigFilename(runtime)
-		if activeFilename == "" || activeFilename == filename {
+		if currentRuntimeConfigFilename(runtime) == "" || activeRuntimeSupportsConfig(runtime, filename, profile) {
 			continue
 		}
 		different = append(different, runtime)

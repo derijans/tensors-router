@@ -9,6 +9,9 @@ import {
   backendModeKey,
   backendModeLabels,
   backendModes,
+  jinjaKwargsKey,
+  jinjaKwargsPrecedenceKey,
+  jinjaKwargsPrecedenceLabels,
   unloadPolicies,
   unloadPolicyKey,
   unloadPolicyLabels,
@@ -151,6 +154,9 @@ export function updateSimpleField(target: EventTarget | null): void {
 
 export function removeSimpleField(key: string): void {
   delete state.simpleCook.fields[key];
+  if (key === jinjaKwargsKey) {
+    delete state.simpleCook.fields[jinjaKwargsPrecedenceKey];
+  }
   discardConversion("quick", key);
   invalidateAcceptedConversions();
   if (state.simpleCook.sidebar?.key === key) {
@@ -276,7 +282,7 @@ function renderConfigEditor(): void {
       const keys = group.keys
         .filter(key => !query || `${key} ${optionValueLabel(fieldValue(key))}`.toLowerCase().includes(query));
       const rows = keys
-        .map(key => fieldRow(key, fieldValue(key), group.section, context, key === backendModeKey && !Object.hasOwn(fields, backendModeKey)))
+        .map(key => fieldRow(key, fieldValue(key), group.section, context, (key === backendModeKey && !Object.hasOwn(fields, backendModeKey)) || (key === jinjaKwargsPrecedenceKey && !Object.hasOwn(fields, jinjaKwargsPrecedenceKey))))
         .join("");
       if (!rows) {
         return null;
@@ -356,6 +362,9 @@ function simpleFieldInput(key: string, value: JsonValue | undefined, datalistID:
   if (key === unloadPolicyKey) {
     return unloadPolicySelect(optionInputValue(value), virtual);
   }
+  if (key === jinjaKwargsPrecedenceKey) {
+    return jinjaKwargsPrecedenceSelect(optionInputValue(value), virtual);
+  }
   return `
     <input data-simple-field="${escapeAttribute(key)}" list="${escapeAttribute(datalistID)}" value="${escapeAttribute(optionInputValue(value))}">
     <datalist id="${escapeAttribute(datalistID)}">
@@ -382,6 +391,15 @@ function unloadPolicySelect(value: string, virtual: boolean): string {
     <select data-simple-field="${escapeAttribute(unloadPolicyKey)}" class="${virtual ? "virtual-runtime-select" : ""}">
       ${customOption}
       ${unloadPolicies.map(policy => `<option value="${escapeAttribute(policy)}"${policy === selectedValue && !customOption ? " selected" : ""}>${escapeHTML(unloadPolicyLabels[policy])}</option>`).join("")}
+    </select>
+  `;
+}
+
+function jinjaKwargsPrecedenceSelect(value: string, virtual: boolean): string {
+  const selectedValue = value === "client" ? "client" : "config";
+  return `
+    <select data-simple-field="${escapeAttribute(jinjaKwargsPrecedenceKey)}" class="${virtual ? "virtual-runtime-select" : ""}">
+      ${Object.entries(jinjaKwargsPrecedenceLabels).map(([precedence, label]) => `<option value="${escapeAttribute(precedence)}"${precedence === selectedValue ? " selected" : ""}>${escapeHTML(label)}</option>`).join("")}
     </select>
   `;
 }
@@ -424,7 +442,7 @@ function simpleCookFieldGroups(fields: Options) {
   const groups = groupedFieldKeys(fields, optionDefinition)
     .map(group => ({
       ...group,
-      keys: group.keys.filter(key => !primaryRuntimeKeys.includes(key))
+      keys: jinjaPrecedenceKeys(group.keys.filter(key => !primaryRuntimeKeys.includes(key)))
     }))
     .filter(group => group.keys.length > 0);
   const runtimeGroup = groups.find(group => group.section === "runtime");
@@ -442,7 +460,20 @@ function fieldValue(key: string): JsonValue | undefined {
   if (key === unloadPolicyKey && !Object.hasOwn(state.simpleCook.fields, unloadPolicyKey)) {
     return "none";
   }
+  if (key === jinjaKwargsPrecedenceKey && !Object.hasOwn(state.simpleCook.fields, jinjaKwargsPrecedenceKey)) {
+    return "config";
+  }
   return state.simpleCook.fields[key];
+}
+
+function jinjaPrecedenceKeys(keys: string[]): string[] {
+  const jinjaIndex = keys.indexOf(jinjaKwargsKey);
+  if (jinjaIndex < 0) {
+    return keys;
+  }
+  const values = keys.filter(key => key !== jinjaKwargsPrecedenceKey);
+  values.splice(jinjaIndex + 1, 0, jinjaKwargsPrecedenceKey);
+  return values;
 }
 
 function simpleBackendModeValue(): string {

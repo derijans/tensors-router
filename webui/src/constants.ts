@@ -16,6 +16,8 @@ export type UnloadTarget = Exclude<UnloadPolicy, "none">;
 
 export const backendModeKey = "backend_mode";
 export const unloadPolicyKey = "router_unload_policy";
+export const jinjaKwargsKey = "jinja_kwargs";
+export const jinjaKwargsPrecedenceKey = "router_jinja_kwargs_precedence";
 
 export const backendModes: BackendMode[] = ["kobold", "llama_sdcpp"];
 export const unloadPolicies: UnloadPolicy[] = ["none", ...laneKinds, "all"];
@@ -35,6 +37,22 @@ export const unloadPolicyLabels: Record<UnloadPolicy, string> = {
   music: "Music",
   all: "All"
 };
+
+export const jinjaKwargsPrecedenceLabels: Record<"config" | "client", string> = {
+  config: "Config wins",
+  client: "Client wins"
+};
+
+export function compareOptionKeys(left: string, right: string): number {
+  return optionSortKey(left).localeCompare(optionSortKey(right));
+}
+
+function optionSortKey(key: string): string {
+  if (key === jinjaKwargsPrecedenceKey) {
+    return `${jinjaKwargsKey}~`;
+  }
+  return key;
+}
 
 export const laneMetadata: Record<LaneKind, LaneMetadata> = {
   text: {

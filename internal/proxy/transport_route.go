@@ -49,7 +49,8 @@ func (service *Service) handleStreamingRequest(w http.ResponseWriter, r *http.Re
 		route.release = func() {}
 	}
 	request := rewriteTransportRequestSelectors(r, route.localID, route.readiness)
-	forwardBody, err := transformTransportRequestBody(request, body, route.publicID, route.localID, route.readiness)
+	profile := service.localChatTemplateProfile(route.configFilename, route.remote)
+	forwardBody, err := transformTransportRequestBody(request, body, route.publicID, route.localID, route.readiness, profile)
 	if err != nil {
 		route.release()
 		writeTransportError(w, err)
@@ -299,19 +300,12 @@ func (service *Service) transportRecipeRoute(recipe recipes.Recipe, component re
 	}, nil
 }
 
-func transformTransportRequestBody(r *http.Request, body transportbody.Body, publicID string, localID string, readiness backendReadiness) (transportbody.Body, error) {
-	if strings.TrimSpace(localID) == "" {
+func transformTransportRequestBody(r *http.Request, body transportbody.Body, publicID string, localID string, readiness backendReadiness, profile catalog.ChatTemplateProfile) (transportbody.Body, error) {
+	if strings.TrimSpace(localID) == "" && chatTemplateProfileForRequest(r.URL.Path, profile) == nil {
 		return body, nil
 	}
 	if transportRequestIsJSON(r) {
-		replacements := map[string]transportbody.StringReplacement{
-			transportbody.PathModel: {To: localID},
-		}
-		if readiness == readinessImage {
-			replacements[transportbody.PathImageModel] = transportbody.StringReplacement{To: localID}
-			replacements[transportbody.PathOverrideImageModel] = transportbody.StringReplacement{To: localID}
-		}
-		return transportbody.TransformJSON(body, transportbody.JSONRewrite{Replacements: replacements}), nil
+		return transportbody.TransformJSON(body, requestJSONRewrite(r.URL.Path, localID, readiness, profile, true)), nil
 	}
 	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err == nil && strings.HasPrefix(strings.ToLower(mediaType), "multipart/") {

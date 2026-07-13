@@ -1,4 +1,5 @@
 import { allNodeFiles, nodeByID, optionValue } from "./data";
+import { compareOptionKeys } from "./constants";
 import { state } from "./state";
 import { comparableValue, emptyComparableValue, fileRoles, optionValueLabel, parseOptionInput } from "./utils";
 import type {
@@ -58,7 +59,7 @@ export function fieldRenderContext(): FieldRenderContext {
 
 export function groupedFieldKeys(fields: Options, definitionForKey: (key: string) => OptionDefinition | undefined): FieldGroup[] {
   const groups = new Map<string, string[]>(sectionOrder.map(section => [section, []]));
-  for (const key of Object.keys(fields).sort((left, right) => left.localeCompare(right))) {
+  for (const key of Object.keys(fields).sort(compareOptionKeys)) {
     const section = sectionForDefinition(definitionForKey(key));
     const keys = groups.get(section) ?? [];
     keys.push(key);

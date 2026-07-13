@@ -45,6 +45,7 @@ type Model struct {
 	BackendMode    string
 	Capabilities   Capabilities
 	Options        map[string]json.RawMessage
+	ChatTemplate   ChatTemplateProfile `json:"-"`
 }
 
 func New(dir string) *Catalog {
@@ -243,6 +244,7 @@ func (catalog *Catalog) withMetadata(model Model) Model {
 		return model
 	}
 	model.Options = options
+	model.ChatTemplate = ChatTemplateProfileForConfig(content)
 	var metadata configMetadata
 	if err := json.Unmarshal(content, &metadata); err != nil {
 		model.Capabilities = capabilitiesFromMetadata(configMetadata{}, model.HasLLM, false, false, false, false, false)
@@ -301,6 +303,7 @@ func cloneModel(model Model) Model {
 		}
 	}
 	cloned.Capabilities = cloneCapabilities(model.Capabilities)
+	cloned.ChatTemplate = model.ChatTemplate.clone()
 	return cloned
 }
 

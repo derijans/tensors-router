@@ -3,6 +3,8 @@ package proxy
 import (
 	"context"
 	"sync"
+
+	"tensors-router/internal/catalog"
 )
 
 type backendRuntime struct {
@@ -13,15 +15,17 @@ type backendRuntime struct {
 }
 
 type activeConfigState struct {
-	mu                sync.Mutex
-	changed           chan struct{}
-	filename          string
-	users             int
-	switching         bool
-	switchWaiters     int
-	vramBaselineMB    int64
-	vramTotalMB       int64
-	vramBaselineValid bool
+	mu                  sync.Mutex
+	changed             chan struct{}
+	filename            string
+	physicalFingerprint string
+	physicalShareable   bool
+	users               int
+	switching           bool
+	switchWaiters       int
+	vramBaselineMB      int64
+	vramTotalMB         int64
+	vramBaselineValid   bool
 }
 
 func newActiveConfigState() *activeConfigState {
@@ -46,16 +50,22 @@ func (service *Service) acquireModelConfigForBackendMode(mode string, ctx contex
 func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (func(), bool, error) {
 	waitingSwitch := false
 	state := runtime.state
+	profile := service.chatTemplateProfileForConfig(configFilename)
 	for {
 		state.mu.Lock()
-		if !force && state.filename == configFilename && !state.switching && (state.switchWaiters == 0 || waitingSwitch) {
+		if !force && activeConfigMatchesProfile(state, configFilename, profile) && !state.switching && (state.switchWaiters == 0 || waitingSwitch) {
 			if waitingSwitch {
 				state.switchWaiters--
 				notifyActiveConfigLocked(state)
 			}
+			logicalConfigChanged := state.filename != configFilename
+			state.filename = configFilename
 			state.users++
 			release := releaseActiveConfigOnce(state)
 			state.mu.Unlock()
+			if logicalConfigChanged {
+				service.invalidateWebUIRoutes()
+			}
 			return release, false, nil
 		}
 
@@ -96,6 +106,7 @@ func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.
 		state.switching = false
 		if err != nil {
 			state.filename = ""
+			clearPhysicalLoadProfileLocked(state)
 			clearVRAMLoadStateLocked(state)
 			notifyActiveConfigLocked(state)
 			state.mu.Unlock()
@@ -103,6 +114,7 @@ func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.
 			return nil, false, err
 		}
 		state.filename = configFilename
+		applyPhysicalLoadProfileLocked(state, profile)
 		applyVRAMLoadStateLocked(state, vramLoad)
 		state.users++
 		release := releaseActiveConfigOnce(state)
@@ -144,6 +156,7 @@ func (service *Service) unloadRuntime(ctx context.Context, runtime *backendRunti
 		state.switchWaiters--
 		state.switching = true
 		state.filename = ""
+		clearPhysicalLoadProfileLocked(state)
 		clearVRAMLoadStateLocked(state)
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
@@ -192,6 +205,7 @@ func lockRuntimeForBackendStop(ctx context.Context, runtime *backendRuntime) (fu
 		state.switchWaiters--
 		state.switching = true
 		state.filename = ""
+		clearPhysicalLoadProfileLocked(state)
 		clearVRAMLoadStateLocked(state)
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
@@ -248,4 +262,49 @@ func currentRuntimeConfigFilename(runtime *backendRuntime) string {
 	runtime.state.mu.Lock()
 	defer runtime.state.mu.Unlock()
 	return runtime.state.filename
+}
+
+func activeConfigMatchesProfile(state *activeConfigState, filename string, profile catalog.ChatTemplateProfile) bool {
+	if state.filename == filename {
+		return true
+	}
+	return state.physicalShareable && profile.HasConfiguredKwargs() && state.physicalFingerprint != "" && state.physicalFingerprint == profile.PhysicalLoadFingerprint()
+}
+
+func activeRuntimeSupportsConfig(runtime *backendRuntime, filename string, profile catalog.ChatTemplateProfile) bool {
+	if runtime == nil {
+		return false
+	}
+	runtime.state.mu.Lock()
+	defer runtime.state.mu.Unlock()
+	if runtime.state.switching || runtime.state.filename == "" {
+		return false
+	}
+	return activeConfigMatchesProfile(runtime.state, filename, profile)
+}
+
+func applyPhysicalLoadProfileLocked(state *activeConfigState, profile catalog.ChatTemplateProfile) {
+	state.physicalFingerprint = profile.PhysicalLoadFingerprint()
+	state.physicalShareable = profile.Valid() && profile.HasConfiguredKwargs() && state.physicalFingerprint != ""
+}
+
+func clearPhysicalLoadProfileLocked(state *activeConfigState) {
+	state.physicalFingerprint = ""
+	state.physicalShareable = false
+}
+
+func (service *Service) chatTemplateProfileForConfig(filename string) catalog.ChatTemplateProfile {
+	if service.catalog == nil || filename == "" {
+		return catalog.ChatTemplateProfile{}
+	}
+	models, err := service.catalog.List()
+	if err != nil {
+		return catalog.ChatTemplateProfile{}
+	}
+	for _, model := range models {
+		if model.Filename == filename {
+			return model.ChatTemplate
+		}
+	}
+	return catalog.ChatTemplateProfile{}
 }

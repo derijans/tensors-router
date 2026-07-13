@@ -1,5 +1,5 @@
 import { elements } from "./elements";
-import { backendModeKey, backendModeLabels, backendModes, isLaneKind, laneKinds, laneMetadata, type BackendMode } from "./constants";
+import { backendModeKey, backendModeLabels, backendModes, compareOptionKeys, isLaneKind, jinjaKwargsKey, jinjaKwargsPrecedenceKey, jinjaKwargsPrecedenceLabels, laneKinds, laneMetadata, type BackendMode } from "./constants";
 import { requiresOptionAssignment } from "./constructor-field-data";
 import { emptyLaneOptions, emptyLanes, emptyLaneTargets, state } from "./state";
 import { openFieldEditor, renderFieldEditor } from "./constructor-field-editor";
@@ -63,6 +63,9 @@ export function addOption(key: string): void {
   if (!Object.hasOwn(state.constructor.options, key)) {
     state.constructor.options[key] = defaultOptionValue(definition);
   }
+  if (key === jinjaKwargsKey && !Object.hasOwn(state.constructor.options, jinjaKwargsPrecedenceKey)) {
+    state.constructor.options[jinjaKwargsPrecedenceKey] = "config";
+  }
   invalidateAcceptedConversions();
   renderConstructor();
 }
@@ -99,7 +102,7 @@ export function editLaneFields(lane: string): void {
 }
 
 export function updateOptionInput(target: EventTarget | null): void {
-  if (!(target instanceof HTMLInputElement)) {
+  if (!(target instanceof HTMLInputElement) && !(target instanceof HTMLSelectElement)) {
     return;
   }
   const key = target.dataset.optionInput;
@@ -115,6 +118,9 @@ export function updateOptionInput(target: EventTarget | null): void {
 
 export function removeOption(key: string): void {
   delete state.constructor.options[key];
+  if (key === jinjaKwargsKey) {
+    delete state.constructor.options[jinjaKwargsPrecedenceKey];
+  }
   discardConversion("constructor", key);
   invalidateAcceptedConversions();
   renderConstructor();
@@ -266,7 +272,7 @@ function usedModelRows(): string[] {
 function selectedOptionRows(): string[] {
   const rows: string[] = [];
   const merged = selectedOptionsForInspector();
-  for (const [key, value] of Object.entries(merged).sort(([left], [right]) => left.localeCompare(right))) {
+  for (const [key, value] of Object.entries(merged).sort(([left], [right]) => compareOptionKeys(left, right))) {
     if (Object.hasOwn(state.constructor.options, key)) {
       rows.push(optionEditorRow(key, state.constructor.options[key]));
     } else if (laneOverrideForKey(key)) {
@@ -311,6 +317,16 @@ function laneOverrideForKey(key: string): LaneKind | null {
 }
 
 function optionEditorRow(key: string, value: JsonValue | undefined): string {
+  if (key === jinjaKwargsPrecedenceKey) {
+    const selectedValue = value === "client" ? "client" : "config";
+    return `
+      <div class="option-editor">
+        <span>${escapeHTML(key)}</span>
+        <select data-option-input="${escapeAttribute(key)}">${Object.entries(jinjaKwargsPrecedenceLabels).map(([precedence, label]) => `<option value="${escapeAttribute(precedence)}"${precedence === selectedValue ? " selected" : ""}>${escapeHTML(label)}</option>`).join("")}</select>
+        <button type="button" data-remove-option="${escapeAttribute(key)}">Remove</button>
+      </div>
+    `;
+  }
   return `
     <div class="option-editor">
       <span>${escapeHTML(key)}</span>

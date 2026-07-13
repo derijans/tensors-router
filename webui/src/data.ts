@@ -1,4 +1,5 @@
 import { state } from "./state";
+import { compareOptionKeys } from "./constants";
 import { fileRoles, formatBytes, kindColor, numberOption } from "./utils";
 import type {
   CookComponent,
@@ -172,7 +173,7 @@ export function filePaletteEntries(): PaletteEntry[] {
 }
 
 export function optionPaletteEntries(): PaletteEntry[] {
-  return allOptionDefinitions().map(definition => ({
+  return allOptionDefinitions().sort((left, right) => compareOptionKeys(left.key, right.key)).map(definition => ({
     title: definition.name || definition.key,
     subtitle: definition.key,
     badge: definition.lane || "option",

@@ -9,15 +9,18 @@ const (
 )
 
 var (
-	ErrBufferCapacity        = errors.New("transport memory budget capacity is unavailable")
-	ErrInvalidJSON           = errors.New("request body is not valid json")
-	ErrRequestTooLarge       = errors.New("request body exceeds the configured streaming limit")
-	ErrResponseTooLarge      = errors.New("response body exceeds the configured streaming limit")
-	ErrSelectorRequired      = errors.New("a header or query model selector is required for streaming requests")
-	ErrSelectorTooLarge      = errors.New("model selector exceeds 1 KiB")
-	ErrStreamingBodyConsumed = errors.New("streaming request body is not replayable after consumption")
-	ErrStreamingBodyInUse    = errors.New("streaming request body already has an active attempt")
-	ErrTransportBodyClosed   = errors.New("transport body is closed")
+	ErrBufferCapacity              = errors.New("transport memory budget capacity is unavailable")
+	ErrInvalidJSON                 = errors.New("request body is not valid json")
+	ErrInvalidChatTemplateKwargs   = errors.New("chat_template_kwargs must be an object or null")
+	ErrDuplicateChatTemplateKwargs = errors.New("chat_template_kwargs must not be duplicated")
+	ErrChatTemplateKwargsTooLarge  = errors.New("chat_template_kwargs exceeds the transformation limit")
+	ErrRequestTooLarge             = errors.New("request body exceeds the configured streaming limit")
+	ErrResponseTooLarge            = errors.New("response body exceeds the configured streaming limit")
+	ErrSelectorRequired            = errors.New("a header or query model selector is required for streaming requests")
+	ErrSelectorTooLarge            = errors.New("model selector exceeds 1 KiB")
+	ErrStreamingBodyConsumed       = errors.New("streaming request body is not replayable after consumption")
+	ErrStreamingBodyInUse          = errors.New("streaming request body already has an active attempt")
+	ErrTransportBodyClosed         = errors.New("transport body is closed")
 )
 
 type Limits struct {

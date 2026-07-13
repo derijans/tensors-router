@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"tensors-router/internal/backendmode"
+	"tensors-router/internal/catalog"
 	"tensors-router/internal/unloadpolicy"
 )
 
@@ -25,6 +26,8 @@ const (
 	ValueNumber = "number"
 	ValueBool   = "bool"
 	ValueJSON   = "json"
+
+	jinjaPrecedenceKey = catalog.RouterJinjaKwargsPrecedenceKey
 )
 
 const (
@@ -155,6 +158,7 @@ var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option("jinja", "Jinja", LaneText, ValueBool, "--jinja", false, "kobold", "llama_sdcpp"),
 	option("jinja_tools", "Jinja Tools", LaneText, ValueBool, "", false, "kobold", "llama_sdcpp"),
 	option("jinja_kwargs", "Jinja Kwargs", LaneText, ValueJSON, "", false, "kobold", "llama_sdcpp"),
+	option(jinjaPrecedenceKey, "Jinja Kwargs Precedence", LaneText, ValueString, "", false, "kobold", "llama_sdcpp"),
 	option("jinjatemplate", "Jinja Template", LaneText, ValueString, "", false, "kobold", "llama_sdcpp"),
 	option("jinjathink", "Jinja Think", LaneText, ValueString, "", false, "kobold", "llama_sdcpp"),
 	option("mmproj", "Multimodal Projector", LaneMultimodal, ValueJSON, "--mmproj", false, "kobold", "llama_sdcpp"),
@@ -279,9 +283,16 @@ func option(key string, name string, lane string, valueType string, nativeFlag s
 func OptionCatalog() []OptionDefinition {
 	values := append([]OptionDefinition{}, optionCatalog...)
 	sort.Slice(values, func(left, right int) bool {
-		return values[left].Key < values[right].Key
+		return optionSortKey(values[left].Key) < optionSortKey(values[right].Key)
 	})
 	return values
+}
+
+func optionSortKey(key string) string {
+	if key == jinjaPrecedenceKey {
+		return catalog.JinjaKwargsKey + "~"
+	}
+	return key
 }
 
 func ObservedOptions(models []Options) []OptionDefinition {
@@ -477,6 +488,7 @@ var optionMetadataByKey = map[string]optionMetadata{
 	"draftmodel":                 meta(nil, "llm", "", SourceLlamaCPPServer, ""),
 	"jinja":                      meta(boolChoices(), "", "", SourceLlamaCPPServer, ""),
 	"jinja_tools":                meta(boolChoices(), "", "", SourceLlamaCPPServer, ""),
+	jinjaPrecedenceKey:           meta(values(catalog.JinjaKwargsPrecedenceConfig, catalog.JinjaKwargsPrecedenceClient), "", catalog.JinjaKwargsPrecedenceConfig, "", ""),
 	"jinjathink":                 meta(values("default", "none", "openai", "deepseek", "qwen"), "", "default", SourceKoboldCPP, ""),
 	"mmproj":                     meta(nil, "multimodal", "", SourceLlamaCPPServer, SectionEmbed),
 	"mmprojcpu":                  meta(boolChoices(), "", "false", SourceLlamaCPPServer, SectionEmbed),

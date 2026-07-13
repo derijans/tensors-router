@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"tensors-router/internal/catalog"
 	"tensors-router/internal/unloadpolicy"
 )
 
@@ -82,6 +83,62 @@ func TestOptionCatalogIncludesUnloadPolicy(t *testing.T) {
 		if !containsString(definition.Choices, value) {
 			t.Fatalf("missing unload policy choice %q: %#v", value, definition.Choices)
 		}
+	}
+}
+
+func TestNormalizedOptionsCanonicalizesJinjaKwargsForConfigPersistence(t *testing.T) {
+	options, err := NormalizedOptions(Options{
+		catalog.JinjaKwargsKey:                 rawJSON(t, map[string]any{"enable_thinking": true, "mode": "chat"}),
+		catalog.RouterJinjaKwargsPrecedenceKey: rawJSON(t, "client"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var encoded string
+	if err := json.Unmarshal(options[catalog.JinjaKwargsKey], &encoded); err != nil {
+		t.Fatal(err)
+	}
+	if encoded != `{"enable_thinking":true,"mode":"chat"}` {
+		t.Fatalf("unexpected encoded Jinja kwargs %q", encoded)
+	}
+	var precedence string
+	if err := json.Unmarshal(options[catalog.RouterJinjaKwargsPrecedenceKey], &precedence); err != nil {
+		t.Fatal(err)
+	}
+	if precedence != catalog.JinjaKwargsPrecedenceClient {
+		t.Fatalf("unexpected precedence %q", precedence)
+	}
+
+	options, err = NormalizedOptions(Options{
+		catalog.JinjaKwargsKey: rawJSON(t, `{"enable_thinking":false}`),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(options[catalog.JinjaKwargsKey], &encoded); err != nil {
+		t.Fatal(err)
+	}
+	if encoded != `{"enable_thinking":false}` {
+		t.Fatalf("unexpected encoded string kwargs %q", encoded)
+	}
+}
+
+func TestNormalizedOptionsRejectsInvalidJinjaKwargsAndPrecedence(t *testing.T) {
+	if _, err := NormalizedOptions(Options{catalog.JinjaKwargsKey: rawJSON(t, []any{"not", "an", "object"})}); err == nil {
+		t.Fatal("expected non-object Jinja kwargs to be rejected")
+	}
+	if _, err := NormalizedOptions(Options{catalog.RouterJinjaKwargsPrecedenceKey: rawJSON(t, "backend")}); err == nil {
+		t.Fatal("expected invalid Jinja precedence to be rejected")
+	}
+}
+
+func TestOptionCatalogIncludesJinjaKwargsPrecedence(t *testing.T) {
+	definition, ok := OptionDefinitionForKey(catalog.RouterJinjaKwargsPrecedenceKey)
+	if !ok {
+		t.Fatalf("missing option %q", catalog.RouterJinjaKwargsPrecedenceKey)
+	}
+	if definition.Default != catalog.JinjaKwargsPrecedenceConfig || !containsString(definition.Choices, catalog.JinjaKwargsPrecedenceClient) {
+		t.Fatalf("unexpected Jinja precedence definition %#v", definition)
 	}
 }
 

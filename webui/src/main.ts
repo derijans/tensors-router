@@ -416,6 +416,7 @@ elements.webuiDialog.addEventListener("click", event => {
 });
 
 elements.selectedOptionsList.addEventListener("input", event => updateOptionInput(event.target));
+elements.selectedOptionsList.addEventListener("change", event => updateOptionInput(event.target));
 elements.selectedOptionsList.addEventListener("click", event => {
   const target = elementTarget(event);
   const removeKey = target?.dataset.removeOption;

@@ -1,4 +1,4 @@
-import { laneMetadata } from "./constants";
+import { compareOptionKeys, jinjaKwargsPrecedenceKey, jinjaKwargsPrecedenceLabels, laneMetadata } from "./constants";
 import {
   changedDraftValues,
   cloneOptions,
@@ -110,7 +110,7 @@ export function renderFieldEditor(): void {
 
 export function handleFieldEditorInput(target: EventTarget | null): void {
   const editor = state.constructor.fieldEditor;
-  if (!editor || !(target instanceof HTMLInputElement)) {
+  if (!editor || (!(target instanceof HTMLInputElement) && !(target instanceof HTMLSelectElement))) {
     return;
   }
   const key = target.dataset.fieldDraft;
@@ -249,9 +249,15 @@ function savePresetFromEditor(): void {
 
 function fieldDiffRow(key: string, sourceValue: JsonValue | undefined, draft: Options): string {
   const definition = optionDefinition(key);
+  const effectiveSourceValue = key === jinjaKwargsPrecedenceKey && (sourceValue === undefined || sourceValue === null)
+    ? "config"
+    : sourceValue;
   const hasOverride = Object.hasOwn(draft, key);
   const draftValue = hasOverride ? draft[key] : undefined;
-  const changed = hasOverride && comparableJsonValue(draftValue) !== comparableJsonValue(sourceValue);
+  const changed = hasOverride && comparableJsonValue(draftValue) !== comparableJsonValue(effectiveSourceValue);
+  const input = key === jinjaKwargsPrecedenceKey
+    ? jinjaKwargsPrecedenceInput(key, hasOverride ? draftValue : effectiveSourceValue)
+    : `<input data-field-draft="${escapeAttribute(key)}" value="${escapeAttribute(hasOverride ? optionInputValue(draftValue) : "")}" placeholder="inherit">`;
   return `
     <div class="field-diff-row ${changed ? "changed" : ""}">
       <div class="field-label">
@@ -260,11 +266,11 @@ function fieldDiffRow(key: string, sourceValue: JsonValue | undefined, draft: Op
       </div>
       <div class="field-source">
         <span class="muted">Source</span>
-        <strong>${escapeHTML(optionValueLabel(sourceValue) || "inherit")}</strong>
+        <strong>${escapeHTML(optionValueLabel(effectiveSourceValue) || "inherit")}</strong>
       </div>
       <label class="field-override">
         Override
-        <input data-field-draft="${escapeAttribute(key)}" value="${escapeAttribute(hasOverride ? optionInputValue(draftValue) : "")}" placeholder="inherit">
+        ${input}
       </label>
       <div class="field-state">
         ${hasOverride ? chip(changed ? "changed" : "same", changed ? "amber" : "violet") : chip("source", "")}
@@ -272,6 +278,11 @@ function fieldDiffRow(key: string, sourceValue: JsonValue | undefined, draft: Op
       </div>
     </div>
   `;
+}
+
+function jinjaKwargsPrecedenceInput(key: string, value: JsonValue | undefined): string {
+  const selectedValue = value === "client" ? "client" : "config";
+  return `<select data-field-draft="${escapeAttribute(key)}">${Object.entries(jinjaKwargsPrecedenceLabels).map(([precedence, label]) => `<option value="${escapeAttribute(precedence)}"${precedence === selectedValue ? " selected" : ""}>${escapeHTML(label)}</option>`).join("")}</select>`;
 }
 
 function assignmentBlock(lane: LaneKind, payload: PaletteComponentPayload): string {
@@ -309,7 +320,7 @@ function editorFieldKeys(lane: LaneKind, source: Options, draft: Options): strin
       keys.add(key);
     }
   }
-  return Array.from(keys).sort((left, right) => left.localeCompare(right));
+  return Array.from(keys).sort(compareOptionKeys);
 }
 
 function addFieldOptions(lane: LaneKind, usedKeys: string[]): string {
@@ -370,7 +381,7 @@ function fallbackKeys(lane: LaneKind): string[] {
 }
 
 function compareDefinitions(left: OptionDefinition, right: OptionDefinition): number {
-  return left.key.localeCompare(right.key);
+  return compareOptionKeys(left.key, right.key);
 }
 
 function showFieldDialog(): void {

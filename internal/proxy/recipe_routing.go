@@ -19,8 +19,13 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 	if !ok {
 		return false
 	}
-	requestBody := rewriteRequestModel(body, component.ModelID)
 	route := routeFromRecipeComponent(recipe, component, false, cluster.RouteLaneText)
+	profile := service.localChatTemplateProfile(component.ConfigFilename, component.NodeID != service.nodeID)
+	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, component.ModelID, readinessText, profile, true)
+	if transformErr != nil {
+		writeTransportError(w, transformErr)
+		return true
+	}
 	var response *http.Response
 	var err error
 	var analyticsEvent routeranalytics.Event
