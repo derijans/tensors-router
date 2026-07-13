@@ -20,9 +20,11 @@ const (
 )
 
 type Info struct {
-	MaxThreads int    `json:"max_threads"`
-	GPUBackend string `json:"gpu_backend"`
-	GPUCount   int    `json:"gpu_count"`
+	MaxThreads  int    `json:"max_threads"`
+	GPUBackend  string `json:"gpu_backend"`
+	GPUCount    int    `json:"gpu_count"`
+	CUDAVersion string `json:"cuda_version,omitempty"`
+	ROCmVersion string `json:"rocm_version,omitempty"`
 }
 
 type Source interface {
@@ -106,6 +108,9 @@ func Detect(ctx context.Context, detector Detector) Info {
 	if output, ok := probeCommand(ctx, detector, "nvidia-smi", "-L"); ok {
 		info.GPUBackend = GPUBackendCUDA
 		info.GPUCount = countNonEmptyLines(output)
+		if versionOutput, versionOK := probeCommand(ctx, detector, "nvidia-smi"); versionOK {
+			info.CUDAVersion = detectedRuntimeVersion(string(versionOutput), "CUDA Version:")
+		}
 		return normalize(info)
 	}
 	if output, ok := probeCommand(ctx, detector, "rocm-smi", "--showid"); ok {
@@ -113,8 +118,9 @@ func Detect(ctx context.Context, detector Detector) Info {
 		info.GPUCount = countLinesContaining(output, "GPU")
 		return normalize(info)
 	}
-	if _, ok := probeCommand(ctx, detector, "rocminfo"); ok {
+	if output, ok := probeCommand(ctx, detector, "rocminfo"); ok {
 		info.GPUBackend = GPUBackendROCm
+		info.ROCmVersion = detectedRuntimeVersion(string(output), "Runtime Version:")
 		return normalize(info)
 	}
 	if _, ok := probeCommand(ctx, detector, "vulkaninfo"); ok {
@@ -122,6 +128,22 @@ func Detect(ctx context.Context, detector Detector) Info {
 		return normalize(info)
 	}
 	return normalize(info)
+}
+
+func detectedRuntimeVersion(output string, marker string) string {
+	for _, line := range strings.Split(output, "\n") {
+		index := strings.Index(line, marker)
+		if index < 0 {
+			continue
+		}
+		value := strings.TrimSpace(line[index+len(marker):])
+		for _, field := range strings.Fields(value) {
+			if strings.Count(field, ".") >= 1 {
+				return strings.Trim(field, " ,;")
+			}
+		}
+	}
+	return ""
 }
 
 func defaultDetector() Detector {

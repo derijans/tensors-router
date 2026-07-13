@@ -36,7 +36,7 @@ kobold:
 
 llama:
   backend_url: "http://127.0.0.1:5002"
-  binary_path: "./bin/llama/llama-b9495/llama-server"
+  binary_path: "./bin/llama/llama-server"
   data_dir: "./data/llama"
   hide_window: true
   extra_args: []
@@ -55,12 +55,19 @@ logging:
 updates:
   enabled: false
   check_interval: "168h"
+  include_prereleases: false
   binary_url: "https://koboldai.org/cpplinuxrocm"
   binary_sha256: ""
-  llama_binary_url: "https://github.com/ggml-org/llama.cpp/releases/download/b9495/llama-b9495-bin-ubuntu-rocm-7.2-x64.tar.gz"
-  llama_binary_sha256: "49275ee2df07cd227dbf573470955222d1f0c43cf4a3da52a9f2ee98924ac9e0"
-  sdcpp_binary_url: "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-672-1f9ee88/sd-master-1f9ee88-bin-Linux-Ubuntu-24.04-x86_64-rocm-7.2.1.zip"
-  sdcpp_binary_sha256: "4e680acbba39a994147cc05c35fc355f164340376a90c04790ad6f48caaa05c7"
+  binary_repository_url: ""
+  binary_asset_glob: ""
+  llama_binary_url: ""
+  llama_binary_sha256: ""
+  llama_repository_url: "https://github.com/ggml-org/llama.cpp"
+  llama_asset_glob: ""
+  sdcpp_binary_url: ""
+  sdcpp_binary_sha256: ""
+  sdcpp_repository_url: "https://github.com/leejet/stable-diffusion.cpp"
+  sdcpp_asset_glob: ""
 
 cluster:
   role: "standalone"

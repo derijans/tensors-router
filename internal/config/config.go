@@ -78,14 +78,40 @@ type LoggingConfig struct {
 }
 
 type UpdatesConfig struct {
-	Enabled        bool
-	CheckInterval  time.Duration
-	BinaryURL      string
-	BinarySHA256   string
-	LlamaBinaryURL string
-	LlamaSHA256    string
-	SDCPPBinaryURL string
-	SDCPPSHA256    string
+	Enabled             bool
+	CheckInterval       time.Duration
+	IncludePrereleases  bool
+	BinaryURL           string
+	BinarySHA256        string
+	BinaryRepositoryURL string
+	BinaryAssetGlob     string
+	LlamaBinaryURL      string
+	LlamaSHA256         string
+	LlamaRepositoryURL  string
+	LlamaAssetGlob      string
+	SDCPPBinaryURL      string
+	SDCPPSHA256         string
+	SDCPPRepositoryURL  string
+	SDCPPAssetGlob      string
+}
+
+type BackendUpdateSource struct {
+	BinaryURL     string
+	SHA256        string
+	RepositoryURL string
+	AssetGlob     string
+}
+
+func (updates UpdatesConfig) KoboldSource() BackendUpdateSource {
+	return BackendUpdateSource{BinaryURL: updates.BinaryURL, SHA256: updates.BinarySHA256, RepositoryURL: updates.BinaryRepositoryURL, AssetGlob: updates.BinaryAssetGlob}
+}
+
+func (updates UpdatesConfig) LlamaSource() BackendUpdateSource {
+	return BackendUpdateSource{BinaryURL: updates.LlamaBinaryURL, SHA256: updates.LlamaSHA256, RepositoryURL: updates.LlamaRepositoryURL, AssetGlob: updates.LlamaAssetGlob}
+}
+
+func (updates UpdatesConfig) SDCPPSource() BackendUpdateSource {
+	return BackendUpdateSource{BinaryURL: updates.SDCPPBinaryURL, SHA256: updates.SDCPPSHA256, RepositoryURL: updates.SDCPPRepositoryURL, AssetGlob: updates.SDCPPAssetGlob}
 }
 
 type ClusterConfig struct {
@@ -149,7 +175,7 @@ func Defaults() Config {
 		},
 		Llama: NativeServerConfig{
 			BackendURL: "http://127.0.0.1:5002",
-			BinaryPath: "./bin/llama/llama-b9495/llama-server",
+			BinaryPath: "./bin/llama/llama-server",
 			DataDir:    "./data/llama",
 			ExtraArgs:  []string{},
 			HideWindow: true,
@@ -167,14 +193,16 @@ func Defaults() Config {
 			BackendLogsToDisk: false,
 		},
 		Updates: UpdatesConfig{
-			Enabled:        false,
-			CheckInterval:  168 * time.Hour,
-			BinaryURL:      "https://koboldai.org/cpplinuxrocm",
-			BinarySHA256:   "",
-			LlamaBinaryURL: "",
-			LlamaSHA256:    "",
-			SDCPPBinaryURL: "",
-			SDCPPSHA256:    "",
+			Enabled:            false,
+			CheckInterval:      168 * time.Hour,
+			BinaryURL:          "https://koboldai.org/cpplinuxrocm",
+			BinarySHA256:       "",
+			LlamaBinaryURL:     "",
+			LlamaSHA256:        "",
+			SDCPPBinaryURL:     "",
+			SDCPPSHA256:        "",
+			LlamaRepositoryURL: "https://github.com/ggml-org/llama.cpp",
+			SDCPPRepositoryURL: "https://github.com/leejet/stable-diffusion.cpp",
 		},
 		Cluster: ClusterConfig{
 			Role:           "standalone",
@@ -276,15 +304,15 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("updates.check_interval must be positive")
 	}
 	if cfg.Updates.Enabled && cfg.Backend.Mode == "kobold" {
-		if err := validateUpdateDownload("updates.binary_url", cfg.Updates.BinaryURL, "updates.binary_sha256", cfg.Updates.BinarySHA256); err != nil {
+		if err := validateUpdateSource("binary", cfg.Updates.KoboldSource()); err != nil {
 			return err
 		}
 	}
 	if cfg.Updates.Enabled && cfg.Backend.Mode == "llama_sdcpp" {
-		if err := validateUpdateDownload("updates.llama_binary_url", cfg.Updates.LlamaBinaryURL, "updates.llama_binary_sha256", cfg.Updates.LlamaSHA256); err != nil {
+		if err := validateUpdateSource("llama", cfg.Updates.LlamaSource()); err != nil {
 			return err
 		}
-		if err := validateUpdateDownload("updates.sdcpp_binary_url", cfg.Updates.SDCPPBinaryURL, "updates.sdcpp_binary_sha256", cfg.Updates.SDCPPSHA256); err != nil {
+		if err := validateUpdateSource("sdcpp", cfg.Updates.SDCPPSource()); err != nil {
 			return err
 		}
 	}
@@ -362,22 +390,35 @@ func validateNativeServerConfig(section string, server NativeServerConfig) error
 	return nil
 }
 
-func validateUpdateDownload(urlField string, rawURL string, shaField string, sha256 string) error {
-	if rawURL == "" {
-		return fmt.Errorf("%s is required when updates.enabled is true", urlField)
+func validateUpdateSource(name string, source BackendUpdateSource) error {
+	if strings.TrimSpace(source.BinaryURL) == "" && strings.TrimSpace(source.RepositoryURL) == "" {
+		return fmt.Errorf("updates.%s_binary_url or updates.%s_repository_url is required when updates.enabled is true", name, name)
+	}
+	if err := validateHTTPSUpdateURL("updates."+name+"_binary_url", source.BinaryURL); err != nil {
+		return err
+	}
+	if err := validateHTTPSUpdateURL("updates."+name+"_repository_url", source.RepositoryURL); err != nil {
+		return err
+	}
+	if strings.TrimSpace(source.SHA256) != "" && !validSHA256Hex(source.SHA256) {
+		return fmt.Errorf("updates.%s_binary_sha256 must be a 64 character SHA-256 hex digest when provided", name)
+	}
+	return nil
+}
+
+func validateHTTPSUpdateURL(field string, rawURL string) error {
+	if strings.TrimSpace(rawURL) == "" {
+		return nil
 	}
 	parsed, err := url.ParseRequestURI(rawURL)
 	if err != nil {
-		return fmt.Errorf("%s is invalid: %w", urlField, err)
+		return fmt.Errorf("%s is invalid: %w", field, err)
 	}
 	if parsed.Scheme != "https" {
-		return fmt.Errorf("%s must use https", urlField)
+		return fmt.Errorf("%s must use https", field)
 	}
 	if parsed.Host == "" {
-		return fmt.Errorf("%s must include a host", urlField)
-	}
-	if !validSHA256Hex(sha256) {
-		return fmt.Errorf("%s must be a 64 character SHA-256 hex digest when updates.enabled is true", shaField)
+		return fmt.Errorf("%s must include a host", field)
 	}
 	return nil
 }
@@ -691,11 +732,24 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			}
 			cfg.Updates.CheckInterval = parsed
 			return nil
+		case "include_prereleases":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return err
+			}
+			cfg.Updates.IncludePrereleases = parsed
+			return nil
 		case "binary_url":
 			cfg.Updates.BinaryURL = value
 			return nil
 		case "binary_sha256":
 			cfg.Updates.BinarySHA256 = value
+			return nil
+		case "binary_repository_url":
+			cfg.Updates.BinaryRepositoryURL = value
+			return nil
+		case "binary_asset_glob":
+			cfg.Updates.BinaryAssetGlob = value
 			return nil
 		case "llama_binary_url":
 			cfg.Updates.LlamaBinaryURL = value
@@ -703,11 +757,23 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 		case "llama_binary_sha256":
 			cfg.Updates.LlamaSHA256 = value
 			return nil
+		case "llama_repository_url":
+			cfg.Updates.LlamaRepositoryURL = value
+			return nil
+		case "llama_asset_glob":
+			cfg.Updates.LlamaAssetGlob = value
+			return nil
 		case "sdcpp_binary_url":
 			cfg.Updates.SDCPPBinaryURL = value
 			return nil
 		case "sdcpp_binary_sha256":
 			cfg.Updates.SDCPPSHA256 = value
+			return nil
+		case "sdcpp_repository_url":
+			cfg.Updates.SDCPPRepositoryURL = value
+			return nil
+		case "sdcpp_asset_glob":
+			cfg.Updates.SDCPPAssetGlob = value
 			return nil
 		}
 	case "cluster":

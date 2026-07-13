@@ -195,6 +195,30 @@ func TestLoadExampleConfigIncludesVRAMAnalyticsDefault(t *testing.T) {
 	}
 }
 
+func TestLoadAcceptsRepositoryUpdateSourceWithOptionalHash(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	content := []byte(`
+updates:
+  enabled: true
+  binary_url: ""
+  binary_sha256: ""
+  binary_repository_url: "https://github.com/LostRuins/koboldcpp"
+  binary_asset_glob: "*vulkan*"
+  include_prereleases: true
+`)
+	if err := os.WriteFile(path, content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Updates.IncludePrereleases || cfg.Updates.KoboldSource().RepositoryURL != "https://github.com/LostRuins/koboldcpp" || cfg.Updates.KoboldSource().AssetGlob != "*vulkan*" {
+		t.Fatalf("unexpected update source %#v", cfg.Updates)
+	}
+}
+
 func TestLoadRejectsUnknownKey(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

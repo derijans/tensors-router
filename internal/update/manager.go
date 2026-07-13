@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"hash"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,12 +22,15 @@ import (
 	"time"
 
 	"tensors-router/internal/config"
+	"tensors-router/internal/hardware"
 )
 
 type Manager struct {
-	config config.Config
-	client *http.Client
-	Now    func() time.Time
+	config         config.Config
+	client         *http.Client
+	hardware       hardware.Source
+	releaseAPIBase string
+	Now            func() time.Time
 }
 
 type downloadTarget struct {
@@ -35,18 +39,27 @@ type downloadTarget struct {
 	URLField     string
 	SHA256       string
 	SHA256Field  string
+	Source       config.BackendUpdateSource
 	BinaryPath   string
 	DataDir      string
 	MetadataName string
 }
 
 type metadata struct {
-	CheckedAt    time.Time `json:"checked_at"`
-	ETag         string    `json:"etag,omitempty"`
-	LastModified string    `json:"last_modified,omitempty"`
-	URL          string    `json:"url"`
-	SHA256       string    `json:"sha256"`
-	BinarySHA256 string    `json:"binary_sha256,omitempty"`
+	CheckedAt    time.Time         `json:"checked_at"`
+	ETag         string            `json:"etag,omitempty"`
+	LastModified string            `json:"last_modified,omitempty"`
+	URL          string            `json:"url"`
+	SHA256       string            `json:"sha256"`
+	BinarySHA256 string            `json:"binary_sha256,omitempty"`
+	ReleaseID    string            `json:"release_id,omitempty"`
+	ReleaseTag   string            `json:"release_tag,omitempty"`
+	Payloads     []payloadMetadata `json:"payloads,omitempty"`
+}
+
+type payloadMetadata struct {
+	URL    string `json:"url"`
+	SHA256 string `json:"sha256"`
 }
 
 func NewManager(config config.Config) *Manager {
@@ -55,7 +68,9 @@ func NewManager(config config.Config) *Manager {
 		client: &http.Client{
 			Timeout: 0,
 		},
-		Now: time.Now,
+		hardware:       hardware.NewCache(),
+		releaseAPIBase: "https://api.github.com",
+		Now:            time.Now,
 	}
 }
 
@@ -93,10 +108,13 @@ func (manager *Manager) DownloadedPaths(ctx context.Context) ([]string, error) {
 }
 
 func targetIsFresh(target downloadTarget, previous metadata, now time.Time, interval time.Duration) bool {
-	if !fileExists(target.BinaryPath) ||
-		previous.URL != target.URL ||
-		!strings.EqualFold(previous.SHA256, target.SHA256) ||
-		now.Sub(previous.CheckedAt) >= interval {
+	if !fileExists(target.BinaryPath) || now.Sub(previous.CheckedAt) >= interval {
+		return false
+	}
+	if target.URL == "" {
+		return previous.ReleaseID != "" && previous.BinarySHA256 != "" && fileMatchesSHA256(target.BinaryPath, previous.BinarySHA256)
+	}
+	if previous.URL != target.URL || !strings.EqualFold(previous.SHA256, target.SHA256) {
 		return false
 	}
 	if previous.BinarySHA256 != "" {
@@ -114,6 +132,7 @@ func (manager *Manager) targets() []downloadTarget {
 				URLField:     "llama_binary_url",
 				SHA256:       manager.config.Updates.LlamaSHA256,
 				SHA256Field:  "llama_binary_sha256",
+				Source:       manager.config.Updates.LlamaSource(),
 				BinaryPath:   manager.config.Llama.BinaryPath,
 				DataDir:      manager.config.Llama.DataDir,
 				MetadataName: "llama-server-update.json",
@@ -124,6 +143,7 @@ func (manager *Manager) targets() []downloadTarget {
 				URLField:     "sdcpp_binary_url",
 				SHA256:       manager.config.Updates.SDCPPSHA256,
 				SHA256Field:  "sdcpp_binary_sha256",
+				Source:       manager.config.Updates.SDCPPSource(),
 				BinaryPath:   manager.config.SDCPP.BinaryPath,
 				DataDir:      manager.config.SDCPP.DataDir,
 				MetadataName: "sd-server-update.json",
@@ -137,6 +157,7 @@ func (manager *Manager) targets() []downloadTarget {
 			URLField:     "binary_url",
 			SHA256:       manager.config.Updates.BinarySHA256,
 			SHA256Field:  "binary_sha256",
+			Source:       manager.config.Updates.KoboldSource(),
 			BinaryPath:   manager.config.Kobold.BinaryPath,
 			DataDir:      manager.config.Kobold.DataDir,
 			MetadataName: "koboldcpp-update.json",
@@ -145,6 +166,9 @@ func (manager *Manager) targets() []downloadTarget {
 }
 
 func (manager *Manager) download(ctx context.Context, target downloadTarget, previous metadata) error {
+	if strings.TrimSpace(target.URL) == "" {
+		return manager.downloadRelease(ctx, target, previous)
+	}
 	expectedHash, err := validateTarget(target)
 	if err != nil {
 		return err
@@ -178,6 +202,9 @@ func (manager *Manager) download(ctx context.Context, target downloadTarget, pre
 	if response.StatusCode < 200 || response.StatusCode > 299 {
 		return fmt.Errorf("%s download failed with status %d", target.Name, response.StatusCode)
 	}
+	if len(expectedHash) == 0 {
+		log.Printf("SECURITY WARNING: %s download from %s has no publisher or configured SHA-256; continuing is not secure against source compromise or tampering. Configure updates.%s.", target.Name, target.URL, target.SHA256Field)
+	}
 
 	if err := os.MkdirAll(filepath.Dir(target.BinaryPath), 0o755); err != nil {
 		return err
@@ -204,7 +231,7 @@ func (manager *Manager) download(ctx context.Context, target downloadTarget, pre
 		_ = os.Remove(tempPath)
 		return closeErr
 	}
-	if !hashMatches(downloadHash, expectedHash) {
+	if len(expectedHash) > 0 && !hashMatches(downloadHash, expectedHash) {
 		_ = os.Remove(tempPath)
 		return fmt.Errorf("%s download sha256 mismatch", target.Name)
 	}
@@ -226,7 +253,11 @@ func (manager *Manager) download(ctx context.Context, target downloadTarget, pre
 }
 
 func installDownloadedPayload(payloadPath string, target downloadTarget) (string, error) {
-	switch archiveType(target.URL) {
+	payloadType := archiveType(target.URL)
+	if payloadType == "" {
+		payloadType = archiveType(payloadPath)
+	}
+	switch payloadType {
 	case "zip":
 		return installArchivedPayload(payloadPath, target, zipArchiveBinaryPath, extractZipPayload)
 	case "tar.gz":
@@ -238,7 +269,7 @@ func installDownloadedPayload(payloadPath string, target downloadTarget) (string
 		if err := replaceBinary(payloadPath, target.BinaryPath); err != nil {
 			return "", err
 		}
-		return normalizedSHA256(target.SHA256), nil
+		return fileSHA256Hex(target.BinaryPath)
 	}
 }
 
@@ -261,10 +292,14 @@ func installArchivedPayload(payloadPath string, target downloadTarget, findBinar
 	if err := extract(payloadPath, extractedDir, target); err != nil {
 		return "", err
 	}
+	installedBinaryPath, err := normalizeVersionedArchiveRoot(extractedDir, archiveBinaryPath, target)
+	if err != nil {
+		return "", err
+	}
 
-	extractedBinaryPath := filepath.Join(extractedDir, filepath.FromSlash(archiveBinaryPath))
+	extractedBinaryPath := filepath.Join(extractedDir, filepath.FromSlash(installedBinaryPath))
 	if !fileExists(extractedBinaryPath) {
-		return "", fmt.Errorf("%s archive does not contain %s", target.Name, archiveBinaryPath)
+		return "", fmt.Errorf("%s archive does not contain %s", target.Name, installedBinaryPath)
 	}
 	binarySHA256, err := fileSHA256Hex(extractedBinaryPath)
 	if err != nil {
@@ -273,28 +308,23 @@ func installArchivedPayload(payloadPath string, target downloadTarget, findBinar
 	if err := os.Chmod(extractedBinaryPath, 0o755); err != nil {
 		return "", err
 	}
-	if err := removeInstallDir(installDir); err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(filepath.Dir(installDir), 0o755); err != nil {
-		return "", err
-	}
-	if err := os.Rename(extractedDir, installDir); err != nil {
+	if err := swapInstallDir(extractedDir, installDir); err != nil {
 		return "", err
 	}
 	return binarySHA256, nil
 }
 
 func archiveType(rawURL string) string {
+	archivePath := rawURL
 	parsed, err := url.Parse(rawURL)
-	if err != nil {
-		return ""
+	if err == nil && parsed.Path != "" {
+		archivePath = parsed.Path
 	}
-	path := strings.ToLower(parsed.Path)
+	archivePath = strings.ToLower(archivePath)
 	switch {
-	case strings.HasSuffix(path, ".zip"):
+	case strings.HasSuffix(archivePath, ".zip"):
 		return "zip"
-	case strings.HasSuffix(path, ".tar.gz") || strings.HasSuffix(path, ".tgz"):
+	case strings.HasSuffix(archivePath, ".tar.gz") || strings.HasSuffix(archivePath, ".tgz"):
 		return "tar.gz"
 	default:
 		return ""
@@ -625,6 +655,7 @@ func archiveOutputPath(root string, name string) (string, error) {
 func archiveBinaryPathFromNames(entryNames []string, target downloadTarget) (string, error) {
 	binaryNames := binaryArchiveNames(target)
 	bestName := ""
+	bestNameMatchesTarget := false
 	bestDepth := 0
 	for _, entryName := range entryNames {
 		cleanName, ok := cleanArchiveEntryName(entryName)
@@ -634,12 +665,11 @@ func archiveBinaryPathFromNames(entryNames []string, target downloadTarget) (str
 		if !matchesBinaryArchiveName(path.Base(cleanName), binaryNames) {
 			continue
 		}
-		if !targetPathCanContainArchivePath(target.BinaryPath, cleanName) {
-			continue
-		}
+		matchesTarget := targetPathCanContainArchivePath(target.BinaryPath, cleanName)
 		depth := len(strings.Split(cleanName, "/"))
-		if bestName == "" || depth < bestDepth || depth == bestDepth && cleanName < bestName {
+		if bestName == "" || matchesTarget && !bestNameMatchesTarget || matchesTarget == bestNameMatchesTarget && (depth < bestDepth || depth == bestDepth && cleanName < bestName) {
 			bestName = cleanName
+			bestNameMatchesTarget = matchesTarget
 			bestDepth = depth
 		}
 	}
@@ -658,18 +688,70 @@ func targetPathCanContainArchivePath(targetPath string, archivePath string) bool
 func archiveInstallDir(target downloadTarget, archiveBinaryPath string) (string, error) {
 	targetPath := filepath.ToSlash(filepath.Clean(target.BinaryPath))
 	archivePath := filepath.ToSlash(filepath.Clean(archiveBinaryPath))
-	if strings.EqualFold(targetPath, archivePath) {
+	suffix := "/" + archivePath
+	if strings.HasSuffix(strings.ToLower(targetPath), strings.ToLower(suffix)) {
+		installDir := strings.TrimSuffix(targetPath, suffix)
+		if installDir == "" || installDir == "." {
+			return "", fmt.Errorf("%s binary_path must include a backend install directory", target.Name)
+		}
+		return filepath.FromSlash(installDir), nil
+	}
+	installDir := filepath.Dir(target.BinaryPath)
+	if installDir == "." || installDir == "" {
 		return "", fmt.Errorf("%s binary_path must include a backend install directory", target.Name)
 	}
-	suffix := "/" + archivePath
-	if !strings.HasSuffix(strings.ToLower(targetPath), strings.ToLower(suffix)) {
-		return "", fmt.Errorf("%s binary_path must end with archive path %s", target.Name, archivePath)
+	return installDir, nil
+}
+
+func normalizeVersionedArchiveRoot(extractedDir string, archiveBinaryPath string, target downloadTarget) (string, error) {
+	if targetPathCanContainArchivePath(target.BinaryPath, archiveBinaryPath) {
+		return archiveBinaryPath, nil
 	}
-	installDir := strings.TrimSuffix(targetPath, suffix)
-	if installDir == "" {
-		return ".", nil
+	parts := strings.Split(archiveBinaryPath, "/")
+	if len(parts) < 2 {
+		return archiveBinaryPath, nil
 	}
-	return filepath.FromSlash(installDir), nil
+	entries, err := os.ReadDir(extractedDir)
+	if err != nil {
+		return "", err
+	}
+	if len(entries) != 1 || entries[0].Name() != parts[0] || !entries[0].IsDir() {
+		return "", fmt.Errorf("%s archive cannot normalize its versioned top-level directory", target.Name)
+	}
+	root := filepath.Join(extractedDir, entries[0].Name())
+	children, err := os.ReadDir(root)
+	if err != nil {
+		return "", err
+	}
+	for _, child := range children {
+		if err := os.Rename(filepath.Join(root, child.Name()), filepath.Join(extractedDir, child.Name())); err != nil {
+			return "", err
+		}
+	}
+	if err := os.Remove(root); err != nil {
+		return "", err
+	}
+	return path.Join(parts[1:]...), nil
+}
+
+func swapInstallDir(extractedDir string, installDir string) error {
+	if err := os.MkdirAll(filepath.Dir(installDir), 0o755); err != nil {
+		return err
+	}
+	backupDir := installDir + ".previous"
+	if err := removeInstallDir(backupDir); err != nil {
+		return err
+	}
+	if err := os.Rename(installDir, backupDir); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	if err := os.Rename(extractedDir, installDir); err != nil {
+		if rollbackErr := os.Rename(backupDir, installDir); rollbackErr != nil && !os.IsNotExist(rollbackErr) {
+			return fmt.Errorf("install failed: %v; rollback failed: %w", err, rollbackErr)
+		}
+		return err
+	}
+	return removeInstallDir(backupDir)
 }
 
 func matchesBinaryArchiveName(entryName string, names []string) bool {
@@ -736,24 +818,34 @@ func binaryArchiveNames(target downloadTarget) []string {
 }
 
 func validateTarget(target downloadTarget) ([]byte, error) {
-	if target.URL == "" {
-		return nil, fmt.Errorf("updates.%s is required", target.URLField)
-	}
-	parsed, err := url.Parse(target.URL)
-	if err != nil {
+	if err := validatePayloadURL(target.URL, target.URLField); err != nil {
 		return nil, err
 	}
-	if parsed.Scheme != "https" {
-		return nil, fmt.Errorf("updates.%s must use https", target.URLField)
-	}
-	if parsed.Host == "" {
-		return nil, fmt.Errorf("updates.%s must include a host", target.URLField)
+	if strings.TrimSpace(target.SHA256) == "" {
+		return nil, nil
 	}
 	expectedHash, err := hex.DecodeString(strings.TrimSpace(target.SHA256))
 	if err != nil || len(expectedHash) != sha256.Size {
-		return nil, fmt.Errorf("updates.%s must be a 64 character SHA-256 hex digest", target.SHA256Field)
+		return nil, fmt.Errorf("updates.%s must be a 64 character SHA-256 hex digest when provided", target.SHA256Field)
 	}
 	return expectedHash, nil
+}
+
+func validatePayloadURL(rawURL string, urlField string) error {
+	if rawURL == "" {
+		return fmt.Errorf("updates.%s is required", urlField)
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return err
+	}
+	if parsed.Scheme != "https" {
+		return fmt.Errorf("updates.%s must use https", urlField)
+	}
+	if parsed.Host == "" {
+		return fmt.Errorf("updates.%s must include a host", urlField)
+	}
+	return nil
 }
 
 func normalizedSHA256(value string) string {
