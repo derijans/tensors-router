@@ -24,6 +24,7 @@ import (
 	routerbenchmark "tensors-router/internal/benchmark"
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
+	"tensors-router/internal/downloader"
 	"tensors-router/internal/hardware"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/recipes"
@@ -77,6 +78,8 @@ type ServiceConfig struct {
 	VRAMSource           hardware.VRAMSource
 	VRAMSampleInterval   time.Duration
 	Hardware             hardware.Source
+	Downloader           *downloader.Manager
+	DownloaderCapability downloader.Capability
 	Logger               *log.Logger
 	Shutdown             func()
 	TransportLimits      transportbody.Limits
@@ -111,6 +114,8 @@ type Service struct {
 	vramSampler          *hardware.VRAMSampler
 	vramSampleInterval   time.Duration
 	hardware             hardware.Source
+	downloader           *downloader.Manager
+	downloaderCapability downloader.Capability
 	client               *http.Client
 	logger               *log.Logger
 	shutdown             func()
@@ -279,6 +284,8 @@ func NewService(config ServiceConfig) *Service {
 		vramSampler:          vramSampler,
 		vramSampleInterval:   vramSampleInterval,
 		hardware:             config.Hardware,
+		downloader:           config.Downloader,
+		downloaderCapability: config.DownloaderCapability,
 		logger:               logger,
 		shutdown:             config.Shutdown,
 		sdcppJobs:            newSdcppJobStore(),
@@ -297,6 +304,9 @@ func NewService(config ServiceConfig) *Service {
 	}
 	if service.hardware == nil {
 		service.hardware = hardware.NewCache()
+	}
+	if service.downloader != nil {
+		service.downloaderCapability = service.downloader.Capability()
 	}
 	if config.ClusterClient != nil {
 		service.clusterClient = config.ClusterClient

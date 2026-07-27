@@ -57,6 +57,15 @@ export const state: AppState = {
     error: "",
     action: ""
   },
+  downloads: {
+    available: false,
+    capabilities: null,
+    nodeID: "",
+    plan: null,
+    library: null,
+    search: [],
+    error: ""
+  },
   activeTab: "router",
   activeCookMode: "quick",
   activePalette: "configs",

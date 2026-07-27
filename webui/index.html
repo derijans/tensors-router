@@ -45,6 +45,7 @@
         <button class="tab-button active" type="button" data-tab="router">Router</button>
         <button class="tab-button" type="button" data-tab="nodes">Nodes</button>
         <button class="tab-button" type="button" data-tab="webuis">WebUIs</button>
+        <button id="downloadTab" class="tab-button" type="button" data-tab="download" hidden>Download</button>
         <button class="tab-button" type="button" data-tab="models">Models</button>
         <button class="tab-button" type="button" data-tab="benchmarks">Benchmarks</button>
         <button class="tab-button" type="button" data-tab="analytics">Analytics</button>
@@ -91,6 +92,31 @@
           </div>
         </div>
         <div id="webuiGrid" class="webui-grid"></div>
+      </section>
+
+      <section id="downloadPanel" class="tab-panel" data-panel="download" hidden>
+        <div class="panel-head">
+          <div>
+            <h2>Download</h2>
+            <p class="muted">download directly to the selected node</p>
+          </div>
+          <button id="downloadRescanButton" type="button" data-operation-group="download">Rescan library</button>
+        </div>
+        <div class="download-controls">
+          <label>Node<select id="downloadNodeSelect" data-operation-group="download"></select></label>
+          <label>HF token<input id="downloadTokenInput" type="password" autocomplete="off" placeholder="Temporary override"></label>
+          <label>Search<input id="downloadSearchInput" type="search" placeholder="Repository or author"></label>
+          <button id="downloadSearchButton" type="button" data-operation-group="download">Search</button>
+          <label>Repository<input id="downloadRepositoryInput" type="text" placeholder="owner/repository"></label>
+          <label>Revision<input id="downloadRevisionInput" type="text" placeholder="main"></label>
+          <label class="download-files">Files<textarea id="downloadFilesInput" rows="5" placeholder="One repository-relative file per line"></textarea></label>
+          <div class="button-strip"><button id="downloadPlanButton" type="button" data-operation-group="download">Preview plan</button><button id="downloadStartButton" type="button" data-operation-group="download" disabled>Start download</button></div>
+        </div>
+        <p id="downloadStatus" class="action-status"></p>
+        <div id="downloadSearchResults" class="download-results"></div>
+        <div id="downloadPlanOutput" class="output"></div>
+        <div><h3>Jobs</h3><div id="downloadJobs" class="download-jobs"></div></div>
+        <div><h3>Local library</h3><div id="downloadLibrary" class="download-library"></div></div>
       </section>
 
       <section class="tab-panel" data-panel="models">

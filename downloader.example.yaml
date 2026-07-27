@@ -1,0 +1,26 @@
+storage:
+  root: "./models"
+  state_dir: "./downloader-state"
+  database_path: "./downloader-state/downloads.sqlite"
+  free_space_reserve_gb: 5
+
+huggingface:
+  token: ""
+
+downloads:
+  concurrent_jobs: 2
+  concurrent_files: 4
+  retry_limit: 5
+  timeout: "30s"
+
+scanning:
+  hash_workers: 1
+  write_hash_sidecars: true
+
+hardware:
+  default_context: 8192
+  vram_reserve_mb: 1024
+  safety_margin_percent: 15
+
+logging:
+  mode: "normal"

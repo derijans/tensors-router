@@ -23,6 +23,30 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/inventory":
 		service.handleSiteInventory(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/download/capabilities":
+		service.handleSiteDownloadCapabilities(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/download/search":
+		service.handleSiteDownloadSearch(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/download/repository":
+		service.handleSiteDownloadRepository(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/download/plan":
+		service.handleSiteDownloadPlan(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/download/jobs":
+		service.handleSiteDownloadCreateJob(w, r)
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/site/download/jobs/") && strings.HasSuffix(r.URL.Path, "/events"):
+		service.handleSiteDownloadEvents(w, r)
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/site/download/jobs/"):
+		service.handleSiteDownloadJob(w, r)
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/router/v1/site/download/jobs/") && strings.HasSuffix(r.URL.Path, "/pause"):
+		service.handleSiteDownloadPause(w, r)
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/router/v1/site/download/jobs/") && strings.HasSuffix(r.URL.Path, "/resume"):
+		service.handleSiteDownloadResume(w, r)
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/router/v1/site/download/jobs/") && strings.HasSuffix(r.URL.Path, "/cancel"):
+		service.handleSiteDownloadCancel(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/download/library":
+		service.handleSiteDownloadLibrary(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/download/rescan":
+		service.handleSiteDownloadRescan(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/webuis":
 		service.handleSiteWebUIs(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/webuis/session":
@@ -60,6 +84,54 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/site/inventory":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeSiteInventory(w, r)
+		}
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/site/download/capabilities":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeDownloadCapabilities(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/download/search":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeDownloadSearch(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/download/repository":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeDownloadRepository(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/download/plan":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeDownloadPlan(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/download/jobs":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeDownloadCreateJob(w, r)
+		}
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/node/site/download/jobs/") && strings.HasSuffix(r.URL.Path, "/events"):
+		if service.requireClusterToken(w, r) {
+			service.handleNodeDownloadEvents(w, r)
+		}
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/node/site/download/jobs/"):
+		if service.requireClusterToken(w, r) {
+			service.handleNodeDownloadJob(w, r)
+		}
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/router/v1/node/site/download/jobs/") && strings.HasSuffix(r.URL.Path, "/pause"):
+		if service.requireClusterToken(w, r) {
+			service.handleNodeDownloadPause(w, r)
+		}
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/router/v1/node/site/download/jobs/") && strings.HasSuffix(r.URL.Path, "/resume"):
+		if service.requireClusterToken(w, r) {
+			service.handleNodeDownloadResume(w, r)
+		}
+	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/router/v1/node/site/download/jobs/") && strings.HasSuffix(r.URL.Path, "/cancel"):
+		if service.requireClusterToken(w, r) {
+			service.handleNodeDownloadCancel(w, r)
+		}
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/site/download/library":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeDownloadLibrary(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/download/rescan":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeDownloadRescan(w, r)
 		}
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/site/webuis":
 		if service.requireClusterToken(w, r) {

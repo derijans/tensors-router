@@ -112,7 +112,9 @@ func (client *Client) JSON(ctx context.Context, method string, baseURL string, p
 		request.Header.Set("Authorization", "Bearer "+client.token)
 	}
 
-	response, err := client.client.Do(request)
+	streamClient := *client.client
+	streamClient.Timeout = 0
+	response, err := streamClient.Do(request)
 	if err != nil {
 		return err
 	}
@@ -135,6 +137,31 @@ func (client *Client) JSON(ctx context.Context, method string, baseURL string, p
 		return nil
 	}
 	return json.Unmarshal(content, responseBody)
+}
+
+func (client *Client) Stream(ctx context.Context, method string, baseURL string, path string) (*http.Response, error) {
+	target, err := client.joinedAllowedURL(baseURL, path)
+	if err != nil {
+		return nil, err
+	}
+	request, err := http.NewRequestWithContext(ctx, method, target, nil)
+	if err != nil {
+		return nil, err
+	}
+	request.Header.Set("Accept", "text/event-stream")
+	if client.token != "" {
+		request.Header.Set("Authorization", "Bearer "+client.token)
+	}
+	response, err := client.client.Do(request)
+	if err != nil {
+		return nil, err
+	}
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
+		return response, nil
+	}
+	defer response.Body.Close()
+	content, _ := io.ReadAll(io.LimitReader(response.Body, maxClusterJSONBytes+1))
+	return nil, fmt.Errorf("cluster stream failed with status %d: %s", response.StatusCode, strings.TrimSpace(string(content)))
 }
 
 func (client *Client) joinedAllowedURL(baseURL string, path string) (string, error) {

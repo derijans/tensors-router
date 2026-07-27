@@ -395,6 +395,37 @@ td {
   gap: 14px;
 }
 
+.download-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  align-items: end;
+}
+
+.download-controls label,
+.download-files {
+  display: grid;
+  gap: 6px;
+}
+
+.download-files {
+  grid-column: 1 / -1;
+}
+
+.download-results,
+.download-jobs,
+.download-library {
+  display: grid;
+  gap: 8px;
+}
+
+.download-entry {
+  border: 1px solid rgba(38, 57, 73, .95);
+  border-radius: 8px;
+  background: rgba(6, 13, 22, .9);
+  padding: 10px;
+}
+
 .models-panel-actions {
   display: grid;
   gap: 6px;

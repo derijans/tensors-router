@@ -66,12 +66,14 @@ jobs:
             goarch: amd64
             binary: tensors-router-linux-amd64
             webui_binary: tensor-router-webui-linux-amd64
+            downloader_binary: tensor-router-downloader-linux-amd64
             archive: tensors-router-linux-amd64.tar.gz
           - name: linux-arm64
             goos: linux
             goarch: arm64
             binary: tensors-router-linux-arm64
             webui_binary: tensor-router-webui-linux-arm64
+            downloader_binary: tensor-router-downloader-linux-arm64
             archive: tensors-router-linux-arm64.tar.gz
           - name: linux-armv7
             goos: linux
@@ -79,18 +81,21 @@ jobs:
             goarm: "7"
             binary: tensors-router-linux-armv7
             webui_binary: tensor-router-webui-linux-armv7
+            downloader_binary: ""
             archive: tensors-router-linux-armv7.tar.gz
           - name: windows-amd64
             goos: windows
             goarch: amd64
             binary: tensors-router-windows-amd64.exe
             webui_binary: tensor-router-webui-windows-amd64.exe
+            downloader_binary: tensor-router-downloader-windows-amd64.exe
             archive: tensors-router-windows-amd64.zip
           - name: windows-arm64
             goos: windows
             goarch: arm64
             binary: tensors-router-windows-arm64.exe
             webui_binary: tensor-router-webui-windows-arm64.exe
+            downloader_binary: tensor-router-downloader-windows-arm64.exe
             archive: tensors-router-windows-arm64.zip
     steps:
       - name: Checkout
@@ -125,6 +130,7 @@ jobs:
           TARGET_GOARM: ${{ matrix.target.goarm }}
           OUTPUT: dist/${{ matrix.target.binary }}
           WEBUI_OUTPUT: dist/${{ matrix.target.webui_binary }}
+          DOWNLOADER_OUTPUT: dist/${{ matrix.target.downloader_binary }}
           VERSION: ${{ github.event.release.tag_name || github.sha }}
         run: |
           mkdir -p dist
@@ -135,35 +141,40 @@ jobs:
           LDFLAGS="-s -w -X tensors-router/internal/buildinfo.Version=$VERSION -X tensors-router/internal/buildinfo.Commit=$GITHUB_SHA -X tensors-router/internal/buildinfo.Date=$BUILD_DATE"
           go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "$OUTPUT" ./cmd/tensors-router
           go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "$WEBUI_OUTPUT" ./cmd/tensor-router-webui
+          if [ -n "${{ matrix.target.downloader_binary }}" ]; then
+            go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "$DOWNLOADER_OUTPUT" ./cmd/tensor-router-downloader
+          fi
 
       - name: Package executables
         env:
           GOOS: ${{ matrix.target.goos }}
           BINARY: ${{ matrix.target.binary }}
           WEBUI_BINARY: ${{ matrix.target.webui_binary }}
+          DOWNLOADER_BINARY: ${{ matrix.target.downloader_binary }}
           ARCHIVE: ${{ matrix.target.archive }}
         run: |
-          chmod +x "dist/$BINARY" "dist/$WEBUI_BINARY"
+          FILES=("$BINARY" "$WEBUI_BINARY")
+          if [ -n "$DOWNLOADER_BINARY" ]; then
+            FILES+=("$DOWNLOADER_BINARY")
+          fi
+          chmod +x "${FILES[@]/#/dist/}"
           if [ "$GOOS" = "windows" ]; then
-            (cd dist && zip "$ARCHIVE" "$BINARY" "$WEBUI_BINARY")
+            (cd dist && zip "$ARCHIVE" "${FILES[@]}")
           else
-            (cd dist && tar -czf "$ARCHIVE" "$BINARY" "$WEBUI_BINARY")
+            (cd dist && tar -czf "$ARCHIVE" "${FILES[@]}")
           fi
           sha256sum "dist/$BINARY" > "dist/$BINARY.sha256"
           sha256sum "dist/$WEBUI_BINARY" > "dist/$WEBUI_BINARY.sha256"
+          if [ -n "$DOWNLOADER_BINARY" ]; then
+            sha256sum "dist/$DOWNLOADER_BINARY" > "dist/$DOWNLOADER_BINARY.sha256"
+          fi
           sha256sum "dist/$ARCHIVE" > "dist/$ARCHIVE.sha256"
 
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: tensors-router-${{ matrix.target.name }}
-          path: |
-            dist/${{ matrix.target.binary }}
-            dist/${{ matrix.target.binary }}.sha256
-            dist/${{ matrix.target.webui_binary }}
-            dist/${{ matrix.target.webui_binary }}.sha256
-            dist/${{ matrix.target.archive }}
-            dist/${{ matrix.target.archive }}.sha256
+          path: dist/*
           if-no-files-found: error
           retention-days: 14
 
@@ -213,6 +224,7 @@ jobs:
           docker image inspect local/tensors-router-webui:ci --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp", "8443/tcp", "8444/tcp"]'
           docker image inspect local/tensors-router-webui:ci --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensor-router-webui", "--config", "/config/webui.yaml"]'
           test "$(docker run --rm --entrypoint /bin/sh local/tensors-router-node:ci -c 'test ! -e /usr/local/bin/tensor-router-webui && echo isolated')" = "isolated"
+          test "$(docker run --rm --entrypoint /bin/sh local/tensors-router-node:ci -c 'test -x /usr/local/bin/tensor-router-downloader && echo downloader')" = "downloader"
 
   release:
     name: Publish release assets

@@ -5,6 +5,7 @@ import (
 	"context"
 	"os/exec"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,11 +21,19 @@ const (
 )
 
 type Info struct {
-	MaxThreads  int    `json:"max_threads"`
-	GPUBackend  string `json:"gpu_backend"`
-	GPUCount    int    `json:"gpu_count"`
-	CUDAVersion string `json:"cuda_version,omitempty"`
-	ROCmVersion string `json:"rocm_version,omitempty"`
+	MaxThreads  int         `json:"max_threads"`
+	GPUBackend  string      `json:"gpu_backend"`
+	GPUCount    int         `json:"gpu_count"`
+	CUDAVersion string      `json:"cuda_version,omitempty"`
+	ROCmVersion string      `json:"rocm_version,omitempty"`
+	Devices     []GPUDevice `json:"devices,omitempty"`
+}
+
+type GPUDevice struct {
+	DeviceID       string `json:"device_id"`
+	Name           string `json:"name"`
+	TotalVRAMBytes int64  `json:"total_vram_bytes"`
+	Architecture   string `json:"architecture,omitempty"`
 }
 
 type Source interface {
@@ -108,6 +117,7 @@ func Detect(ctx context.Context, detector Detector) Info {
 	if output, ok := probeCommand(ctx, detector, "nvidia-smi", "-L"); ok {
 		info.GPUBackend = GPUBackendCUDA
 		info.GPUCount = countNonEmptyLines(output)
+		info.Devices = detectCUDADevices(ctx, detector)
 		if versionOutput, versionOK := probeCommand(ctx, detector, "nvidia-smi"); versionOK {
 			info.CUDAVersion = detectedRuntimeVersion(string(versionOutput), "CUDA Version:")
 		}
@@ -144,6 +154,26 @@ func detectedRuntimeVersion(output string, marker string) string {
 		}
 	}
 	return ""
+}
+
+func detectCUDADevices(ctx context.Context, detector Detector) []GPUDevice {
+	output, ok := probeCommand(ctx, detector, "nvidia-smi", "--query-gpu=index,name,memory.total,compute_cap", "--format=csv,noheader,nounits")
+	if !ok {
+		return nil
+	}
+	devices := []GPUDevice{}
+	for _, line := range strings.Split(string(output), "\n") {
+		fields := strings.Split(strings.TrimSpace(line), ",")
+		if len(fields) != 4 {
+			continue
+		}
+		memoryMB, err := strconv.ParseFloat(strings.TrimSpace(fields[2]), 64)
+		if err != nil || memoryMB < 0 {
+			continue
+		}
+		devices = append(devices, GPUDevice{DeviceID: strings.TrimSpace(fields[0]), Name: strings.TrimSpace(fields[1]), TotalVRAMBytes: int64(memoryMB * 1024 * 1024), Architecture: strings.TrimSpace(fields[3])})
+	}
+	return devices
 }
 
 func defaultDetector() Detector {
@@ -205,6 +235,9 @@ func normalize(info Info) Info {
 	}
 	if info.GPUCount < 0 {
 		info.GPUCount = 0
+	}
+	if len(info.Devices) > info.GPUCount {
+		info.GPUCount = len(info.Devices)
 	}
 	return info
 }

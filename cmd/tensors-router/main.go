@@ -22,6 +22,7 @@ import (
 	"tensors-router/internal/catalog"
 	routercluster "tensors-router/internal/cluster"
 	"tensors-router/internal/config"
+	"tensors-router/internal/downloader"
 	"tensors-router/internal/kobold"
 	"tensors-router/internal/native"
 	"tensors-router/internal/proxy"
@@ -92,6 +93,7 @@ func runServe(args []string) error {
 		return err
 	}
 	var analyticsStore *routeranalytics.Store
+	var downloaderManager *downloader.Manager
 	var routerService *proxy.Service
 	var shutdownBackends []func(context.Context) error
 	runtimeCleaned := false
@@ -100,7 +102,7 @@ func runServe(args []string) error {
 			return nil
 		}
 		runtimeCleaned = true
-		return closeRouterRuntime(routerService, modelCatalog, analyticsStore, shutdownBackends, serveLogger)
+		return errors.Join(closeRouterRuntime(routerService, modelCatalog, analyticsStore, shutdownBackends, serveLogger), closeDownloader(downloaderManager))
 	}
 	defer func() {
 		if err := cleanupRuntime(); err != nil {
@@ -132,6 +134,7 @@ func runServe(args []string) error {
 		return err
 	}
 	clusterClient := routercluster.NewClient(cfg.Cluster.Token, clusterClientTargets(cfg)...)
+	downloaderManager, downloaderCapability := optionalDownloader(*configPath, startupLogger)
 	syncConfig := routercluster.SyncConfig{
 		Role:           cfg.Cluster.Role,
 		MasterURL:      cfg.Cluster.MasterURL,
@@ -176,6 +179,8 @@ func runServe(args []string) error {
 		AnalyticsStore:       analyticsStore,
 		VRAMAnalyticsEnabled: cfg.Analytics.Enabled && cfg.Analytics.VRAMEnabled,
 		VRAMSampleInterval:   cfg.Analytics.VRAMSampleInterval,
+		Downloader:           downloaderManager,
+		DownloaderCapability: downloaderCapability,
 		Logger:               serveLogger,
 		Shutdown:             routerShutdownFunc(cfg, shutdownRequested),
 		TransportLimits: transportbody.Limits{

@@ -3,6 +3,7 @@ package siteapi
 import (
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/cook"
+	"tensors-router/internal/downloader"
 	"tensors-router/internal/hardware"
 	"tensors-router/internal/inventory"
 	"tensors-router/internal/recipes"
@@ -72,4 +73,46 @@ type RouterProcessStatus struct {
 	CanShutdown  bool   `json:"can_shutdown"`
 	CanForceKill bool   `json:"can_force_kill"`
 	Error        string `json:"error,omitempty"`
+}
+
+type DownloadCapability struct {
+	NodeID     string                        `json:"node_id"`
+	NodeURL    string                        `json:"node_url,omitempty"`
+	Available  bool                          `json:"available"`
+	Capability downloader.Capability         `json:"capability"`
+	Devices    []downloader.DeviceCapability `json:"devices"`
+}
+
+type DownloadCapabilitiesResponse struct {
+	Nodes []DownloadCapability `json:"nodes"`
+}
+
+type DownloadSearchRequest struct {
+	NodeID string `json:"node_id,omitempty"`
+	Token  string `json:"token,omitempty"`
+	downloader.SearchRequest
+}
+
+type DownloadRepositoryRequest struct {
+	NodeID string `json:"node_id,omitempty"`
+	downloader.RepositoryRequest
+}
+
+type DownloadPlanRequest struct {
+	NodeID string `json:"node_id,omitempty"`
+	downloader.PlanRequest
+}
+
+type DownloadCreateJobRequest struct {
+	NodeID string `json:"node_id,omitempty"`
+	downloader.CreateJobRequest
+}
+
+type DownloadJobRequest struct {
+	NodeID string `json:"node_id,omitempty"`
+}
+
+type DownloadLibraryResponse struct {
+	Artifacts []downloader.ArtifactRecord `json:"artifacts"`
+	Jobs      []downloader.DownloadJob    `json:"jobs"`
 }

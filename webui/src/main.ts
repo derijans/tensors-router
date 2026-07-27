@@ -19,6 +19,17 @@ import {
   updateBenchmarkSections
 } from "./benchmarks";
 import {
+  changeDownloadJob,
+  chooseDownloadSearchResult,
+  loadDownloadLibrary,
+  loadDownloads,
+  previewDownloadPlan,
+  rescanDownloadLibrary,
+  searchDownloadRepositories,
+  selectDownloadNode,
+  startPlannedDownload
+} from "./downloads";
+import {
   loadAnalytics,
   updateAnalyticsModel,
   updateAnalyticsNode,
@@ -106,6 +117,7 @@ async function refreshAll(): Promise<void> {
   await refreshInventory();
   await loadWebUIs();
   await loadAnalytics();
+  await loadDownloads();
 }
 
 async function refreshRouterStatus(): Promise<void> {
@@ -184,6 +196,37 @@ elements.webuiGrid.addEventListener("change", event => {
   const toggleID = target?.dataset.webuiToggle;
   if (toggleID && target instanceof HTMLInputElement) {
     runTask(() => setWebUIEnabled(toggleID, target.checked), `webui-toggle-${toggleID}`, "webui", "Updating backend UI…");
+  }
+});
+elements.downloadNodeSelect.addEventListener("change", () => runTask(async () => {
+  selectDownloadNode(elements.downloadNodeSelect.value);
+  await loadDownloadLibrary();
+}, "download-node", "download", "Changing download node…"));
+elements.downloadSearchButton.addEventListener("click", () => runTask(searchDownloadRepositories, "download-search", "download", "Searching Hugging Face…"));
+elements.downloadPlanButton.addEventListener("click", () => runTask(previewDownloadPlan, "download-plan", "download", "Preparing download plan…"));
+elements.downloadStartButton.addEventListener("click", () => runTask(async () => {
+  const unsafe = state.downloads.plan?.unsafe_warning || false;
+  if (unsafe && !await confirmDestructive("Unsafe repository status", "Hugging Face reported an unsafe or pending security status. Download anyway?", "Download")) {
+    return;
+  }
+  if (!await confirmDestructive("Start download?", "The selected node downloads directly from Hugging Face. Existing repository files are atomically replaced only after verification.", "Start")) {
+    return;
+  }
+  await startPlannedDownload(unsafe, true);
+}, "download-start", "download", "Starting download…"));
+elements.downloadRescanButton.addEventListener("click", () => runTask(rescanDownloadLibrary, "download-rescan", "download", "Scanning local library…"));
+elements.downloadSearchResults.addEventListener("click", event => {
+  const repository = elementTarget(event)?.dataset.downloadRepository;
+  if (repository) {
+    chooseDownloadSearchResult(repository);
+  }
+});
+elements.downloadJobs.addEventListener("click", event => {
+  const target = elementTarget(event);
+  const jobID = target?.dataset.downloadJob;
+  const action = target?.dataset.downloadAction;
+  if (jobID && (action === "pause" || action === "resume" || action === "cancel")) {
+    runTask(() => changeDownloadJob(jobID, action), `download-${action}-${jobID}`, "download", `${action} download…`);
   }
 });
 elements.filterInput.addEventListener("input", renderTables);

@@ -157,6 +157,28 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		server.handleRouterAction(w, r, "kill")
 	case r.URL.Path == "/api/inventory" && r.Method == http.MethodGet:
 		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/inventory")
+	case r.URL.Path == "/api/download/capabilities" && r.Method == http.MethodGet:
+		if !server.config.DownloaderAvailable {
+			writeWebJSON(w, http.StatusOK, map[string]any{"available": false, "nodes": []any{}})
+			return
+		}
+		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/download/capabilities")
+	case r.URL.Path == "/api/download/search" && r.Method == http.MethodPost:
+		server.proxyDownload(w, r, http.MethodPost, "/router/v1/site/download/search")
+	case r.URL.Path == "/api/download/repository" && r.Method == http.MethodPost:
+		server.proxyDownload(w, r, http.MethodPost, "/router/v1/site/download/repository")
+	case r.URL.Path == "/api/download/plan" && r.Method == http.MethodPost:
+		server.proxyDownload(w, r, http.MethodPost, "/router/v1/site/download/plan")
+	case r.URL.Path == "/api/download/jobs" && r.Method == http.MethodPost:
+		server.proxyDownload(w, r, http.MethodPost, "/router/v1/site/download/jobs")
+	case strings.HasPrefix(r.URL.Path, "/api/download/jobs/") && r.Method == http.MethodGet:
+		server.proxyDownload(w, r, http.MethodGet, "/router/v1/site/download/jobs/"+strings.TrimPrefix(r.URL.Path, "/api/download/jobs/"))
+	case strings.HasPrefix(r.URL.Path, "/api/download/jobs/") && r.Method == http.MethodPost:
+		server.proxyDownload(w, r, http.MethodPost, "/router/v1/site/download/jobs/"+strings.TrimPrefix(r.URL.Path, "/api/download/jobs/"))
+	case r.URL.Path == "/api/download/library" && r.Method == http.MethodGet:
+		server.proxyDownload(w, r, http.MethodGet, "/router/v1/site/download/library")
+	case r.URL.Path == "/api/download/rescan" && r.Method == http.MethodPost:
+		server.proxyDownload(w, r, http.MethodPost, "/router/v1/site/download/rescan")
 	case r.URL.Path == "/api/webuis" && r.Method == http.MethodGet:
 		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/webuis")
 	case r.URL.Path == "/api/webuis/session" && r.Method == http.MethodPost:
@@ -187,6 +209,14 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeWebError(w, http.StatusNotFound, "not found")
 	}
+}
+
+func (server *Server) proxyDownload(w http.ResponseWriter, r *http.Request, method string, path string) {
+	if !server.config.DownloaderAvailable {
+		writeWebError(w, http.StatusNotFound, "downloader is not installed beside this WebUI")
+		return
+	}
+	server.proxyRouter(w, r, method, path)
 }
 
 func (server *Server) handleLogin(w http.ResponseWriter, r *http.Request) {

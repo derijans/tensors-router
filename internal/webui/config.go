@@ -4,16 +4,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 )
 
 type Config struct {
-	Security SecurityConfig
-	Server   ServerConfig
-	Router   RouterConfig
-	Logging  LoggingConfig
-	Warnings []string
+	Security            SecurityConfig
+	Server              ServerConfig
+	Router              RouterConfig
+	Logging             LoggingConfig
+	DownloaderAvailable bool
+	Warnings            []string
 }
 
 type SecurityConfig struct {
@@ -77,7 +79,20 @@ func DefaultConfig(executableDir string) Config {
 			Mode:    LoggingModeNormal,
 			Enabled: true,
 		},
+		DownloaderAvailable: downloaderExecutableAvailable(executableDir),
 	}
+}
+
+func downloaderExecutableAvailable(executableDir string) bool {
+	_, err := os.Stat(filepath.Join(executableDir, downloaderExecutableName()))
+	return err == nil
+}
+
+func downloaderExecutableName() string {
+	if runtime.GOOS == "windows" {
+		return "tensor-router-downloader.exe"
+	}
+	return "tensor-router-downloader"
 }
 
 func LoadConfig(path string, executableDir string) (Config, error) {

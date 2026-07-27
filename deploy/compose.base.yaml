@@ -17,7 +17,8 @@ services:
       - "8080:8080"
     volumes:
       - "./config/node.yaml:/config/config.yaml:ro"
-      - "./models:/models:ro"
+      - "./config/downloader.yaml:/config/downloader.yaml:ro"
+      - "./models:/models"
       - "./bin:/bin:ro"
       - "./data/node:/data"
     tmpfs:
@@ -41,9 +42,10 @@ services:
       - "8444:8444"
     volumes:
       - "./config/router-managed.yaml:/config/config.yaml:ro"
+      - "./config/downloader.yaml:/config/downloader.yaml:ro"
       - "./config/webui.yaml:/config/webui.yaml:ro"
       - "./config/certs:/config/certs:ro"
-      - "./models:/models:ro"
+      - "./models:/models"
       - "./bin:/bin:ro"
       - "./data/webui:/data"
     tmpfs:
