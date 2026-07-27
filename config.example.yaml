@@ -69,6 +69,10 @@ updates:
   sdcpp_repository_url: "https://github.com/leejet/stable-diffusion.cpp"
   sdcpp_asset_glob: ""
 
+downloader:
+  enabled: true
+  binary_location: ""
+
 cluster:
   role: "standalone"
   node_id: "local"

@@ -134,7 +134,7 @@ func runServe(args []string) error {
 		return err
 	}
 	clusterClient := routercluster.NewClient(cfg.Cluster.Token, clusterClientTargets(cfg)...)
-	downloaderManager, downloaderCapability := optionalDownloader(*configPath, startupLogger)
+	downloaderManager, downloaderCapability := optionalDownloader(*configPath, cfg.Downloader, startupLogger)
 	syncConfig := routercluster.SyncConfig{
 		Role:           cfg.Cluster.Role,
 		MasterURL:      cfg.Cluster.MasterURL,

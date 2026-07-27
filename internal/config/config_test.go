@@ -75,6 +75,10 @@ updates:
   sdcpp_binary_url: "https://example.test/sd-server"
   sdcpp_binary_sha256: "0000000000000000000000000000000000000000000000000000000000000003"
 
+downloader:
+  enabled: false
+  binary_location: "./tools/tensor-router-downloader"
+
 cluster:
   role: "master"
   node_id: "master-a"
@@ -161,6 +165,9 @@ analytics:
 	}
 	if cfg.Updates.BinarySHA256 != "0000000000000000000000000000000000000000000000000000000000000001" || cfg.Updates.LlamaSHA256 != "0000000000000000000000000000000000000000000000000000000000000002" || cfg.Updates.SDCPPSHA256 != "0000000000000000000000000000000000000000000000000000000000000003" {
 		t.Fatalf("unexpected update hashes %#v", cfg.Updates)
+	}
+	if cfg.Downloader.Enabled || cfg.Downloader.BinaryLocation != "./tools/tensor-router-downloader" {
+		t.Fatalf("unexpected downloader config %#v", cfg.Downloader)
 	}
 	if cfg.Cluster.Role != "master" || cfg.Cluster.NodeID != "master-a" {
 		t.Fatalf("unexpected cluster identity %#v", cfg.Cluster)
@@ -401,6 +408,9 @@ func TestDefaultsIncludeSecureStreamingAndRetentionValues(t *testing.T) {
 	}
 	if cfg.Analytics.RawRetention != 30*24*time.Hour || cfg.Analytics.VRAMSampleInterval != time.Second {
 		t.Fatalf("unexpected analytics defaults %#v", cfg.Analytics)
+	}
+	if !cfg.Downloader.Enabled || cfg.Downloader.BinaryLocation != "" {
+		t.Fatalf("unexpected downloader defaults %#v", cfg.Downloader)
 	}
 }
 

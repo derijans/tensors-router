@@ -104,6 +104,10 @@ updates:
   sdcpp_binary_url: "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-672-1f9ee88/sd-master-1f9ee88-bin-Linux-Ubuntu-24.04-x86_64-rocm-7.2.1.zip"
   sdcpp_binary_sha256: "4e680acbba39a994147cc05c35fc355f164340376a90c04790ad6f48caaa05c7"
 
+downloader:
+  enabled: true
+  binary_location: ""
+
 cluster:
   role: "standalone"
   node_id: "local"
@@ -126,6 +130,8 @@ limits:
 ```
 
 `models.file_roots` is optional and used only by the management web UI model-file inventory and cooking APIs. The scanner is limited to those roots.
+
+`downloader.enabled` controls the management UI downloader. `downloader.binary_location` is optional; when supplied, a relative path is resolved from the router configuration directory. Leave it empty to use the downloader binary beside the router executable.
 
 `limits.memory_budget_mb` covers retained request bodies and bounded transformation working sets; it must be at least twice `limits.replay_buffer_mb` plus 32 MiB.
 

@@ -6,15 +6,19 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"tensors-router/internal/config"
 	"tensors-router/internal/downloader"
 )
 
-func optionalDownloader(routerConfigPath string, logger *log.Logger) (*downloader.Manager, downloader.Capability) {
-	executablePath, err := os.Executable()
+func optionalDownloader(routerConfigPath string, downloaderConfig config.DownloaderConfig, logger *log.Logger) (*downloader.Manager, downloader.Capability) {
+	if !downloaderConfig.Enabled {
+		return nil, downloader.Capability{}
+	}
+	binaryPath, err := downloaderBinaryPath(routerConfigPath, downloaderConfig.BinaryLocation)
 	if err != nil {
 		return nil, downloader.Capability{Error: err.Error()}
 	}
-	if _, err := os.Stat(filepath.Join(filepath.Dir(executablePath), downloaderExecutableName())); err != nil {
+	if _, err := os.Stat(binaryPath); err != nil {
 		if os.IsNotExist(err) {
 			return nil, downloader.Capability{}
 		}
@@ -33,6 +37,20 @@ func optionalDownloader(routerConfigPath string, logger *log.Logger) (*downloade
 		return nil, downloader.Capability{Available: true, Error: err.Error()}
 	}
 	return manager, manager.Capability()
+}
+
+func downloaderBinaryPath(routerConfigPath string, binaryLocation string) (string, error) {
+	if binaryLocation != "" {
+		if filepath.IsAbs(binaryLocation) {
+			return binaryLocation, nil
+		}
+		return filepath.Join(filepath.Dir(routerConfigPath), binaryLocation), nil
+	}
+	executablePath, err := os.Executable()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(filepath.Dir(executablePath), downloaderExecutableName()), nil
 }
 
 func closeDownloader(manager *downloader.Manager) error {

@@ -12,20 +12,21 @@ import (
 )
 
 type Config struct {
-	Security  SecurityConfig
-	Server    ServerConfig
-	Auth      AuthConfig
-	Models    ModelsConfig
-	Backend   BackendConfig
-	Kobold    KoboldConfig
-	Llama     NativeServerConfig
-	SDCPP     NativeServerConfig
-	Logging   LoggingConfig
-	Updates   UpdatesConfig
-	Cluster   ClusterConfig
-	Analytics AnalyticsConfig
-	Limits    LimitsConfig
-	Warnings  []string
+	Security   SecurityConfig
+	Server     ServerConfig
+	Auth       AuthConfig
+	Models     ModelsConfig
+	Backend    BackendConfig
+	Kobold     KoboldConfig
+	Llama      NativeServerConfig
+	SDCPP      NativeServerConfig
+	Logging    LoggingConfig
+	Updates    UpdatesConfig
+	Downloader DownloaderConfig
+	Cluster    ClusterConfig
+	Analytics  AnalyticsConfig
+	Limits     LimitsConfig
+	Warnings   []string
 }
 
 type ServerConfig struct {
@@ -93,6 +94,11 @@ type UpdatesConfig struct {
 	SDCPPSHA256         string
 	SDCPPRepositoryURL  string
 	SDCPPAssetGlob      string
+}
+
+type DownloaderConfig struct {
+	Enabled        bool
+	BinaryLocation string
 }
 
 type BackendUpdateSource struct {
@@ -203,6 +209,9 @@ func Defaults() Config {
 			SDCPPSHA256:        "",
 			LlamaRepositoryURL: "https://github.com/ggml-org/llama.cpp",
 			SDCPPRepositoryURL: "https://github.com/leejet/stable-diffusion.cpp",
+		},
+		Downloader: DownloaderConfig{
+			Enabled: true,
 		},
 		Cluster: ClusterConfig{
 			Role:           "standalone",
@@ -774,6 +783,19 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			return nil
 		case "sdcpp_asset_glob":
 			cfg.Updates.SDCPPAssetGlob = value
+			return nil
+		}
+	case "downloader":
+		switch key {
+		case "enabled":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return err
+			}
+			cfg.Downloader.Enabled = parsed
+			return nil
+		case "binary_location":
+			cfg.Downloader.BinaryLocation = value
 			return nil
 		}
 	case "cluster":

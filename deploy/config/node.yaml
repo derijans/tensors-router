@@ -61,6 +61,10 @@ updates:
   sdcpp_binary_url: ""
   sdcpp_binary_sha256: ""
 
+downloader:
+  enabled: true
+  binary_location: "/usr/local/bin/tensor-router-downloader"
+
 cluster:
   role: "standalone"
   node_id: "container-node"
