@@ -2299,6 +2299,7 @@ func copyResponseHeaders(dst http.Header, src http.Header) {
 			dst.Add(key, value)
 		}
 	}
+	dst.Set("X-Content-Type-Options", "nosniff")
 }
 
 func isHopByHopHeader(key string) bool {

@@ -260,6 +260,29 @@ func TestBackendHeaderAllowlistStripsCredentialsAndForwardingMetadata(t *testing
 	}
 }
 
+func TestTransportResponsePreservesBinaryBodyAndAddsContentTypeProtection(t *testing.T) {
+	service := &Service{transportLimits: transportbody.DefaultLimits()}
+	body := []byte{0, 1, 2, 3, 255}
+	response := testHTTPResponse(http.StatusOK, "application/octet-stream", string(body))
+	recorder := httptest.NewRecorder()
+
+	if err := service.writeTransportResponse(recorder, response, "", false); err != nil {
+		t.Fatal(err)
+	}
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d", recorder.Code)
+	}
+	if !bytes.Equal(recorder.Body.Bytes(), body) {
+		t.Fatalf("binary response changed from %v to %v", body, recorder.Body.Bytes())
+	}
+	if recorder.Header().Get("Content-Type") != "application/octet-stream" {
+		t.Fatalf("unexpected content type %q", recorder.Header().Get("Content-Type"))
+	}
+	if recorder.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("unexpected content type protection %q", recorder.Header().Get("X-Content-Type-Options"))
+	}
+}
+
 func useTinyTransportLimits(service *Service) {
 	service.transportLimits = transportbody.Limits{
 		ReplayBufferBytes: 8,

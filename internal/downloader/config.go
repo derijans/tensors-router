@@ -106,7 +106,14 @@ func downloaderConfigString(value string) (string, error) {
 }
 
 func setConfigValue(cfg *Config, section string, key string, value string) error {
-	parseInt := func() (int64, error) { return strconv.ParseInt(value, 10, 64) }
+	parseInt64 := func() (int64, error) { return strconv.ParseInt(value, 10, 64) }
+	parseNativeInt := func() (int, error) {
+		parsed, err := strconv.ParseInt(value, 10, strconv.IntSize)
+		if err != nil {
+			return 0, err
+		}
+		return int(parsed), nil
+	}
 	parseBool := func() (bool, error) { return strconv.ParseBool(value) }
 	switch section {
 	case "storage":
@@ -118,7 +125,7 @@ func setConfigValue(cfg *Config, section string, key string, value string) error
 		case "database_path":
 			cfg.Storage.DatabasePath = value
 		case "free_space_reserve_gb":
-			parsed, err := parseInt()
+			parsed, err := parseInt64()
 			if err != nil {
 				return err
 			}
@@ -134,23 +141,23 @@ func setConfigValue(cfg *Config, section string, key string, value string) error
 	case "downloads":
 		switch key {
 		case "concurrent_jobs":
-			parsed, err := parseInt()
+			parsed, err := parseNativeInt()
 			if err != nil {
 				return err
 			}
-			cfg.Downloads.ConcurrentJobs = int(parsed)
+			cfg.Downloads.ConcurrentJobs = parsed
 		case "concurrent_files":
-			parsed, err := parseInt()
+			parsed, err := parseNativeInt()
 			if err != nil {
 				return err
 			}
-			cfg.Downloads.ConcurrentFiles = int(parsed)
+			cfg.Downloads.ConcurrentFiles = parsed
 		case "retry_limit":
-			parsed, err := parseInt()
+			parsed, err := parseNativeInt()
 			if err != nil {
 				return err
 			}
-			cfg.Downloads.RetryLimit = int(parsed)
+			cfg.Downloads.RetryLimit = parsed
 		case "timeout":
 			parsed, err := time.ParseDuration(value)
 			if err != nil {
@@ -163,11 +170,11 @@ func setConfigValue(cfg *Config, section string, key string, value string) error
 	case "scanning":
 		switch key {
 		case "hash_workers":
-			parsed, err := parseInt()
+			parsed, err := parseNativeInt()
 			if err != nil {
 				return err
 			}
-			cfg.Scanning.HashWorkers = int(parsed)
+			cfg.Scanning.HashWorkers = parsed
 		case "write_hash_sidecars":
 			parsed, err := parseBool()
 			if err != nil {
@@ -180,23 +187,23 @@ func setConfigValue(cfg *Config, section string, key string, value string) error
 	case "hardware":
 		switch key {
 		case "default_context":
-			parsed, err := parseInt()
+			parsed, err := parseNativeInt()
 			if err != nil {
 				return err
 			}
-			cfg.Hardware.DefaultContext = int(parsed)
+			cfg.Hardware.DefaultContext = parsed
 		case "vram_reserve_mb":
-			parsed, err := parseInt()
+			parsed, err := parseInt64()
 			if err != nil {
 				return err
 			}
 			cfg.Hardware.VRAMReserveMB = parsed
 		case "safety_margin_percent":
-			parsed, err := parseInt()
+			parsed, err := parseNativeInt()
 			if err != nil {
 				return err
 			}
-			cfg.Hardware.SafetyMarginPercent = int(parsed)
+			cfg.Hardware.SafetyMarginPercent = parsed
 		default:
 			return fmt.Errorf("unknown key %s.%s", section, key)
 		}

@@ -197,8 +197,8 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 }
 
 func (service *Service) handleNodeInference(w http.ResponseWriter, r *http.Request) {
-	path := strings.TrimPrefix(r.URL.Path, "/router/v1/node/inference")
-	if path == "" || path[0] != '/' || (!isTextPath(path) && !isImagePath(path) && !isVoicePath(path) && !isMusicPath(path)) {
+	path, ok := nodeInferencePath(r.URL.Path)
+	if !ok {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
 		return
 	}
@@ -209,6 +209,18 @@ func (service *Service) handleNodeInference(w http.ResponseWriter, r *http.Reque
 	forwarded.Header = r.Header.Clone()
 	forwarded.Header.Del("Authorization")
 	service.ServeHTTP(w, forwarded)
+}
+
+func nodeInferencePath(requestPath string) (string, bool) {
+	path := strings.TrimPrefix(requestPath, "/router/v1/node/inference")
+	if !isLocalInferencePath(path) {
+		return "", false
+	}
+	return path, isTextPath(path) || isImagePath(path) || isVoicePath(path) || isMusicPath(path)
+}
+
+func isLocalInferencePath(path string) bool {
+	return len(path) > 0 && path[0] == '/' && (len(path) == 1 || (path[1] != '/' && path[1] != '\\'))
 }
 
 func (service *Service) handleRouterModels(w http.ResponseWriter) {

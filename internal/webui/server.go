@@ -362,16 +362,19 @@ func (server *Server) authorizeBackendUIRequest(w http.ResponseWriter, r *http.R
 	}
 	ticket := strings.TrimSpace(r.URL.Query().Get(backendTicketQueryKey))
 	if ticket != "" {
+		query := r.URL.Query()
+		query.Del(backendTicketQueryKey)
+		target, ok := localRedirectTarget(r.URL, query)
+		if !ok {
+			writeWebError(w, http.StatusBadRequest, "invalid backend UI redirect path")
+			return false
+		}
 		if r.Method != http.MethodGet || !server.access.Exchange(w, ticket, kind) {
 			writeWebError(w, http.StatusUnauthorized, "invalid or expired backend UI ticket")
 			return false
 		}
-		target := *r.URL
-		query := target.Query()
-		query.Del(backendTicketQueryKey)
-		target.RawQuery = query.Encode()
 		w.Header().Set("Cache-Control", "no-store")
-		http.Redirect(w, r, target.String(), http.StatusFound)
+		http.Redirect(w, r, target, http.StatusFound)
 		return false
 	}
 	if !server.access.Authorized(r, kind) {
@@ -379,6 +382,18 @@ func (server *Server) authorizeBackendUIRequest(w http.ResponseWriter, r *http.R
 		return false
 	}
 	return true
+}
+
+func localRedirectTarget(requestURL *url.URL, query url.Values) (string, bool) {
+	if requestURL == nil || !isLocalRedirectPath(requestURL.Path) || !isLocalRedirectPath(requestURL.EscapedPath()) {
+		return "", false
+	}
+	target := &url.URL{Path: requestURL.Path, RawPath: requestURL.RawPath, ForceQuery: requestURL.ForceQuery, RawQuery: query.Encode()}
+	return target.String(), true
+}
+
+func isLocalRedirectPath(path string) bool {
+	return len(path) > 0 && path[0] == '/' && (len(path) == 1 || (path[1] != '/' && path[1] != '\\'))
 }
 
 func (server *Server) authenticationRequired() bool {
@@ -493,6 +508,7 @@ func copyWebHeaders(dst http.Header, src http.Header) {
 			dst.Add(key, value)
 		}
 	}
+	dst.Set("X-Content-Type-Options", "nosniff")
 }
 
 func copyRouterWebUIHeaders(dst http.Header, src http.Header) {

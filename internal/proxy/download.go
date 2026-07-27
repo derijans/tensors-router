@@ -404,6 +404,7 @@ func (service *Service) streamRemoteDownloadEvents(w http.ResponseWriter, r *htt
 	defer response.Body.Close()
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	if response.Header.Get("Content-Encoding") != "" {
 		w.Header().Set("Content-Encoding", response.Header.Get("Content-Encoding"))
 	}
@@ -443,6 +444,7 @@ func (service *Service) writeDownloadEvents(w http.ResponseWriter, r *http.Reque
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 	events, unsubscribe := service.downloader.Subscribe(jobID)
 	defer unsubscribe()
 	for {

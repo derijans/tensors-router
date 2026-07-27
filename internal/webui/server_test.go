@@ -237,8 +237,53 @@ func TestServerProxiesRouterWebUIPathWithSession(t *testing.T) {
 	if recorder.Body.String() != "proxied" {
 		t.Fatalf("unexpected body %q", recorder.Body.String())
 	}
+	if recorder.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("unexpected content type protection %q", recorder.Header().Get("X-Content-Type-Options"))
+	}
 	if location := recorder.Header().Get("Location"); location != "/router/webuis/kobold-lite/next?x=1" {
 		t.Fatalf("unexpected location %q", location)
+	}
+}
+
+func TestBackendUITicketRedirectStaysLocal(t *testing.T) {
+	server := NewServer(Config{}, nil, NewSessionManager("admin-secret"))
+	tests := []struct {
+		name     string
+		path     string
+		rawPath  string
+		scheme   string
+		host     string
+		wantCode int
+		wantURL  string
+	}{
+		{name: "nested escaped path", path: "/router/webuis/llama/nested path", rawPath: "/router/webuis/llama/nested%20path", wantCode: http.StatusFound, wantURL: "/router/webuis/llama/nested%20path?keep=yes"},
+		{name: "absolute form stays local", path: "/router/webuis/llama/", scheme: "https", host: "attacker.example", wantCode: http.StatusFound, wantURL: "/router/webuis/llama/?keep=yes"},
+		{name: "scheme relative path", path: "//attacker.example/", wantCode: http.StatusBadRequest},
+		{name: "backslash path", path: "/\\attacker.example/", wantCode: http.StatusBadRequest},
+	}
+
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			ticket := server.access.Issue("llama")
+			request := httptest.NewRequest(http.MethodGet, "https://backend.example:8444/", nil)
+			request.URL.Path = testCase.path
+			request.URL.RawPath = testCase.rawPath
+			request.URL.Scheme = testCase.scheme
+			request.URL.Host = testCase.host
+			query := url.Values{"keep": {"yes"}, backendTicketQueryKey: {ticket}}
+			request.URL.RawQuery = query.Encode()
+			recorder := httptest.NewRecorder()
+
+			if server.authorizeBackendUIRequest(recorder, request, "llama") {
+				t.Fatal("ticket request was authorized for proxying")
+			}
+			if recorder.Code != testCase.wantCode {
+				t.Fatalf("unexpected status %d body=%s", recorder.Code, recorder.Body.String())
+			}
+			if testCase.wantURL != "" && recorder.Header().Get("Location") != testCase.wantURL {
+				t.Fatalf("unexpected redirect %q", recorder.Header().Get("Location"))
+			}
+		})
 	}
 }
 
