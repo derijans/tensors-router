@@ -12,7 +12,7 @@ import (
 
 func TestStoreFlushesAndQueriesAnalytics(t *testing.T) {
 	store := newTestStore(t, "node-a")
-	now := time.Date(2026, 6, 25, 12, 30, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	store.Record(Event{
 		ModelID:         "llm-a",
 		Section:         SectionLLM,
@@ -82,7 +82,7 @@ func TestStoreFlushesAndQueriesAnalytics(t *testing.T) {
 
 func TestStoreSeparatesModelLoadsFromRequestCounts(t *testing.T) {
 	store := newTestStore(t, "node-a")
-	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	store.Record(Event{
 		ModelID:         "llm-a",
 		Section:         SectionLLM,
@@ -365,7 +365,7 @@ func TestStoreHandlesConcurrentRecorders(t *testing.T) {
 
 func TestStoreDoesNotPersistContentFields(t *testing.T) {
 	store := newTestStore(t, "node-a")
-	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	store.Record(Event{ModelID: "llm-a", Section: SectionLLM, Route: "/v1/chat/*", StatusCode: 200, Success: true, StartedAt: now, FinishedAt: now, TotalTokens: 4})
 	if err := store.Flush(context.Background()); err != nil {
 		t.Fatal(err)
