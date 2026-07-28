@@ -129,7 +129,15 @@ export interface AppState {
     nodeID: string;
     plan: DownloadPlan | null;
     library: DownloadLibraryResponse | null;
-    search: {id: string; downloads: number; likes: number; gated?: string}[];
+    search: {id: string; downloads: number; likes: number; gated?: string; tags?: string[]}[];
+    nextCursor: string;
+    filterTab: string;
+    filters: string[];
+    expandedFilterGroups: string[];
+    observedFilters: string[];
+    candidates: {repository: string; repository_path: string; commit: string; sha256?: string; state: "exact" | "mismatched" | "unverifiable"}[];
+    finderMessage: string;
+    modelHandoff: {nodeID: string; publicID: string; configID: string; configFilename: string; field: string; position?: number; filename: string; hash: string} | null;
     error: string;
   };
   activeTab: string;

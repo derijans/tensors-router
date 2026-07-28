@@ -13,6 +13,7 @@ import (
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/cook"
 	"tensors-router/internal/inventory"
+	"tensors-router/internal/modelassets"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/recipes"
 	"tensors-router/internal/siteapi"
@@ -151,6 +152,19 @@ func (service *Service) siteInventory(ctx context.Context) (siteapi.InventoryRes
 		}
 	}
 	models := service.siteModels()
+	assetStates := map[string]cluster.Model{}
+	for _, node := range nodes {
+		for _, model := range node.Models {
+			assetStates[node.NodeID+"\x00"+model.LocalID] = model
+		}
+	}
+	for index := range models {
+		if current, found := assetStates[models[index].NodeID+"\x00"+models[index].LocalID]; found {
+			models[index].AssetState = current.AssetState
+			models[index].UnresolvedFields = current.UnresolvedFields
+			models[index].AssetFailure = current.AssetFailure
+		}
+	}
 	recipesList := []recipes.Recipe{}
 	if service.recipeStore != nil {
 		var err error
@@ -209,7 +223,28 @@ func (service *Service) localClusterModels() ([]cluster.Model, error) {
 	if err != nil {
 		return nil, err
 	}
-	return service.withBenchmarks(cluster.LocalModelsWithBackendMode(models, service.nodeID, service.nodeURL, service.localSource(), service.backendMode)), nil
+	records := service.withBenchmarks(cluster.LocalModelsWithBackendMode(models, service.nodeID, service.nodeURL, service.localSource(), service.backendMode))
+	if service.assetIndex == nil {
+		return records, nil
+	}
+	states, err := service.assetIndex.LatestResolutionStates()
+	if err != nil {
+		return nil, err
+	}
+	for index := range records {
+		job, found := states[records[index].LocalID]
+		if !found || records[index].AssetState == "ready" {
+			continue
+		}
+		if job.State == modelassets.JobQueued || job.State == modelassets.JobResolving {
+			records[index].AssetState = "resolving"
+		}
+		if job.State == modelassets.JobFailed {
+			records[index].AssetState = "failed"
+			records[index].AssetFailure = "model asset unavailable"
+		}
+	}
+	return records, nil
 }
 
 func (service *Service) localSource() string {

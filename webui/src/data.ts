@@ -42,12 +42,11 @@ export function nodeByID(nodeID: string) {
   return (state.inventory?.nodes ?? []).find(node => node.node_id === nodeID);
 }
 
-export function filteredModels(query: string): Model[] {
+export function filteredModels(query: string, nodeIDs: string[] = []): Model[] {
   const models = state.inventory?.models?.length ? state.inventory.models : allNodeModels();
-  if (!query) {
-    return models;
-  }
-  return models.filter(model => JSON.stringify(model).toLowerCase().includes(query));
+  const allNodes = nodeIDs.length === 0 || nodeIDs.includes("*");
+  const selectedNodes = new Set(nodeIDs);
+  return models.filter(model => (allNodes || selectedNodes.has(model.node_id || "")) && (!query || JSON.stringify(model).toLowerCase().includes(query)));
 }
 
 export function filteredFiles(query: string): FileRecord[] {

@@ -67,7 +67,8 @@ func BuildPlan(details RepositoryDetails, requested []string, mode string, stora
 	if err != nil {
 		return DownloadPlan{}, err
 	}
-	return DownloadPlan{Repository: details.Repository, Revision: details.Revision, Commit: details.Commit, Files: planned, TotalBytes: total, Destination: destination, UnsafeWarning: unsafe || (details.Security != "" && details.Security != "safe")}, nil
+	gated := details.Gated != "" && details.Gated != "false"
+	return DownloadPlan{Repository: details.Repository, Revision: details.Revision, Commit: details.Commit, Files: planned, TotalBytes: total, Destination: destination, UnsafeWarning: gated || unsafe || (details.Security != "" && details.Security != "safe")}, nil
 }
 
 func addSmartDependencies(repositoryFiles []File, planned map[string]PlannedFile, selected map[string]bool) {

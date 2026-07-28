@@ -5,6 +5,7 @@ import { renderConstructor } from "./constructor";
 import { benchmarkCompactLabel } from "./benchmark-data";
 import { renderBenchmarks } from "./benchmarks";
 import { renderSimpleCook } from "./simple-cook";
+import type { Model } from "./types";
 import {
   filteredFiles,
   filteredModels
@@ -60,8 +61,12 @@ export function renderRouterStatus(): void {
 
 export function renderTables(): void {
   const query = elements.filterInput.value.trim().toLowerCase();
-  const models = filteredModels(query);
+  const selectedNodes = [...elements.modelsNodeFilter.selectedOptions].map(option => option.value);
+  const effectiveSelection = selectedNodes.length > 0 ? selectedNodes : ["*"];
+  const models = filteredModels(query, effectiveSelection);
   const files = filteredFiles(query);
+  const nodes = state.inventory?.nodes ?? [];
+  elements.modelsNodeFilter.innerHTML = `<option value="*"${effectiveSelection.includes("*") ? " selected" : ""}>All Nodes</option>${nodes.map(node => `<option value="${escapeAttribute(node.node_id)}"${effectiveSelection.includes(node.node_id) ? " selected" : ""}>${escapeHTML(node.node_id)}</option>`).join("")}`;
   elements.modelsTable.innerHTML = models.map(model => `
     <tr>
       <td>${escapeHTML(model.public_id || model.local_id)}</td>
@@ -70,7 +75,7 @@ export function renderTables(): void {
       <td>${escapeHTML(capabilities(model))}</td>
       <td>${escapeHTML(optionSummary(model.options))}</td>
       <td>${escapeHTML(benchmarkCompactLabel(model))}</td>
-      <td>${model.available ? "yes" : "no"}</td>
+      <td>${modelAssetAvailability(model)}</td>
       <td>
         <button type="button" data-operation-group="webui" data-load-config="${escapeAttribute(model.public_id || model.local_id)}">Load</button>
       </td>
@@ -84,6 +89,20 @@ export function renderTables(): void {
       <td>${formatBytes(file.size || 0)}</td>
     </tr>
   `).join("");
+}
+
+function modelAssetAvailability(model: Model): string {
+  let label = model.available ? "ready" : "unavailable";
+  let state = model.available ? "ready" : "failed";
+  if (model.asset_state === "unresolved") {
+    label = `unresolved (${model.unresolved_fields ?? 0})`;
+    state = "unresolved";
+  }
+  if (model.asset_state === "failed" || model.asset_state === "resolving") {
+    label = model.asset_failure ? `${model.asset_state}: ${model.asset_failure}` : model.asset_state;
+    state = model.asset_state;
+  }
+  return `<span class="asset-badge asset-${escapeAttribute(state)}">${escapeHTML(label)}</span>`;
 }
 
 export function renderRecipes(): void {

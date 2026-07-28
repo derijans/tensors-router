@@ -33,28 +33,31 @@ const (
 )
 
 type Model struct {
-	PublicID      string                          `json:"public_id"`
-	LocalID       string                          `json:"local_id"`
-	ImageID       string                          `json:"image_id,omitempty"`
-	PublicImageID string                          `json:"public_image_id,omitempty"`
-	Filename      string                          `json:"filename"`
-	Created       int64                           `json:"created"`
-	HasLLM        bool                            `json:"has_llm"`
-	HasImage      bool                            `json:"has_image"`
-	HasEmbeddings bool                            `json:"has_embeddings"`
-	HasMultimodal bool                            `json:"has_multimodal"`
-	HasVoice      bool                            `json:"has_voice"`
-	HasMusic      bool                            `json:"has_music"`
-	ModelHash     string                          `json:"model_hash"`
-	ConfigHash    string                          `json:"config_hash"`
-	Capabilities  catalog.Capabilities            `json:"capabilities"`
-	Options       map[string]json.RawMessage      `json:"options,omitempty"`
-	BackendMode   string                          `json:"backend_mode"`
-	Source        string                          `json:"source"`
-	NodeID        string                          `json:"node_id"`
-	NodeURL       string                          `json:"node_url,omitempty"`
-	Available     bool                            `json:"available"`
-	Benchmark     *routerbenchmark.ModelBenchmark `json:"benchmark,omitempty"`
+	PublicID         string                          `json:"public_id"`
+	LocalID          string                          `json:"local_id"`
+	ImageID          string                          `json:"image_id,omitempty"`
+	PublicImageID    string                          `json:"public_image_id,omitempty"`
+	Filename         string                          `json:"filename"`
+	Created          int64                           `json:"created"`
+	HasLLM           bool                            `json:"has_llm"`
+	HasImage         bool                            `json:"has_image"`
+	HasEmbeddings    bool                            `json:"has_embeddings"`
+	HasMultimodal    bool                            `json:"has_multimodal"`
+	HasVoice         bool                            `json:"has_voice"`
+	HasMusic         bool                            `json:"has_music"`
+	ModelHash        string                          `json:"model_hash"`
+	ConfigHash       string                          `json:"config_hash"`
+	Capabilities     catalog.Capabilities            `json:"capabilities"`
+	Options          map[string]json.RawMessage      `json:"options,omitempty"`
+	BackendMode      string                          `json:"backend_mode"`
+	Source           string                          `json:"source"`
+	NodeID           string                          `json:"node_id"`
+	NodeURL          string                          `json:"node_url,omitempty"`
+	Available        bool                            `json:"available"`
+	AssetState       string                          `json:"asset_state,omitempty"`
+	UnresolvedFields int                             `json:"unresolved_fields,omitempty"`
+	AssetFailure     string                          `json:"asset_failure,omitempty"`
+	Benchmark        *routerbenchmark.ModelBenchmark `json:"benchmark,omitempty"`
 }
 
 type Snapshot struct {
@@ -92,27 +95,30 @@ func LocalModelsWithBackendMode(models []catalog.Model, nodeID string, nodeURL s
 			modelBackendMode = fallbackMode
 		}
 		records = append(records, Model{
-			PublicID:      model.ID,
-			LocalID:       model.ID,
-			ImageID:       model.ImageID,
-			PublicImageID: model.ImageID,
-			Filename:      model.Filename,
-			Created:       model.Created,
-			HasLLM:        model.HasLLM,
-			HasImage:      model.HasImage,
-			HasEmbeddings: model.HasEmbeddings,
-			HasMultimodal: model.HasMultimodal,
-			HasVoice:      model.HasVoice,
-			HasMusic:      model.HasMusic,
-			ModelHash:     model.ModelHash,
-			ConfigHash:    model.ConfigHash,
-			Capabilities:  model.Capabilities,
-			Options:       model.Options,
-			BackendMode:   modelBackendMode,
-			Source:        source,
-			NodeID:        nodeID,
-			NodeURL:       nodeURL,
-			Available:     true,
+			PublicID:         model.ID,
+			LocalID:          model.ID,
+			ImageID:          model.ImageID,
+			PublicImageID:    model.ImageID,
+			Filename:         model.Filename,
+			Created:          model.Created,
+			HasLLM:           model.HasLLM,
+			HasImage:         model.HasImage,
+			HasEmbeddings:    model.HasEmbeddings,
+			HasMultimodal:    model.HasMultimodal,
+			HasVoice:         model.HasVoice,
+			HasMusic:         model.HasMusic,
+			ModelHash:        model.ModelHash,
+			ConfigHash:       model.ConfigHash,
+			Capabilities:     model.Capabilities,
+			Options:          model.Options,
+			BackendMode:      modelBackendMode,
+			Source:           source,
+			NodeID:           nodeID,
+			NodeURL:          nodeURL,
+			Available:        true,
+			AssetState:       model.AssetState,
+			UnresolvedFields: model.UnresolvedFields,
+			AssetFailure:     model.AssetFailure,
 		})
 	}
 	return records

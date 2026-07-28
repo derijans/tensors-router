@@ -26,6 +26,7 @@ import (
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/downloader"
 	"tensors-router/internal/hardware"
+	"tensors-router/internal/modelassets"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/recipes"
 	"tensors-router/internal/transportbody"
@@ -56,34 +57,37 @@ type ModelCatalog interface {
 }
 
 type ServiceConfig struct {
-	Backend              Backend
-	TextBackend          Backend
-	ImageBackend         Backend
-	BackendMode          string
-	BackendFamilies      map[string]BackendFamilyConfig
-	Catalog              ModelCatalog
-	Registry             *cluster.Registry
-	ClusterToken         string
-	ClusterClient        *cluster.Client
-	ClusterRole          string
-	NodeID               string
-	NodeURL              string
-	SlaveURLs            []string
-	ConfigDir            string
-	FileRoots            []string
-	RecipeStore          *recipes.Store
-	BenchmarkStore       *routerbenchmark.Store
-	AnalyticsStore       *routeranalytics.Store
-	VRAMAnalyticsEnabled bool
-	VRAMSource           hardware.VRAMSource
-	VRAMSampleInterval   time.Duration
-	Hardware             hardware.Source
-	Downloader           *downloader.Manager
-	DownloaderCapability downloader.Capability
-	Logger               *log.Logger
-	Shutdown             func()
-	TransportLimits      transportbody.Limits
-	MaxControlBodyBytes  int64
+	Backend                  Backend
+	TextBackend              Backend
+	ImageBackend             Backend
+	BackendMode              string
+	BackendFamilies          map[string]BackendFamilyConfig
+	Catalog                  ModelCatalog
+	Registry                 *cluster.Registry
+	ClusterToken             string
+	ClusterClient            *cluster.Client
+	ClusterRole              string
+	NodeID                   string
+	NodeURL                  string
+	MasterURL                string
+	SlaveURLs                []string
+	ConfigDir                string
+	FileRoots                []string
+	AssetIndex               *modelassets.Index
+	RecipeStore              *recipes.Store
+	BenchmarkStore           *routerbenchmark.Store
+	AnalyticsStore           *routeranalytics.Store
+	VRAMAnalyticsEnabled     bool
+	VRAMSource               hardware.VRAMSource
+	VRAMSampleInterval       time.Duration
+	Hardware                 hardware.Source
+	Downloader               *downloader.Manager
+	DownloaderCapability     downloader.Capability
+	Logger                   *log.Logger
+	Shutdown                 func()
+	TransportLimits          transportbody.Limits
+	MaxControlBodyBytes      int64
+	ConcurrentAssetTransfers int
 }
 
 type Service struct {
@@ -103,9 +107,17 @@ type Service struct {
 	clusterRole          string
 	nodeID               string
 	nodeURL              string
+	masterURL            string
 	slaveURLs            []string
 	configDir            string
 	fileRoots            []string
+	assetIndex           *modelassets.Index
+	assetConfigLocks     sync.Map
+	assetResolutionJobs  sync.Map
+	assetTransfers       sync.Map
+	assetTransferSlots   chan struct{}
+	assetLookupMu        sync.Mutex
+	assetLookupCache     map[string]assetLookupCacheEntry
 	recipeStore          *recipes.Store
 	benchmarkStore       *routerbenchmark.Store
 	analyticsStore       *routeranalytics.Store
@@ -233,6 +245,10 @@ func NewService(config ServiceConfig) *Service {
 	if maxControlBodyBytes <= 0 {
 		maxControlBodyBytes = 8 * transportbody.MiB
 	}
+	concurrentAssetTransfers := config.ConcurrentAssetTransfers
+	if concurrentAssetTransfers <= 0 {
+		concurrentAssetTransfers = 2
+	}
 	nodeID := strings.TrimSpace(config.NodeID)
 	if nodeID == "" {
 		nodeID = "local"
@@ -273,9 +289,13 @@ func NewService(config ServiceConfig) *Service {
 		clusterRole:          clusterRole,
 		nodeID:               nodeID,
 		nodeURL:              strings.TrimSpace(config.NodeURL),
+		masterURL:            strings.TrimSpace(config.MasterURL),
 		slaveURLs:            append([]string{}, config.SlaveURLs...),
 		configDir:            strings.TrimSpace(config.ConfigDir),
 		fileRoots:            append([]string{}, config.FileRoots...),
+		assetIndex:           config.AssetIndex,
+		assetTransferSlots:   make(chan struct{}, concurrentAssetTransfers),
+		assetLookupCache:     make(map[string]assetLookupCacheEntry),
 		recipeStore:          config.RecipeStore,
 		benchmarkStore:       config.BenchmarkStore,
 		analyticsStore:       config.AnalyticsStore,
@@ -372,7 +392,7 @@ func newBackendFamily(mode string, config BackendFamilyConfig) *backendFamily {
 }
 
 func (service *Service) knownClusterTargets() []string {
-	values := append([]string{service.nodeURL}, service.slaveURLs...)
+	values := append([]string{service.nodeURL, service.masterURL}, service.slaveURLs...)
 	if service.registry != nil {
 		values = append(values, service.registry.NodeURLs()...)
 	}

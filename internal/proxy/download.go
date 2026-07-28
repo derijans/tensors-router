@@ -103,6 +103,40 @@ func (service *Service) handleNodeDownloadSearch(w http.ResponseWriter, r *http.
 	openai.WriteJSON(w, http.StatusOK, results)
 }
 
+func (service *Service) handleSiteDownloadSearchPage(w http.ResponseWriter, r *http.Request) {
+	if !service.siteControlAllowed() {
+		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		return
+	}
+	var request siteapi.DownloadSearchRequest
+	if !decodeDownloadRequest(w, r, &request) {
+		return
+	}
+	page, err := service.downloadSearchPage(r.Context(), request)
+	if err != nil {
+		writeDownloadError(w, err)
+		return
+	}
+	openai.WriteJSON(w, http.StatusOK, page)
+}
+
+func (service *Service) handleNodeDownloadSearchPage(w http.ResponseWriter, r *http.Request) {
+	var request siteapi.DownloadSearchRequest
+	if !decodeDownloadRequest(w, r, &request) {
+		return
+	}
+	if service.downloader == nil {
+		writeDownloadUnavailable(w, service.downloaderCapability)
+		return
+	}
+	page, err := service.downloader.SearchPage(r.Context(), request.SearchRequest, request.Token)
+	if err != nil {
+		writeDownloadError(w, err)
+		return
+	}
+	openai.WriteJSON(w, http.StatusOK, page)
+}
+
 func (service *Service) handleSiteDownloadRepository(w http.ResponseWriter, r *http.Request) {
 	if !service.siteControlAllowed() {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
@@ -479,6 +513,22 @@ func (service *Service) downloadSearch(ctx context.Context, request siteapi.Down
 		return nil, unavailableError(service.downloaderCapability)
 	}
 	return service.downloader.Search(ctx, request.SearchRequest, request.Token)
+}
+
+func (service *Service) downloadSearchPage(ctx context.Context, request siteapi.DownloadSearchRequest) (downloader.SearchPage, error) {
+	remoteURL, remote, err := service.downloadTarget(request.NodeID)
+	if err != nil {
+		return downloader.SearchPage{}, err
+	}
+	if remote {
+		var response downloader.SearchPage
+		err := service.clusterClient.JSON(ctx, http.MethodPost, remoteURL, "/router/v1/node/site/download/search-page", request, &response)
+		return response, err
+	}
+	if service.downloader == nil {
+		return downloader.SearchPage{}, unavailableError(service.downloaderCapability)
+	}
+	return service.downloader.SearchPage(ctx, request.SearchRequest, request.Token)
 }
 
 func (service *Service) downloadRepository(ctx context.Context, request siteapi.DownloadRepositoryRequest) (downloader.RepositoryDetails, error) {

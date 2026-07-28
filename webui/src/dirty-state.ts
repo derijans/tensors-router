@@ -28,6 +28,10 @@ export function markSimpleCookClean(): void {
   state.simpleCook.cleanID = elements.cookIdInput.value.trim();
 }
 
+export function isSimpleCookDirty(): boolean {
+  return simpleCookDirty();
+}
+
 export function markConstructorClean(): void {
   state.constructor.cleanSnapshot = constructorSnapshot();
 }

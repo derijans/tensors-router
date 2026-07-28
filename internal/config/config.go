@@ -41,9 +41,12 @@ type AuthConfig struct {
 }
 
 type ModelsConfig struct {
-	ConfigDir    string
-	StartupModel string
-	FileRoots    []string
+	ConfigDir                string
+	StartupModel             string
+	FileRoots                []string
+	SharedDir                string
+	HashWorkers              int
+	ConcurrentAssetTransfers int
 }
 
 type BackendConfig struct {
@@ -162,8 +165,10 @@ func Defaults() Config {
 			BearerKeys:    []string{},
 		},
 		Models: ModelsConfig{
-			ConfigDir: "./kcpps",
-			FileRoots: []string{},
+			ConfigDir:                "./kcpps",
+			FileRoots:                []string{},
+			HashWorkers:              1,
+			ConcurrentAssetTransfers: 2,
 		},
 		Backend: BackendConfig{
 			Mode: "kobold",
@@ -280,6 +285,12 @@ func validate(cfg *Config) error {
 		if strings.TrimSpace(root) == "" {
 			return fmt.Errorf("models.file_roots cannot contain empty paths")
 		}
+	}
+	if cfg.Models.HashWorkers < 1 {
+		return fmt.Errorf("models.hash_workers must be at least 1")
+	}
+	if cfg.Models.ConcurrentAssetTransfers < 1 {
+		return fmt.Errorf("models.concurrent_asset_transfers must be at least 1")
 	}
 	switch cfg.Backend.Mode {
 	case "kobold", "llama_sdcpp":
@@ -644,6 +655,23 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			return nil
 		case "startup_model":
 			cfg.Models.StartupModel = value
+			return nil
+		case "shared_dir":
+			cfg.Models.SharedDir = value
+			return nil
+		case "hash_workers":
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				return err
+			}
+			cfg.Models.HashWorkers = parsed
+			return nil
+		case "concurrent_asset_transfers":
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				return err
+			}
+			cfg.Models.ConcurrentAssetTransfers = parsed
 			return nil
 		}
 	case "backend":

@@ -24,6 +24,7 @@ import (
 	"tensors-router/internal/config"
 	"tensors-router/internal/downloader"
 	"tensors-router/internal/kobold"
+	"tensors-router/internal/modelassets"
 	"tensors-router/internal/native"
 	"tensors-router/internal/proxy"
 	"tensors-router/internal/recipes"
@@ -92,6 +93,18 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
+	assetIndex, err := modelassets.NewIndex(cfg.Cluster.StoreDir, cfg.Models.SharedDir)
+	if err != nil {
+		return err
+	}
+	assetIndex.SetHashWorkers(cfg.Models.HashWorkers)
+	if err := assetIndex.IndexConfigReferences(cfg.Models.ConfigDir); err != nil {
+		return err
+	}
+	if err := assetIndex.IndexRoots(append(append([]string{}, cfg.Models.FileRoots...), assetIndex.SharedDir())); err != nil {
+		return err
+	}
+	defer assetIndex.Close()
 	var analyticsStore *routeranalytics.Store
 	var downloaderManager *downloader.Manager
 	var routerService *proxy.Service
@@ -135,6 +148,29 @@ func runServe(args []string) error {
 	}
 	clusterClient := routercluster.NewClient(cfg.Cluster.Token, clusterClientTargets(cfg)...)
 	downloaderManager, downloaderCapability := optionalDownloader(*configPath, cfg.Downloader, startupLogger)
+	if downloaderManager != nil {
+		artifacts, artifactErr := downloaderManager.Artifacts()
+		if artifactErr != nil {
+			return artifactErr
+		}
+		for _, artifact := range artifacts {
+			asset, indexErr := assetIndex.IndexFile(artifact.Path)
+			if indexErr != nil || asset.SHA256 != artifact.SHA256 {
+				continue
+			}
+			verificationSource := artifact.VerificationSource
+			if verificationSource == "" {
+				verificationSource = "sha256"
+			}
+			_ = assetIndex.SetVerificationSource(asset.SHA256, verificationSource)
+			origin := modelassets.Origin{Repository: artifact.Repository, Commit: artifact.Revision, Path: artifact.RepositoryPath}
+			if origin.URI() != "" {
+				if bindErr := assetIndex.BindOrigin(asset.SHA256, origin); bindErr != nil {
+					return bindErr
+				}
+			}
+		}
+	}
 	syncConfig := routercluster.SyncConfig{
 		Role:           cfg.Cluster.Role,
 		MasterURL:      cfg.Cluster.MasterURL,
@@ -162,27 +198,30 @@ func runServe(args []string) error {
 	}
 
 	router := proxy.NewService(proxy.ServiceConfig{
-		BackendMode:          cfg.Backend.Mode,
-		BackendFamilies:      backendFamilies,
-		Catalog:              modelCatalog,
-		Registry:             registry,
-		ClusterToken:         cfg.Cluster.Token,
-		ClusterClient:        clusterClient,
-		ClusterRole:          cfg.Cluster.Role,
-		NodeID:               cfg.Cluster.NodeID,
-		NodeURL:              cfg.Cluster.PublicURL,
-		SlaveURLs:            cfg.Cluster.SlaveURLs,
-		ConfigDir:            cfg.Models.ConfigDir,
-		FileRoots:            cfg.Models.FileRoots,
-		RecipeStore:          recipeStore,
-		BenchmarkStore:       benchmarkStore,
-		AnalyticsStore:       analyticsStore,
-		VRAMAnalyticsEnabled: cfg.Analytics.Enabled && cfg.Analytics.VRAMEnabled,
-		VRAMSampleInterval:   cfg.Analytics.VRAMSampleInterval,
-		Downloader:           downloaderManager,
-		DownloaderCapability: downloaderCapability,
-		Logger:               serveLogger,
-		Shutdown:             routerShutdownFunc(cfg, shutdownRequested),
+		BackendMode:              cfg.Backend.Mode,
+		BackendFamilies:          backendFamilies,
+		Catalog:                  modelCatalog,
+		Registry:                 registry,
+		ClusterToken:             cfg.Cluster.Token,
+		ClusterClient:            clusterClient,
+		ClusterRole:              cfg.Cluster.Role,
+		NodeID:                   cfg.Cluster.NodeID,
+		NodeURL:                  cfg.Cluster.PublicURL,
+		MasterURL:                cfg.Cluster.MasterURL,
+		SlaveURLs:                cfg.Cluster.SlaveURLs,
+		ConfigDir:                cfg.Models.ConfigDir,
+		FileRoots:                cfg.Models.FileRoots,
+		AssetIndex:               assetIndex,
+		ConcurrentAssetTransfers: cfg.Models.ConcurrentAssetTransfers,
+		RecipeStore:              recipeStore,
+		BenchmarkStore:           benchmarkStore,
+		AnalyticsStore:           analyticsStore,
+		VRAMAnalyticsEnabled:     cfg.Analytics.Enabled && cfg.Analytics.VRAMEnabled,
+		VRAMSampleInterval:       cfg.Analytics.VRAMSampleInterval,
+		Downloader:               downloaderManager,
+		DownloaderCapability:     downloaderCapability,
+		Logger:                   serveLogger,
+		Shutdown:                 routerShutdownFunc(cfg, shutdownRequested),
 		TransportLimits: transportbody.Limits{
 			ReplayBufferBytes: cfg.Limits.ReplayBufferMB * transportbody.MiB,
 			MemoryBudgetBytes: cfg.Limits.MemoryBudgetMB * transportbody.MiB,

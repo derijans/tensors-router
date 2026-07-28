@@ -301,6 +301,9 @@ export interface Model {
   node_id: string;
   node_url?: string;
   available: boolean;
+  asset_state?: "ready" | "unresolved" | "resolving" | "failed";
+  unresolved_fields?: number;
+  asset_failure?: string;
   benchmark?: ModelBenchmark;
 }
 

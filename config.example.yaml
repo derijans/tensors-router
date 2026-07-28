@@ -17,6 +17,9 @@ auth:
 models:
   config_dir: "./kcpps"
   startup_model: ""
+  shared_dir: ""
+  hash_workers: 1
+  concurrent_asset_transfers: 2
   file_roots:
     - "./models"
 

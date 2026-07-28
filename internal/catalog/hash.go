@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"tensors-router/internal/atomicfile"
+	"tensors-router/internal/modelassets"
 )
 
 type HashStore struct {
@@ -256,6 +257,17 @@ func ModelReferenceHash(content []byte, hashFile func(string) (string, bool)) st
 	}
 	entries := make([]string, 0)
 	for key, value := range raw {
+		if strings.HasSuffix(key, "_hash") {
+			base := strings.TrimSuffix(key, "_hash")
+			if modelassets.IsModelField(base) {
+				for _, hash := range stringValues(value) {
+					if modelassets.ValidHash(hash) {
+						entries = append(entries, strings.ToLower(base)+"="+hash)
+					}
+				}
+			}
+			continue
+		}
 		if _, ok := pathValueKeys[strings.ToLower(key)]; !ok {
 			continue
 		}

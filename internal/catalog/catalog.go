@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+
+	"tensors-router/internal/modelassets"
 )
 
 type Catalog struct {
@@ -27,25 +29,28 @@ type catalogSnapshot struct {
 const AllImageConfigs = "*"
 
 type Model struct {
-	ID             string
-	Filename       string
-	Path           string
-	Created        int64
-	HasLLM         bool
-	HasImage       bool
-	HasEmbeddings  bool
-	HasMultimodal  bool
-	HasVoice       bool
-	HasMusic       bool
-	ImageID        string
-	ImageModelName string
-	ImageModelPath string
-	ModelHash      string
-	ConfigHash     string
-	BackendMode    string
-	Capabilities   Capabilities
-	Options        map[string]json.RawMessage
-	ChatTemplate   ChatTemplateProfile `json:"-"`
+	ID               string
+	Filename         string
+	Path             string
+	Created          int64
+	HasLLM           bool
+	HasImage         bool
+	HasEmbeddings    bool
+	HasMultimodal    bool
+	HasVoice         bool
+	HasMusic         bool
+	ImageID          string
+	ImageModelName   string
+	ImageModelPath   string
+	ModelHash        string
+	ConfigHash       string
+	BackendMode      string
+	Capabilities     Capabilities
+	Options          map[string]json.RawMessage
+	AssetState       string
+	UnresolvedFields int
+	AssetFailure     string
+	ChatTemplate     ChatTemplateProfile `json:"-"`
 }
 
 func New(dir string) *Catalog {
@@ -232,6 +237,7 @@ func (catalog *Catalog) ResolveActiveImage(activeConfigFilename string) (Model, 
 }
 
 func (catalog *Catalog) withMetadata(model Model) Model {
+	model.AssetState = "ready"
 	model.HasLLM = true
 	content, err := os.ReadFile(model.Path)
 	if err != nil {
@@ -244,6 +250,13 @@ func (catalog *Catalog) withMetadata(model Model) Model {
 		return model
 	}
 	model.Options = options
+	if unresolved, statusErr := modelassets.UnresolvedFields(content); statusErr == nil && unresolved > 0 {
+		model.AssetState = "unresolved"
+		model.UnresolvedFields = unresolved
+	} else if statusErr != nil {
+		model.AssetState = "failed"
+		model.AssetFailure = "invalid portable metadata"
+	}
 	model.ChatTemplate = ChatTemplateProfileForConfig(content)
 	var metadata configMetadata
 	if err := json.Unmarshal(content, &metadata); err != nil {
@@ -251,15 +264,18 @@ func (catalog *Catalog) withMetadata(model Model) Model {
 		return model
 	}
 
-	model.HasImage = metadata.ImageModelPath() != ""
-	model.HasEmbeddings = strings.TrimSpace(metadata.EmbeddingsModel) != ""
-	model.HasMultimodal = modelHasValue(metadata.MMProj)
-	model.HasVoice = hasVoiceModel(metadata)
-	model.HasMusic = hasMusicModel(metadata)
-	model.HasLLM = hasLLMModel(metadata)
+	model.HasImage = metadata.ImageModelPath() != "" || portableModelField(options, "sdmodel", "sddiffusionmodel", "sdhighnoisediffusionmodel", "sdunconddiffusionmodel")
+	model.HasEmbeddings = strings.TrimSpace(metadata.EmbeddingsModel) != "" || portableModelField(options, "embeddingsmodel")
+	model.HasMultimodal = modelHasValue(metadata.MMProj) || portableModelField(options, "mmproj")
+	model.HasVoice = hasVoiceModel(metadata) || portableModelField(options, "whispermodel", "ttsmodel", "ttswavtokenizer", "talkermodel", "code2wavmodel")
+	model.HasMusic = hasMusicModel(metadata) || portableModelField(options, "musicllm", "musicembeddings", "musicdiffusion", "musicvae")
+	model.HasLLM = hasLLMModel(metadata) || portableModelField(options, "model", "model_param", "draftmodel")
 	model.BackendMode = strings.TrimSpace(metadata.BackendMode)
 	if model.HasImage {
 		model.ImageModelPath = metadata.ImageModelPath()
+		if model.ImageModelPath == "" {
+			model.ImageModelPath = portableModelFilename(options, "sdmodel", "sddiffusionmodel", "sdhighnoisediffusionmodel", "sdunconddiffusionmodel")
+		}
 		model.ImageModelName = filenameStem(model.ImageModelPath)
 		model.ImageID = model.ID + "-" + model.ImageModelName
 	}
@@ -271,6 +287,33 @@ func (catalog *Catalog) withMetadata(model Model) Model {
 		model.ModelHash = ModelReferenceHash(content, nil)
 	}
 	return model
+}
+
+func portableModelField(options map[string]json.RawMessage, fields ...string) bool {
+	for _, field := range fields {
+		if value, found := options[field+"_hash"]; found && len(value) > 0 && string(value) != "null" {
+			return true
+		}
+	}
+	return false
+}
+
+func portableModelFilename(options map[string]json.RawMessage, fields ...string) string {
+	for _, field := range fields {
+		value, found := options[field+"_filename"]
+		if !found {
+			continue
+		}
+		var scalar string
+		if json.Unmarshal(value, &scalar) == nil && scalar != "" {
+			return scalar
+		}
+		var array []string
+		if json.Unmarshal(value, &array) == nil && len(array) > 0 {
+			return array[0]
+		}
+	}
+	return ""
 }
 
 func newCatalogSnapshot(models []Model, loadErr error) *catalogSnapshot {

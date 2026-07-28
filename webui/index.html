@@ -105,15 +105,32 @@
         <div class="download-controls">
           <label>Node<select id="downloadNodeSelect" data-operation-group="download"></select></label>
           <label>HF token<input id="downloadTokenInput" type="password" autocomplete="off" placeholder="Temporary override"></label>
+          <label>Search mode<select id="downloadSearchMode"><option value="text">Text</option><option value="url">Direct URL</option><option value="hash">Hash</option><option value="filename">Contextual filename</option></select></label>
           <label>Search<input id="downloadSearchInput" type="search" placeholder="Repository or author"></label>
+          <label>Author<input id="downloadAuthorInput" type="search" placeholder="Exact owner"></label>
+          <label>Pipeline task<input id="downloadPipelineInput" type="search" placeholder="Optional pipeline_tag"></label>
+          <label>Expected SHA-256<input id="downloadExpectedHashInput" type="text" inputmode="text" maxlength="64" placeholder="Required for contextual filename"></label>
           <button id="downloadSearchButton" type="button" data-operation-group="download">Search</button>
+          <label>Sort<select id="downloadSortSelect"><option value="downloads">Downloads</option><option value="likes">Likes</option><option value="lastModified">Last modified</option><option value="createdAt">Created</option><option value="trendingScore">Trending</option></select></label>
+          <label>Direction<select id="downloadDirectionSelect"><option value="-1">Descending</option><option value="1">Ascending</option></select></label>
+          <label>Gated<select id="downloadGatedSelect"><option value="">Any access</option><option value="false">Open</option><option value="true">Gated</option></select></label>
+          <label>Parameters<input id="downloadParameterMin" type="number" min="0" placeholder="Min billions"></label>
+          <label>to<input id="downloadParameterMax" type="number" min="0" placeholder="Max billions"></label>
+          <label>Raw tag<input id="downloadRawTagInput" type="text" placeholder="Additional HF tag"></label>
           <label>Repository<input id="downloadRepositoryInput" type="text" placeholder="owner/repository"></label>
           <label>Revision<input id="downloadRevisionInput" type="text" placeholder="main"></label>
           <label class="download-files">Files<textarea id="downloadFilesInput" rows="5" placeholder="One repository-relative file per line"></textarea></label>
           <div class="button-strip"><button id="downloadPlanButton" type="button" data-operation-group="download">Preview plan</button><button id="downloadStartButton" type="button" data-operation-group="download" disabled>Start download</button></div>
         </div>
+        <section class="download-filters" aria-label="Hugging Face filters">
+          <div id="downloadFilterTabs" class="filter-tabs"><button type="button" data-download-filter-tab="main">Main</button><button type="button" data-download-filter-tab="tasks">Tasks</button><button type="button" data-download-filter-tab="libraries">Libraries</button><button type="button" data-download-filter-tab="languages">Languages</button><button type="button" data-download-filter-tab="licenses">Licenses</button><button type="button" data-download-filter-tab="other">Other</button></div>
+          <input id="downloadFilterSearch" type="search" placeholder="Search filters in this tab">
+          <div id="downloadFilterOptions" class="filter-options"></div>
+          <div id="downloadFilterSummary" class="filter-summary"></div>
+        </section>
         <p id="downloadStatus" class="action-status"></p>
         <div id="downloadSearchResults" class="download-results"></div>
+        <button id="downloadNextPageButton" type="button" data-operation-group="download" hidden>Next page</button>
         <div id="downloadPlanOutput" class="output"></div>
         <div><h3>Jobs</h3><div id="downloadJobs" class="download-jobs"></div></div>
         <div><h3>Local library</h3><div id="downloadLibrary" class="download-library"></div></div>
@@ -127,7 +144,9 @@
           </div>
           <div class="models-panel-actions">
             <input id="filterInput" type="search" placeholder="Filter models, files, nodes">
-            <p id="modelsActionStatus" class="action-status"></p>
+            <select id="modelsNodeFilter" aria-label="Filter models by node" multiple size="4"><option value="*" selected>All Nodes</option></select>
+            <button id="resolveFilteredModelsButton" type="button" data-operation-group="models">Resolve filtered</button>
+            <div id="modelsActionStatus" class="action-status"></div>
           </div>
         </div>
         <div class="tables">
@@ -346,6 +365,7 @@
               </div>
               <div class="cook-actions">
                 <button id="previewButton" type="button" data-operation-group="cook">Preview</button>
+                <button id="simpleExportButton" type="button" data-operation-group="cook">Export KCPPS</button>
                 <button type="submit" data-operation-group="cook">Save</button>
               </div>
             </aside>

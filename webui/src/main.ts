@@ -20,14 +20,24 @@ import {
 } from "./benchmarks";
 import {
   changeDownloadJob,
+  bindDownloadCandidate,
   chooseDownloadSearchResult,
+  debounceDownloadSearch,
   loadDownloadLibrary,
   loadDownloads,
   previewDownloadPlan,
+  prefillDownloadContext,
+  replaceDownloadCandidate,
   rescanDownloadLibrary,
   searchDownloadRepositories,
+  selectDownloadFilterTab,
   selectDownloadNode,
-  startPlannedDownload
+  startPlannedDownload,
+  toggleDownloadFilter,
+  toggleDownloadFilterGroup,
+  updateDownloadFilterSearch,
+  updateDownloadSearchMode,
+  clearDownloadFilter
 } from "./downloads";
 import {
   loadAnalytics,
@@ -65,7 +75,7 @@ import {
   applyAdvancedCook,
   previewAdvancedCook
 } from "./cook-actions";
-import { loadSelectedConfig } from "./model-actions";
+import { loadSelectedConfig, resolveFilteredModels, retryModelAssetResolution } from "./model-actions";
 import {
   closeWebUIDialog,
   loadSelectedWebUIModel,
@@ -89,7 +99,8 @@ import {
   showSimpleFieldValues,
   updateSimpleField,
   updateSimpleFieldFilter,
-  updateSimpleSectionOpen
+  updateSimpleSectionOpen,
+  exportSimpleConfig
 } from "./simple-cook";
 import {
   renderInventory,
@@ -158,6 +169,15 @@ queryElements("[data-tab]", HTMLButtonElement).forEach(button => {
   button.addEventListener("click", () => activateTab(button.dataset.tab || ""));
 });
 
+window.addEventListener("model-asset-handoff", event => {
+  const detail = (event as CustomEvent<{nodeID: string; publicID: string; configID: string; configFilename: string; field: string; position?: number; filename: string; hash: string}>).detail;
+  if (!detail) {
+    return;
+  }
+  prefillDownloadContext(detail);
+  activateTab("download");
+});
+
 queryElements("[data-cook-mode]", HTMLButtonElement).forEach(button => {
   button.addEventListener("click", () => activateCookMode(button.dataset.cookMode));
 });
@@ -203,6 +223,10 @@ elements.downloadNodeSelect.addEventListener("change", () => runTask(async () =>
   await loadDownloadLibrary();
 }, "download-node", "download", "Changing download node…"));
 elements.downloadSearchButton.addEventListener("click", () => runTask(searchDownloadRepositories, "download-search", "download", "Searching Hugging Face…"));
+elements.downloadSearchInput.addEventListener("input", debounceDownloadSearch);
+elements.downloadSearchMode.addEventListener("change", updateDownloadSearchMode);
+elements.downloadFilterSearch.addEventListener("input", updateDownloadFilterSearch);
+elements.downloadNextPageButton.addEventListener("click", () => runTask(() => searchDownloadRepositories(true), "download-search-next", "download", "Loading more models…"));
 elements.downloadPlanButton.addEventListener("click", () => runTask(previewDownloadPlan, "download-plan", "download", "Preparing download plan…"));
 elements.downloadStartButton.addEventListener("click", () => runTask(async () => {
   const unsafe = state.downloads.plan?.unsafe_warning || false;
@@ -216,9 +240,49 @@ elements.downloadStartButton.addEventListener("click", () => runTask(async () =>
 }, "download-start", "download", "Starting download…"));
 elements.downloadRescanButton.addEventListener("click", () => runTask(rescanDownloadLibrary, "download-rescan", "download", "Scanning local library…"));
 elements.downloadSearchResults.addEventListener("click", event => {
-  const repository = elementTarget(event)?.dataset.downloadRepository;
+  const target = elementTarget(event);
+  const repository = target?.dataset.downloadRepository;
   if (repository) {
     chooseDownloadSearchResult(repository);
+  }
+  const candidateIndex = target?.dataset.downloadCandidateBind;
+  if (candidateIndex !== undefined) {
+    runTask(() => bindDownloadCandidate(Number(candidateIndex)), `download-bind-${candidateIndex}`, "download", "Binding verified origin…");
+  }
+  const replacementIndex = target?.dataset.downloadCandidateReplace;
+  if (replacementIndex !== undefined) {
+    void confirmDestructive(
+      "Replace expected model asset?",
+      "The selected Hugging Face file has a different SHA-256. This intentionally changes the saved config to a different model.",
+      "Replace model"
+    ).then(confirmed => {
+      if (confirmed) {
+        runTask(() => replaceDownloadCandidate(Number(replacementIndex)), `download-replace-${replacementIndex}`, "download", "Replacing expected model…");
+      }
+    });
+  }
+});
+elements.downloadFilterTabs.addEventListener("click", event => {
+  const tab = elementTarget(event)?.dataset.downloadFilterTab;
+  if (tab) {
+    selectDownloadFilterTab(tab);
+  }
+});
+elements.downloadFilterOptions.addEventListener("click", event => {
+  const target = elementTarget(event);
+  const filter = target?.dataset.downloadFilter;
+  if (filter) {
+    toggleDownloadFilter(filter);
+  }
+  const group = target?.dataset.downloadFilterGroup;
+  if (group) {
+    toggleDownloadFilterGroup(group);
+  }
+});
+elements.downloadFilterSummary.addEventListener("click", event => {
+  const filter = elementTarget(event)?.dataset.downloadFilterClear;
+  if (filter) {
+    clearDownloadFilter(filter);
   }
 });
 elements.downloadJobs.addEventListener("click", event => {
@@ -230,6 +294,14 @@ elements.downloadJobs.addEventListener("click", event => {
   }
 });
 elements.filterInput.addEventListener("input", renderTables);
+elements.modelsNodeFilter.addEventListener("change", renderTables);
+elements.resolveFilteredModelsButton.addEventListener("click", () => runTask(() => resolveFilteredModels(refreshInventory), "resolve-filtered-models", "models", "Resolving visible configs…"));
+elements.modelsActionStatus.addEventListener("click", event => {
+  const key = elementTarget(event)?.dataset.modelResolutionRetry;
+  if (key) {
+    runTask(() => retryModelAssetResolution(key, refreshInventory), `resolve-retry-${key}`, "models", "Retrying resolution…");
+  }
+});
 elements.modelsTable.addEventListener("click", event => {
   const modelID = elementTarget(event)?.dataset.loadConfig;
   if (modelID) {
@@ -287,6 +359,7 @@ elements.forceKillButton.addEventListener("click", () => runTask(async () => {
 }, "router-force-kill", "router", "Force-killing router…"));
 
 elements.previewButton.addEventListener("click", () => runTask(previewSimpleCook, "quick-preview", "cook", "Preparing preview…"));
+elements.simpleExportButton.addEventListener("click", () => runTask(exportSimpleConfig, "quick-export", "cook", "Exporting KCPPS…"));
 elements.cookForm.addEventListener("submit", event => {
   event.preventDefault();
   runTask(() => applySimpleCook(refreshInventory), "quick-apply", "cook", "Applying config…");

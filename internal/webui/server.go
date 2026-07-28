@@ -165,6 +165,8 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/download/capabilities")
 	case r.URL.Path == "/api/download/search" && r.Method == http.MethodPost:
 		server.proxyDownload(w, r, http.MethodPost, "/router/v1/site/download/search")
+	case r.URL.Path == "/api/download/search-page" && r.Method == http.MethodPost:
+		server.proxyDownload(w, r, http.MethodPost, "/router/v1/site/download/search-page")
 	case r.URL.Path == "/api/download/repository" && r.Method == http.MethodPost:
 		server.proxyDownload(w, r, http.MethodPost, "/router/v1/site/download/repository")
 	case r.URL.Path == "/api/download/plan" && r.Method == http.MethodPost:
@@ -206,6 +208,24 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/config-file/apply")
 	case r.URL.Path == "/api/config-file" && r.Method == http.MethodDelete:
 		server.proxyRouter(w, r, http.MethodDelete, "/router/v1/site/config-file")
+	case r.URL.Path == "/api/model-assets/export" && r.Method == http.MethodPost:
+		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/model-assets/export")
+	case r.URL.Path == "/api/model-assets/resolve" && r.Method == http.MethodPost:
+		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/model-assets/resolve")
+	case r.URL.Path == "/api/model-assets/resolve-batch" && r.Method == http.MethodPost:
+		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/model-assets/resolve-batch")
+	case r.URL.Path == "/api/model-assets/jobs" && r.Method == http.MethodPost:
+		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/model-assets/jobs")
+	case r.URL.Path == "/api/model-assets/bind" && r.Method == http.MethodPost:
+		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/model-assets/bind")
+	case r.URL.Path == "/api/model-assets/candidates" && r.Method == http.MethodPost:
+		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/model-assets/candidates")
+	case r.URL.Path == "/api/model-assets/substitute" && r.Method == http.MethodPost:
+		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/model-assets/substitute")
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/model-assets/jobs/"):
+		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/model-assets/jobs/"+strings.TrimPrefix(r.URL.Path, "/api/model-assets/jobs/"))
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/model-assets/"):
+		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/model-assets/"+strings.TrimPrefix(r.URL.Path, "/api/model-assets/"))
 	default:
 		writeWebError(w, http.StatusNotFound, "not found")
 	}

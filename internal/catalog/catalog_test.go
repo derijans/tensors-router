@@ -448,6 +448,19 @@ func TestHashStoreDebouncesDirtyWrites(t *testing.T) {
 	}
 }
 
+func TestPortableConfigRetainsModelCapabilities(t *testing.T) {
+	dir := t.TempDir()
+	hash := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	writeCatalogFile(t, dir, "portable.kcpps", `{"model_param_hash":"`+hash+`","model_param_filename":"text.gguf","sdmodel_hash":"`+hash+`","sdmodel_filename":"image.safetensors"}`)
+	models, err := New(dir).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || !models[0].HasLLM || !models[0].HasImage || models[0].AssetState != "unresolved" || models[0].ImageModelName != "image" {
+		t.Fatalf("portable capabilities were not retained %#v", models)
+	}
+}
+
 func configHashJSON(t *testing.T, value map[string]any) []byte {
 	t.Helper()
 	content, err := json.Marshal(value)

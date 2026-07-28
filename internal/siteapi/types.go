@@ -9,6 +9,64 @@ import (
 	"tensors-router/internal/recipes"
 )
 
+type ModelAssetConfigRequest struct {
+	NodeID   string `json:"node_id,omitempty"`
+	NodeURL  string `json:"node_url,omitempty"`
+	ID       string `json:"id"`
+	Filename string `json:"filename,omitempty"`
+}
+
+type ModelAssetConfigResponse struct {
+	ID       string                  `json:"id"`
+	Filename string                  `json:"filename"`
+	Content  []byte                  `json:"content,omitempty"`
+	Results  []ModelAssetFieldResult `json:"results,omitempty"`
+}
+
+type ModelAssetFieldResult struct {
+	Field        string `json:"field"`
+	Hash         string `json:"hash"`
+	Resolved     bool   `json:"resolved"`
+	Failure      string `json:"failure,omitempty"`
+	Source       string `json:"source,omitempty"`
+	Verification string `json:"verification,omitempty"`
+	Commit       string `json:"commit,omitempty"`
+}
+
+type ModelAssetBindingRequest struct {
+	NodeID         string `json:"node_id,omitempty"`
+	NodeURL        string `json:"node_url,omitempty"`
+	SHA256         string `json:"sha256"`
+	Repository     string `json:"repository"`
+	RepositoryPath string `json:"repository_path"`
+	Commit         string `json:"commit"`
+	Token          string `json:"token,omitempty"`
+}
+
+type ModelAssetCandidateRequest struct {
+	NodeID   string `json:"node_id,omitempty"`
+	NodeURL  string `json:"node_url,omitempty"`
+	SHA256   string `json:"sha256"`
+	Filename string `json:"filename"`
+	Token    string `json:"token,omitempty"`
+}
+
+type ModelAssetSubstitutionRequest struct {
+	NodeID         string `json:"node_id,omitempty"`
+	NodeURL        string `json:"node_url,omitempty"`
+	ID             string `json:"id"`
+	Filename       string `json:"filename,omitempty"`
+	Field          string `json:"field"`
+	Position       *int   `json:"position,omitempty"`
+	ExpectedSHA256 string `json:"expected_sha256"`
+	SHA256         string `json:"sha256"`
+	Repository     string `json:"repository"`
+	RepositoryPath string `json:"repository_path"`
+	Commit         string `json:"commit"`
+	Token          string `json:"token,omitempty"`
+	Confirm        bool   `json:"confirm"`
+}
+
 type NodeInventory struct {
 	NodeID      string                 `json:"node_id"`
 	NodeURL     string                 `json:"node_url,omitempty"`

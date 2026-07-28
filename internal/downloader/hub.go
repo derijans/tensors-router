@@ -2,6 +2,8 @@ package downloader
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +11,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -17,16 +20,38 @@ const hubAPIURL = "https://huggingface.co/api"
 type HubClient struct {
 	baseURL string
 	client  *http.Client
+	mu      sync.Mutex
+	cache   map[string]cachedSearch
+}
+
+type cachedSearch struct {
+	page    SearchPage
+	expires time.Time
 }
 
 func NewHubClient(timeout time.Duration) *HubClient {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	return &HubClient{baseURL: hubAPIURL, client: &http.Client{Timeout: timeout}}
+	return &HubClient{baseURL: hubAPIURL, client: &http.Client{Timeout: timeout}, cache: map[string]cachedSearch{}}
 }
 
 func (client *HubClient) Search(ctx context.Context, request SearchRequest, token string) ([]SearchResult, error) {
+	page, err := client.SearchPage(ctx, request, token)
+	return page.Results, err
+}
+
+func (client *HubClient) SearchPage(ctx context.Context, request SearchRequest, token string) (SearchPage, error) {
+	if err := validateSearchRequest(request); err != nil {
+		return SearchPage{}, err
+	}
+	cacheKey := searchCacheKey(request, token)
+	client.mu.Lock()
+	cached, found := client.cache[cacheKey]
+	client.mu.Unlock()
+	if found && time.Now().Before(cached.expires) {
+		return cached.page, nil
+	}
 	limit := request.Limit
 	if limit < 1 {
 		limit = 20
@@ -50,24 +75,95 @@ func (client *HubClient) Search(ctx context.Context, request SearchRequest, toke
 	if request.Cursor = strings.TrimSpace(request.Cursor); request.Cursor != "" {
 		query.Set("cursor", request.Cursor)
 	}
+	if request.PipelineTag = strings.TrimSpace(request.PipelineTag); request.PipelineTag != "" {
+		query.Set("pipeline_tag", request.PipelineTag)
+	}
+	if request.NumParameters = strings.TrimSpace(request.NumParameters); request.NumParameters != "" {
+		query.Set("num_parameters", request.NumParameters)
+	}
+	if request.Inference = strings.TrimSpace(request.Inference); request.Inference != "" {
+		query.Set("inference", request.Inference)
+	}
 	query.Set("limit", fmt.Sprintf("%d", limit))
-	for _, tag := range request.Tags {
+	for _, tag := range append(append([]string{}, request.Filters...), request.Tags...) {
 		if tag = strings.TrimSpace(tag); tag != "" {
 			query.Add("filter", tag)
+		}
+	}
+	for _, app := range request.Apps {
+		if app = strings.TrimSpace(app); app != "" {
+			query.Add("apps", app)
+		}
+	}
+	for _, provider := range request.InferenceProviders {
+		if provider = strings.TrimSpace(provider); provider != "" {
+			query.Add("inference_provider", provider)
+		}
+	}
+	for _, dataset := range request.TrainedDatasets {
+		if dataset = strings.TrimSpace(dataset); dataset != "" {
+			query.Add("trained_dataset", dataset)
 		}
 	}
 	if request.Gated == "true" || request.Gated == "false" {
 		query.Set("gated", request.Gated)
 	}
 	var response []hubModel
-	if err := client.getJSON(ctx, "/models?"+query.Encode(), token, &response); err != nil {
-		return nil, err
+	header, err := client.getJSONWithHeaders(ctx, "/models?"+query.Encode(), token, &response)
+	if err != nil {
+		return SearchPage{}, err
 	}
 	result := make([]SearchResult, 0, len(response))
 	for _, model := range response {
 		result = append(result, SearchResult{ID: model.ID, Author: model.Author, Downloads: model.Downloads, Likes: model.Likes, Gated: string(model.Gated), Tags: model.Tags, UpdatedAt: model.LastModified})
 	}
-	return result, nil
+	client.mu.Lock()
+	page := SearchPage{Results: result, NextCursor: nextCursor(header.Values("Link"))}
+	for key, cached := range client.cache {
+		if time.Now().After(cached.expires) {
+			delete(client.cache, key)
+		}
+	}
+	for len(client.cache) >= 256 {
+		for key := range client.cache {
+			delete(client.cache, key)
+			break
+		}
+	}
+	client.cache[cacheKey] = cachedSearch{page: page, expires: time.Now().Add(30 * time.Second)}
+	client.mu.Unlock()
+	return page, nil
+}
+
+func validateSearchRequest(request SearchRequest) error {
+	if len(request.Query) > 256 || len(request.Author) > 128 || len(request.PipelineTag) > 128 || len(request.NumParameters) > 128 || len(request.Cursor) > 2048 {
+		return fmt.Errorf("Hugging Face search parameter is too long")
+	}
+	allowedSort := map[string]bool{"": true, "createdAt": true, "downloads": true, "lastModified": true, "likes": true, "trendingScore": true}
+	if !allowedSort[strings.TrimSpace(request.Sort)] || request.Direction != "" && request.Direction != "-1" && request.Direction != "1" {
+		return fmt.Errorf("invalid Hugging Face search ordering")
+	}
+	if request.Gated != "" && request.Gated != "true" && request.Gated != "false" || request.Inference != "" && request.Inference != "true" && request.Inference != "false" {
+		return fmt.Errorf("invalid Hugging Face boolean search filter")
+	}
+	groups := [][]string{request.Filters, request.Tags, request.Apps, request.InferenceProviders, request.TrainedDatasets}
+	for _, values := range groups {
+		if len(values) > 64 {
+			return fmt.Errorf("too many Hugging Face search filters")
+		}
+		for _, value := range values {
+			if len(value) > 256 {
+				return fmt.Errorf("Hugging Face search filter is too long")
+			}
+		}
+	}
+	return nil
+}
+
+func searchCacheKey(request SearchRequest, token string) string {
+	content, _ := json.Marshal(request)
+	digest := sha256.Sum256(append(content, []byte(token)...))
+	return hex.EncodeToString(digest[:])
 }
 
 func (client *HubClient) Repository(ctx context.Context, repository string, revision string, token string) (RepositoryDetails, error) {
@@ -99,9 +195,14 @@ func (client *HubClient) Repository(ctx context.Context, repository string, revi
 }
 
 func (client *HubClient) getJSON(ctx context.Context, endpoint string, token string, target any) error {
+	_, err := client.getJSONWithHeaders(ctx, endpoint, token, target)
+	return err
+}
+
+func (client *HubClient) getJSONWithHeaders(ctx context.Context, endpoint string, token string, target any) (http.Header, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(client.baseURL, "/")+endpoint, nil)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	request.Header.Set("Accept", "application/json")
 	if token = strings.TrimSpace(token); token != "" {
@@ -109,23 +210,58 @@ func (client *HubClient) getJSON(ctx context.Context, endpoint string, token str
 	}
 	response, err := client.client.Do(request)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer response.Body.Close()
 	contentType := strings.ToLower(response.Header.Get("Content-Type"))
 	if strings.Contains(contentType, "text/html") {
-		return fmt.Errorf("Hugging Face returned HTML instead of its JSON API")
+		return nil, fmt.Errorf("Hugging Face returned HTML instead of its JSON API")
 	}
 	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("Hugging Face access was denied; approve the repository in the browser and provide an authorized token")
+		return nil, fmt.Errorf("Hugging Face access was denied; approve the repository in the browser and provide an authorized token")
+	}
+	if response.StatusCode == http.StatusTooManyRequests {
+		return nil, fmt.Errorf("Hugging Face rate limit reached; retry after %s", sanitizedRetryAfter(response.Header.Get("Retry-After")))
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("Hugging Face API returned status %d", response.StatusCode)
+		return nil, fmt.Errorf("Hugging Face API returned status %d", response.StatusCode)
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, 32<<20)).Decode(target); err != nil {
-		return err
+		return nil, err
 	}
-	return nil
+	return response.Header.Clone(), nil
+}
+
+func nextCursor(links []string) string {
+	for _, value := range links {
+		for _, part := range strings.Split(value, ",") {
+			if !strings.Contains(part, `rel="next"`) {
+				continue
+			}
+			left, right := strings.Index(part, "<"), strings.Index(part, ">")
+			if left < 0 || right <= left {
+				continue
+			}
+			parsed, err := url.Parse(part[left+1 : right])
+			if err == nil {
+				return parsed.Query().Get("cursor")
+			}
+		}
+	}
+	return ""
+}
+
+func sanitizedRetryAfter(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || len(value) > 64 {
+		return "the server-provided interval"
+	}
+	for _, character := range value {
+		if character < 0x20 || character > 0x7e {
+			return "the server-provided interval"
+		}
+	}
+	return value
 }
 
 type hubModel struct {

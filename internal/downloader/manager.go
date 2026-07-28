@@ -67,6 +67,10 @@ func (manager *Manager) Search(ctx context.Context, request SearchRequest, opera
 	return manager.hub.Search(ctx, request, manager.token(operationToken))
 }
 
+func (manager *Manager) SearchPage(ctx context.Context, request SearchRequest, operationToken string) (SearchPage, error) {
+	return manager.hub.SearchPage(ctx, request, manager.token(operationToken))
+}
+
 func (manager *Manager) Repository(ctx context.Context, request RepositoryRequest) (RepositoryDetails, error) {
 	return manager.hub.Repository(ctx, request.Repository, request.Revision, manager.token(request.Token))
 }
@@ -284,7 +288,7 @@ func (manager *Manager) run(initial DownloadJob) {
 	}
 	manager.running[initial.ID] = cancel
 	manager.mu.Unlock()
-	defer func() { manager.mu.Lock(); delete(manager.running, initial.ID); manager.mu.Unlock() }()
+	defer manager.releaseFinishedJob(initial.ID)
 	job, _, err := manager.store.Job(initial.ID)
 	if err != nil {
 		return
@@ -319,6 +323,16 @@ func (manager *Manager) run(initial DownloadJob) {
 	}
 	if err := manager.store.SaveJob(completed); err == nil {
 		manager.publish(completed)
+	}
+}
+
+func (manager *Manager) releaseFinishedJob(id string) {
+	job, found, _ := manager.store.Job(id)
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	delete(manager.running, id)
+	if found && (job.State == JobCompleted || job.State == JobFailed || job.State == JobCancelled) {
+		delete(manager.tokens, id)
 	}
 }
 
@@ -391,7 +405,7 @@ func (manager *Manager) runHFDownload(ctx context.Context, repository string, co
 	command.Env = isolatedHFEnvironment(manager.config.Storage.StateDir, token)
 	output, err := command.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("official Hugging Face CLI failed: %s", redactSensitive(string(output)))
+		return fmt.Errorf("official Hugging Face CLI failed: %s", redactSensitive(string(output), token))
 	}
 	return nil
 }
@@ -557,7 +571,12 @@ func isolatedHFEnvironment(stateDir string, token string) []string {
 	return environment
 }
 
-func redactSensitive(value string) string {
+func redactSensitive(value string, secrets ...string) string {
+	for _, secret := range secrets {
+		if secret = strings.TrimSpace(secret); secret != "" {
+			value = strings.ReplaceAll(value, secret, "[redacted]")
+		}
+	}
 	fields := strings.Fields(value)
 	for index, field := range fields {
 		lower := strings.ToLower(field)

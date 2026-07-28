@@ -140,6 +140,21 @@ func (client *Client) JSON(ctx context.Context, method string, baseURL string, p
 }
 
 func (client *Client) Stream(ctx context.Context, method string, baseURL string, path string) (*http.Response, error) {
+	return client.stream(ctx, method, baseURL, path, "")
+}
+
+func (client *Client) StreamRange(ctx context.Context, baseURL string, path string, offset int64) (*http.Response, error) {
+	if offset < 0 {
+		return nil, fmt.Errorf("invalid stream offset")
+	}
+	rangeHeader := ""
+	if offset > 0 {
+		rangeHeader = fmt.Sprintf("bytes=%d-", offset)
+	}
+	return client.stream(ctx, http.MethodGet, baseURL, path, rangeHeader)
+}
+
+func (client *Client) stream(ctx context.Context, method string, baseURL string, path string, rangeHeader string) (*http.Response, error) {
 	target, err := client.joinedAllowedURL(baseURL, path)
 	if err != nil {
 		return nil, err
@@ -149,10 +164,15 @@ func (client *Client) Stream(ctx context.Context, method string, baseURL string,
 		return nil, err
 	}
 	request.Header.Set("Accept", "text/event-stream")
+	if rangeHeader != "" {
+		request.Header.Set("Range", rangeHeader)
+	}
 	if client.token != "" {
 		request.Header.Set("Authorization", "Bearer "+client.token)
 	}
-	response, err := client.client.Do(request)
+	streamClient := *client.client
+	streamClient.Timeout = 0
+	response, err := streamClient.Do(request)
 	if err != nil {
 		return nil, err
 	}

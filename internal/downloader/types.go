@@ -166,14 +166,21 @@ type ArtifactRecord struct {
 }
 
 type SearchRequest struct {
-	Query     string   `json:"query"`
-	Author    string   `json:"author,omitempty"`
-	Sort      string   `json:"sort,omitempty"`
-	Direction string   `json:"direction,omitempty"`
-	Limit     int      `json:"limit,omitempty"`
-	Cursor    string   `json:"cursor,omitempty"`
-	Gated     string   `json:"gated,omitempty"`
-	Tags      []string `json:"tags,omitempty"`
+	Query              string   `json:"query"`
+	Author             string   `json:"author,omitempty"`
+	Filters            []string `json:"filters,omitempty"`
+	PipelineTag        string   `json:"pipeline_tag,omitempty"`
+	NumParameters      string   `json:"num_parameters,omitempty"`
+	Apps               []string `json:"apps,omitempty"`
+	Gated              string   `json:"gated,omitempty"`
+	Inference          string   `json:"inference,omitempty"`
+	InferenceProviders []string `json:"inference_providers,omitempty"`
+	TrainedDatasets    []string `json:"trained_datasets,omitempty"`
+	Sort               string   `json:"sort,omitempty"`
+	Direction          string   `json:"direction,omitempty"`
+	Limit              int      `json:"limit,omitempty"`
+	Cursor             string   `json:"cursor,omitempty"`
+	Tags               []string `json:"tags,omitempty"`
 }
 
 type SearchResult struct {
@@ -184,6 +191,11 @@ type SearchResult struct {
 	Gated     string    `json:"gated,omitempty"`
 	Tags      []string  `json:"tags,omitempty"`
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
+}
+
+type SearchPage struct {
+	Results    []SearchResult `json:"results"`
+	NextCursor string         `json:"next_cursor,omitempty"`
 }
 
 type RepositoryRequest struct {

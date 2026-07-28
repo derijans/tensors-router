@@ -83,12 +83,79 @@ export function getInventory(): Promise<InventoryResponse> {
   return api<InventoryResponse>("/api/inventory");
 }
 
+export function resolveModelAssets(request: {id: string}): Promise<{id: string; filename: string; results: {field: string; hash: string; resolved: boolean; failure?: string}[]}> {
+  return api("/api/model-assets/resolve", {method: "POST", body: JSON.stringify(request)});
+}
+
+export function resolveModelAssetBatch(requests: {node_id?: string; node_url?: string; id: string; filename?: string}[]): Promise<{id: string; filename: string; results: {field: string; hash: string; resolved: boolean; failure?: string}[]}[]> {
+  return api("/api/model-assets/resolve-batch", {method: "POST", body: JSON.stringify(requests)});
+}
+
+export interface ModelAssetResolutionJob {
+  id: string;
+  config_id: string;
+  node_id: string;
+  state: "queued" | "resolving" | "completed" | "failed";
+  source?: string;
+  error?: string;
+  results?: {field: string; hash: string; resolved: boolean; failure?: string; source?: string; verification?: string; commit?: string}[];
+}
+
+export function createModelAssetResolutionJob(request: {node_id?: string; node_url?: string; id: string; filename?: string}): Promise<ModelAssetResolutionJob> {
+  return api("/api/model-assets/jobs", {method: "POST", body: JSON.stringify(request)});
+}
+
+export function getModelAssetResolutionJob(nodeID: string, jobID: string): Promise<ModelAssetResolutionJob> {
+  return api(`/api/model-assets/jobs/${encodeURIComponent(jobID)}?node_id=${encodeURIComponent(nodeID)}`);
+}
+
+export interface ModelAssetCandidate {
+  repository: string;
+  repository_path: string;
+  commit: string;
+  sha256?: string;
+  state: "exact" | "mismatched" | "unverifiable";
+}
+
+export function findModelAssetCandidates(request: {node_id: string; node_url?: string; sha256: string; filename: string; token?: string}, signal?: AbortSignal): Promise<ModelAssetCandidate[]> {
+  return api("/api/model-assets/candidates", {method: "POST", body: JSON.stringify(request), ...(signal ? {signal} : {})});
+}
+
+export function bindModelAssetCandidate(request: {node_id: string; sha256: string; repository: string; repository_path: string; commit: string; token?: string}): Promise<{sha256: string; hf: string}> {
+  return api("/api/model-assets/bind", {method: "POST", body: JSON.stringify(request)});
+}
+
+export function substituteModelAsset(request: {node_id: string; id: string; filename: string; field: string; position?: number; expected_sha256: string; sha256: string; repository: string; repository_path: string; commit: string; token?: string; confirm: true}): Promise<{sha256: string; hf: string}> {
+  return api("/api/model-assets/substitute", {method: "POST", body: JSON.stringify(request)});
+}
+
+export function lookupModelAsset(hash: string, signal?: AbortSignal): Promise<{sha256: string; available: boolean; filename?: string; size?: number; origin?: string; nodes?: string[]}> {
+  return api(`/api/model-assets/${encodeURIComponent(hash)}`, signal ? {signal} : undefined);
+}
+
+export async function exportPortableConfig(request: {node_id: string; node_url?: string; id: string; filename: string}): Promise<Blob> {
+  const headers = new Headers({"Content-Type": "application/json"});
+  if (state.csrf) {
+    headers.set("X-CSRF-Token", state.csrf);
+  }
+  const response = await fetch("/api/model-assets/export", {method: "POST", headers, body: JSON.stringify(request)});
+  if (!response.ok) {
+    const content = await response.text();
+    throw webError(errorMessage(parseResponse(content), content, response.statusText), parseResponse(content));
+  }
+  return response.blob();
+}
+
 export function getDownloadCapabilities(): Promise<DownloadCapabilitiesResponse> {
   return api<DownloadCapabilitiesResponse>("/api/download/capabilities");
 }
 
-export function searchDownloads(request: {node_id: string; query: string; author?: string; sort?: string; token?: string}): Promise<{id: string; downloads: number; likes: number; gated?: string}[]> {
+export function searchDownloads(request: {node_id: string; query: string; author?: string; pipeline_tag?: string; filters?: string[]; num_parameters?: string; gated?: string; inference?: string; apps?: string[]; inference_providers?: string[]; trained_datasets?: string[]; sort?: string; direction?: string; token?: string}): Promise<{id: string; downloads: number; likes: number; gated?: string}[]> {
   return api<{id: string; downloads: number; likes: number; gated?: string}[]>("/api/download/search", {method: "POST", body: JSON.stringify(request)});
+}
+
+export function searchDownloadPage(request: {node_id: string; query: string; author?: string; pipeline_tag?: string; filters?: string[]; num_parameters?: string; gated?: string; inference?: string; apps?: string[]; inference_providers?: string[]; trained_datasets?: string[]; sort?: string; direction?: string; cursor?: string; limit?: number; token?: string}, signal?: AbortSignal): Promise<{results: {id: string; downloads: number; likes: number; gated?: string; tags?: string[]}[]; next_cursor?: string}> {
+  return api("/api/download/search-page", {method: "POST", body: JSON.stringify(request), ...(signal ? {signal} : {})});
 }
 
 export function planDownload(request: {node_id: string; repository: string; revision?: string; files: string[]; mode: string; token?: string}): Promise<DownloadPlan> {

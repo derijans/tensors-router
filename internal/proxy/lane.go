@@ -33,6 +33,9 @@ func newActiveConfigState() *activeConfigState {
 }
 
 func (service *Service) acquireModelConfigForBackendMode(mode string, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (*backendRuntime, func(), bool, error) {
+	if err := service.ensureModelAssets(ctx, configFilename); err != nil {
+		return nil, nil, false, err
+	}
 	if err := service.ensureBackendFamily(ctx, mode); err != nil {
 		return nil, nil, false, err
 	}

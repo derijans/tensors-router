@@ -28,3 +28,14 @@ func TestSmartPlanKeepsRequiredDependencies(t *testing.T) {
 		t.Fatalf("explicit plan should not add dependencies %#v", plan.Files)
 	}
 }
+
+func TestGatedRepositoryRequiresUnsafeConfirmation(t *testing.T) {
+	details := RepositoryDetails{Repository: "owner/model", Revision: "main", Commit: "0123456789abcdef0123456789abcdef01234567", Gated: "manual", Files: []File{{Path: "model.gguf", Size: 10}}}
+	plan, err := BuildPlan(details, []string{"model.gguf"}, "explicit", t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !plan.UnsafeWarning {
+		t.Fatal("gated repository did not require confirmation")
+	}
+}

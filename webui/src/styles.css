@@ -419,6 +419,59 @@ td {
   gap: 8px;
 }
 
+.download-filters {
+  display: grid;
+  gap: 8px;
+  margin: 14px 0;
+  padding: 12px;
+  border: 1px solid rgba(38, 57, 73, .95);
+  border-radius: 8px;
+  background: rgba(6, 13, 22, .9);
+}
+
+.filter-tabs,
+.filter-options,
+.filter-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.filter-tabs button,
+.filter-chip {
+  min-height: 28px;
+}
+
+.filter-tabs button.active,
+.filter-chip.active {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.filter-group {
+  flex: 1 1 100%;
+  padding-top: 6px;
+  border-top: 1px solid rgba(38, 57, 73, .7);
+}
+
+.filter-group h4 {
+  margin: 0 0 6px;
+}
+
+.filter-group-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.candidate-exact {
+  border-color: var(--cyan);
+}
+
+.candidate-mismatched {
+  border-color: var(--amber);
+}
+
 .download-entry {
   border: 1px solid rgba(38, 57, 73, .95);
   border-radius: 8px;
@@ -430,6 +483,41 @@ td {
   display: grid;
   gap: 6px;
   min-width: min(340px, 100%);
+}
+
+.resolution-results {
+  display: grid;
+  gap: 4px;
+}
+
+.resolution-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.asset-badge {
+  display: inline-flex;
+  padding: 2px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+}
+
+.asset-ready {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+
+.asset-unresolved,
+.asset-resolving {
+  border-color: var(--amber);
+  color: var(--amber);
+}
+
+.asset-failed {
+  border-color: var(--red);
+  color: var(--red);
 }
 
 .status-grid,

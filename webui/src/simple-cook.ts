@@ -1,10 +1,10 @@
-import { deleteConfigFile, errorBody, previewConfigFile, applyConfigFile } from "./api";
+import { applyConfigFile, deleteConfigFile, errorBody, exportPortableConfig, previewConfigFile } from "./api";
 import { elements } from "./elements";
 import { state } from "./state";
 import { clearConversionScope, confirmPendingConversions, discardConversion, invalidateAcceptedConversions, recordConversion } from "./conversions";
 import { cookResultHTML } from "./cook-result";
 import { confirmDestructive } from "./dialogs";
-import { markSimpleCookClean } from "./dirty-state";
+import { isSimpleCookDirty, markSimpleCookClean } from "./dirty-state";
 import {
   backendModeKey,
   backendModeLabels,
@@ -56,6 +56,24 @@ export function renderSimpleCook(): void {
   renderAddFieldSelect();
   renderConfigEditor();
   renderFieldSidebar();
+}
+
+export async function exportSimpleConfig(): Promise<void> {
+  const config = selectedConfig();
+  const node = selectedNode();
+  if (!config || !node) {
+    throw new Error("Select a saved config to export");
+  }
+  if (isSimpleCookDirty()) {
+    throw new Error("Save or discard Simple Cook changes before exporting");
+  }
+  const content = await exportPortableConfig({node_id: node.node_id, ...(node.node_url ? {node_url: node.node_url} : {}), id: config.local_id, filename: config.filename});
+  const url = URL.createObjectURL(content);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${config.local_id}.kcpps`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 export function selectSimpleNode(nodeID: string): void {
@@ -257,7 +275,8 @@ function renderSimpleSelectors(): void {
   elements.simpleConfigSelect.value = state.simpleCook.configID;
   elements.simpleConfigSelect.disabled = configs.length === 0;
   elements.simpleCopyButton.disabled = Object.keys(state.simpleCook.fields || {}).length === 0;
-  elements.simpleDeleteButton.disabled = !selectedConfig();
+	elements.simpleDeleteButton.disabled = !selectedConfig();
+	elements.simpleExportButton.disabled = !selectedConfig() || isSimpleCookDirty();
   elements.simpleFieldFilter.value = state.simpleCook.fieldFilter;
 }
 

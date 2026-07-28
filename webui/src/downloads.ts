@@ -3,11 +3,18 @@ import {
   downloadJobAction,
   getDownloadCapabilities,
   getDownloadLibrary,
+  bindModelAssetCandidate,
+  findModelAssetCandidates,
+  lookupModelAsset,
+  loadModelConfig,
   planDownload,
   rescanDownloads,
-  searchDownloads
+  searchDownloadPage,
+  substituteModelAsset
 } from "./api";
 import { elements } from "./elements";
+import { normalizeModelHash, normalizeParameterRange, parseOfficialHFURL, splitSearchFilters } from "./download-finder-data";
+import { hfFilterCatalog, hfFilterCatalogVersion } from "./hf-filter-catalog";
 import { state } from "./state";
 import { escapeAttribute, escapeHTML, formatBytes } from "./utils";
 import type { DownloadJob } from "./types";
@@ -48,17 +55,227 @@ export async function loadDownloadLibrary(): Promise<void> {
   renderDownloads();
 }
 
-export async function searchDownloadRepositories(): Promise<void> {
+let searchController: AbortController | null = null;
+let searchDebounce: number | undefined;
+
+export async function searchDownloadRepositories(append = false): Promise<void> {
   if (!state.downloads.nodeID) {
     throw new Error("Select a download node first");
   }
   const token = downloadToken();
-  state.downloads.search = await searchDownloads({
+  const mode = elements.downloadSearchMode.value;
+  const query = elements.downloadSearchInput.value.trim();
+  if (mode !== "text") {
+    searchController?.abort();
+    searchController = new AbortController();
+    await runSpecialFinderMode(mode, query, token, searchController.signal);
+    renderDownloads();
+    return;
+  }
+  const parameters = parameterRange();
+  const rawTags = elements.downloadRawTagInput.value.split(",").map(value => value.trim()).filter(Boolean);
+  const searchFilters = splitSearchFilters([...state.downloads.filters, ...rawTags]);
+  searchController?.abort();
+  searchController = new AbortController();
+  const page = await searchDownloadPage({
     node_id: state.downloads.nodeID,
-    query: elements.downloadSearchInput.value.trim(),
+    query,
+    ...(elements.downloadAuthorInput.value.trim() ? {author: elements.downloadAuthorInput.value.trim()} : {}),
+    ...(elements.downloadPipelineInput.value.trim() ? {pipeline_tag: elements.downloadPipelineInput.value.trim()} : {}),
+    filters: searchFilters.filters,
+    apps: searchFilters.apps,
+    inference_providers: searchFilters.providers,
+    trained_datasets: searchFilters.datasets,
+    ...(searchFilters.inference ? {inference: "true"} : {}),
+    sort: elements.downloadSortSelect.value,
+    direction: elements.downloadDirectionSelect.value,
+    ...(append && state.downloads.nextCursor ? {cursor: state.downloads.nextCursor} : {}),
+    limit: 20,
+    ...(elements.downloadGatedSelect.value ? {gated: elements.downloadGatedSelect.value} : {}),
+    ...(parameters ? {num_parameters: parameters} : {}),
+    ...(token ? {token} : {})
+  }, searchController.signal);
+  state.downloads.search = append ? [...state.downloads.search, ...page.results] : page.results;
+  state.downloads.observedFilters = [...new Set([
+    ...state.downloads.observedFilters,
+    ...page.results.flatMap(result => result.tags || []).filter(validObservedFilter)
+  ])].slice(-160);
+  state.downloads.nextCursor = page.next_cursor || "";
+  renderDownloads();
+}
+
+export function updateDownloadSearchMode(): void {
+  const placeholders: Record<string, string> = {
+    text: "Repository or author",
+    url: "https://huggingface.co/owner/repository",
+    hash: "Lowercase SHA-256",
+    filename: "Exact model filename"
+  };
+  elements.downloadSearchInput.placeholder = placeholders[elements.downloadSearchMode.value] || "Repository or author";
+  state.downloads.search = [];
+  state.downloads.candidates = [];
+  state.downloads.nextCursor = "";
+  state.downloads.finderMessage = "";
+  renderDownloads();
+}
+
+export function prefillDownloadContext(context: {nodeID: string; publicID: string; configID: string; configFilename: string; field: string; position?: number; filename: string; hash: string}): void {
+  if (state.downloads.capabilities?.nodes.some(node => node.node_id === context.nodeID)) {
+    state.downloads.nodeID = context.nodeID;
+  }
+  state.downloads.modelHandoff = context;
+  elements.downloadSearchMode.value = "filename";
+  elements.downloadSearchInput.value = context.filename;
+  elements.downloadExpectedHashInput.value = context.hash;
+  updateDownloadSearchMode();
+  state.downloads.finderMessage = "Prefilled from unresolved Models load. Search to verify repository candidates.";
+  renderDownloads();
+}
+
+export async function replaceDownloadCandidate(index: number): Promise<void> {
+  const candidate = state.downloads.candidates[index];
+  const context = state.downloads.modelHandoff;
+  if (!candidate || candidate.state !== "mismatched" || !candidate.sha256 || !context) {
+    throw new Error("A verified mismatching Models candidate is required");
+  }
+  const token = downloadToken();
+  await substituteModelAsset({
+    node_id: context.nodeID,
+    id: context.configID,
+    filename: context.configFilename,
+    field: context.field,
+    ...(context.position === undefined ? {} : {position: context.position}),
+    expected_sha256: context.hash,
+    sha256: normalizeModelHash(candidate.sha256),
+    repository: candidate.repository,
+    repository_path: candidate.repository_path,
+    commit: candidate.commit,
+    ...(token ? {token} : {}),
+    confirm: true
+  });
+  state.downloads.modelHandoff = null;
+  state.downloads.finderMessage = `Config intentionally updated to ${candidate.repository_path}; loading model`;
+  renderDownloads();
+  await loadModelConfig({model: context.publicID});
+  state.downloads.finderMessage = `Config intentionally updated to ${candidate.repository_path} and loaded`;
+  renderDownloads();
+}
+
+export async function bindDownloadCandidate(index: number): Promise<void> {
+  const candidate = state.downloads.candidates[index];
+  const hash = normalizedExpectedHash();
+  if (!candidate || candidate.state !== "exact" || !state.downloads.nodeID) {
+    throw new Error("Only an exact verified candidate can be bound");
+  }
+  const token = downloadToken();
+  await bindModelAssetCandidate({
+    node_id: state.downloads.nodeID,
+    sha256: hash,
+    repository: candidate.repository,
+    repository_path: candidate.repository_path,
+    commit: candidate.commit,
     ...(token ? {token} : {})
   });
+  state.downloads.finderMessage = `Verified origin bound for ${candidate.repository_path}`;
   renderDownloads();
+}
+
+export function debounceDownloadSearch(): void {
+  if (searchDebounce !== undefined) {
+    window.clearTimeout(searchDebounce);
+  }
+  searchDebounce = window.setTimeout(() => {
+    void searchDownloadRepositories(false).catch(error => {
+      if (error instanceof DOMException && error.name === "AbortError") {
+        return;
+      }
+      state.downloads.error = error instanceof Error ? error.message : String(error);
+      renderDownloads();
+    });
+  }, 300);
+}
+
+export function selectDownloadFilterTab(tab: string): void {
+  if (hfFilterCatalog[tab]) {
+    state.downloads.filterTab = tab;
+    renderDownloads();
+  }
+}
+
+export function toggleDownloadFilter(filter: string): void {
+  if (!allAvailableFilters().has(filter)) {
+    return;
+  }
+  state.downloads.filters = state.downloads.filters.includes(filter)
+    ? state.downloads.filters.filter(value => value !== filter)
+    : [...state.downloads.filters, filter];
+  renderDownloads();
+}
+
+export function toggleDownloadFilterGroup(groupID: string): void {
+  const key = `${state.downloads.filterTab}:${groupID}`;
+  state.downloads.expandedFilterGroups = state.downloads.expandedFilterGroups.includes(key)
+    ? state.downloads.expandedFilterGroups.filter(value => value !== key)
+    : [...state.downloads.expandedFilterGroups, key];
+  renderDownloads();
+}
+
+export function updateDownloadFilterSearch(): void {
+  renderDownloads();
+}
+
+export function clearDownloadFilter(filter: string): void {
+  state.downloads.filters = state.downloads.filters.filter(value => value !== filter);
+  renderDownloads();
+}
+
+async function runSpecialFinderMode(mode: string, query: string, token: string | undefined, signal: AbortSignal): Promise<void> {
+  state.downloads.search = [];
+  state.downloads.candidates = [];
+  state.downloads.nextCursor = "";
+  state.downloads.finderMessage = "";
+  if (mode === "url") {
+    const parsed = parseOfficialHFURL(query);
+    elements.downloadRepositoryInput.value = parsed.repository;
+    elements.downloadRevisionInput.value = parsed.revision;
+    if (parsed.file) {
+      elements.downloadFilesInput.value = parsed.file;
+    }
+    state.downloads.search = [{id: parsed.repository, downloads: 0, likes: 0}];
+    state.downloads.finderMessage = parsed.file ? "Official Hugging Face file URL parsed" : "Official Hugging Face repository URL parsed";
+    return;
+  }
+  if (mode === "hash") {
+    const hash = normalizeModelHash(query);
+    const result = await lookupModelAsset(hash, signal);
+    state.downloads.finderMessage = `${result.available ? `Available on ${(result.nodes || []).length} router node(s)` : "Not locally available"}${result.origin ? ` · learned origin ${result.origin}` : ""}`;
+    if (result.origin) {
+      const parsed = parseOfficialHFURL(result.origin);
+      elements.downloadRepositoryInput.value = parsed.repository;
+      elements.downloadRevisionInput.value = parsed.revision;
+      elements.downloadFilesInput.value = parsed.file;
+      state.downloads.search = [{id: parsed.repository, downloads: 0, likes: 0}];
+    }
+    return;
+  }
+  if (mode === "filename") {
+    if (!state.downloads.nodeID) {
+      throw new Error("Select a download node first");
+    }
+    if (!/^[^/\\\0]{1,255}$/.test(query) || query === "." || query === "..") {
+      throw new Error("Enter a safe exact filename");
+    }
+    const hash = normalizedExpectedHash();
+    state.downloads.candidates = await findModelAssetCandidates({node_id: state.downloads.nodeID, sha256: hash, filename: query, ...(token ? {token} : {})}, signal);
+    const exact = state.downloads.candidates.filter(candidate => candidate.state === "exact").length;
+    state.downloads.finderMessage = `${state.downloads.candidates.length} candidate file(s), ${exact} exact SHA-256 match${exact === 1 ? "" : "es"}`;
+    return;
+  }
+  throw new Error("Unsupported search mode");
+}
+
+function normalizedExpectedHash(): string {
+  return normalizeModelHash(elements.downloadExpectedHashInput.value.trim());
 }
 
 export async function previewDownloadPlan(): Promise<void> {
@@ -137,16 +354,69 @@ export function renderDownloads(): void {
   const configuredToken = node?.capability.configured_token ? "configured fallback token is available" : "anonymous access unless a temporary token is entered";
   elements.downloadStatus.textContent = state.downloads.error || configuredToken;
   elements.downloadStartButton.disabled = state.downloads.plan === null;
-  elements.downloadSearchResults.innerHTML = state.downloads.search.map(result => `
+  renderDownloadFilters();
+  elements.downloadSearchResults.innerHTML = `${state.downloads.finderMessage ? `<p class="action-status">${escapeHTML(state.downloads.finderMessage)}</p>` : ""}${state.downloads.search.map(result => `
     <button class="download-entry" type="button" data-download-repository="${escapeAttribute(result.id)}">
       <strong>${escapeHTML(result.id)}</strong><span>${result.downloads} downloads · ${result.likes} likes${result.gated ? " · gated" : ""}</span>
     </button>
-  `).join("");
+  `).join("")}${state.downloads.candidates.map((candidate, index) => `
+    <div class="download-entry candidate-${escapeAttribute(candidate.state)}">
+      <strong>${escapeHTML(candidate.repository)} / ${escapeHTML(candidate.repository_path)}</strong>
+      <span>${escapeHTML(candidate.state)} · ${escapeHTML(candidate.sha256 || "no verifiable LFS SHA-256")}</span>
+      ${candidate.state === "exact" ? `<button type="button" data-download-candidate-bind="${index}">Bind verified origin</button>` : ""}
+      ${candidate.state === "mismatched" && state.downloads.modelHandoff && candidate.sha256 ? `<button type="button" class="danger" data-download-candidate-replace="${index}">Replace expected model</button>` : ""}
+    </div>
+  `).join("")}`;
+  elements.downloadNextPageButton.hidden = !state.downloads.nextCursor;
   elements.downloadPlanOutput.innerHTML = state.downloads.plan ? renderPlan(state.downloads.plan) : "";
   elements.downloadJobs.innerHTML = (state.downloads.library?.jobs || []).map(renderJob).join("") || "<p class=\"muted\">No download jobs on this node.</p>";
   elements.downloadLibrary.innerHTML = (state.downloads.library?.artifacts || []).map(artifact => `
     <div class="download-entry"><strong>${escapeHTML(artifact.path)}</strong><span>${formatBytes(artifact.size)} · ${escapeHTML(artifact.verification_source)} · ${escapeHTML(artifact.sha256)}</span></div>
   `).join("") || "<p class=\"muted\">No indexed artifacts on this node.</p>";
+}
+
+function renderDownloadFilters(): void {
+  const activeTab = state.downloads.filterTab;
+  const query = elements.downloadFilterSearch.value.trim().toLocaleLowerCase();
+  const groups = [...(hfFilterCatalog[activeTab] || [])];
+  if (activeTab === "main" && state.downloads.observedFilters.length > 0) {
+    groups.push({id: "observed", label: "From current results", values: state.downloads.observedFilters});
+  }
+  elements.downloadFilterTabs.innerHTML = Object.keys(hfFilterCatalog).map(tab => `<button type="button" data-download-filter-tab="${escapeAttribute(tab)}"${tab === activeTab ? " class=\"active\"" : ""}>${escapeHTML(tab)}</button>`).join("");
+  elements.downloadFilterOptions.dataset.catalogVersion = String(hfFilterCatalogVersion);
+  elements.downloadFilterOptions.innerHTML = groups.map(group => renderFilterGroup(activeTab, group.id, group.label, group.values, query)).join("") || "<span class=\"muted\">No filters match.</span>";
+  elements.downloadFilterSummary.innerHTML = state.downloads.filters.length === 0 ? "<span class=\"muted\">No metadata filters selected.</span>" : state.downloads.filters.map(filter => `<button type="button" class="chip" data-download-filter-clear="${escapeAttribute(filter)}">${escapeHTML(filter)} ×</button>`).join("");
+}
+
+function renderFilterGroup(activeTab: string, groupID: string, label: string, values: string[], query: string): string {
+  const matching = values.filter(value => !query || value.toLocaleLowerCase().includes(query));
+  if (matching.length === 0) {
+    return "";
+  }
+  const expanded = query.length > 0 || state.downloads.expandedFilterGroups.includes(`${activeTab}:${groupID}`);
+  const visible = expanded ? matching : matching.slice(0, 10);
+  const remaining = matching.length - visible.length;
+  const toggle = remaining > 0
+    ? `<button type="button" class="filter-chip" data-download-filter-group="${escapeAttribute(groupID)}">+${remaining} more</button>`
+    : expanded && matching.length > 10
+      ? `<button type="button" class="filter-chip" data-download-filter-group="${escapeAttribute(groupID)}">Show less</button>`
+      : "";
+  return `<section class="filter-group"><h4>${escapeHTML(label)}</h4><div class="filter-group-options">${visible.map(filter => `<button type="button" class="filter-chip${state.downloads.filters.includes(filter) ? " active" : ""}" data-download-filter="${escapeAttribute(filter)}">${escapeHTML(filterLabel(filter))}</button>`).join("")}${toggle}</div></section>`;
+}
+
+function allAvailableFilters(): Set<string> {
+  return new Set([
+    ...Object.values(hfFilterCatalog).flatMap(groups => groups.flatMap(group => group.values)),
+    ...state.downloads.observedFilters
+  ]);
+}
+
+function validObservedFilter(value: string): boolean {
+  return value.length > 0 && value.length <= 128 && /^[\w.+:/-]+$/u.test(value);
+}
+
+function filterLabel(value: string): string {
+  return value.replace(/^(?:app|provider|dataset|library|language|license):/, "");
 }
 
 function renderPlan(plan: {commit: string; destination: string; total_bytes: number; unsafe_warning: boolean; files: {path: string; size: number; required: boolean; reason: string}[]}): string {
@@ -179,4 +449,8 @@ function requestedFiles(): string[] {
 function downloadToken(): string | undefined {
   const token = elements.downloadTokenInput.value.trim();
   return token || undefined;
+}
+
+function parameterRange(): string | undefined {
+  return normalizeParameterRange(elements.downloadParameterMin.value.trim(), elements.downloadParameterMax.value.trim());
 }

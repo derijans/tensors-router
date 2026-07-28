@@ -27,6 +27,8 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		service.handleSiteDownloadCapabilities(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/download/search":
 		service.handleSiteDownloadSearch(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/download/search-page":
+		service.handleSiteDownloadSearchPage(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/download/repository":
 		service.handleSiteDownloadRepository(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/download/plan":
@@ -71,11 +73,69 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		service.handleSiteConfigFileApply(w, r)
 	case r.Method == http.MethodDelete && r.URL.Path == "/router/v1/site/config-file":
 		service.handleSiteConfigFileDelete(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-assets/export":
+		service.handleSiteModelAssetExport(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-assets/resolve":
+		service.handleSiteModelAssetResolve(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-assets/resolve-batch":
+		service.handleSiteModelAssetResolveBatch(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-assets/jobs":
+		service.handleSiteModelAssetCreateJob(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-assets/bind":
+		service.handleSiteModelAssetBinding(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-assets/candidates":
+		service.handleSiteModelAssetCandidates(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-assets/substitute":
+		service.handleSiteModelAssetSubstitution(w, r)
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/site/model-assets/jobs/"):
+		service.handleSiteModelAssetJob(w, r)
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/site/model-assets/"):
+		service.handleSiteModelAssetLookup(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/models":
 		service.handleRouterModels(w)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/models":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeModels(w)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/resolve":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeModelAssetResolve(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/export":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeModelAssetExport(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/jobs":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeModelAssetCreateJob(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/bind":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeModelAssetBinding(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/candidates":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeModelAssetCandidates(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/substitute":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeModelAssetSubstitution(w, r)
+		}
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/node/site/model-assets/jobs/"):
+		if service.requireClusterToken(w, r) {
+			service.handleNodeModelAssetJob(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/assets/lookup":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeAssetLookup(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/assets/lookup-cluster":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeClusterAssetLookup(w, r)
+		}
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/node/assets/"):
+		if service.requireClusterToken(w, r) {
+			service.handleNodeAssetStream(w, r)
 		}
 	case strings.HasPrefix(r.URL.Path, "/router/v1/node/inference/"):
 		if service.requireClusterToken(w, r) {
@@ -92,6 +152,10 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/download/search":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeDownloadSearch(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/download/search-page":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeDownloadSearchPage(w, r)
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/download/repository":
 		if service.requireClusterToken(w, r) {
