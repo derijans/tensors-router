@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -89,6 +92,59 @@ func TestReloadConfigUsesAdminEndpoint(t *testing.T) {
 	}
 	if !sawAuthorization {
 		t.Fatalf("expected authorization header")
+	}
+}
+
+func TestReloadConfigPreservesMixedCaseConfigOnCaseNormalizingBackend(t *testing.T) {
+	configDir := t.TempDir()
+	filename := "Gemma4-31B-Nothhink.kcpps"
+	content := []byte(`{"jinja_kwargs":"{\\"enable_thinking\\":false}"}`)
+	if err := os.WriteFile(filepath.Join(configDir, filename), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" {
+		if err := os.WriteFile(filepath.Join(configDir, strings.ToLower(filename)), []byte(`{"wrong":true}`), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var reloaded string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/admin/reload_config":
+			var payload map[string]string
+			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
+				t.Fatal(err)
+			}
+			reloaded = strings.ToLower(payload["filename"])
+			loaded, err := os.ReadFile(filepath.Join(configDir, reloaded))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(loaded) != string(content) {
+				t.Fatalf("backend loaded wrong config: %s", loaded)
+			}
+			_, _ = w.Write([]byte(`{"success":true}`))
+		case "/api/extra/version":
+			_, _ = w.Write([]byte(`{"result":"ok"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	manager, err := NewManager(ProcessConfig{BackendURL: server.URL, ConfigDir: configDir, Multiuser: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.ReloadConfig(context.Background(), filename); err != nil {
+		t.Fatal(err)
+	}
+	if reloaded == strings.ToLower(filename) {
+		t.Fatalf("mixed-case filename was sent directly as %q", reloaded)
+	}
+	if _, err := os.Stat(filepath.Join(configDir, reloaded)); !os.IsNotExist(err) {
+		t.Fatalf("staged config was not removed: %v", err)
 	}
 }
 
