@@ -16,11 +16,34 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/modelassets"
 )
+
+func TestPeerDiscoveryStopsAtLookupDeadline(t *testing.T) {
+	releaseHandler := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-releaseHandler
+	}))
+	defer server.Close()
+	defer close(releaseHandler)
+	service := NewService(ServiceConfig{
+		ClusterRole:   cluster.RoleSlave,
+		MasterURL:     server.URL,
+		ClusterClient: cluster.NewClient("", server.URL),
+	})
+	service.assetLookupTimeout = 20 * time.Millisecond
+	started := time.Now()
+	if sources := service.lookupCoordinatedAssetSources(strings.Repeat("a", 64)); len(sources) != 0 {
+		t.Fatalf("unexpected peer sources: %#v", sources)
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("peer discovery exceeded its deadline: %s", elapsed)
+	}
+}
 
 func TestEnsureModelAssetsResolvesPortableConfig(t *testing.T) {
 	root := t.TempDir()

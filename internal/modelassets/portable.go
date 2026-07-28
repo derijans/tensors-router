@@ -10,9 +10,10 @@ import (
 )
 
 var modelFields = map[string]struct{}{
-	"model": {}, "model_param": {}, "mmproj": {}, "draftmodel": {},
+	"model": {}, "model_param": {}, "mmproj": {}, "draftmodel": {}, "lora": {},
 	"sdmodel": {}, "sddiffusionmodel": {}, "sdhighnoisediffusionmodel": {}, "sdunconddiffusionmodel": {},
-	"sdupscaler": {}, "sdvae": {}, "sdt5xxl": {}, "sdclip1": {}, "sdclip2": {}, "sdclipl": {}, "sdclipg": {}, "sdphotomaker": {}, "sdlora": {},
+	"sdupscaler": {}, "sdvae": {}, "sdaudiovae": {}, "sdt5xxl": {}, "sdclip1": {}, "sdclip2": {}, "sdclipl": {}, "sdclipg": {}, "sdclipvision": {},
+	"sdphotomaker": {}, "sdlora": {}, "sdllm": {}, "sdllmvision": {}, "sdembeddingsconnectors": {}, "sdcontrolnet": {}, "sdpulidweights": {}, "sdpulididembedding": {},
 	"whispermodel": {}, "ttsmodel": {}, "ttswavtokenizer": {}, "talkermodel": {}, "code2wavmodel": {},
 	"musicllm": {}, "musicembeddings": {}, "musicdiffusion": {}, "musicvae": {}, "embeddingsmodel": {},
 }

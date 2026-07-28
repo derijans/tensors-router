@@ -118,6 +118,8 @@ type Service struct {
 	assetTransferSlots   chan struct{}
 	assetLookupMu        sync.Mutex
 	assetLookupCache     map[string]assetLookupCacheEntry
+	assetLookupTimeout   time.Duration
+	assetTransferTimeout time.Duration
 	recipeStore          *recipes.Store
 	benchmarkStore       *routerbenchmark.Store
 	analyticsStore       *routeranalytics.Store
@@ -150,6 +152,7 @@ const (
 	backendErrorBodyLimit        = 1024
 	backendResponseMetadataLimit = 1 << 20
 	modelOperationTimeout        = 15 * time.Minute
+	assetLookupTimeout           = 30 * time.Second
 	BackendModeKobold            = backendmode.Kobold
 	BackendModeLlamaSDCPP        = backendmode.LlamaSDCPP
 )
@@ -296,6 +299,8 @@ func NewService(config ServiceConfig) *Service {
 		assetIndex:           config.AssetIndex,
 		assetTransferSlots:   make(chan struct{}, concurrentAssetTransfers),
 		assetLookupCache:     make(map[string]assetLookupCacheEntry),
+		assetLookupTimeout:   assetLookupTimeout,
+		assetTransferTimeout: modelOperationTimeout,
 		recipeStore:          config.RecipeStore,
 		benchmarkStore:       config.BenchmarkStore,
 		analyticsStore:       config.AnalyticsStore,

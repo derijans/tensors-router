@@ -1,6 +1,6 @@
 import { createModelAssetResolutionJob, getModelAssetResolutionJob, loadModelConfig } from "./api";
 import type { ModelAssetResolutionJob } from "./api";
-import { filteredModels } from "./data";
+import { visibleModelsForResolution } from "./data";
 import { elements } from "./elements";
 import { state } from "./state";
 import { escapeAttribute, escapeHTML } from "./utils";
@@ -54,10 +54,9 @@ function handoffUnresolvedModel(id: string): void {
 
 export async function resolveFilteredModels(refreshInventory: () => Promise<void>): Promise<void> {
   const selectedNodes = [...elements.modelsNodeFilter.selectedOptions].map(option => option.value);
-  const models = filteredModels(elements.filterInput.value.trim().toLowerCase(), selectedNodes)
-    .filter(model => model.asset_state === "unresolved" || model.asset_state === "failed");
+  const models = visibleModelsForResolution(elements.filterInput.value.trim().toLowerCase(), selectedNodes);
   if (models.length === 0) {
-    setModelActionStatus("No unresolved visible configs", false);
+    setModelActionStatus("No visible configs", false);
     return;
   }
   const requests = models.map(model => ({node_id: model.node_id || "", ...(model.node_url ? {node_url: model.node_url} : {}), id: model.local_id, filename: model.filename}));

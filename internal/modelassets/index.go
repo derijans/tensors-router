@@ -123,6 +123,9 @@ func (index *Index) load() error {
 			_ = rows.Close()
 			return err
 		}
+		if !validHash(asset.SHA256) || !safeFilename(asset.Filename) || asset.Size < 0 {
+			continue
+		}
 		asset.VerifiedAt, _ = time.Parse(time.RFC3339Nano, verified)
 		index.assets[asset.SHA256] = asset
 		origin := Origin{Repository: asset.Repository, Commit: asset.Commit, Path: asset.RepositoryPath}
@@ -186,6 +189,14 @@ func (index *Index) IndexFile(path string) (Asset, error) {
 }
 
 func (index *Index) indexFile(path string) (Asset, error) {
+	requestedPath, err := filepath.Abs(path)
+	if err != nil {
+		return Asset{}, err
+	}
+	filename := filepath.Base(requestedPath)
+	if !safeFilename(filename) {
+		return Asset{}, fmt.Errorf("asset has an unsafe filename")
+	}
 	absolute, info, err := regularFile(path)
 	if err != nil {
 		return Asset{}, err
@@ -194,7 +205,7 @@ func (index *Index) indexFile(path string) (Asset, error) {
 	if err != nil {
 		return Asset{}, err
 	}
-	asset := Asset{SHA256: hash, Filename: filepath.Base(absolute), Size: info.Size(), Path: absolute, VerificationSource: "sha256", VerifiedAt: time.Now().UTC()}
+	asset := Asset{SHA256: hash, Filename: filename, Size: info.Size(), Path: absolute, VerificationSource: "sha256", VerifiedAt: time.Now().UTC()}
 	index.mu.Lock()
 	index.assets[hash] = asset
 	index.mu.Unlock()
@@ -392,7 +403,7 @@ func (index *Index) Lookup(hash string) (Asset, bool) {
 	index.mu.Lock()
 	asset, found := index.assets[hash]
 	index.mu.Unlock()
-	if !found {
+	if !found || !safeFilename(asset.Filename) {
 		return Asset{}, false
 	}
 	absolute, info, err := regularFile(asset.Path)

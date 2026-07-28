@@ -149,25 +149,16 @@ func runServe(args []string) error {
 	clusterClient := routercluster.NewClient(cfg.Cluster.Token, clusterClientTargets(cfg)...)
 	downloaderManager, downloaderCapability := optionalDownloader(*configPath, cfg.Downloader, startupLogger)
 	if downloaderManager != nil {
+		downloaderManager.SetArtifactHandler(func(artifact downloader.ArtifactRecord) error {
+			return indexDownloadedArtifact(assetIndex, artifact)
+		})
 		artifacts, artifactErr := downloaderManager.Artifacts()
 		if artifactErr != nil {
 			return artifactErr
 		}
 		for _, artifact := range artifacts {
-			asset, indexErr := assetIndex.IndexFile(artifact.Path)
-			if indexErr != nil || asset.SHA256 != artifact.SHA256 {
-				continue
-			}
-			verificationSource := artifact.VerificationSource
-			if verificationSource == "" {
-				verificationSource = "sha256"
-			}
-			_ = assetIndex.SetVerificationSource(asset.SHA256, verificationSource)
-			origin := modelassets.Origin{Repository: artifact.Repository, Commit: artifact.Revision, Path: artifact.RepositoryPath}
-			if origin.URI() != "" {
-				if bindErr := assetIndex.BindOrigin(asset.SHA256, origin); bindErr != nil {
-					return bindErr
-				}
+			if indexErr := indexDownloadedArtifact(assetIndex, artifact); indexErr != nil {
+				startupLogger.Printf("download artifact indexing failed error_type=%T", indexErr)
 			}
 		}
 	}
@@ -267,6 +258,28 @@ func runServe(args []string) error {
 	drainErr := shutdownServer(server, cfg.Limits.DrainTimeout)
 	cleanupErr := cleanupRuntime()
 	return errors.Join(serveErr, drainErr, cleanupErr)
+}
+
+func indexDownloadedArtifact(index *modelassets.Index, artifact downloader.ArtifactRecord) error {
+	asset, err := index.IndexFile(artifact.Path)
+	if err != nil {
+		return err
+	}
+	if asset.SHA256 != artifact.SHA256 {
+		return fmt.Errorf("downloaded artifact hash differs from its record")
+	}
+	verificationSource := artifact.VerificationSource
+	if verificationSource == "" {
+		verificationSource = "sha256"
+	}
+	if err := index.SetVerificationSource(asset.SHA256, verificationSource); err != nil {
+		return err
+	}
+	origin := modelassets.Origin{Repository: artifact.Repository, Commit: artifact.Revision, Path: artifact.RepositoryPath}
+	if origin.URI() == "" {
+		return nil
+	}
+	return index.BindOrigin(asset.SHA256, origin)
 }
 
 func shutdownServer(server *http.Server, timeout time.Duration) error {

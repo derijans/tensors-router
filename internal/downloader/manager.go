@@ -14,16 +14,19 @@ import (
 )
 
 type Manager struct {
-	config      Config
-	store       *Store
-	hub         *HubClient
-	command     string
-	mu          sync.Mutex
-	running     map[string]context.CancelFunc
-	tokens      map[string]string
-	subscribers map[string]map[chan DownloadJob]struct{}
-	semaphore   chan struct{}
+	config          Config
+	store           *Store
+	hub             *HubClient
+	command         string
+	mu              sync.Mutex
+	running         map[string]context.CancelFunc
+	tokens          map[string]string
+	subscribers     map[string]map[chan DownloadJob]struct{}
+	semaphore       chan struct{}
+	artifactHandler func(ArtifactRecord) error
 }
+
+type ArtifactHandler func(ArtifactRecord) error
 
 func NewManager(config Config, command string) (*Manager, error) {
 	if err := ensureDirectory(config.Storage.Root); err != nil {
@@ -51,6 +54,12 @@ func (manager *Manager) Close() error {
 	manager.running = map[string]context.CancelFunc{}
 	manager.mu.Unlock()
 	return manager.store.Close()
+}
+
+func (manager *Manager) SetArtifactHandler(handler ArtifactHandler) {
+	manager.mu.Lock()
+	manager.artifactHandler = handler
+	manager.mu.Unlock()
 }
 
 func (manager *Manager) Capability() Capability {
@@ -243,7 +252,7 @@ func (manager *Manager) Rescan() ([]ArtifactRecord, error) {
 			if err != nil {
 				return err
 			}
-			if err := manager.store.SaveArtifact(record); err != nil {
+			if err := manager.recordArtifact(record); err != nil {
 				return err
 			}
 			artifacts = append(artifacts, record)
@@ -256,6 +265,9 @@ func (manager *Manager) Rescan() ([]ArtifactRecord, error) {
 		if record, found, err := manager.store.Artifact(filePath); err != nil {
 			return err
 		} else if found && record.Size == info.Size() && record.ModifiedUnixNano == info.ModTime().UnixNano() {
+			if err := manager.notifyArtifact(record); err != nil {
+				return err
+			}
 			artifacts = append(artifacts, record)
 			return nil
 		}
@@ -267,7 +279,7 @@ func (manager *Manager) Rescan() ([]ArtifactRecord, error) {
 		if err != nil {
 			return err
 		}
-		if err := manager.store.SaveArtifact(record); err != nil {
+		if err := manager.recordArtifact(record); err != nil {
 			return err
 		}
 		artifacts = append(artifacts, record)
@@ -443,13 +455,30 @@ func (manager *Manager) promote(job DownloadJob, file JobFile, stagedPath string
 	if err != nil {
 		return err
 	}
-	if err := manager.store.SaveArtifact(record); err != nil {
+	if err := manager.recordArtifact(record); err != nil {
 		return err
 	}
 	if manager.config.Scanning.WriteHashSidecars {
 		return WriteHashSidecar(destination, hash)
 	}
 	return nil
+}
+
+func (manager *Manager) recordArtifact(record ArtifactRecord) error {
+	if err := manager.store.SaveArtifact(record); err != nil {
+		return err
+	}
+	return manager.notifyArtifact(record)
+}
+
+func (manager *Manager) notifyArtifact(record ArtifactRecord) error {
+	manager.mu.Lock()
+	handler := manager.artifactHandler
+	manager.mu.Unlock()
+	if handler == nil {
+		return nil
+	}
+	return handler(record)
 }
 
 func (manager *Manager) stagingDirectory(job DownloadJob) (string, error) {

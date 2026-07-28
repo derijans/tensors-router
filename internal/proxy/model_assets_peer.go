@@ -224,7 +224,9 @@ func (service *Service) pullPeerAsset(nodeURL string, hash string, filename stri
 		return false
 	}
 	var lookup assetLookupResponse
-	if err := service.clusterClient.JSON(routedAssetContext(), http.MethodPost, nodeURL, "/router/v1/node/assets/lookup", assetLookupRequest{Hashes: []string{hash}}, &lookup); err != nil {
+	lookupContext, cancelLookup := context.WithTimeout(context.Background(), service.assetLookupTimeout)
+	defer cancelLookup()
+	if err := service.clusterClient.JSON(lookupContext, http.MethodPost, nodeURL, "/router/v1/node/assets/lookup", assetLookupRequest{Hashes: []string{hash}}, &lookup); err != nil {
 		return false
 	}
 	if len(lookup.Assets) != 1 || lookup.Assets[0].SHA256 != hash || lookup.Assets[0].Filename != filename || lookup.Assets[0].Size < 0 || lookup.Assets[0].Size > service.transportLimits.MaxResponseBytes {
@@ -240,7 +242,9 @@ func (service *Service) pullKnownPeerAsset(source assetLookupRecord, hash string
 	}
 	partialPath := service.peerPartialPath(hash)
 	offset := partialAssetSize(partialPath, source.Size)
-	response, err := service.clusterClient.StreamRange(routedAssetContext(), source.NodeURL, "/router/v1/node/assets/"+hash, offset)
+	transferContext, cancelTransfer := context.WithTimeout(context.Background(), service.assetTransferTimeout)
+	defer cancelTransfer()
+	response, err := service.clusterClient.StreamRange(transferContext, source.NodeURL, "/router/v1/node/assets/"+hash, offset)
 	if err != nil {
 		return false
 	}
@@ -282,20 +286,22 @@ func (service *Service) coordinatedAssetSources(hash string) []assetLookupRecord
 }
 
 func (service *Service) lookupCoordinatedAssetSources(hash string) []assetLookupRecord {
+	lookupContext, cancelLookup := context.WithTimeout(context.Background(), service.assetLookupTimeout)
+	defer cancelLookup()
 	request := assetLookupRequest{Hashes: []string{hash}}
 	if service.clusterRole == cluster.RoleSlave && service.masterURL != "" {
 		var response assetLookupResponse
-		if err := service.clusterClient.JSON(routedAssetContext(), http.MethodPost, service.masterURL, "/router/v1/node/assets/lookup-cluster", request, &response); err == nil {
+		if err := service.clusterClient.JSON(lookupContext, http.MethodPost, service.masterURL, "/router/v1/node/assets/lookup-cluster", request, &response); err == nil {
 			return response.Assets
 		}
 	}
 	if service.clusterRole == cluster.RoleMaster {
-		return service.lookupClusterAssets(routedAssetContext(), request).Assets
+		return service.lookupClusterAssets(lookupContext, request).Assets
 	}
 	values := make([]assetLookupRecord, 0)
 	for _, nodeURL := range service.assetPeerURLs() {
 		var response assetLookupResponse
-		if err := service.clusterClient.JSON(routedAssetContext(), http.MethodPost, nodeURL, "/router/v1/node/assets/lookup", request, &response); err != nil {
+		if err := service.clusterClient.JSON(lookupContext, http.MethodPost, nodeURL, "/router/v1/node/assets/lookup", request, &response); err != nil {
 			continue
 		}
 		for _, asset := range response.Assets {
@@ -305,8 +311,6 @@ func (service *Service) lookupCoordinatedAssetSources(hash string) []assetLookup
 	}
 	return values
 }
-
-func routedAssetContext() context.Context { return context.Background() }
 
 func (service *Service) promotePeerAsset(source io.Reader, expectedHash string, filename string, size int64, offset int64, partialResponse bool) bool {
 	if !modelassets.ValidHash(expectedHash) || !modelassets.SafeFilename(filename) || size < 0 || size > service.transportLimits.MaxResponseBytes {

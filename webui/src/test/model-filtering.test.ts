@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { filteredModels } from "../data";
+import { filteredModels, visibleModelsForResolution } from "../data";
 import { state } from "../state";
 
 describe("model filtering", () => {
@@ -17,5 +17,16 @@ describe("model filtering", () => {
     } as typeof state.inventory;
     expect(filteredModels("", ["node-a", "node-c"]).map(model => model.local_id)).toEqual(["alpha", "gamma"]);
     expect(filteredModels("beta", ["*"]).map(model => model.local_id)).toEqual(["beta"]);
+  });
+
+  it("submits every visible config regardless of asset state", () => {
+    state.inventory = {
+      models: [
+        {local_id: "ready", public_id: "ready", filename: "ready.kcpps", node_id: "node-a", asset_state: "ready"},
+        {local_id: "unresolved", public_id: "unresolved", filename: "unresolved.kcpps", node_id: "node-a", asset_state: "unresolved"},
+        {local_id: "failed", public_id: "failed", filename: "failed.kcpps", node_id: "node-b", asset_state: "failed"}
+      ]
+    } as typeof state.inventory;
+    expect(visibleModelsForResolution("", ["node-a"]).map(model => model.local_id)).toEqual(["ready", "unresolved"]);
   });
 });

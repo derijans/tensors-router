@@ -3,6 +3,7 @@ package modelassets
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -30,6 +31,18 @@ func TestIndexCachesAndRevalidatesAsset(t *testing.T) {
 	}
 	if _, ok := index.Find(asset.SHA256, "model.gguf"); ok {
 		t.Fatal("changed asset passed revalidation")
+	}
+}
+
+func TestIndexRejectsUnsafeFilenameBeforeFileAccess(t *testing.T) {
+	index, err := NewIndex(t.TempDir(), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = index.Close() })
+	_, err = index.IndexFile(filepath.Join(t.TempDir(), "CON"))
+	if err == nil || !strings.Contains(err.Error(), "unsafe filename") {
+		t.Fatalf("unsafe filename was not rejected at the index boundary: %v", err)
 	}
 }
 

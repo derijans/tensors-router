@@ -49,6 +49,10 @@ export function filteredModels(query: string, nodeIDs: string[] = []): Model[] {
   return models.filter(model => (allNodes || selectedNodes.has(model.node_id || "")) && (!query || JSON.stringify(model).toLowerCase().includes(query)));
 }
 
+export function visibleModelsForResolution(query: string, nodeIDs: string[] = []): Model[] {
+  return filteredModels(query, nodeIDs);
+}
+
 export function filteredFiles(query: string): FileRecord[] {
   const files = allNodeFiles();
   if (!query) {

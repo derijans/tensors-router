@@ -45,6 +45,34 @@ func TestExportAndResolvePortableConfig(t *testing.T) {
 	}
 }
 
+func TestExportCoversRegularModelRoleFields(t *testing.T) {
+	fields := []string{"lora", "sdaudiovae", "sdllm", "sdllmvision", "sdclipvision", "sdembeddingsconnectors", "sdcontrolnet", "sdpulidweights", "sdpulididembedding"}
+	config := make(map[string]any, len(fields))
+	for _, field := range fields {
+		config[field] = "C:/models/" + field + ".safetensors"
+	}
+	content, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	exported, err := Export(content, func(string) (string, error) { return testHash, nil }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var portable map[string]any
+	if err := json.Unmarshal(exported, &portable); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range fields {
+		if _, found := portable[field]; found {
+			t.Fatalf("model path %q was retained", field)
+		}
+		if portable[field+"_hash"] != testHash || portable[field+"_filename"] != field+".safetensors" {
+			t.Fatalf("model field %q was not exported: %#v", field, portable)
+		}
+	}
+}
+
 func TestExportRejectsMissingAndUnsafeValues(t *testing.T) {
 	_, err := Export([]byte(`{"model_param":"C:/models/main.gguf"}`), func(string) (string, error) { return "", errors.New("missing") }, nil)
 	if err == nil {
