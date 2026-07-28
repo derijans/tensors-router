@@ -6,6 +6,24 @@ It exposes text configs as `/v1/models`, exposes image configs through image mod
 
 `backend.mode: "kobold"` uses one KoboldCpp process. `backend.mode: "llama_sdcpp"` uses `llama-server` for LLM, embeddings, and multimodal requests, and `sd-server` for image requests.
 
+<table>
+  <tr>
+    <td><a href="docs/images/webui-live/router.png"><img src="docs/images/webui-live/router.png" alt="Router tab" width="320"></a></td>
+    <td><a href="docs/images/webui-live/nodes.png"><img src="docs/images/webui-live/nodes.png" alt="Nodes tab" width="320"></a></td>
+    <td><a href="docs/images/webui-live/webuis.png"><img src="docs/images/webui-live/webuis.png" alt="WebUIs tab" width="320"></a></td>
+  </tr>
+  <tr>
+    <td><a href="docs/images/webui-live/download.png"><img src="docs/images/webui-live/download.png" alt="Download tab" width="320"></a></td>
+    <td><a href="docs/images/webui-live/models.png"><img src="docs/images/webui-live/models.png" alt="Models tab" width="320"></a></td>
+    <td><a href="docs/images/webui-live/benchmarks.png"><img src="docs/images/webui-live/benchmarks.png" alt="Benchmarks tab" width="320"></a></td>
+  </tr>
+  <tr>
+    <td><a href="docs/images/webui-live/analytics.png"><img src="docs/images/webui-live/analytics.png" alt="Analytics tab" width="320"></a></td>
+    <td><a href="docs/images/webui-live/cook.png"><img src="docs/images/webui-live/cook.png" alt="Cook tab" width="320"></a></td>
+    <td><a href="docs/images/webui-live/recipes.png"><img src="docs/images/webui-live/recipes.png" alt="Recipes tab" width="320"></a></td>
+  </tr>
+</table>
+
 ## Build
 
 ```bash
