@@ -29,6 +29,50 @@ GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflag
 GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-s -w" -o dist/tensor-router-webui-linux-amd64 ./cmd/tensor-router-webui
 ```
 
+Windows:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
+```
+
+This creates the AMD64 router, WebUI, and downloader executables in `dist`. Use `-Architecture arm64` for Windows ARM64.
+
+## Local KoboldCpp smoke test
+
+On Windows, a local `bin\koboldcpp-nocuda.exe` and `.kcpps` model configs can be tested end-to-end without changing either file:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\test-koboldcpp.ps1 -Model gemma-4-E2B-it-low
+```
+
+The runner verifies the selected `.kcpps` model path, creates an isolated temporary runtime under `data-smoke`, starts the router and CPU-only KoboldCpp, checks `/v1/models`, makes one chat completion request, and stops both processes. Use `-KeepRuntime` to retain the generated config and `koboldcpp.log` after the run.
+
+## Manual router and cluster testing on Windows
+
+`scripts/start-koboldcpp-router.ps1` starts the router executable and its local `bin\koboldcpp-nocuda.exe` backend. Slave and standalone nodes run without a WebUI. A master always starts `tensor-router-webui` against the already-running master router, so it never launches a duplicate router process. Each node has an independent config, backend port, process ID, logs, and store under `data-manual\<node-id>`, so nodes stay running after the launcher returns.
+
+Start one standalone router:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-koboldcpp-router.ps1 -NodeId local -RouterPort 18080 -BackendPort 15001
+Invoke-RestMethod http://127.0.0.1:18080/v1/models
+```
+
+Run a local master and slave in separate terminals, or run the commands one after another. They use the same cluster token and different router/backend ports:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-koboldcpp-router.ps1 -NodeId master -Role master -RouterPort 18080 -BackendPort 15001 -WebUIPort 18443 -BackendUIPort 18444 -ClusterToken local-cluster-token -SlaveURL http://127.0.0.1:18081 -IncludeDownloader
+powershell -ExecutionPolicy Bypass -File .\scripts\start-koboldcpp-router.ps1 -NodeId slave-1 -Role slave -RouterPort 18081 -BackendPort 15002 -ClusterToken local-cluster-token -MasterURL http://127.0.0.1:18080
+Invoke-RestMethod http://127.0.0.1:18080/v1/models
+```
+
+Stop a node with the `Stop` command printed by its launcher. Use `-Wait` when you want the launcher terminal to remain attached to that node.
+
+The master WebUI is available at the printed HTTPS address; accept its generated local certificate in the browser. `-IncludeDownloader` creates `downloader.yaml` under that node's runtime directory and enables downloader routes on the router. It also makes the downloader panel available in the master WebUI.
+
+For the full one-machine master/slave walkthrough, see [Windows one-machine cluster testing](docs/windows-one-machine-cluster.md).
+
 ## Configure
 
 ```bash
