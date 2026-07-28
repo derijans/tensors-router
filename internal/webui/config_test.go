@@ -1,10 +1,14 @@
 package webui
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
+	"time"
 )
 
 func TestLoadConfigParsesSeparateWebUIConfig(t *testing.T) {
@@ -136,6 +140,45 @@ func TestManagedRouterLaunchArgumentsPropagateProfileAuthoritatively(t *testing.
 	want := []string{"serve", "--config", "router.yaml", "--x", "1", "--security-profile", "trusted_lan"}
 	if !reflect.DeepEqual(args, want) {
 		t.Fatalf("unexpected launch arguments %#v", args)
+	}
+}
+
+func TestResolveRouterLaunchConfigMakesPathsAbsoluteBeforeWorkingDirectoryChanges(t *testing.T) {
+	workingDirectory := t.TempDir()
+	previousDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(workingDirectory); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(previousDirectory) })
+
+	config, err := resolveRouterLaunchConfig(RouterConfig{BinaryPath: "bin/tensors-router", ConfigPath: "config.yaml"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config.BinaryPath != filepath.Join(workingDirectory, "bin", "tensors-router") {
+		t.Fatalf("unexpected binary path %q", config.BinaryPath)
+	}
+	if config.ConfigPath != filepath.Join(workingDirectory, "config.yaml") {
+		t.Fatalf("unexpected config path %q", config.ConfigPath)
+	}
+}
+
+func TestWaitHealthyReportsManagedRouterExitImmediately(t *testing.T) {
+	process := NewRouterProcess(RouterConfig{}, t.TempDir())
+	waitDone := make(chan error, 1)
+	waitDone <- fmt.Errorf("startup failed")
+	close(waitDone)
+
+	started := time.Now()
+	err := process.waitHealthy(context.Background(), time.Second, waitDone)
+	if err == nil || !strings.Contains(err.Error(), "startup failed") {
+		t.Fatalf("unexpected startup result %v", err)
+	}
+	if time.Since(started) >= time.Second {
+		t.Fatalf("router exit was hidden until the health timeout")
 	}
 }
 

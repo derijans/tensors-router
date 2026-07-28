@@ -13,11 +13,12 @@ import (
 )
 
 type Catalog struct {
-	refreshMu sync.Mutex
-	dir       string
-	hashStore *HashStore
-	snapshot  atomic.Pointer[catalogSnapshot]
-	readDir   func(string) ([]os.DirEntry, error)
+	refreshMu           sync.Mutex
+	dir                 string
+	hashStore           *HashStore
+	resolvedModelHashes map[string]struct{}
+	snapshot            atomic.Pointer[catalogSnapshot]
+	readDir             func(string) ([]os.DirEntry, error)
 }
 
 type catalogSnapshot struct {
@@ -54,7 +55,7 @@ type Model struct {
 }
 
 func New(dir string) *Catalog {
-	catalog := &Catalog{dir: dir, readDir: os.ReadDir}
+	catalog := &Catalog{dir: dir, resolvedModelHashes: map[string]struct{}{}, readDir: os.ReadDir}
 	if err := catalog.Refresh(); err != nil {
 		catalog.snapshot.Store(newCatalogSnapshot(nil, err))
 	}
@@ -66,8 +67,8 @@ func NewWithStore(dir string, storeDir string) (*Catalog, error) {
 	if err != nil {
 		return nil, err
 	}
-	catalog := &Catalog{dir: dir, hashStore: hashStore, readDir: os.ReadDir}
-	if err := catalog.Refresh(); err != nil {
+	catalog := &Catalog{dir: dir, hashStore: hashStore, resolvedModelHashes: map[string]struct{}{}, readDir: os.ReadDir}
+	if err := catalog.refresh(false); err != nil {
 		return nil, err
 	}
 	return catalog, nil
@@ -85,21 +86,86 @@ func (catalog *Catalog) List() ([]Model, error) {
 }
 
 func (catalog *Catalog) Refresh() error {
+	return catalog.refresh(true)
+}
+
+func (catalog *Catalog) refresh(includeModelHashes bool) error {
 	catalog.refreshMu.Lock()
 	defer catalog.refreshMu.Unlock()
 
-	if catalog.hashStore != nil {
+	if includeModelHashes && catalog.hashStore != nil {
 		catalog.hashStore.StartScan()
 	}
-	models, err := catalog.scanModels()
+	models, err := catalog.scanModels(includeModelHashes)
 	if err != nil {
 		return err
 	}
-	if catalog.hashStore != nil {
+	if includeModelHashes && catalog.hashStore != nil {
 		catalog.hashStore.FinishScan()
+	}
+	catalog.resolvedModelHashes = map[string]struct{}{}
+	if includeModelHashes {
+		for _, model := range models {
+			catalog.resolvedModelHashes[model.ID] = struct{}{}
+		}
 	}
 	catalog.snapshot.Store(newCatalogSnapshot(models, nil))
 	return nil
+}
+
+func (catalog *Catalog) EnsureModelHash(id string) (Model, bool, error) {
+	if id != filepath.Base(id) {
+		return Model{}, false, nil
+	}
+	return catalog.ensureModelHash(func(model Model) bool { return model.ID == id })
+}
+
+func (catalog *Catalog) EnsureModelHashForFilename(filename string) (Model, bool, error) {
+	if filename != filepath.Base(filename) {
+		return Model{}, false, nil
+	}
+	return catalog.ensureModelHash(func(model Model) bool { return model.Filename == filename })
+}
+
+func (catalog *Catalog) ensureModelHash(matches func(Model) bool) (Model, bool, error) {
+	catalog.refreshMu.Lock()
+	defer catalog.refreshMu.Unlock()
+	snapshot := catalog.snapshot.Load()
+	if snapshot == nil {
+		return Model{}, false, nil
+	}
+	if snapshot.loadErr != nil {
+		return Model{}, false, snapshot.loadErr
+	}
+	var model Model
+	found := false
+	for _, candidate := range snapshot.models {
+		if matches(candidate) {
+			model = candidate
+			found = true
+			break
+		}
+	}
+	if !found {
+		return Model{}, false, nil
+	}
+	if _, resolved := catalog.resolvedModelHashes[model.ID]; resolved {
+		return cloneModel(model), false, nil
+	}
+	if _, err := os.ReadFile(model.Path); err != nil {
+		return Model{}, false, err
+	}
+	hashed := catalog.withMetadata(model, true)
+	models := cloneModels(snapshot.models)
+	for index := range models {
+		if models[index].ID == model.ID {
+			models[index] = hashed
+			break
+		}
+	}
+	catalog.snapshot.Store(newCatalogSnapshot(models, nil))
+	catalog.resolvedModelHashes[model.ID] = struct{}{}
+	return cloneModel(hashed), true, nil
 }
 
 func (catalog *Catalog) Flush() error {
@@ -113,7 +179,7 @@ func (catalog *Catalog) Close() error {
 	return catalog.Flush()
 }
 
-func (catalog *Catalog) scanModels() ([]Model, error) {
+func (catalog *Catalog) scanModels(includeModelHashes bool) ([]Model, error) {
 	readDir := catalog.readDir
 	if readDir == nil {
 		readDir = os.ReadDir
@@ -142,7 +208,7 @@ func (catalog *Catalog) scanModels() ([]Model, error) {
 			Path:     filepath.Join(catalog.dir, filename),
 			Created:  info.ModTime().Unix(),
 		}
-		model = catalog.withMetadata(model)
+		model = catalog.withMetadata(model, includeModelHashes)
 		models = append(models, model)
 	}
 
@@ -236,7 +302,7 @@ func (catalog *Catalog) ResolveActiveImage(activeConfigFilename string) (Model, 
 	return Model{}, false, nil
 }
 
-func (catalog *Catalog) withMetadata(model Model) Model {
+func (catalog *Catalog) withMetadata(model Model, includeModelHash bool) Model {
 	model.AssetState = "ready"
 	model.HasLLM = true
 	content, err := os.ReadFile(model.Path)
@@ -281,7 +347,7 @@ func (catalog *Catalog) withMetadata(model Model) Model {
 	}
 	model.Capabilities = capabilitiesFromMetadata(metadata, model.HasLLM, model.HasImage, model.HasEmbeddings, model.HasMultimodal, model.HasVoice, model.HasMusic)
 	model.ConfigHash = ConfigHash(content)
-	if catalog.hashStore != nil {
+	if catalog.hashStore != nil && includeModelHash {
 		model.ModelHash = catalog.hashStore.ModelHash(content)
 	} else {
 		model.ModelHash = ModelReferenceHash(content, nil)

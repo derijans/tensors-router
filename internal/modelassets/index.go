@@ -385,6 +385,60 @@ func (index *Index) Find(hash string, filename string) (string, bool) {
 	return absolute, true
 }
 
+func (index *Index) FindInRoots(hash string, filename string, roots []string) (string, bool, error) {
+	if path, found := index.Find(hash, filename); found {
+		return path, true, nil
+	}
+	if !validHash(hash) || !safeFilename(filename) {
+		return "", false, nil
+	}
+	candidates := make([]string, 0)
+	seenRoots := map[string]struct{}{}
+	for _, root := range append(append([]string{}, roots...), index.sharedDir) {
+		root = strings.TrimSpace(root)
+		if root == "" {
+			continue
+		}
+		absoluteRoot, err := filepath.Abs(root)
+		if err != nil {
+			return "", false, err
+		}
+		if _, seen := seenRoots[absoluteRoot]; seen {
+			continue
+		}
+		seenRoots[absoluteRoot] = struct{}{}
+		if _, err := os.Stat(absoluteRoot); os.IsNotExist(err) {
+			continue
+		} else if err != nil {
+			return "", false, err
+		}
+		if err := filepath.WalkDir(absoluteRoot, func(path string, entry os.DirEntry, walkErr error) error {
+			if walkErr != nil {
+				return walkErr
+			}
+			if entry.Type()&os.ModeSymlink != 0 {
+				return nil
+			}
+			if !entry.IsDir() && entry.Type().IsRegular() && entry.Name() == filename {
+				candidates = append(candidates, path)
+			}
+			return nil
+		}); err != nil {
+			return "", false, err
+		}
+	}
+	for _, candidate := range candidates {
+		asset, err := index.IndexFile(candidate)
+		if err != nil {
+			return "", false, err
+		}
+		if asset.SHA256 == hash {
+			return asset.Path, true, nil
+		}
+	}
+	return "", false, nil
+}
+
 func (index *Index) Assets() []Asset {
 	index.mu.Lock()
 	defer index.mu.Unlock()

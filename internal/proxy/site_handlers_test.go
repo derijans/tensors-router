@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"io"
 	"log"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/hardware"
 	"tensors-router/internal/recipes"
+	"tensors-router/internal/siteapi"
 )
 
 func TestSplitRecipeRoutesTextAndImageToDifferentNodes(t *testing.T) {
@@ -188,6 +190,56 @@ func TestSiteInventoryHiddenOnSlave(t *testing.T) {
 	if recorder.Code != http.StatusNotFound {
 		t.Fatalf("expected hidden site endpoint, got %d", recorder.Code)
 	}
+}
+
+func TestSiteInventoryScansModelFilesOnlyWhenRequested(t *testing.T) {
+	configDir := t.TempDir()
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "model.gguf"), []byte("model"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	backendURL, err := url.Parse("http://127.0.0.1:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var logs strings.Builder
+	service := NewService(ServiceConfig{
+		Backend:   &fakeBackend{url: backendURL, healthy: true},
+		Catalog:   catalog.New(configDir),
+		NodeID:    "node-a",
+		FileRoots: []string{root},
+		Logger:    log.New(&logs, "", 0),
+	})
+
+	light := requestSiteInventory(t, service, "/router/v1/site/inventory")
+	if len(light.Nodes) != 1 || len(light.Nodes[0].Files) != 0 {
+		t.Fatalf("light inventory unexpectedly scanned files: %#v", light.Nodes)
+	}
+	if strings.Contains(logs.String(), "model file inventory scan started") {
+		t.Fatalf("light inventory emitted scan logs: %s", logs.String())
+	}
+
+	full := requestSiteInventory(t, service, "/router/v1/site/inventory?include_files=true")
+	if len(full.Nodes) != 1 || len(full.Nodes[0].Files) != 1 {
+		t.Fatalf("full inventory did not return model files: %#v", full.Nodes)
+	}
+	if !strings.Contains(logs.String(), "model file inventory scan completed") {
+		t.Fatalf("full inventory completion was not logged: %s", logs.String())
+	}
+}
+
+func requestSiteInventory(t *testing.T, service *Service, path string) siteapi.InventoryResponse {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, path, nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected inventory status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	var response siteapi.InventoryResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	return response
 }
 
 func TestNodeSiteConfigRequiresClusterToken(t *testing.T) {

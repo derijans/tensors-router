@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"tensors-router/internal/companion"
 	"tensors-router/internal/config"
 	"tensors-router/internal/downloader"
 )
@@ -50,7 +51,10 @@ func downloaderBinaryPath(routerConfigPath string, binaryLocation string) (strin
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(filepath.Dir(executablePath), downloaderExecutableName()), nil
+	if path, found := companion.FindSibling(executablePath, "tensor-router-downloader", "tensors-router"); found {
+		return path, nil
+	}
+	return companion.PreferredSibling(executablePath, "tensor-router-downloader", "tensors-router"), nil
 }
 
 func closeDownloader(manager *downloader.Manager) error {

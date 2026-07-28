@@ -125,7 +125,7 @@ async function bootstrap(): Promise<void> {
 
 async function refreshAll(): Promise<void> {
   await refreshRouterStatus();
-  await refreshInventory();
+  await refreshInventory(state.activeTab === "models");
   await loadWebUIs();
   await loadAnalytics();
   await loadDownloads();
@@ -136,8 +136,8 @@ async function refreshRouterStatus(): Promise<void> {
   renderRouterStatus();
 }
 
-async function refreshInventory(): Promise<void> {
-  state.inventory = await getInventory();
+async function refreshInventory(includeFiles = state.activeTab === "models"): Promise<void> {
+  state.inventory = await getInventory(includeFiles);
   renderInventory();
 }
 
@@ -166,7 +166,13 @@ function activatePalette(name: string | undefined): void {
 }
 
 queryElements("[data-tab]", HTMLButtonElement).forEach(button => {
-  button.addEventListener("click", () => activateTab(button.dataset.tab || ""));
+  button.addEventListener("click", () => {
+    const tab = button.dataset.tab || "";
+    activateTab(tab);
+    if (tab === "models") {
+      runTask(() => refreshInventory(true), "models-inventory", "models", "Scanning model files…");
+    }
+  });
 });
 
 window.addEventListener("model-asset-handoff", event => {

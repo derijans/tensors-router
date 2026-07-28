@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	managedRouterDrainGrace  = 16 * time.Minute
-	managedRouterKillTimeout = 5 * time.Second
+	managedRouterDrainGrace   = 16 * time.Minute
+	managedRouterKillTimeout  = 5 * time.Second
+	managedRouterStartTimeout = 30 * time.Second
 )
 
 type RouterProcess struct {
@@ -112,17 +113,19 @@ func (process *RouterProcess) Launch(ctx context.Context) error {
 		process.mu.Unlock()
 		return nil
 	}
-	binaryPath := strings.TrimSpace(process.config.BinaryPath)
-	if binaryPath == "" {
+	launchConfig, err := resolveRouterLaunchConfig(process.config)
+	if err != nil {
+		process.lastErr = err.Error()
 		process.mu.Unlock()
-		return fmt.Errorf("router binary path is required")
+		return err
 	}
+	binaryPath := launchConfig.BinaryPath
 	if _, err := os.Stat(binaryPath); err != nil {
 		process.lastErr = err.Error()
 		process.mu.Unlock()
 		return err
 	}
-	args := routerLaunchArguments(process.config)
+	args := routerLaunchArguments(launchConfig)
 	cmd := exec.CommandContext(context.Background(), binaryPath, args...)
 	cmd.Dir = filepath.Dir(binaryPath)
 	cmd.Stdout = os.Stdout
@@ -138,7 +141,26 @@ func (process *RouterProcess) Launch(ctx context.Context) error {
 	process.lastErr = ""
 	go process.waitForExit(cmd, waitDone)
 	process.mu.Unlock()
-	return process.waitHealthy(ctx, 30*time.Second)
+	return process.waitHealthy(ctx, managedRouterStartTimeout, waitDone)
+}
+
+func resolveRouterLaunchConfig(config RouterConfig) (RouterConfig, error) {
+	if strings.TrimSpace(config.BinaryPath) == "" {
+		return RouterConfig{}, fmt.Errorf("router binary path is required")
+	}
+	var err error
+	config.BinaryPath, err = filepath.Abs(strings.TrimSpace(config.BinaryPath))
+	if err != nil {
+		return RouterConfig{}, err
+	}
+	if strings.TrimSpace(config.ConfigPath) == "" {
+		return RouterConfig{}, fmt.Errorf("router config path is required")
+	}
+	config.ConfigPath, err = filepath.Abs(strings.TrimSpace(config.ConfigPath))
+	if err != nil {
+		return RouterConfig{}, err
+	}
+	return config, nil
 }
 
 func routerLaunchArguments(config RouterConfig) []string {
@@ -227,7 +249,7 @@ func (process *RouterProcess) shutdownExternal(ctx context.Context) error {
 	return nil
 }
 
-func (process *RouterProcess) waitHealthy(ctx context.Context, timeout time.Duration) error {
+func (process *RouterProcess) waitHealthy(ctx context.Context, timeout time.Duration, waitDone <-chan error) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if process.Healthy(ctx) {
@@ -236,6 +258,11 @@ func (process *RouterProcess) waitHealthy(ctx context.Context, timeout time.Dura
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case err := <-waitDone:
+			if err == nil {
+				return fmt.Errorf("router exited before becoming healthy")
+			}
+			return fmt.Errorf("router exited before becoming healthy: %w", err)
 		case <-time.After(500 * time.Millisecond):
 		}
 	}

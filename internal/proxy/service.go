@@ -56,6 +56,10 @@ type ModelCatalog interface {
 	ResolveActiveImage(activeConfigFilename string) (catalog.Model, bool, error)
 }
 
+type modelHashEnsurer interface {
+	EnsureModelHashForFilename(filename string) (catalog.Model, bool, error)
+}
+
 type ServiceConfig struct {
 	Backend                  Backend
 	TextBackend              Backend

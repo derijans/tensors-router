@@ -332,6 +332,11 @@ func TestHashStoreCachesFileHashesAndDropsMissingFiles(t *testing.T) {
 	if listed[0].ModelHash == "" {
 		t.Fatalf("expected model hash")
 	}
+	if _, scanned, err := models.EnsureModelHashForFilename("model.kcpps"); err != nil {
+		t.Fatal(err)
+	} else if !scanned {
+		t.Fatal("expected requested config hash scan")
+	}
 	if err := models.Flush(); err != nil {
 		t.Fatal(err)
 	}
@@ -458,6 +463,47 @@ func TestPortableConfigRetainsModelCapabilities(t *testing.T) {
 	}
 	if len(models) != 1 || !models[0].HasLLM || !models[0].HasImage || models[0].AssetState != "unresolved" || models[0].ImageModelName != "image" {
 		t.Fatalf("portable capabilities were not retained %#v", models)
+	}
+}
+
+func TestCatalogWithStoreDefersReferencedModelHashUntilRequested(t *testing.T) {
+	configDir := t.TempDir()
+	storeDir := t.TempDir()
+	modelPath := filepath.Join(t.TempDir(), "model.gguf")
+	if err := os.WriteFile(modelPath, []byte("model-content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	content, err := json.Marshal(map[string]string{"model_param": modelPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(configDir, "deferred.kcpps"), content, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	modelCatalog, err := NewWithStore(configDir, storeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(modelCatalog.hashStore.cache.Files) != 0 {
+		t.Fatalf("startup hashed referenced model files: %#v", modelCatalog.hashStore.cache.Files)
+	}
+	_, scanned, err := modelCatalog.EnsureModelHashForFilename("deferred.kcpps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !scanned {
+		t.Fatal("requested config did not trigger its model hash")
+	}
+	if len(modelCatalog.hashStore.cache.Files) != 1 {
+		t.Fatalf("expected one requested model hash, got %#v", modelCatalog.hashStore.cache.Files)
+	}
+	_, scanned, err = modelCatalog.EnsureModelHashForFilename("deferred.kcpps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scanned {
+		t.Fatal("already resolved config was scanned again")
 	}
 }
 

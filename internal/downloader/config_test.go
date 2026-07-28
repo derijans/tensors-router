@@ -48,6 +48,9 @@ logging:
 	if config.Storage.Root != filepath.Join(directory, "models") || config.Storage.DatabasePath != filepath.Join(directory, "state", "downloads.sqlite") || config.Storage.FreeSpaceReserveGB != 7 {
 		t.Fatalf("unexpected config %#v", config.Storage)
 	}
+	if config.Logging.Path != filepath.Join(directory, "data", "downloader.log") {
+		t.Fatalf("unexpected downloader log path %q", config.Logging.Path)
+	}
 	if err := os.WriteFile(path, []byte("storage:\n  database_path: ../outside.sqlite\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}

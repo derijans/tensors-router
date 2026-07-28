@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+
+	"tensors-router/internal/companion"
 )
 
 type Config struct {
@@ -84,7 +86,12 @@ func DefaultConfig(executableDir string) Config {
 }
 
 func downloaderExecutableAvailable(executableDir string) bool {
-	_, err := os.Stat(filepath.Join(executableDir, downloaderExecutableName()))
+	executablePath, err := os.Executable()
+	if err == nil && filepath.Clean(filepath.Dir(executablePath)) == filepath.Clean(executableDir) {
+		_, found := companion.FindSibling(executablePath, "tensor-router-downloader", "tensor-router-webui")
+		return found
+	}
+	_, err = os.Stat(filepath.Join(executableDir, downloaderExecutableName()))
 	return err == nil
 }
 

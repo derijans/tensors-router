@@ -3,8 +3,30 @@ package downloader
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
+
+func TestManagerWritesConfiguredDownloaderLog(t *testing.T) {
+	directory := t.TempDir()
+	config := DefaultConfig(filepath.Join(directory, "downloader.yaml"))
+	config.Storage.FreeSpaceReserveGB = 0
+	manager, err := NewManager(config, "hf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	content, err := os.ReadFile(filepath.Join(directory, "data", "downloader.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(content), "downloader initialized") {
+		t.Fatalf("unexpected downloader log %q", string(content))
+	}
+}
 
 func TestPromotedAndRescannedArtifactsNotifyHandler(t *testing.T) {
 	root := t.TempDir()

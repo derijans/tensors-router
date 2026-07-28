@@ -18,6 +18,9 @@ func (service *Service) resolveAssetReferenceDetailed(reference modelassets.Refe
 	if path, found := service.assetIndex.Find(reference.Hash, reference.Filename); found {
 		return modelassets.Resolution{Path: path, Source: "local", Verification: "sha256"}, true
 	}
+	if path, found, err := service.assetIndex.FindInRoots(reference.Hash, reference.Filename, service.fileRoots); err == nil && found {
+		return modelassets.Resolution{Path: path, Source: "local", Verification: "sha256"}, true
+	}
 	if path, found := service.resolvePeerAssetPath(reference.Hash, reference.Filename); found {
 		return modelassets.Resolution{Path: path, Source: "peer", Verification: "sha256"}, true
 	}

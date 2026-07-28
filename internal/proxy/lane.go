@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"sync"
+	"time"
 
 	"tensors-router/internal/catalog"
 )
@@ -33,6 +34,9 @@ func newActiveConfigState() *activeConfigState {
 }
 
 func (service *Service) acquireModelConfigForBackendMode(mode string, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (*backendRuntime, func(), bool, error) {
+	if err := service.ensureModelConfigHash(configFilename); err != nil {
+		return nil, nil, false, err
+	}
 	if err := service.ensureModelAssets(ctx, configFilename); err != nil {
 		return nil, nil, false, err
 	}
@@ -48,6 +52,35 @@ func (service *Service) acquireModelConfigForBackendMode(mode string, ctx contex
 	}
 	release, loadedFresh, err := service.acquireModelConfig(runtime, ctx, modelID, configFilename, readiness, force)
 	return runtime, release, loadedFresh, err
+}
+
+func (service *Service) ensureModelConfigHash(filename string) error {
+	hasher, ok := service.catalog.(modelHashEnsurer)
+	if !ok {
+		return nil
+	}
+	started := time.Now()
+	_, scanned, err := hasher.EnsureModelHashForFilename(filename)
+	if err != nil {
+		service.logger.Printf("model config scan failed config=%q elapsed=%s error=%v", filename, time.Since(started), err)
+		return err
+	}
+	if !scanned {
+		return nil
+	}
+	if service.registry != nil {
+		models, registryErr := service.localClusterModels()
+		if registryErr != nil {
+			service.logger.Printf("model config registry refresh failed config=%q elapsed=%s error=%v", filename, time.Since(started), registryErr)
+			return registryErr
+		}
+		if registryErr := service.registry.UpdateLocal(models); registryErr != nil {
+			service.logger.Printf("model config registry refresh failed config=%q elapsed=%s error=%v", filename, time.Since(started), registryErr)
+			return registryErr
+		}
+	}
+	service.logger.Printf("model config scan completed config=%q elapsed=%s", filename, time.Since(started))
+	return nil
 }
 
 func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (func(), bool, error) {

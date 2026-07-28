@@ -21,7 +21,7 @@ func DefaultConfig(configPath string) Config {
 		Downloads: DownloadsConfig{ConcurrentJobs: 2, ConcurrentFiles: 4, RetryLimit: 5, Timeout: 30 * time.Second},
 		Scanning:  ScanningConfig{HashWorkers: 1, WriteHashSidecars: true},
 		Hardware:  HardwareConfig{DefaultContext: 8192, VRAMReserveMB: 1024, SafetyMarginPercent: 15},
-		Logging:   LoggingConfig{Mode: "normal"},
+		Logging:   LoggingConfig{Mode: "normal", Path: filepath.Join(base, "data", "downloader.log")},
 	}
 }
 
@@ -256,6 +256,9 @@ func finalizeConfig(configPath string, cfg *Config) error {
 	}
 	if cfg.Logging.Mode != "normal" && cfg.Logging.Mode != "startup_only" && cfg.Logging.Mode != "off" {
 		return fmt.Errorf("logging.mode is invalid")
+	}
+	if cfg.Logging.Path, err = resolve(cfg.Logging.Path); err != nil {
+		return err
 	}
 	return nil
 }

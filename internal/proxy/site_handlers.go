@@ -24,7 +24,7 @@ func (service *Service) handleSiteInventory(w http.ResponseWriter, r *http.Reque
 		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
 		return
 	}
-	response, err := service.siteInventory(r.Context())
+	response, err := service.siteInventory(r.Context(), inventoryFilesRequested(r))
 	if err != nil {
 		openai.WriteError(w, http.StatusInternalServerError, "site_error", err.Error())
 		return
@@ -33,7 +33,14 @@ func (service *Service) handleSiteInventory(w http.ResponseWriter, r *http.Reque
 }
 
 func (service *Service) handleNodeSiteInventory(w http.ResponseWriter, r *http.Request) {
-	node, err := service.localNodeInventory(r.Context())
+	includeFiles := inventoryFilesRequested(r)
+	if includeFiles {
+		if err := service.refreshLocalRegistryWithLogs(); err != nil {
+			openai.WriteError(w, http.StatusInternalServerError, "site_error", err.Error())
+			return
+		}
+	}
+	node, err := service.localNodeInventory(r.Context(), includeFiles)
 	if err != nil {
 		openai.WriteError(w, http.StatusInternalServerError, "site_error", err.Error())
 		return
@@ -126,27 +133,41 @@ func (service *Service) handleNodeSiteConfigs(w http.ResponseWriter, r *http.Req
 	openai.WriteJSON(w, http.StatusOK, result)
 }
 
-func (service *Service) siteInventory(ctx context.Context) (siteapi.InventoryResponse, error) {
-	localNode, err := service.localNodeInventory(ctx)
+func (service *Service) siteInventory(ctx context.Context, includeFiles bool) (siteapi.InventoryResponse, error) {
+	if includeFiles {
+		if err := service.refreshLocalRegistryWithLogs(); err != nil {
+			return siteapi.InventoryResponse{}, err
+		}
+	}
+	localNode, err := service.localNodeInventory(ctx, includeFiles)
 	if err != nil {
 		return siteapi.InventoryResponse{}, err
 	}
 	nodes := []siteapi.NodeInventory{localNode}
 	if service.clusterRole == cluster.RoleMaster {
-		results := fanOutNodes(ctx, service.remoteInventoryURLs(), func(nodeContext context.Context, nodeURL string) (siteapi.NodeInventory, error) {
+		timeout := nodeFanoutTimeout
+		if includeFiles {
+			timeout = 30 * time.Second
+		}
+		results := fanOutNodesWithin(ctx, service.remoteInventoryURLs(), timeout, nodeFanoutLimit, func(nodeContext context.Context, nodeURL string) (siteapi.NodeInventory, error) {
 			remoteNode := siteapi.NodeInventory{
 				NodeURL:   nodeURL,
 				Source:    cluster.SourceSlave,
 				Role:      cluster.RoleSlave,
 				Available: false,
 			}
-			err := service.clusterClient.JSON(nodeContext, http.MethodGet, nodeURL, "/router/v1/node/site/inventory", nil, &remoteNode)
+			path := "/router/v1/node/site/inventory"
+			if includeFiles {
+				path += "?include_files=true"
+			}
+			err := service.clusterClient.JSON(nodeContext, http.MethodGet, nodeURL, path, nil, &remoteNode)
 			return remoteNode, err
 		})
 		for _, result := range results {
 			remoteNode := result.Value
 			if result.Err != nil {
 				remoteNode.Error = result.Err.Error()
+				service.logger.Printf("node inventory failed node=%q include_files=%t error=%v", result.Target, includeFiles, result.Err)
 			}
 			nodes = append(nodes, remoteNode)
 		}
@@ -185,14 +206,21 @@ func (service *Service) siteInventory(ctx context.Context) (siteapi.InventoryRes
 	}, nil
 }
 
-func (service *Service) localNodeInventory(ctx context.Context) (siteapi.NodeInventory, error) {
+func (service *Service) localNodeInventory(ctx context.Context, includeFiles bool) (siteapi.NodeInventory, error) {
 	models, err := service.localClusterModels()
 	if err != nil {
 		return siteapi.NodeInventory{}, err
 	}
-	files, err := inventory.Scan(service.fileRoots, models, service.nodeID)
-	if err != nil {
-		return siteapi.NodeInventory{}, err
+	files := []inventory.FileRecord{}
+	if includeFiles {
+		started := time.Now()
+		service.logger.Printf("model file inventory scan started roots=%d", len(service.fileRoots))
+		files, err = inventory.Scan(service.fileRoots, models, service.nodeID)
+		if err != nil {
+			service.logger.Printf("model file inventory scan failed roots=%d elapsed=%s error=%v", len(service.fileRoots), time.Since(started), err)
+			return siteapi.NodeInventory{}, err
+		}
+		service.logger.Printf("model file inventory scan completed roots=%d files=%d elapsed=%s", len(service.fileRoots), len(files), time.Since(started))
 	}
 	return siteapi.NodeInventory{
 		NodeID:      service.nodeID,
@@ -205,6 +233,21 @@ func (service *Service) localNodeInventory(ctx context.Context) (siteapi.NodeInv
 		Models:      models,
 		Files:       files,
 	}, nil
+}
+
+func inventoryFilesRequested(r *http.Request) bool {
+	return strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("include_files")), "true")
+}
+
+func (service *Service) refreshLocalRegistryWithLogs() error {
+	started := time.Now()
+	service.logger.Printf("model config scan started")
+	if err := service.refreshLocalRegistry(); err != nil {
+		service.logger.Printf("model config scan failed elapsed=%s error=%v", time.Since(started), err)
+		return err
+	}
+	service.logger.Printf("model config scan completed elapsed=%s", time.Since(started))
+	return nil
 }
 
 func (service *Service) siteModels() []cluster.Model {

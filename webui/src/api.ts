@@ -79,8 +79,9 @@ export function forceKillRouter(): Promise<RouterProcessStatus> {
   return api<RouterProcessStatus>("/api/router/force-kill", {method: "POST"});
 }
 
-export function getInventory(): Promise<InventoryResponse> {
-  return api<InventoryResponse>("/api/inventory");
+export function getInventory(includeFiles = false): Promise<InventoryResponse> {
+  const suffix = includeFiles ? "?include_files=true" : "";
+  return api<InventoryResponse>(`/api/inventory${suffix}`);
 }
 
 export function resolveModelAssets(request: {id: string}): Promise<{id: string; filename: string; results: {field: string; hash: string; resolved: boolean; failure?: string}[]}> {

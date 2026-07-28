@@ -42,6 +42,7 @@ type HardwareConfig struct {
 
 type LoggingConfig struct {
 	Mode string
+	Path string
 }
 
 type Capability struct {

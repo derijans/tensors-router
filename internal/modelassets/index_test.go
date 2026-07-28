@@ -1,6 +1,8 @@
 package modelassets
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -43,6 +45,37 @@ func TestIndexRejectsUnsafeFilenameBeforeFileAccess(t *testing.T) {
 	_, err = index.IndexFile(filepath.Join(t.TempDir(), "CON"))
 	if err == nil || !strings.Contains(err.Error(), "unsafe filename") {
 		t.Fatalf("unsafe filename was not rejected at the index boundary: %v", err)
+	}
+}
+
+func TestFindInRootsIndexesOnlyMatchingFilenameOnDemand(t *testing.T) {
+	root := t.TempDir()
+	modelPath := filepath.Join(root, "nested", "model.gguf")
+	if err := os.MkdirAll(filepath.Dir(modelPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(modelPath, []byte("weights"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "unrelated.gguf"), []byte("other"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	index, err := NewIndex(filepath.Join(t.TempDir(), "store"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = index.Close() })
+	digest := sha256.Sum256([]byte("weights"))
+	hash := hex.EncodeToString(digest[:])
+	foundPath, found, err := index.FindInRoots(hash, "model.gguf", []string{root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !found || foundPath != modelPath {
+		t.Fatalf("matching model was not indexed path=%q found=%v", foundPath, found)
+	}
+	if len(index.Assets()) != 1 {
+		t.Fatalf("unrelated files were indexed %#v", index.Assets())
 	}
 }
 

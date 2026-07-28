@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +26,8 @@ type Manager struct {
 	subscribers     map[string]map[chan DownloadJob]struct{}
 	semaphore       chan struct{}
 	artifactHandler func(ArtifactRecord) error
+	logger          *log.Logger
+	logFile         *os.File
 }
 
 type ArtifactHandler func(ArtifactRecord) error
@@ -35,15 +39,22 @@ func NewManager(config Config, command string) (*Manager, error) {
 	if err := ensureDirectory(config.Storage.StateDir); err != nil {
 		return nil, err
 	}
+	logger, logFile, err := newManagerLogger(config.Logging)
+	if err != nil {
+		return nil, err
+	}
 	store, err := OpenStore(config.Storage.DatabasePath)
 	if err != nil {
+		_ = closeManagerLog(logFile)
 		return nil, err
 	}
 	command = strings.TrimSpace(command)
 	if command == "" {
 		command = "hf"
 	}
-	return &Manager{config: config, store: store, hub: NewHubClient(config.Downloads.Timeout), command: command, running: map[string]context.CancelFunc{}, tokens: map[string]string{}, subscribers: map[string]map[chan DownloadJob]struct{}{}, semaphore: make(chan struct{}, config.Downloads.ConcurrentJobs)}, nil
+	manager := &Manager{config: config, store: store, hub: NewHubClient(config.Downloads.Timeout), command: command, running: map[string]context.CancelFunc{}, tokens: map[string]string{}, subscribers: map[string]map[chan DownloadJob]struct{}{}, semaphore: make(chan struct{}, config.Downloads.ConcurrentJobs), logger: logger, logFile: logFile}
+	manager.logStartup("downloader initialized storage=%q", config.Storage.Root)
+	return manager, nil
 }
 
 func (manager *Manager) Close() error {
@@ -53,7 +64,7 @@ func (manager *Manager) Close() error {
 	}
 	manager.running = map[string]context.CancelFunc{}
 	manager.mu.Unlock()
-	return manager.store.Close()
+	return errors.Join(manager.store.Close(), closeManagerLog(manager.logFile))
 }
 
 func (manager *Manager) SetArtifactHandler(handler ArtifactHandler) {
@@ -126,6 +137,7 @@ func (manager *Manager) CreatePlannedJob(plan DownloadPlan, operationToken strin
 		manager.tokens[job.ID] = token
 	}
 	manager.mu.Unlock()
+	manager.logRuntime("download queued job=%s repository=%q files=%d bytes=%d", stored.ID, stored.Repository, len(stored.Files), stored.TotalBytes)
 	go manager.run(stored)
 	return stored, nil
 }
@@ -157,6 +169,7 @@ func (manager *Manager) Pause(id string) (DownloadJob, error) {
 	}
 	manager.mu.Unlock()
 	manager.publish(job)
+	manager.logRuntime("download paused job=%s repository=%q", job.ID, job.Repository)
 	return manager.currentJob(id)
 }
 
@@ -184,6 +197,7 @@ func (manager *Manager) Resume(id string) (DownloadJob, error) {
 	if err != nil {
 		return DownloadJob{}, err
 	}
+	manager.logRuntime("download resumed job=%s repository=%q", stored.ID, stored.Repository)
 	go manager.run(stored)
 	return stored, nil
 }
@@ -210,6 +224,7 @@ func (manager *Manager) Cancel(id string) (DownloadJob, error) {
 	delete(manager.tokens, id)
 	manager.mu.Unlock()
 	manager.publish(job)
+	manager.logRuntime("download cancelled job=%s repository=%q", job.ID, job.Repository)
 	return manager.currentJob(id)
 }
 
@@ -310,6 +325,7 @@ func (manager *Manager) run(initial DownloadJob) {
 		return
 	}
 	manager.publish(job)
+	manager.logRuntime("download started job=%s repository=%q", job.ID, job.Repository)
 	if err := manager.transfer(context, job); err != nil {
 		current, found, readErr := manager.store.Job(job.ID)
 		if readErr != nil || !found || current.State == JobPaused || current.State == JobCancelled {
@@ -323,6 +339,7 @@ func (manager *Manager) run(initial DownloadJob) {
 		}
 		_ = manager.store.SaveJob(current)
 		manager.publish(current)
+		manager.logRuntime("download failed job=%s repository=%q error=%q", current.ID, current.Repository, current.Error)
 		return
 	}
 	completed, found, err := manager.store.Job(job.ID)
@@ -335,7 +352,39 @@ func (manager *Manager) run(initial DownloadJob) {
 	}
 	if err := manager.store.SaveJob(completed); err == nil {
 		manager.publish(completed)
+		manager.logRuntime("download completed job=%s repository=%q bytes=%d", completed.ID, completed.Repository, completed.CompletedBytes)
 	}
+}
+
+func newManagerLogger(config LoggingConfig) (*log.Logger, *os.File, error) {
+	if config.Mode == "off" || strings.TrimSpace(config.Path) == "" {
+		return log.New(io.Discard, "", 0), nil, nil
+	}
+	if err := ensureDirectory(filepath.Dir(config.Path)); err != nil {
+		return nil, nil, err
+	}
+	file, err := os.OpenFile(config.Path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+	if err != nil {
+		return nil, nil, err
+	}
+	return log.New(file, "", log.LstdFlags), file, nil
+}
+
+func (manager *Manager) logStartup(format string, values ...any) {
+	manager.logger.Printf(format, values...)
+}
+
+func (manager *Manager) logRuntime(format string, values ...any) {
+	if manager.config.Logging.Mode == "normal" {
+		manager.logger.Printf(format, values...)
+	}
+}
+
+func closeManagerLog(file *os.File) error {
+	if file == nil {
+		return nil
+	}
+	return file.Close()
 }
 
 func (manager *Manager) releaseFinishedJob(id string) {

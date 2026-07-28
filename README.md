@@ -191,9 +191,11 @@ limits:
   drain_timeout: "15m"
 ```
 
-`models.file_roots` is optional and used only by the management web UI model-file inventory and cooking APIs. The scanner is limited to those roots.
+`models.file_roots` is optional and used only by the management web UI model-file inventory and cooking APIs. Startup discovers `.kcpps` files without walking these roots or hashing referenced model files. Referenced assets are hashed when their config is first loaded, while opening the Models tab explicitly refreshes config hashes and scans the configured roots. The Nodes tab uses lightweight inventory and never starts a model-file scan. Scan progress and failures use the runtime logger, so they are emitted only when `logging.mode` is `normal`.
 
 `downloader.enabled` controls the management UI downloader. `downloader.binary_location` is optional; when supplied, a relative path is resolved from the router configuration directory. Leave it empty to use the downloader binary beside the router executable.
+
+When the downloader is enabled and logging is not off, its log is written to `./data/downloader.log` relative to `downloader.yaml`. `logging.mode: "startup_only"` records initialization only, while `logging.mode: "off"` disables the file.
 
 `limits.memory_budget_mb` covers retained request bodies and bounded transformation working sets; it must be at least twice `limits.replay_buffer_mb` plus 32 MiB.
 

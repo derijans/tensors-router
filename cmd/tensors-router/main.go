@@ -89,21 +89,24 @@ func runServe(args []string) error {
 		return err
 	}
 
+	catalogStarted := time.Now()
+	startupLogger.Printf("model config discovery started directory=%q", cfg.Models.ConfigDir)
 	modelCatalog, err := catalog.NewWithStore(cfg.Models.ConfigDir, cfg.Cluster.StoreDir)
 	if err != nil {
+		startupLogger.Printf("model config discovery failed directory=%q elapsed=%s error=%v", cfg.Models.ConfigDir, time.Since(catalogStarted), err)
 		return err
 	}
+	discoveredModels, err := modelCatalog.List()
+	if err != nil {
+		startupLogger.Printf("model config discovery failed directory=%q elapsed=%s error=%v", cfg.Models.ConfigDir, time.Since(catalogStarted), err)
+		return err
+	}
+	startupLogger.Printf("model config discovery completed directory=%q configs=%d elapsed=%s", cfg.Models.ConfigDir, len(discoveredModels), time.Since(catalogStarted))
 	assetIndex, err := modelassets.NewIndex(cfg.Cluster.StoreDir, cfg.Models.SharedDir)
 	if err != nil {
 		return err
 	}
 	assetIndex.SetHashWorkers(cfg.Models.HashWorkers)
-	if err := assetIndex.IndexConfigReferences(cfg.Models.ConfigDir); err != nil {
-		return err
-	}
-	if err := assetIndex.IndexRoots(append(append([]string{}, cfg.Models.FileRoots...), assetIndex.SharedDir())); err != nil {
-		return err
-	}
 	defer assetIndex.Close()
 	var analyticsStore *routeranalytics.Store
 	var downloaderManager *downloader.Manager
@@ -130,10 +133,7 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
-	localModels, err := modelCatalog.List()
-	if err != nil {
-		return err
-	}
+	localModels := discoveredModels
 	registry := routercluster.NewRegistry(cfg.Cluster.Role, cfg.Cluster.NodeID, cfg.Cluster.PublicURL)
 	recipeStore, err := recipes.NewStore(cfg.Cluster.StoreDir)
 	if err != nil {
