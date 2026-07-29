@@ -1,0 +1,160 @@
+# Testing and Troubleshooting
+
+## Project checks
+
+Run the Go test suite:
+
+```sh
+go test ./...
+```
+
+Run the WebUI checks:
+
+```sh
+cd webui
+npm ci
+npm run check
+```
+
+The WebUI check runs the package audit, lint, tests, and production build.
+
+## Local KoboldCpp smoke test on Windows
+
+Requirements:
+
+- `bin\koboldcpp-nocuda.exe`
+- at least one `.kcpps` configuration in `.kcpps`
+- the model files referenced by that configuration
+
+Build and run one request:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
+powershell -ExecutionPolicy Bypass -File .\scripts\test-koboldcpp.ps1 -Model model-id
+```
+
+The script validates the selected configuration, creates an isolated runtime under `data-smoke`, starts the router and CPU-only KoboldCpp, checks `/v1/models`, sends one chat request, and stops both processes.
+
+Use `-KeepRuntime` to retain the generated configuration and backend log.
+
+## Manual Windows standalone node
+
+Start one standalone node:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-koboldcpp-router.ps1 -NodeId local -RouterPort 18080 -BackendPort 15001
+Invoke-RestMethod http://127.0.0.1:18080/v1/models
+```
+
+The launcher prints the matching shutdown commands. Use `-Wait` to keep its terminal attached.
+
+## One-machine Windows cluster
+
+The local launcher can run a master and multiple slaves on one Windows machine. Every node gets a separate router port, backend port, PID, log, and store under `data-manual\{node-id}`.
+
+Start the master:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-koboldcpp-router.ps1 `
+  -NodeId master `
+  -Role master `
+  -RouterPort 18080 `
+  -BackendPort 15001 `
+  -WebUIPort 18443 `
+  -BackendUIPort 18444 `
+  -ClusterToken local-cluster-token `
+  -IncludeDownloader
+```
+
+Start a slave with different ports:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\start-koboldcpp-router.ps1 `
+  -NodeId slave-1 `
+  -Role slave `
+  -RouterPort 18081 `
+  -BackendPort 15002 `
+  -ClusterToken local-cluster-token `
+  -MasterURL http://127.0.0.1:18080
+```
+
+Verify the master registry:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:18080/router/v1/models
+```
+
+Confirm that the slave appears in the returned model records and reports an available node before sending inference through the master. The launcher prints shutdown commands and supports `-Wait` when the terminal should remain attached.
+
+## Basic API checks
+
+List text models:
+
+```sh
+curl http://127.0.0.1:8080/v1/models
+```
+
+List image models:
+
+```sh
+curl http://127.0.0.1:8080/sdapi/v1/sd-models
+```
+
+Inspect the full registry:
+
+```sh
+curl http://127.0.0.1:8080/router/v1/models
+```
+
+For a cluster, send these requests to the master and confirm remote model records report an available node.
+
+## WebUI reports `Scheme missing.`
+
+`router.url` is not a complete URL. Use an HTTP or HTTPS origin, such as:
+
+```yaml
+router:
+  url: "http://127.0.0.1:8080"
+```
+
+Leave `router.url` empty when the WebUI should manage the router process.
+
+## WebUI certificate warning
+
+The generated certificate is self-signed. Accept it for local testing or configure trusted certificate and key files.
+
+If the browser-facing name or address is missing from the certificate, add it to `server.cert_hosts` and regenerate the local certificate state.
+
+## Backend does not start
+
+Check:
+
+- the configured executable path
+- execute permission on Linux
+- archive extraction layout relative to `binary_path`
+- backend log files when `logging.backend_logs_to_disk` is enabled
+- whether an `extra_args` value conflicts with managed host or port settings
+
+Kobold mode starts its process during router startup. Split backend processes start only after a matching model is selected.
+
+## Model is missing
+
+Check that:
+
+- `models.config_dir` exists
+- the file has a `.kcpps` extension
+- the file name stem matches the requested model ID
+- the configuration has fields for the requested capability
+- referenced assets are available on the selected node
+
+Open the Models tab or request a full inventory when file hashes and asset resolution need to be refreshed.
+
+## Streaming stalls behind a proxy
+
+Disable proxy response buffering and increase read and send timeouts. Streaming uses server-sent events rather than WebSockets.
+
+## Cluster node is unavailable
+
+Check the shared cluster token, the slave's `public_url`, the master's `slave_urls`, and network access in both directions.
+
+The master rejects registration from node URLs that are not configured. Lane-specific backend health also determines whether a model can receive a request.

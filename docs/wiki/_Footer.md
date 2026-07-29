@@ -1,0 +1,1 @@
+Documentation source: [`docs/wiki`](https://github.com/derijans/tensors-router/tree/main/docs/wiki). Edit the source files in the main repository. Direct Wiki edits are overwritten by the next publication.

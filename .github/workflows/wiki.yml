@@ -1,0 +1,109 @@
+name: Publish Wiki
+
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - "docs/wiki/**"
+      - ".github/workflows/wiki.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-wiki
+  cancel-in-progress: false
+
+jobs:
+  validate:
+    name: Validate documentation
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Validate Wiki source
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          required_pages=(
+            Home.md
+            Getting-Started.md
+            Run-Topologies.md
+            Configuration.md
+            Backends.md
+            Backend-Release-Baselines.md
+            Model-Configs-and-Routing.md
+            API-Reference.md
+            WebUI.md
+            Backend-WebUI-Interfaces.md
+            Downloader.md
+            KCPPS-Sharing.md
+            Cluster-Routing.md
+            Security-and-Reverse-Proxy.md
+            Deployment.md
+            Testing-and-Troubleshooting.md
+            Cook-Backend-Options.md
+            _Sidebar.md
+            _Footer.md
+          )
+
+          for page in "${required_pages[@]}"; do
+            test -s "docs/wiki/$page"
+          done
+
+          if grep -RIn $'\u2014' README.md docs/wiki; then
+            echo "em dash characters are not allowed in documentation" >&2
+            exit 1
+          fi
+
+          while IFS= read -r target; do
+            test -f "docs/wiki/$target.md" || {
+              echo "missing Wiki page for link target: $target" >&2
+              exit 1
+            }
+          done < <(grep -RhoE '\]\([A-Za-z0-9-]+\)' docs/wiki | sed -E 's/^\]\(|\)$//g' | sort -u)
+
+          test "$(find docs/images/webui-live -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 9
+          git diff --check HEAD^
+
+  publish:
+    name: Publish Wiki
+    needs: validate
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: source
+
+      - name: Checkout Wiki
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ${{ format('{0}.wiki', github.repository) }}
+          path: wiki
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Mirror Wiki source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rsync -a --delete --exclude .git/ source/docs/wiki/ wiki/
+
+      - name: Publish changed pages
+        working-directory: wiki
+        shell: bash
+        run: |
+          set -euo pipefail
+          git add -A
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Publish documentation from ${GITHUB_SHA}"
+          git push origin HEAD
