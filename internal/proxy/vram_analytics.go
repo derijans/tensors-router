@@ -204,8 +204,14 @@ func (service *Service) sampleVRAM(ctx context.Context) (hardware.VRAMInfo, bool
 }
 
 func readinessAnalyticsSection(readiness backendReadiness) string {
-	if readiness == readinessImage {
+	switch readiness {
+	case readinessImage:
 		return routeranalytics.SectionImage
+	case readinessSpeech, readinessTranscription:
+		return routeranalytics.SectionVoice
+	case readinessMusic:
+		return routeranalytics.SectionMusic
+	default:
+		return routeranalytics.SectionLLM
 	}
-	return routeranalytics.SectionLLM
 }

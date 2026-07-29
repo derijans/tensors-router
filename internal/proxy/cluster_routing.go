@@ -256,7 +256,8 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
-	route, release, ok := service.acquireRegistryAudioRoute(r, publicID, lane, modelBackendMode)
+	readiness := audioReadiness(r.URL.Path, lane, modelBackendMode)
+	route, release, ok := service.acquireRegistryAudioRoute(r, publicID, lane, modelBackendMode, readiness)
 	if !ok {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("model %q has no available replicas", publicID))
 		return
@@ -289,7 +290,8 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 		started := time.Now()
 		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, route.LocalID, audioAnalyticsSection(lane), routeBackendMode)
 		recordAnalytics = true
-		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readinessText, routeBackendMode)
+		readiness = audioReadiness(r.URL.Path, lane, routeBackendMode)
+		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readiness, routeBackendMode)
 	}
 	if err != nil {
 		release()
@@ -308,11 +310,11 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 	}
 }
 
-func (service *Service) acquireRegistryAudioRoute(r *http.Request, publicID string, lane string, backendMode string) (cluster.Route, func(), bool) {
+func (service *Service) acquireRegistryAudioRoute(r *http.Request, publicID string, lane string, backendMode string, readiness backendReadiness) (cluster.Route, func(), bool) {
 	if lane == recipes.KindMusic {
-		return service.registry.AcquireMusic(publicID, service.localBackendAvailableForRoute(r.Context(), BackendModeKobold, readinessText))
+		return service.registry.AcquireMusic(publicID, service.localBackendAvailableForRoute(r.Context(), BackendModeKobold, readiness))
 	}
-	return service.registry.AcquireVoice(publicID, service.localBackendAvailableForRoute(r.Context(), backendMode, readinessText))
+	return service.registry.AcquireVoice(publicID, service.localBackendAvailableForRoute(r.Context(), backendMode, readiness))
 }
 
 func (service *Service) registryHasAudioModel(publicID string, lane string) bool {

@@ -216,7 +216,11 @@ func (service *Service) resolveTransportImageRoute(r *http.Request, publicID str
 func (service *Service) resolveTransportAudioRoute(r *http.Request, publicID string) (transportRoute, error) {
 	lane := audioRouteKind(r.URL.Path)
 	if recipe, component, ok := service.recipeAudioComponent(publicID, lane); ok {
-		return service.transportRecipeRoute(recipe, component, publicID, component.ModelID, readinessText, audioAnalyticsSection(lane), false)
+		mode, err := service.recipeComponentBackendMode(component)
+		if err != nil {
+			return transportRoute{}, err
+		}
+		return service.transportRecipeRoute(recipe, component, publicID, component.ModelID, audioReadiness(r.URL.Path, lane, mode), audioAnalyticsSection(lane), false)
 	}
 	if service.registry != nil && service.registryHasAudioModel(publicID, lane) {
 		model, ok := service.registryAudioModel(publicID, lane)
@@ -227,7 +231,8 @@ func (service *Service) resolveTransportAudioRoute(r *http.Request, publicID str
 		if err != nil {
 			return transportRoute{}, err
 		}
-		route, release, acquired := service.acquireRegistryAudioRoute(r, publicID, lane, mode)
+		readiness := audioReadiness(r.URL.Path, lane, mode)
+		route, release, acquired := service.acquireRegistryAudioRoute(r, publicID, lane, mode, readiness)
 		if !acquired {
 			return transportRoute{}, transportRouteError{http.StatusBadGateway, "backend_error", fmt.Sprintf("model %q has no available replicas", publicID)}
 		}
@@ -241,7 +246,7 @@ func (service *Service) resolveTransportAudioRoute(r *http.Request, publicID str
 			localID:        route.LocalID,
 			configFilename: route.Filename,
 			backendMode:    mode,
-			readiness:      readinessText,
+			readiness:      audioReadiness(r.URL.Path, lane, mode),
 			section:        audioAnalyticsSection(lane),
 			remote:         route.Remote,
 			nodeURL:        route.NodeURL,
@@ -265,7 +270,7 @@ func (service *Service) resolveTransportAudioRoute(r *http.Request, publicID str
 		localID:        model.ID,
 		configFilename: model.Filename,
 		backendMode:    mode,
-		readiness:      readinessText,
+		readiness:      audioReadiness(r.URL.Path, lane, mode),
 		section:        audioAnalyticsSection(lane),
 		catalogModel:   model,
 	}, nil

@@ -161,13 +161,6 @@ const (
 	BackendModeLlamaSDCPP        = backendmode.LlamaSDCPP
 )
 
-type backendReadiness string
-
-const (
-	readinessText  backendReadiness = "/v1/models"
-	readinessImage backendReadiness = "/sdapi/v1/sd-models"
-)
-
 type backendRetryResult struct {
 	retry    bool
 	inactive bool
@@ -820,7 +813,8 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 	}
 	started := time.Now()
 	analyticsEvent := service.newAnalyticsEvent(started, r, requestBody, analyticsModelID, audioAnalyticsSection(lane), selectedBackendMode)
-	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readinessText, selectedBackendMode)
+	readiness := audioReadiness(r.URL.Path, lane, selectedBackendMode)
+	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readiness, selectedBackendMode)
 	if err != nil {
 		if analyticsModelID != "" {
 			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
@@ -1755,7 +1749,7 @@ func (service *Service) waitForBackendEndpoint(runtime *backendRuntime, ctx cont
 	var lastErr error
 
 	for attempt := 1; attempt <= service.backendRetryAttempts; attempt++ {
-		status, body, err := service.probeBackendEndpoint(runtime, ctx, string(readiness))
+		status, body, err := service.probeBackendEndpoint(runtime, ctx, readiness.endpoint())
 		if err == nil && backendEndpointReady(readiness, status, body) {
 			if attempt > 1 {
 				service.logger.Printf("backend model endpoint ready model=%q config=%q attempt=%d", modelID, configFilename, attempt)
@@ -1788,8 +1782,8 @@ func backendEndpointReady(readiness backendReadiness, status int, body string) b
 	if readiness == readinessImage {
 		return backendImageEndpointReady(body)
 	}
-	if readiness != readinessText {
-		return true
+	if capability := readiness.capability(); capability != "" {
+		return backendCapabilityReady(body, capability)
 	}
 	return backendTextEndpointReady(body)
 }

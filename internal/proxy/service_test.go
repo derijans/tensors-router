@@ -257,8 +257,22 @@ func TestAPIAdminPathsAreNotPubliclyProxied(t *testing.T) {
 }
 
 func TestAudioSpeechRoutesKnownVoiceConfig(t *testing.T) {
+	var readinessProbes atomic.Int32
+	var speechRequests atomic.Int32
+	wav := append([]byte("RIFF"), make([]byte, 52)...)
+	copy(wav[8:], []byte("WAVE"))
 	service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/audio/speech" {
+		switch r.URL.Path {
+		case "/api/extra/version":
+			ready := readinessProbes.Add(1) > 1
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"result":"KoboldCpp","tts":%t}`, ready)
+			return
+		case "/v1/models":
+			t.Fatal("speech readiness must not use the text model endpoint")
+		case "/v1/audio/speech":
+			speechRequests.Add(1)
+		default:
 			t.Fatalf("unexpected path %s", r.URL.Path)
 		}
 		content, err := io.ReadAll(r.Body)
@@ -268,8 +282,50 @@ func TestAudioSpeechRoutesKnownVoiceConfig(t *testing.T) {
 		if !strings.Contains(string(content), `"model":"voice"`) {
 			t.Fatalf("request model was not preserved: %s", string(content))
 		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"ok":true}`))
+		w.Header().Set("Content-Type", "audio/wav")
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", len(wav)))
+		_, _ = w.Write(wav)
+	}), map[string]string{
+		"voice": `{"ttsmodel":"voice.gguf"}`,
+	})
+	service.backendRetryAttempts = 3
+	service.backendRetryDelay = 0
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/audio/speech", strings.NewReader(`{"model":"voice","input":"hello","voice":"alloy"}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if recorder.Header().Get("Content-Type") != "audio/wav" || recorder.Header().Get("Content-Length") != fmt.Sprintf("%d", len(wav)) {
+		t.Fatalf("unexpected audio headers content-type=%q content-length=%q", recorder.Header().Get("Content-Type"), recorder.Header().Get("Content-Length"))
+	}
+	if !bytes.Equal(recorder.Body.Bytes(), wav) {
+		t.Fatalf("audio response changed: got %d bytes want %d", recorder.Body.Len(), len(wav))
+	}
+	if readinessProbes.Load() != 2 || speechRequests.Load() != 1 {
+		t.Fatalf("unexpected readiness probes=%d speech requests=%d", readinessProbes.Load(), speechRequests.Load())
+	}
+	if backend.reloads.Load() != 1 || backend.lastReload != "voice.kcpps" {
+		t.Fatalf("expected voice reload, got count=%d config=%q", backend.reloads.Load(), backend.lastReload)
+	}
+}
+
+func TestAudioSpeechDoesNotForwardUntilTTSCapabilityIsReady(t *testing.T) {
+	var speechRequests atomic.Int32
+	service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/extra/version":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"result":"KoboldCpp","tts":false}`))
+		case "/v1/audio/speech":
+			speechRequests.Add(1)
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
 	}), map[string]string{
 		"voice": `{"ttsmodel":"voice.gguf"}`,
 	})
@@ -277,14 +333,18 @@ func TestAudioSpeechRoutesKnownVoiceConfig(t *testing.T) {
 	service.backendRetryDelay = 0
 
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/v1/audio/speech", strings.NewReader(`{"model":"voice","input":"hello","voice":"alloy"}`))
+	request := httptest.NewRequest(http.MethodPost, "/v1/audio/speech", strings.NewReader(`{"model":"voice","input":"hello"}`))
+	request.Header.Set("Content-Type", "application/json")
 	service.ServeHTTP(recorder, request)
 
-	if recorder.Code != http.StatusOK {
+	if recorder.Code != http.StatusBadGateway {
 		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
 	}
-	if backend.reloads.Load() != 1 || backend.lastReload != "voice.kcpps" {
-		t.Fatalf("expected voice reload, got count=%d config=%q", backend.reloads.Load(), backend.lastReload)
+	if speechRequests.Load() != 0 {
+		t.Fatalf("speech request reached an unready backend %d times", speechRequests.Load())
+	}
+	if backend.reloads.Load() != 1 {
+		t.Fatalf("expected one reload, got %d", backend.reloads.Load())
 	}
 }
 

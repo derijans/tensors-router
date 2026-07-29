@@ -149,12 +149,12 @@ func (service *Service) loadRecipe(ctx context.Context, publicID string) (bool, 
 		}
 	}
 	if hasVoice && !sameRecipeComponent(text, voice) && !sameRecipeComponent(embeddings, voice) {
-		if err := service.loadRecipeComponent(ctx, recipe, voice, readinessText); err != nil {
+		if err := service.loadRecipeComponent(ctx, recipe, voice, readinessSpeech); err != nil {
 			return true, err
 		}
 	}
 	if hasMusic && !sameRecipeComponent(text, music) && !sameRecipeComponent(embeddings, music) && !sameRecipeComponent(voice, music) {
-		if err := service.loadRecipeComponent(ctx, recipe, music, readinessText); err != nil {
+		if err := service.loadRecipeComponent(ctx, recipe, music, readinessMusic); err != nil {
 			return true, err
 		}
 	}
@@ -173,6 +173,15 @@ func (service *Service) loadRecipeComponent(ctx context.Context, recipe recipes.
 	backendMode, err := service.recipeComponentBackendMode(component)
 	if err != nil {
 		return err
+	}
+	if component.Kind == recipes.KindVoice {
+		if model, ok, modelErr := service.recipeComponentModel(component); modelErr != nil {
+			return modelErr
+		} else if ok {
+			readiness = readinessForVoiceModel(model, backendMode)
+		} else if backendMode != BackendModeKobold {
+			readiness = readinessText
+		}
 	}
 	return service.loadLocalConfig(ctx, backendMode, modelID, component.ConfigFilename, readiness)
 }
@@ -235,7 +244,8 @@ func (service *Service) handleRecipeAudioRequest(w http.ResponseWriter, r *http.
 		started := time.Now()
 		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, component.ModelID, audioAnalyticsSection(lane), backendMode)
 		recordAnalytics = true
-		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readinessText, backendMode)
+		readiness := audioReadiness(r.URL.Path, lane, backendMode)
+		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readiness, backendMode)
 	}
 	if err != nil {
 		if recordAnalytics {
@@ -315,13 +325,6 @@ func (service *Service) recipeComponentModel(component recipes.Component) (catal
 		}
 	}
 	return catalog.Model{}, false, nil
-}
-
-func routeLaneForReadiness(readiness backendReadiness) string {
-	if readiness == readinessImage {
-		return cluster.RouteLaneImage
-	}
-	return cluster.RouteLaneText
 }
 
 func audioClusterLane(lane string) string {
