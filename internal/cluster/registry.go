@@ -129,6 +129,21 @@ func (registry *Registry) NodeURLs() []string {
 	return result
 }
 
+func (registry *Registry) NodeURLsByID() map[string]string {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	result := map[string]string{}
+	if registry.localID != "" && registry.localURL != "" {
+		result[registry.localID] = registry.localURL
+	}
+	for nodeID, snapshot := range registry.nodes {
+		if snapshot.NodeURL != "" {
+			result[nodeID] = snapshot.NodeURL
+		}
+	}
+	return result
+}
+
 func (registry *Registry) HasModel(publicID string) bool {
 	_, ok := registry.Model(publicID)
 	return ok

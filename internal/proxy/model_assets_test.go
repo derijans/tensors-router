@@ -21,6 +21,7 @@ import (
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/modelassets"
+	"tensors-router/internal/siteapi"
 )
 
 func TestPeerDiscoveryStopsAtLookupDeadline(t *testing.T) {
@@ -75,6 +76,70 @@ func TestEnsureModelAssetsResolvesPortableConfig(t *testing.T) {
 	}
 	if strings.Contains(string(resolved), "_hash") || !strings.Contains(string(resolved), "weights.gguf") {
 		t.Fatalf("portable config was not resolved: %s", resolved)
+	}
+}
+
+func TestPortableExportPersistsHashAndLeavesLocalConfigPathBased(t *testing.T) {
+	root := t.TempDir()
+	configDir := filepath.Join(root, "kcpps")
+	if err := os.MkdirAll(configDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	assetPath := filepath.Join(root, "model.gguf")
+	assetContent := []byte("portable model")
+	if err := os.WriteFile(assetPath, assetContent, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(configDir, "portable.kcpps")
+	localContent := []byte(`{"model_param":"` + filepath.ToSlash(assetPath) + `"}`)
+	if err := os.WriteFile(configPath, localContent, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	storeDir := filepath.Join(root, "store")
+	index, err := modelassets.NewIndex(storeDir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	expected := sha256.Sum256(assetContent)
+	expectedHash := hex.EncodeToString(expected[:])
+	origin := modelassets.Origin{Repository: "owner/repository", Commit: "0123456789abcdef0123456789abcdef01234567", Path: "model.gguf"}
+	if err := index.BindOrigin(expectedHash, origin); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(ServiceConfig{Catalog: catalog.New(configDir), ConfigDir: configDir, AssetIndex: index})
+	requestBody, err := json.Marshal(siteapi.ModelAssetConfigRequest{ID: "portable", Filename: "portable.kcpps"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/v1/site/model-assets/export", bytes.NewReader(requestBody)))
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Header().Get("Content-Disposition"), "portable.kcpps") {
+		t.Fatalf("unexpected export response status=%d headers=%v body=%s", recorder.Code, recorder.Header(), recorder.Body.String())
+	}
+	var portable map[string]any
+	if err := json.Unmarshal(recorder.Body.Bytes(), &portable); err != nil {
+		t.Fatal(err)
+	}
+	if portable["model_param_hash"] != expectedHash || portable["model_param_filename"] != "model.gguf" || portable["model_param_hf"] != origin.URI() {
+		t.Fatalf("unexpected portable export %#v", portable)
+	}
+	unchanged, err := os.ReadFile(configPath)
+	if err != nil || !bytes.Equal(unchanged, localContent) {
+		t.Fatalf("local config changed content=%s error=%v", unchanged, err)
+	}
+	if err := index.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := modelassets.NewIndex(storeDir, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	if asset, found := reopened.Lookup(expectedHash); !found || asset.Path != assetPath {
+		t.Fatalf("exported asset was not persisted asset=%#v found=%t", asset, found)
+	}
+	if persistedOrigin, found := reopened.Origin(expectedHash); !found || persistedOrigin != origin {
+		t.Fatalf("origin was not persisted origin=%#v found=%t", persistedOrigin, found)
 	}
 }
 

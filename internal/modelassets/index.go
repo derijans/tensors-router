@@ -188,6 +188,20 @@ func (index *Index) IndexFile(path string) (Asset, error) {
 	return asset, nil
 }
 
+func (index *Index) CachedFileHash(path string) (string, bool) {
+	absolute, info, err := regularFile(path)
+	if err != nil {
+		return "", false
+	}
+	index.mu.Lock()
+	cached, found := index.paths[absolute]
+	index.mu.Unlock()
+	if !found || cached.Size != info.Size() || cached.ModTimeNano != info.ModTime().UnixNano() || !validHash(cached.SHA256) {
+		return "", false
+	}
+	return cached.SHA256, true
+}
+
 func (index *Index) indexFile(path string) (Asset, error) {
 	requestedPath, err := filepath.Abs(path)
 	if err != nil {

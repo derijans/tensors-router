@@ -210,6 +210,8 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		server.proxyRouter(w, r, http.MethodDelete, "/router/v1/site/config-file")
 	case r.URL.Path == "/api/model-assets/export" && r.Method == http.MethodPost:
 		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/model-assets/export")
+	case r.URL.Path == "/api/model-files/hash" && r.Method == http.MethodPost:
+		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/model-files/hash")
 	case r.URL.Path == "/api/model-assets/resolve" && r.Method == http.MethodPost:
 		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/model-assets/resolve")
 	case r.URL.Path == "/api/model-assets/resolve-batch" && r.Method == http.MethodPost:

@@ -35,6 +35,7 @@ import {
   startPlannedDownload,
   toggleDownloadFilter,
   toggleDownloadFilterGroup,
+  togglePlannedDownloadFile,
   updateDownloadFilterSearch,
   updateDownloadSearchMode,
   clearDownloadFilter
@@ -76,6 +77,7 @@ import {
   previewAdvancedCook
 } from "./cook-actions";
 import { loadSelectedConfig, resolveFilteredModels, retryModelAssetResolution } from "./model-actions";
+import { calculateModelFileHash, copyModelFileHash } from "./model-files";
 import {
   closeWebUIDialog,
   loadSelectedWebUIModel,
@@ -107,6 +109,8 @@ import {
   renderRecipes,
   renderRouterStatus,
   renderTables,
+  updateConfigNodeFilter,
+  updateFileNodeFilter,
   showApp,
   showLogin
 } from "./render-dashboard";
@@ -234,6 +238,12 @@ elements.downloadSearchMode.addEventListener("change", updateDownloadSearchMode)
 elements.downloadFilterSearch.addEventListener("input", updateDownloadFilterSearch);
 elements.downloadNextPageButton.addEventListener("click", () => runTask(() => searchDownloadRepositories(true), "download-search-next", "download", "Loading more models…"));
 elements.downloadPlanButton.addEventListener("click", () => runTask(previewDownloadPlan, "download-plan", "download", "Preparing download plan…"));
+elements.downloadPlanOutput.addEventListener("change", event => {
+  const path = elementTarget(event)?.dataset.downloadPlanFile;
+  if (path) {
+    togglePlannedDownloadFile(path);
+  }
+});
 elements.downloadStartButton.addEventListener("click", () => runTask(async () => {
   const unsafe = state.downloads.plan?.unsafe_warning || false;
   if (unsafe && !await confirmDestructive("Unsafe repository status", "Hugging Face reported an unsafe or pending security status. Download anyway?", "Download")) {
@@ -300,7 +310,8 @@ elements.downloadJobs.addEventListener("click", event => {
   }
 });
 elements.filterInput.addEventListener("input", renderTables);
-elements.modelsNodeFilter.addEventListener("change", renderTables);
+elements.modelsNodeFilter.addEventListener("change", () => updateConfigNodeFilter([...elements.modelsNodeFilter.selectedOptions].map(option => option.value)));
+elements.filesNodeFilter.addEventListener("change", () => updateFileNodeFilter([...elements.filesNodeFilter.selectedOptions].map(option => option.value)));
 elements.resolveFilteredModelsButton.addEventListener("click", () => runTask(() => resolveFilteredModels(refreshInventory), "resolve-filtered-models", "models", "Resolving visible configs…"));
 elements.modelsActionStatus.addEventListener("click", event => {
   const key = elementTarget(event)?.dataset.modelResolutionRetry;
@@ -312,6 +323,19 @@ elements.modelsTable.addEventListener("click", event => {
   const modelID = elementTarget(event)?.dataset.loadConfig;
   if (modelID) {
     runTask(() => loadSelectedConfig(modelID, refreshInventory), `model-load-${modelID}`, "webui", "Loading model…");
+  }
+});
+elements.filesTable.addEventListener("click", event => {
+  const target = elementTarget(event);
+  const nodeID = target?.dataset.hashFileNode;
+  const path = target?.dataset.hashFilePath;
+  if (nodeID && path) {
+    runTask(() => calculateModelFileHash(nodeID, path), `hash-file-${encodeURIComponent(nodeID)}-${encodeURIComponent(path)}`, "models", "Hashing model file…");
+    return;
+  }
+  const hash = target?.dataset.copyFileHash;
+  if (hash) {
+    runTask(() => copyModelFileHash(hash), `copy-file-hash-${hash}`, "models-copy", "Copying SHA-256…");
   }
 });
 elements.benchmarkModelSelect.addEventListener("change", () => {

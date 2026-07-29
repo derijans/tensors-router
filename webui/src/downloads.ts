@@ -14,10 +14,11 @@ import {
 } from "./api";
 import { elements } from "./elements";
 import { normalizeModelHash, normalizeParameterRange, parseOfficialHFURL, splitSearchFilters } from "./download-finder-data";
+import { selectedDownloadBytes, selectedDownloadFiles, toggleDownloadPath } from "./download-plan-data";
 import { hfFilterCatalog, hfFilterCatalogVersion } from "./hf-filter-catalog";
 import { state } from "./state";
 import { escapeAttribute, escapeHTML, formatBytes } from "./utils";
-import type { DownloadJob } from "./types";
+import type { DownloadJob, DownloadPlan } from "./types";
 
 export async function loadDownloads(): Promise<void> {
   try {
@@ -293,6 +294,7 @@ export async function previewDownloadPlan(): Promise<void> {
     mode: "smart",
     ...(token ? {token} : {})
   });
+  state.downloads.selectedPlanFiles = state.downloads.plan.files.map(file => file.path);
   state.downloads.error = "";
   renderDownloads();
 }
@@ -302,17 +304,23 @@ export async function startPlannedDownload(confirmUnsafe: boolean, confirmReplac
   if (!plan || !state.downloads.nodeID) {
     throw new Error("Preview a download plan first")
   }
+  const files = selectedDownloadFiles(plan, state.downloads.selectedPlanFiles);
+  if (files.length === 0) {
+    throw new Error("Select at least one file to download")
+  }
   const token = downloadToken();
   await createDownloadJob({
     node_id: state.downloads.nodeID,
     repository: plan.repository,
     revision: plan.revision,
-    files: plan.files.map(file => file.path),
+    files: files.map(file => file.path),
+    mode: "explicit",
     ...(token ? {token} : {}),
     confirm_unsafe: confirmUnsafe,
     confirm_replace: confirmReplace
   });
   state.downloads.plan = null;
+  state.downloads.selectedPlanFiles = [];
   elements.downloadTokenInput.value = "";
   await loadDownloadLibrary();
 }
@@ -338,6 +346,15 @@ export function chooseDownloadSearchResult(repository: string): void {
   elements.downloadSearchResults.innerHTML = "";
 }
 
+export function togglePlannedDownloadFile(path: string): void {
+  const plan = state.downloads.plan;
+  if (!plan || !plan.files.some(file => file.path === path)) {
+    return;
+  }
+  state.downloads.selectedPlanFiles = toggleDownloadPath(state.downloads.selectedPlanFiles, path);
+  renderDownloads();
+}
+
 export function renderDownloads(): void {
   elements.downloadTab.hidden = !state.downloads.available;
   elements.downloadPanel.hidden = !state.downloads.available;
@@ -353,7 +370,7 @@ export function renderDownloads(): void {
   const node = nodes.find(value => value.node_id === state.downloads.nodeID);
   const configuredToken = node?.capability.configured_token ? "configured fallback token is available" : "anonymous access unless a temporary token is entered";
   elements.downloadStatus.textContent = state.downloads.error || configuredToken;
-  elements.downloadStartButton.disabled = state.downloads.plan === null;
+  elements.downloadStartButton.disabled = state.downloads.plan === null || state.downloads.selectedPlanFiles.length === 0;
   renderDownloadFilters();
   elements.downloadSearchResults.innerHTML = `${state.downloads.finderMessage ? `<p class="action-status">${escapeHTML(state.downloads.finderMessage)}</p>` : ""}${state.downloads.search.map(result => `
     <button class="download-entry" type="button" data-download-repository="${escapeAttribute(result.id)}">
@@ -419,13 +436,15 @@ function filterLabel(value: string): string {
   return value.replace(/^(?:app|provider|dataset|library|language|license):/, "");
 }
 
-function renderPlan(plan: {commit: string; destination: string; total_bytes: number; unsafe_warning: boolean; files: {path: string; size: number; required: boolean; reason: string}[]}): string {
+function renderPlan(plan: DownloadPlan): string {
+  const selected = new Set(state.downloads.selectedPlanFiles);
+  const selectedBytes = selectedDownloadBytes(plan, state.downloads.selectedPlanFiles);
   return `
     <div class="download-entry">
       <strong>${escapeHTML(plan.commit)}</strong>
-      <span>${escapeHTML(plan.destination)} · ${formatBytes(plan.total_bytes)}</span>
+      <span>${escapeHTML(plan.destination)} · ${formatBytes(selectedBytes)} selected of ${formatBytes(plan.total_bytes)}</span>
       ${plan.unsafe_warning ? "<p class=\"error-text\">Hugging Face reports unsafe or pending security status. Starting requires confirmation.</p>" : ""}
-      <ul>${plan.files.map(file => `<li>${escapeHTML(file.path)} · ${formatBytes(file.size)} · ${escapeHTML(file.reason)}${file.required ? " · required" : ""}</li>`).join("")}</ul>
+      <ul>${plan.files.map(file => `<li><label><input type="checkbox" data-download-plan-file="${escapeAttribute(file.path)}"${selected.has(file.path) ? " checked" : ""}> ${escapeHTML(file.path)} · ${formatBytes(file.size)} · ${escapeHTML(file.reason)}${file.required ? " · required" : ""}</label></li>`).join("")}</ul>
     </div>
   `;
 }

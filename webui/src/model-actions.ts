@@ -53,8 +53,7 @@ function handoffUnresolvedModel(id: string): void {
 }
 
 export async function resolveFilteredModels(refreshInventory: () => Promise<void>): Promise<void> {
-  const selectedNodes = [...elements.modelsNodeFilter.selectedOptions].map(option => option.value);
-  const models = visibleModelsForResolution(elements.filterInput.value.trim().toLowerCase(), selectedNodes);
+  const models = visibleModelsForResolution(elements.filterInput.value.trim().toLowerCase(), state.models.configNodeIDs);
   if (models.length === 0) {
     setModelActionStatus("No visible configs", false);
     return;
@@ -153,7 +152,7 @@ function waitForPoll(): Promise<void> {
   return new Promise(resolve => window.setTimeout(resolve, 250));
 }
 
-function setModelActionStatus(message: string, error: boolean): void {
+export function setModelActionStatus(message: string, error: boolean): void {
   elements.modelsActionStatus.textContent = message;
   elements.modelsActionStatus.classList.toggle("error-text", error);
 }

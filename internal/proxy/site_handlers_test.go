@@ -16,6 +16,8 @@ import (
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/hardware"
+	"tensors-router/internal/modelassets"
+	"tensors-router/internal/openai"
 	"tensors-router/internal/recipes"
 	"tensors-router/internal/siteapi"
 )
@@ -226,6 +228,102 @@ func TestSiteInventoryScansModelFilesOnlyWhenRequested(t *testing.T) {
 	if !strings.Contains(logs.String(), "model file inventory scan completed") {
 		t.Fatalf("full inventory completion was not logged: %s", logs.String())
 	}
+}
+
+func TestModelFileHashIndexesOnlyInventoryFilesAndSurfacesCachedHash(t *testing.T) {
+	configDir := t.TempDir()
+	root := t.TempDir()
+	modelPath := filepath.Join(root, "model.gguf")
+	if err := os.WriteFile(modelPath, []byte("model"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	outsidePath := filepath.Join(t.TempDir(), "outside.gguf")
+	if err := os.WriteFile(outsidePath, []byte("outside"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	index, err := modelassets.NewIndex(filepath.Join(t.TempDir(), "store"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = index.Close() })
+	service := NewService(ServiceConfig{Catalog: catalog.New(configDir), NodeID: "node-a", FileRoots: []string{root}, AssetIndex: index, Logger: log.New(io.Discard, "", 0)})
+
+	response := requestModelFileHash(t, service, "node-a", modelPath)
+	if response.NodeID != "node-a" || response.Path != modelPath || len(response.SHA256) != 64 {
+		t.Fatalf("unexpected hash response %#v", response)
+	}
+	full := requestSiteInventory(t, service, "/router/v1/site/inventory?include_files=true")
+	if len(full.Nodes[0].Files) != 1 || full.Nodes[0].Files[0].SHA256 != response.SHA256 {
+		t.Fatalf("cached hash missing from inventory %#v", full.Nodes[0].Files)
+	}
+	if err := os.WriteFile(modelPath, []byte("changed model"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed := requestSiteInventory(t, service, "/router/v1/site/inventory?include_files=true")
+	if changed.Nodes[0].Files[0].SHA256 != "" {
+		t.Fatalf("changed file retained stale hash %#v", changed.Nodes[0].Files[0])
+	}
+
+	body, err := json.Marshal(siteapi.ModelFileHashRequest{NodeID: "node-a", Path: outsidePath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/v1/site/model-files/hash", strings.NewReader(string(body))))
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("outside path was accepted status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestModelFileHashRoutesToOwningNode(t *testing.T) {
+	const hash = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/router/v1/node/site/model-files/hash" || r.Header.Get("Authorization") != "Bearer secret" {
+			t.Fatalf("unexpected remote request path=%q authorization=%q", r.URL.Path, r.Header.Get("Authorization"))
+		}
+		var request siteapi.ModelFileHashRequest
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			t.Fatal(err)
+		}
+		openai.WriteJSON(w, http.StatusOK, siteapi.ModelFileHashResponse{NodeID: "node-b", Path: request.Path, SHA256: hash})
+	}))
+	defer remote.Close()
+	registry := cluster.NewRegistry(cluster.RoleMaster, "node-a", "http://node-a.invalid")
+	if err := registry.UpdateNode(cluster.Snapshot{NodeID: "node-b", NodeURL: remote.URL}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(ServiceConfig{
+		Catalog:       catalog.New(t.TempDir()),
+		ClusterRole:   cluster.RoleMaster,
+		NodeID:        "node-a",
+		NodeURL:       "http://node-a.invalid",
+		Registry:      registry,
+		ClusterToken:  "secret",
+		ClusterClient: cluster.NewClient("secret", "http://node-a.invalid"),
+		Logger:        log.New(io.Discard, "", 0),
+	})
+	response := requestModelFileHash(t, service, "node-b", "D:/models/model.gguf")
+	if response.NodeID != "node-b" || response.SHA256 != hash {
+		t.Fatalf("unexpected routed hash response %#v", response)
+	}
+}
+
+func requestModelFileHash(t *testing.T, service *Service, nodeID string, path string) siteapi.ModelFileHashResponse {
+	t.Helper()
+	body, err := json.Marshal(siteapi.ModelFileHashRequest{NodeID: nodeID, Path: path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/v1/site/model-files/hash", strings.NewReader(string(body))))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected model file hash status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	var response siteapi.ModelFileHashResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	return response
 }
 
 func requestSiteInventory(t *testing.T, service *Service, path string) siteapi.InventoryResponse {

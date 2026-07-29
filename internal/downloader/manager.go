@@ -104,7 +104,14 @@ func (manager *Manager) Plan(ctx context.Context, request PlanRequest) (Download
 }
 
 func (manager *Manager) CreateJob(ctx context.Context, request CreateJobRequest) (DownloadJob, error) {
-	plan, err := manager.Plan(ctx, PlanRequest{Repository: request.Repository, Revision: request.Revision, Files: request.Files, Mode: "smart", Token: request.Token})
+	mode := strings.TrimSpace(request.Mode)
+	if mode == "" {
+		mode = "smart"
+	}
+	if mode != "smart" && mode != "explicit" {
+		return DownloadJob{}, fmt.Errorf("download mode must be smart or explicit")
+	}
+	plan, err := manager.Plan(ctx, PlanRequest{Repository: request.Repository, Revision: request.Revision, Files: request.Files, Mode: mode, Token: request.Token})
 	if err != nil {
 		return DownloadJob{}, err
 	}

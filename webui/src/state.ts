@@ -34,6 +34,11 @@ export const state: AppState = {
   csrf: "",
   inventory: null,
   router: null,
+  models: {
+    configNodeIDs: [],
+    fileNodeIDs: [],
+    initialized: false
+  },
   benchmark: {
     modelKey: "",
     type: "general",
@@ -62,6 +67,7 @@ export const state: AppState = {
     capabilities: null,
     nodeID: "",
     plan: null,
+    selectedPlanFiles: [],
     library: null,
     search: [],
     nextCursor: "",

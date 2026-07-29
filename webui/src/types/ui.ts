@@ -102,6 +102,11 @@ export interface AppState {
   csrf: string;
   inventory: InventoryResponse | null;
   router: RouterProcessStatus | null;
+  models: {
+    configNodeIDs: string[];
+    fileNodeIDs: string[];
+    initialized: boolean;
+  };
   benchmark: {
     modelKey: string;
     type: BenchmarkType;
@@ -128,6 +133,7 @@ export interface AppState {
     capabilities: DownloadCapabilitiesResponse | null;
     nodeID: string;
     plan: DownloadPlan | null;
+    selectedPlanFiles: string[];
     library: DownloadLibraryResponse | null;
     search: {id: string; downloads: number; likes: number; gated?: string; tags?: string[]}[];
     nextCursor: string;

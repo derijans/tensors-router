@@ -37,6 +37,7 @@ type FileRecord struct {
 	Role         string   `json:"role"`
 	Roles        []string `json:"roles"`
 	ReferencedBy []string `json:"referenced_by,omitempty"`
+	SHA256       string   `json:"sha256,omitempty"`
 }
 
 type pathReference struct {

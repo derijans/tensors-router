@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "vitest";
-import { filteredModels, visibleModelsForResolution } from "../data";
+import { filteredFiles, filteredModels, visibleModelsForResolution } from "../data";
 import { state } from "../state";
 
 describe("model filtering", () => {
@@ -28,5 +28,16 @@ describe("model filtering", () => {
       ]
     } as typeof state.inventory;
     expect(visibleModelsForResolution("", ["node-a"]).map(model => model.local_id)).toEqual(["ready", "unresolved"]);
+  });
+
+  it("keeps same-named files from selected nodes as separate rows", () => {
+    state.inventory = {
+      nodes: [
+        {node_id: "node-a", files: [{node_id: "node-a", path: "A:/model.gguf", basename: "model.gguf"}]},
+        {node_id: "node-b", files: [{node_id: "node-b", path: "B:/model.gguf", basename: "model.gguf"}]}
+      ]
+    } as typeof state.inventory;
+    expect(filteredFiles("", ["*"]).map(file => `${file.node_id}:${file.path}`)).toEqual(["node-a:A:/model.gguf", "node-b:B:/model.gguf"]);
+    expect(filteredFiles("model", ["node-b"]).map(file => file.node_id)).toEqual(["node-b"]);
   });
 });

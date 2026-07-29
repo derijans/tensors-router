@@ -174,3 +174,14 @@ type DownloadLibraryResponse struct {
 	Artifacts []downloader.ArtifactRecord `json:"artifacts"`
 	Jobs      []downloader.DownloadJob    `json:"jobs"`
 }
+
+type ModelFileHashRequest struct {
+	NodeID string `json:"node_id,omitempty"`
+	Path   string `json:"path"`
+}
+
+type ModelFileHashResponse struct {
+	NodeID string `json:"node_id"`
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+}

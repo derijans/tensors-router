@@ -217,6 +217,7 @@ type CreateJobRequest struct {
 	Repository     string   `json:"repository"`
 	Revision       string   `json:"revision,omitempty"`
 	Files          []string `json:"files"`
+	Mode           string   `json:"mode,omitempty"`
 	Token          string   `json:"token,omitempty"`
 	ConfirmUnsafe  bool     `json:"confirm_unsafe"`
 	ConfirmReplace bool     `json:"confirm_replace"`

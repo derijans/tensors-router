@@ -395,6 +395,19 @@ td {
   gap: 14px;
 }
 
+.table-section-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: end;
+  gap: 12px;
+}
+
+.table-section-head label,
+.models-panel-actions label {
+  display: grid;
+  gap: 4px;
+}
+
 .download-controls {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));

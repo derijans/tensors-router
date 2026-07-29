@@ -54,6 +54,7 @@ export const elements = {
   downloadLibrary: getRequiredElement("downloadLibrary", HTMLElement),
   filterInput: getRequiredElement("filterInput", HTMLInputElement),
   modelsNodeFilter: getRequiredElement("modelsNodeFilter", HTMLSelectElement),
+  filesNodeFilter: getRequiredElement("filesNodeFilter", HTMLSelectElement),
   resolveFilteredModelsButton: getRequiredElement("resolveFilteredModelsButton", HTMLButtonElement),
   modelsActionStatus: getRequiredElement("modelsActionStatus", HTMLElement),
   modelsTable: getRequiredElement("modelsTable", HTMLTableSectionElement),

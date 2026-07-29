@@ -88,6 +88,10 @@ export function resolveModelAssets(request: {id: string}): Promise<{id: string; 
   return api("/api/model-assets/resolve", {method: "POST", body: JSON.stringify(request)});
 }
 
+export function hashModelFile(request: {node_id: string; path: string}): Promise<{node_id: string; path: string; sha256: string}> {
+  return api("/api/model-files/hash", {method: "POST", body: JSON.stringify(request)});
+}
+
 export function resolveModelAssetBatch(requests: {node_id?: string; node_url?: string; id: string; filename?: string}[]): Promise<{id: string; filename: string; results: {field: string; hash: string; resolved: boolean; failure?: string}[]}[]> {
   return api("/api/model-assets/resolve-batch", {method: "POST", body: JSON.stringify(requests)});
 }
@@ -163,7 +167,7 @@ export function planDownload(request: {node_id: string; repository: string; revi
   return api<DownloadPlan>("/api/download/plan", {method: "POST", body: JSON.stringify(request)});
 }
 
-export function createDownloadJob(request: {node_id: string; repository: string; revision?: string; files: string[]; token?: string; confirm_unsafe: boolean; confirm_replace: boolean}): Promise<DownloadJob> {
+export function createDownloadJob(request: {node_id: string; repository: string; revision?: string; files: string[]; mode?: "smart" | "explicit"; token?: string; confirm_unsafe: boolean; confirm_replace: boolean}): Promise<DownloadJob> {
   return api<DownloadJob>("/api/download/jobs", {method: "POST", body: JSON.stringify(request)});
 }
 

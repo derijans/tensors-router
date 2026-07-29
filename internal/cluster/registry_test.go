@@ -2,6 +2,17 @@ package cluster
 
 import "testing"
 
+func TestRegistryRetainsNodeURLWithoutModels(t *testing.T) {
+	registry := NewRegistry(RoleMaster, "master", "http://master")
+	if err := registry.UpdateNode(Snapshot{NodeID: "files-only", NodeURL: "http://files-only"}); err != nil {
+		t.Fatal(err)
+	}
+	urls := registry.NodeURLsByID()
+	if urls["master"] != "http://master" || urls["files-only"] != "http://files-only" {
+		t.Fatalf("unexpected node urls %#v", urls)
+	}
+}
+
 func TestRegistryDedupeAndIndexesConflictingSlaveModel(t *testing.T) {
 	registry := NewRegistry(RoleMaster, "master", "http://master")
 	if err := registry.UpdateLocal([]Model{testModel("same", "master", "mhash", "chash", SourceMaster)}); err != nil {

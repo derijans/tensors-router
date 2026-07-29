@@ -220,6 +220,11 @@ func (service *Service) localNodeInventory(ctx context.Context, includeFiles boo
 			service.logger.Printf("model file inventory scan failed roots=%d elapsed=%s error=%v", len(service.fileRoots), time.Since(started), err)
 			return siteapi.NodeInventory{}, err
 		}
+		if service.assetIndex != nil {
+			for index := range files {
+				files[index].SHA256, _ = service.assetIndex.CachedFileHash(files[index].Path)
+			}
+		}
 		service.logger.Printf("model file inventory scan completed roots=%d files=%d elapsed=%s", len(service.fileRoots), len(files), time.Since(started))
 	}
 	return siteapi.NodeInventory{
@@ -536,6 +541,9 @@ func (service *Service) nodeURLByID() map[string]string {
 		result[service.nodeID] = service.nodeURL
 	}
 	if service.registry != nil {
+		for nodeID, nodeURL := range service.registry.NodeURLsByID() {
+			result[nodeID] = nodeURL
+		}
 		for _, model := range service.registry.Models() {
 			if strings.TrimSpace(model.NodeID) != "" && strings.TrimSpace(model.NodeURL) != "" {
 				result[model.NodeID] = model.NodeURL

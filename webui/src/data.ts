@@ -53,12 +53,11 @@ export function visibleModelsForResolution(query: string, nodeIDs: string[] = []
   return filteredModels(query, nodeIDs);
 }
 
-export function filteredFiles(query: string): FileRecord[] {
+export function filteredFiles(query: string, nodeIDs: string[] = []): FileRecord[] {
   const files = allNodeFiles();
-  if (!query) {
-    return files;
-  }
-  return files.filter(file => JSON.stringify(file).toLowerCase().includes(query));
+  const allNodes = nodeIDs.length === 0 || nodeIDs.includes("*");
+  const selectedNodes = new Set(nodeIDs);
+  return files.filter(file => (allNodes || selectedNodes.has(file.node_id || "")) && (!query || JSON.stringify(file).toLowerCase().includes(query)));
 }
 
 export function groupComponentsByNode(components: CookComponent[]): Map<string, CookComponent[]> {

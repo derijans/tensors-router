@@ -6,6 +6,7 @@ import { benchmarkCompactLabel } from "./benchmark-data";
 import { renderBenchmarks } from "./benchmarks";
 import { renderSimpleCook } from "./simple-cook";
 import type { Model } from "./types";
+import { changedNodeSelection, defaultNodeSelection, retainedNodeSelection } from "./model-filter-data";
 import {
   filteredFiles,
   filteredModels
@@ -61,12 +62,12 @@ export function renderRouterStatus(): void {
 
 export function renderTables(): void {
   const query = elements.filterInput.value.trim().toLowerCase();
-  const selectedNodes = [...elements.modelsNodeFilter.selectedOptions].map(option => option.value);
-  const effectiveSelection = selectedNodes.length > 0 ? selectedNodes : ["*"];
-  const models = filteredModels(query, effectiveSelection);
-  const files = filteredFiles(query);
   const nodes = state.inventory?.nodes ?? [];
-  elements.modelsNodeFilter.innerHTML = `<option value="*"${effectiveSelection.includes("*") ? " selected" : ""}>All Nodes</option>${nodes.map(node => `<option value="${escapeAttribute(node.node_id)}"${effectiveSelection.includes(node.node_id) ? " selected" : ""}>${escapeHTML(node.node_id)}</option>`).join("")}`;
+  syncModelNodeFilters(nodes.map(node => node.node_id));
+  const models = filteredModels(query, state.models.configNodeIDs);
+  const files = filteredFiles(query, state.models.fileNodeIDs);
+  renderNodeFilter(elements.modelsNodeFilter, nodes.map(node => node.node_id), state.models.configNodeIDs);
+  renderNodeFilter(elements.filesNodeFilter, nodes.map(node => node.node_id), state.models.fileNodeIDs);
   elements.modelsTable.innerHTML = models.map(model => `
     <tr>
       <td>${escapeHTML(model.public_id || model.local_id)}</td>
@@ -87,8 +88,42 @@ export function renderTables(): void {
       <td>${escapeHTML(file.node_id || "")}</td>
       <td>${escapeHTML(fileRoles(file).join(", "))}</td>
       <td>${formatBytes(file.size || 0)}</td>
+      <td>${fileHashCell(file.node_id || "", file.path, file.sha256 || "")}</td>
     </tr>
   `).join("");
+}
+
+export function updateConfigNodeFilter(values: string[]): void {
+  state.models.configNodeIDs = changedNodeSelection(values, state.models.configNodeIDs);
+  renderTables();
+}
+
+export function updateFileNodeFilter(values: string[]): void {
+  state.models.fileNodeIDs = changedNodeSelection(values, state.models.fileNodeIDs);
+  renderTables();
+}
+
+function syncModelNodeFilters(nodeIDs: string[]): void {
+  const localNodeID = state.inventory?.node_id || "";
+  if (!state.models.initialized) {
+    state.models.configNodeIDs = defaultNodeSelection(localNodeID, nodeIDs);
+    state.models.fileNodeIDs = defaultNodeSelection(localNodeID, nodeIDs);
+    state.models.initialized = true;
+    return;
+  }
+  state.models.configNodeIDs = retainedNodeSelection(state.models.configNodeIDs, localNodeID, nodeIDs);
+  state.models.fileNodeIDs = retainedNodeSelection(state.models.fileNodeIDs, localNodeID, nodeIDs);
+}
+
+function renderNodeFilter(select: HTMLSelectElement, nodeIDs: string[], selected: string[]): void {
+  select.innerHTML = `<option value="*"${selected.includes("*") ? " selected" : ""}>All Nodes</option>${nodeIDs.map(nodeID => `<option value="${escapeAttribute(nodeID)}"${selected.includes(nodeID) ? " selected" : ""}>${escapeHTML(nodeID)}</option>`).join("")}`;
+}
+
+function fileHashCell(nodeID: string, path: string, hash: string): string {
+  if (!hash) {
+    return `<button type="button" data-operation-group="models" data-hash-file-node="${escapeAttribute(nodeID)}" data-hash-file-path="${escapeAttribute(path)}">Hash</button>`;
+  }
+  return `<span title="${escapeAttribute(hash)}"><code>${escapeHTML(hash.slice(0, 5))}</code> <button type="button" data-copy-file-hash="${escapeAttribute(hash)}">Copy</button></span>`;
 }
 
 function modelAssetAvailability(model: Model): string {

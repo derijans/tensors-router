@@ -317,6 +317,7 @@ export interface FileRecord {
   role: string;
   roles?: string[];
   referenced_by?: string[];
+  sha256?: string;
 }
 
 export interface NodeInventory {

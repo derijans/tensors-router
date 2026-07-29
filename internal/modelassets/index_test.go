@@ -48,6 +48,32 @@ func TestIndexRejectsUnsafeFilenameBeforeFileAccess(t *testing.T) {
 	}
 }
 
+func TestCachedFileHashRequiresMatchingFileMetadata(t *testing.T) {
+	root := t.TempDir()
+	path := filepath.Join(root, "model.gguf")
+	if err := os.WriteFile(path, []byte("first"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	index, err := NewIndex(filepath.Join(root, "store"), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = index.Close() })
+	asset, err := index.IndexFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cached, found := index.CachedFileHash(path); !found || cached != asset.SHA256 {
+		t.Fatalf("cached hash was not returned hash=%q found=%t", cached, found)
+	}
+	if err := os.WriteFile(path, []byte("changed content"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if cached, found := index.CachedFileHash(path); found || cached != "" {
+		t.Fatalf("stale cached hash was returned %q", cached)
+	}
+}
+
 func TestFindInRootsIndexesOnlyMatchingFilenameOnDemand(t *testing.T) {
 	root := t.TempDir()
 	modelPath := filepath.Join(root, "nested", "model.gguf")

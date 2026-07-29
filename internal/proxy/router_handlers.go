@@ -75,6 +75,8 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		service.handleSiteConfigFileDelete(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-assets/export":
 		service.handleSiteModelAssetExport(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-files/hash":
+		service.handleSiteModelFileHash(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-assets/resolve":
 		service.handleSiteModelAssetResolve(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-assets/resolve-batch":
@@ -104,6 +106,10 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/export":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeModelAssetExport(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-files/hash":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeModelFileHash(w, r)
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/jobs":
 		if service.requireClusterToken(w, r) {
