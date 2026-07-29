@@ -56,6 +56,33 @@ func TestResolveRejectsPathTraversal(t *testing.T) {
 	}
 }
 
+func TestResolvePreservesCaseSensitiveIdentityAndPaths(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "MixedCase", "Configs")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	filename := "Gemma4-31B-NoThink.kcpps"
+	path := filepath.Join(dir, filename)
+	if err := os.WriteFile(path, []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	models := New(dir)
+	if _, ok, err := models.Resolve("gemma4-31b-nothink"); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Fatal("lowercase selector unexpectedly matched mixed-case config")
+	}
+
+	model, ok, err := models.Resolve("Gemma4-31B-NoThink")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || model.ID != "Gemma4-31B-NoThink" || model.Filename != filename || model.Path != path {
+		t.Fatalf("exact lookup lost canonical identity: %#v", model)
+	}
+}
+
 func TestResolveMapsPublicIDToConfigFilename(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "a.kcpps"), []byte("{}"), 0o644); err != nil {

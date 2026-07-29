@@ -15,7 +15,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -247,14 +246,8 @@ func (manager *Manager) Unload(ctx context.Context) error {
 }
 
 func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error {
-	reloadFilename, removeStagedConfig, err := manager.reloadFilename(filename)
-	if err != nil {
-		return err
-	}
-	defer removeStagedConfig()
-
 	body, err := json.Marshal(map[string]string{
-		"filename":       reloadFilename,
+		"filename":       filename,
 		"overrideconfig": "",
 	})
 	if err != nil {
@@ -297,38 +290,6 @@ func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error
 	}
 
 	return manager.waitHealthy(ctx, 90*time.Second)
-}
-
-func (manager *Manager) reloadFilename(filename string) (string, func(), error) {
-	if filename == strings.ToLower(filename) {
-		return filename, func() {}, nil
-	}
-	if filename == "" || filename != filepath.Base(filename) || !filepath.IsLocal(filename) {
-		return "", nil, fmt.Errorf("config filename is invalid")
-	}
-
-	source, err := os.Open(filepath.Join(manager.config.ConfigDir, filename))
-	if err != nil {
-		return "", nil, err
-	}
-	defer source.Close()
-
-	staged, err := os.CreateTemp(manager.config.ConfigDir, "tensor-router-reload-*.kcpps")
-	if err != nil {
-		return "", nil, err
-	}
-	stagedPath := staged.Name()
-	removeStagedConfig := func() { _ = os.Remove(stagedPath) }
-	if _, err := io.Copy(staged, source); err != nil {
-		_ = staged.Close()
-		removeStagedConfig()
-		return "", nil, err
-	}
-	if err := staged.Close(); err != nil {
-		removeStagedConfig()
-		return "", nil, err
-	}
-	return filepath.Base(stagedPath), removeStagedConfig, nil
 }
 
 func (manager *Manager) Healthy(ctx context.Context) bool {

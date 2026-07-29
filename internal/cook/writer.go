@@ -480,9 +480,9 @@ func SanitizedID(id string) (string, error) {
 	}
 	var builder strings.Builder
 	lastDash := false
-	for _, char := range strings.ToLower(id) {
+	for _, char := range id {
 		switch {
-		case char >= 'a' && char <= 'z':
+		case char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z':
 			builder.WriteRune(char)
 			lastDash = false
 		case char >= '0' && char <= '9':

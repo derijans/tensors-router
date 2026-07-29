@@ -39,8 +39,11 @@ func TestWriterReusesSingleExistingConfig(t *testing.T) {
 
 func TestWriterComposesConfigAndPreservesUnknownKeys(t *testing.T) {
 	dir := packageTempDir(t)
-	root := packageTempDir(t)
-	textPath := filepath.Join(root, "text.gguf")
+	root := filepath.Join(packageTempDir(t), "MixedCase", "Models")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	textPath := filepath.Join(root, "TextModel.GGUF")
 	if err := os.WriteFile(textPath, []byte("text"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -63,11 +66,11 @@ func TestWriterComposesConfigAndPreservesUnknownKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.ModelID != "cooked-model" || result.ImageID != "cooked-model-dream" {
+	if result.ModelID != "Cooked-Model" || result.ImageID != "Cooked-Model-dream" {
 		t.Fatalf("unexpected result %#v", result)
 	}
 
-	content, err := os.ReadFile(filepath.Join(dir, "cooked-model.kcpps"))
+	content, err := os.ReadFile(filepath.Join(dir, "Cooked-Model.kcpps"))
 	if err != nil {
 		t.Fatal(err)
 	}

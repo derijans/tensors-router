@@ -1013,6 +1013,34 @@ func TestPreloadModelLoadsAndReusesConfig(t *testing.T) {
 	}
 }
 
+func TestPreloadModelPreservesCanonicalConfigAndModelPathCase(t *testing.T) {
+	mixedModelPath := filepath.Join(t.TempDir(), "MixedCase", "Models", "GemmaModel.GGUF")
+	service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"backend"}]}`))
+			return
+		}
+		t.Fatalf("unexpected path %s", r.URL.Path)
+	}), map[string]string{
+		"Gemma4-31B-NoThink": fmt.Sprintf(`{"model_param":%q}`, mixedModelPath),
+	})
+
+	if err := service.PreloadModel(context.Background(), "Gemma4-31B-NoThink"); err != nil {
+		t.Fatal(err)
+	}
+	if backend.lastReload != "Gemma4-31B-NoThink.kcpps" {
+		t.Fatalf("reload lost canonical config filename: %q", backend.lastReload)
+	}
+	model, ok, err := service.catalog.Resolve("Gemma4-31B-NoThink")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || string(model.Options["model_param"]) != fmt.Sprintf("%q", mixedModelPath) {
+		t.Fatalf("model path casing was not preserved: %#v", model.Options)
+	}
+}
+
 func TestPreloadModelRejectsInvalidModel(t *testing.T) {
 	service, backend := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 
