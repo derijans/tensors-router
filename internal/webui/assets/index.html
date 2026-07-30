@@ -145,7 +145,14 @@
           </div>
           <div class="models-panel-actions">
             <input id="filterInput" type="search" placeholder="Filter models, files, nodes">
-            <select id="modelsNodeFilter" aria-label="Filter models by node" multiple size="4"><option value="*" selected>All Nodes</option></select>
+            <label>
+              Config nodes
+              <select id="modelsNodeFilter" multiple size="4"><option value="*" selected>All Nodes</option></select>
+            </label>
+            <label>
+              File nodes
+              <select id="filesNodeFilter" multiple size="4"><option value="*" selected>All Nodes</option></select>
+            </label>
             <button id="resolveFilteredModelsButton" type="button" data-operation-group="models">Resolve filtered</button>
             <div id="modelsActionStatus" class="action-status"></div>
           </div>
