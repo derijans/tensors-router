@@ -48,6 +48,7 @@ import {
   updateAnalyticsSection
 } from "./analytics";
 import { closestElement, elementTarget, queryElements } from "./dom";
+import { bootstrapApplication } from "./bootstrap";
 import { elements } from "./elements";
 import { state } from "./state";
 import { confirmDestructive, registerSafetyDialog } from "./dialogs";
@@ -117,14 +118,20 @@ import {
 import type { CookMode, PaletteName } from "./types";
 
 async function bootstrap(): Promise<void> {
-  try {
-    const session = await getSession();
-    state.csrf = session.csrf;
-    showApp();
-    await refreshAll();
-  } catch {
-    showLogin();
-  }
+  await bootstrapApplication({
+    getSession,
+    applySession: session => { state.csrf = session.csrf; },
+    showApp,
+    showLogin,
+    loadInitialData: async () => {
+      await runOperation({
+        key: "initial-load",
+        group: "refresh",
+        label: "Loading data…",
+        task: refreshAll
+      });
+    }
+  });
 }
 
 async function refreshAll(): Promise<void> {
