@@ -69,49 +69,7 @@ func NewReconciler(config Config) (*Reconciler, error) {
 func (reconciler *Reconciler) Reconcile(filename string, backend string) (Result, error) {
 	reconciler.mu.Lock()
 	defer reconciler.mu.Unlock()
-
-	target, stem, err := reconciler.configTarget(filename)
-	if err != nil {
-		return Result{}, err
-	}
-	content, err := os.ReadFile(target)
-	if err != nil {
-		return Result{}, err
-	}
-	servers, enabled, err := decodeServers(content, backend)
-	if err != nil {
-		return Result{}, err
-	}
-	if !reconciler.enabled || !enabled {
-		return Result{}, reconciler.removeArtifacts(stem)
-	}
-	serversPath := filepath.Join(reconciler.directory, stem, "servers.json")
-	generated, err := generatedServers(servers)
-	if err != nil {
-		return Result{}, err
-	}
-	if err := ensurePrivateDirectory(filepath.Dir(serversPath)); err != nil {
-		return Result{}, err
-	}
-	if err := atomicfile.Write(serversPath, generated, 0o600); err != nil {
-		return Result{}, err
-	}
-	result := Result{Enabled: true, ServersPath: serversPath}
-	if backend == BackendKobold {
-		overlayPath := filepath.Join(reconciler.configDir, ".router-mcp", filename)
-		overlay, err := json.Marshal(map[string]string{"mcpfile": serversPath})
-		if err != nil {
-			return Result{}, err
-		}
-		if err := ensurePrivateDirectory(filepath.Dir(overlayPath)); err != nil {
-			return Result{}, err
-		}
-		if err := atomicfile.Write(overlayPath, overlay, 0o600); err != nil {
-			return Result{}, err
-		}
-		result.OverlayPath = overlayPath
-	}
-	return result, nil
+	return reconciler.reconcileLocked(filename, backend)
 }
 
 func (reconciler *Reconciler) ReconcileAll(backend string) error {
@@ -155,6 +113,9 @@ func (reconciler *Reconciler) reconcileLocked(filename string, backend string) (
 	if err != nil {
 		return Result{}, err
 	}
+	if !reconciler.enabled {
+		return Result{}, reconciler.removeArtifacts(stem)
+	}
 	content, err := os.ReadFile(target)
 	if err != nil {
 		return Result{}, err
@@ -163,7 +124,7 @@ func (reconciler *Reconciler) reconcileLocked(filename string, backend string) (
 	if err != nil {
 		return Result{}, err
 	}
-	if !reconciler.enabled || !enabled {
+	if !enabled {
 		return Result{}, reconciler.removeArtifacts(stem)
 	}
 	serversPath := filepath.Join(reconciler.directory, stem, "servers.json")

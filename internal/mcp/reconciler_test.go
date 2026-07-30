@@ -71,6 +71,34 @@ func TestReconcileRemovesDisabledArtifacts(t *testing.T) {
 	}
 }
 
+func TestReconcileAllSkipsLegacyValidationWhenGloballyDisabled(t *testing.T) {
+	configDir := t.TempDir()
+	filename := "legacy.kcpps"
+	artifactDirectory := filepath.Join(configDir, "artifacts")
+	writeConfig(t, configDir, filename, `{"mcp_enabled":true,"mcp_servers":[{"name":"server","definition":{"command":"server"}}]}`)
+	enabledReconciler, err := NewReconciler(Config{Enabled: true, Directory: artifactDirectory, ConfigDir: configDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := enabledReconciler.Reconcile(filename, BackendKobold)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeConfig(t, configDir, filename, `{"mcpfile":"legacy.json"}`)
+	disabledReconciler, err := NewReconciler(Config{Enabled: false, Directory: artifactDirectory, ConfigDir: configDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := disabledReconciler.ReconcileAll(BackendKobold); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{result.ServersPath, result.OverlayPath} {
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Fatalf("disabled MCP artifact still exists at %q: %v", path, err)
+		}
+	}
+}
+
 func TestValidateRejectsDuplicateKeysAndUnsupportedTransport(t *testing.T) {
 	if err := Validate([]byte(`{"mcp_servers":[],"mcp_servers":[]}`), BackendLlama); err == nil {
 		t.Fatal("duplicate JSON keys were accepted")
