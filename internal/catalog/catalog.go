@@ -40,6 +40,7 @@ type Model struct {
 	HasMultimodal    bool
 	HasVoice         bool
 	HasMusic         bool
+	MCPEnabled       bool
 	ImageID          string
 	ImageModelName   string
 	ImageModelPath   string
@@ -337,6 +338,7 @@ func (catalog *Catalog) withMetadata(model Model, includeModelHash bool) Model {
 	model.HasMusic = hasMusicModel(metadata) || portableModelField(options, "musicllm", "musicembeddings", "musicdiffusion", "musicvae")
 	model.HasLLM = hasLLMModel(metadata) || portableModelField(options, "model", "model_param", "draftmodel")
 	model.BackendMode = strings.TrimSpace(metadata.BackendMode)
+	model.MCPEnabled = metadata.MCPEnabled
 	if model.HasImage {
 		model.ImageModelPath = metadata.ImageModelPath()
 		if model.ImageModelPath == "" {
@@ -414,6 +416,20 @@ func cloneModel(model Model) Model {
 	cloned.Capabilities = cloneCapabilities(model.Capabilities)
 	cloned.ChatTemplate = model.ChatTemplate.clone()
 	return cloned
+}
+
+func SanitizedOptions(options map[string]json.RawMessage) map[string]json.RawMessage {
+	if options == nil {
+		return nil
+	}
+	result := make(map[string]json.RawMessage, len(options))
+	for key, value := range options {
+		if key == "mcp_servers" || key == "mcp_enabled" || key == "mcpfile" {
+			continue
+		}
+		result[key] = append(json.RawMessage(nil), value...)
+	}
+	return result
 }
 
 func cloneCapabilities(capabilities Capabilities) Capabilities {

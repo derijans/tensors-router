@@ -20,12 +20,14 @@ import (
 	"time"
 
 	routeranalytics "tensors-router/internal/analytics"
+	"tensors-router/internal/auth"
 	"tensors-router/internal/backendmode"
 	routerbenchmark "tensors-router/internal/benchmark"
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/downloader"
 	"tensors-router/internal/hardware"
+	"tensors-router/internal/mcp"
 	"tensors-router/internal/modelassets"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/recipes"
@@ -76,6 +78,7 @@ type ServiceConfig struct {
 	MasterURL                string
 	SlaveURLs                []string
 	ConfigDir                string
+	MCPReconciler            *mcp.Reconciler
 	FileRoots                []string
 	AssetIndex               *modelassets.Index
 	RecipeStore              *recipes.Store
@@ -114,6 +117,7 @@ type Service struct {
 	masterURL            string
 	slaveURLs            []string
 	configDir            string
+	mcpReconciler        *mcp.Reconciler
 	fileRoots            []string
 	assetIndex           *modelassets.Index
 	assetConfigLocks     sync.Map
@@ -292,6 +296,7 @@ func NewService(config ServiceConfig) *Service {
 		masterURL:            strings.TrimSpace(config.MasterURL),
 		slaveURLs:            append([]string{}, config.SlaveURLs...),
 		configDir:            strings.TrimSpace(config.ConfigDir),
+		mcpReconciler:        config.MCPReconciler,
 		fileRoots:            append([]string{}, config.FileRoots...),
 		assetIndex:           config.AssetIndex,
 		assetTransferSlots:   make(chan struct{}, concurrentAssetTransfers),
@@ -463,7 +468,7 @@ func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
-		service.handleModels(w)
+		service.handleModels(w, r)
 		return
 	}
 
@@ -485,6 +490,12 @@ func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPost && r.URL.Path == "/sdapi/v1/refresh-checkpoints" {
 		openai.WriteJSON(w, http.StatusOK, map[string]any{})
 		return
+	}
+	if isVoicePath(r.URL.Path) || isMusicPath(r.URL.Path) || isImagePath(r.URL.Path) || isTextPath(r.URL.Path) {
+		if err := service.requireActiveMCPAdmin(r.Context()); err != nil {
+			openai.WriteError(w, http.StatusForbidden, "forbidden", err.Error())
+			return
+		}
 	}
 
 	if isVoicePath(r.URL.Path) || isMusicPath(r.URL.Path) {
@@ -520,9 +531,9 @@ func (service *Service) Close(ctx context.Context) error {
 	return service.vramSampler.Close(ctx)
 }
 
-func (service *Service) handleModels(w http.ResponseWriter) {
+func (service *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 	if service.registry != nil {
-		openai.WriteJSON(w, http.StatusOK, openai.ModelsResponseFromCatalog(cluster.PublicCatalogModels(service.registry.Models())))
+		openai.WriteJSON(w, http.StatusOK, openai.ModelsResponseFromCatalog(cluster.PublicCatalogModels(service.visibleClusterModels(r.Context(), service.registry.Models()))))
 		return
 	}
 
@@ -531,7 +542,33 @@ func (service *Service) handleModels(w http.ResponseWriter) {
 		openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
 		return
 	}
-	openai.WriteJSON(w, http.StatusOK, openai.ModelsResponseFromCatalog(models))
+	openai.WriteJSON(w, http.StatusOK, openai.ModelsResponseFromCatalog(service.visibleCatalogModels(r.Context(), models)))
+}
+
+func (service *Service) visibleCatalogModels(ctx context.Context, models []catalog.Model) []catalog.Model {
+	if auth.PrincipalFromContext(ctx).Admin || service.mcpReconciler == nil || !service.mcpReconciler.Enabled() {
+		return models
+	}
+	visible := make([]catalog.Model, 0, len(models))
+	for _, model := range models {
+		if !model.MCPEnabled {
+			visible = append(visible, model)
+		}
+	}
+	return visible
+}
+
+func (service *Service) visibleClusterModels(ctx context.Context, models []cluster.Model) []cluster.Model {
+	if auth.PrincipalFromContext(ctx).Admin || service.mcpReconciler == nil || !service.mcpReconciler.Enabled() {
+		return models
+	}
+	visible := make([]cluster.Model, 0, len(models))
+	for _, model := range models {
+		if !model.MCPEnabled {
+			visible = append(visible, model)
+		}
+	}
+	return visible
 }
 
 func (service *Service) handleImageModels(w http.ResponseWriter) {

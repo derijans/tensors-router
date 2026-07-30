@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"tensors-router/internal/backendendpoint"
+	"tensors-router/internal/mcp"
 	"tensors-router/internal/processcontrol"
 )
 
@@ -34,6 +35,7 @@ type ProcessConfig struct {
 	NoModel      bool
 	HideWindow   bool
 	Logging      bool
+	MCP          *mcp.Reconciler
 }
 
 type Manager struct {
@@ -246,8 +248,19 @@ func (manager *Manager) Unload(ctx context.Context) error {
 }
 
 func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error {
+	baseConfig := ""
+	if manager.config.MCP != nil {
+		result, err := manager.config.MCP.Reconcile(filename, mcp.BackendKobold)
+		if err != nil {
+			return err
+		}
+		if result.Enabled {
+			baseConfig = filepath.ToSlash(filepath.Join(".router-mcp", filename))
+		}
+	}
 	body, err := json.Marshal(map[string]string{
 		"filename":       filename,
+		"baseconfig":     baseConfig,
 		"overrideconfig": "",
 	})
 	if err != nil {

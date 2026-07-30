@@ -2,9 +2,11 @@ package proxy
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
+	"tensors-router/internal/auth"
 	"tensors-router/internal/catalog"
 )
 
@@ -34,6 +36,9 @@ func newActiveConfigState() *activeConfigState {
 }
 
 func (service *Service) acquireModelConfigForBackendMode(mode string, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (*backendRuntime, func(), bool, error) {
+	if err := service.requireMCPAdmin(ctx, configFilename); err != nil {
+		return nil, nil, false, err
+	}
 	if err := service.ensureModelConfigHash(configFilename); err != nil {
 		return nil, nil, false, err
 	}
@@ -52,6 +57,34 @@ func (service *Service) acquireModelConfigForBackendMode(mode string, ctx contex
 	}
 	release, loadedFresh, err := service.acquireModelConfig(runtime, ctx, modelID, configFilename, readiness, force)
 	return runtime, release, loadedFresh, err
+}
+
+func (service *Service) requireMCPAdmin(ctx context.Context, filename string) error {
+	if service.mcpReconciler == nil || !service.mcpReconciler.Enabled() || service.catalog == nil {
+		return nil
+	}
+	models, err := service.catalog.List()
+	if err != nil {
+		return err
+	}
+	for _, model := range models {
+		if model.Filename == filename && model.MCPEnabled && !auth.PrincipalFromContext(ctx).Admin {
+			return fmt.Errorf("MCP-enabled models require an authenticated admin principal")
+		}
+	}
+	return nil
+}
+
+func (service *Service) requireActiveMCPAdmin(ctx context.Context) error {
+	for _, runtime := range []*backendRuntime{service.textRuntime, service.imageRuntime} {
+		if runtime == nil {
+			continue
+		}
+		if err := service.requireMCPAdmin(ctx, currentRuntimeConfigFilename(runtime)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (service *Service) ensureModelConfigHash(filename string) error {

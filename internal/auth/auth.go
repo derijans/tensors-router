@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"context"
 	"crypto/subtle"
 	"fmt"
 	"net"
@@ -40,6 +41,12 @@ type Policy struct {
 type Guard struct {
 	policy *Policy
 }
+
+type Principal struct {
+	Admin bool
+}
+
+type principalContextKey struct{}
 
 func NewPolicy(config PolicyConfig) (*Policy, error) {
 	if config.Profile == "" {
@@ -84,6 +91,8 @@ func (policy *Policy) Middleware(next http.Handler) http.Handler {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
+		principal := policy.principal(r.Header.Get("Authorization"))
+		r = r.WithContext(context.WithValue(r.Context(), principalContextKey{}, principal))
 		class := classifyRoute(r.URL.Path)
 		if class == routeCluster {
 			if policy.clusterToken == "" || !allowedBearer(r.Header.Get("Authorization"), []string{policy.clusterToken}) {
@@ -102,6 +111,18 @@ func (policy *Policy) Middleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func PrincipalFromContext(ctx context.Context) Principal {
+	principal, _ := ctx.Value(principalContextKey{}).(Principal)
+	return principal
+}
+
+func (policy *Policy) principal(header string) Principal {
+	if allowedBearer(header, policy.adminKeys) {
+		return Principal{Admin: true}
+	}
+	return Principal{}
 }
 
 func (guard *Guard) Middleware(next http.Handler) http.Handler {

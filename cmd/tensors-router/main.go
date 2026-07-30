@@ -24,6 +24,7 @@ import (
 	"tensors-router/internal/config"
 	"tensors-router/internal/downloader"
 	"tensors-router/internal/kobold"
+	"tensors-router/internal/mcp"
 	"tensors-router/internal/modelassets"
 	"tensors-router/internal/native"
 	"tensors-router/internal/proxy"
@@ -89,6 +90,13 @@ func runServe(args []string) error {
 		return err
 	}
 
+	mcpReconciler, err := mcp.NewReconciler(mcp.Config{Enabled: cfg.MCP.Enabled, Directory: cfg.MCP.Directory, ConfigDir: cfg.Models.ConfigDir})
+	if err != nil {
+		return err
+	}
+	if err := mcpReconciler.ReconcileAll(cfg.Backend.Mode); err != nil {
+		return err
+	}
 	catalogStarted := time.Now()
 	startupLogger.Printf("model config discovery started directory=%q", cfg.Models.ConfigDir)
 	modelCatalog, err := catalog.NewWithStore(cfg.Models.ConfigDir, cfg.Cluster.StoreDir)
@@ -171,7 +179,7 @@ func runServe(args []string) error {
 	}
 	routercluster.SyncConfiguredSlaves(ctx, syncConfig, registry, clusterClient, serveLogger)
 
-	backendFamilies, backendShutdowns, err := createBackends(ctx, cfg)
+	backendFamilies, backendShutdowns, err := createBackends(ctx, cfg, mcpReconciler)
 	if err != nil {
 		return err
 	}
@@ -201,6 +209,7 @@ func runServe(args []string) error {
 		MasterURL:                cfg.Cluster.MasterURL,
 		SlaveURLs:                cfg.Cluster.SlaveURLs,
 		ConfigDir:                cfg.Models.ConfigDir,
+		MCPReconciler:            mcpReconciler,
 		FileRoots:                cfg.Models.FileRoots,
 		AssetIndex:               assetIndex,
 		ConcurrentAssetTransfers: cfg.Models.ConcurrentAssetTransfers,
@@ -372,13 +381,13 @@ func clusterClientTargets(cfg config.Config) []string {
 	return targets
 }
 
-func createBackends(ctx context.Context, cfg config.Config) (map[string]proxy.BackendFamilyConfig, []func(context.Context) error, error) {
-	koboldManager, err := kobold.NewManager(koboldProcessConfig(cfg))
+func createBackends(ctx context.Context, cfg config.Config, mcpReconciler *mcp.Reconciler) (map[string]proxy.BackendFamilyConfig, []func(context.Context) error, error) {
+	koboldManager, err := kobold.NewManager(koboldProcessConfig(cfg, mcpReconciler))
 	if err != nil {
 		return nil, nil, err
 	}
 
-	llamaManager, err := native.NewLlamaManager(llamaProcessConfig(cfg))
+	llamaManager, err := native.NewLlamaManager(llamaProcessConfig(cfg, mcpReconciler))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -413,7 +422,8 @@ func createBackends(ctx context.Context, cfg config.Config) (map[string]proxy.Ba
 	return families, shutdownBackends, nil
 }
 
-func koboldProcessConfig(cfg config.Config) kobold.ProcessConfig {
+func koboldProcessConfig(cfg config.Config, reconciler ...*mcp.Reconciler) kobold.ProcessConfig {
+	mcpReconciler := firstMCPReconciler(reconciler)
 	return kobold.ProcessConfig{
 		BackendURL:   cfg.Kobold.BackendURL,
 		BinaryPath:   cfg.Kobold.BinaryPath,
@@ -426,10 +436,12 @@ func koboldProcessConfig(cfg config.Config) kobold.ProcessConfig {
 		NoModel:      cfg.Kobold.NoModel,
 		HideWindow:   cfg.Kobold.HideWindow,
 		Logging:      cfg.Logging.BackendLogsToDisk,
+		MCP:          mcpReconciler,
 	}
 }
 
-func llamaProcessConfig(cfg config.Config) native.ProcessConfig {
+func llamaProcessConfig(cfg config.Config, reconciler ...*mcp.Reconciler) native.ProcessConfig {
+	mcpReconciler := firstMCPReconciler(reconciler)
 	return native.ProcessConfig{
 		BackendURL: cfg.Llama.BackendURL,
 		BinaryPath: cfg.Llama.BinaryPath,
@@ -438,7 +450,15 @@ func llamaProcessConfig(cfg config.Config) native.ProcessConfig {
 		ExtraArgs:  cfg.Llama.ExtraArgs,
 		HideWindow: cfg.Llama.HideWindow,
 		Logging:    cfg.Logging.BackendLogsToDisk,
+		MCP:        mcpReconciler,
 	}
+}
+
+func firstMCPReconciler(values []*mcp.Reconciler) *mcp.Reconciler {
+	if len(values) == 0 {
+		return nil
+	}
+	return values[0]
 }
 
 func sdcppProcessConfig(cfg config.Config) native.ProcessConfig {

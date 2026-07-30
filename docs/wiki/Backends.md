@@ -45,6 +45,14 @@ Backend-specific `extra_args` are appended after mapped arguments. Use them only
 
 See [Cook Backend Options](Cook-Backend-Options) for the editable option catalog.
 
+## MCP
+
+An active embedded MCP configuration is passed to `llama-server` with `--mcp-servers-config`.
+
+For KoboldCpp, the router creates a private `.router-mcp/<config>.kcpps` overlay inside the admin configuration jail and reloads the real configuration with that overlay as its base configuration.
+
+Neither backend receives an MCP path embedded in the source `.kcpps`.
+
 ## Downloads and updates
 
 Run the configured backend download operation with:

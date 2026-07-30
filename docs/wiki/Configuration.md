@@ -43,6 +43,15 @@ The parsers reject unknown sections and fields. Relative paths are resolved from
 | --- | --- | --- | --- |
 | `backend.mode` | String enum: `kobold`, `llama_sdcpp` | `kobold` | Default backend family. A `.kcpps` `backend_mode` can override it per model. |
 
+## MCP artifacts
+
+| Key | Type | Default | Meaning |
+|---|---|---:|---|
+| `mcp.enabled` | Boolean | `false` | Enables materialization of MCP definitions stored in model configurations. |
+| `mcp.directory` | Path string | `./mcp` | Artifact directory, resolved relative to this router configuration file. |
+
+MCP server definitions remain embedded in the `.kcpps` source. When active, the router writes a private, generated `servers.json` at `<mcp.directory>/<config-stem>/servers.json`. Disabling the global setting or a model's `mcp_enabled` removes that generated directory while retaining the embedded definition. Treat any configuration that contains `mcp_servers` as secret-bearing, including disabled definitions.
+
 ### KoboldCpp process
 
 | Field | Type or options | Example or default | Description |

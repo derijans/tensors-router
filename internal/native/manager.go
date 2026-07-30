@@ -18,6 +18,7 @@ import (
 
 	"tensors-router/internal/backendendpoint"
 	"tensors-router/internal/catalog"
+	"tensors-router/internal/mcp"
 	"tensors-router/internal/processcontrol"
 )
 
@@ -29,6 +30,7 @@ type ProcessConfig struct {
 	ExtraArgs  []string
 	HideWindow bool
 	Logging    bool
+	MCP        *mcp.Reconciler
 }
 
 type Manager struct {
@@ -37,7 +39,7 @@ type Manager struct {
 	defaultPort     string
 	readinessPath   string
 	logName         string
-	argumentBuilder func(catalog.RuntimeConfig, string, string, string) ([]string, error)
+	argumentBuilder func(catalog.RuntimeConfig, string, string, string, string) ([]string, error)
 	client          *http.Client
 	mu              sync.Mutex
 	cmd             *exec.Cmd
@@ -54,7 +56,7 @@ func NewSDCPPManager(config ProcessConfig) (*Manager, error) {
 	return newManager(config, "7860", "/sdapi/v1/sd-models", "sd-server.log", sdcppArguments)
 }
 
-func newManager(config ProcessConfig, defaultPort string, readinessPath string, logName string, argumentBuilder func(catalog.RuntimeConfig, string, string, string) ([]string, error)) (*Manager, error) {
+func newManager(config ProcessConfig, defaultPort string, readinessPath string, logName string, argumentBuilder func(catalog.RuntimeConfig, string, string, string, string) ([]string, error)) (*Manager, error) {
 	backendURL, err := backendendpoint.ParseLoopback(config.BackendURL)
 	if err != nil {
 		return nil, err
@@ -90,7 +92,15 @@ func (manager *Manager) LaunchArguments(filename string) ([]string, error) {
 		return nil, err
 	}
 	host, port := manager.hostPort()
-	args, err := manager.argumentBuilder(metadata, strings.TrimSuffix(filename, filepath.Ext(filename)), host, port)
+	mcpServersPath := ""
+	if manager.config.MCP != nil {
+		result, err := manager.config.MCP.Reconcile(filename, mcp.BackendLlama)
+		if err != nil {
+			return nil, err
+		}
+		mcpServersPath = result.ServersPath
+	}
+	args, err := manager.argumentBuilder(metadata, strings.TrimSuffix(filename, filepath.Ext(filename)), host, port, mcpServersPath)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +280,7 @@ func (manager *Manager) hostPort() (string, string) {
 	return host, port
 }
 
-func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string, port string) ([]string, error) {
+func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string, port string, mcpServersPath string) ([]string, error) {
 	modelPath := metadata.TextModelPath()
 	if modelPath == "" {
 		return nil, fmt.Errorf("llama config has no text, embedding, or multimodal model path")
@@ -281,6 +291,7 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 		"--model", modelPath,
 		"--alias", modelID,
 	}
+	appendStringArg(&args, "--mcp-servers-config", mcpServersPath)
 	appendIntArg(&args, "--ctx-size", metadata.ContextSize)
 	appendIntArg(&args, "--threads", metadata.Threads)
 	appendIntArg(&args, "--threads-batch", metadata.BLASThreads)
@@ -303,11 +314,17 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	appendStringArg(&args, "--spec-draft-type-k", metadata.SpecDraftTypeK)
 	appendStringArg(&args, "--spec-draft-type-v", metadata.SpecDraftTypeV)
 	appendFloatArg(&args, "--spec-draft-p-min", metadata.SpecDraftPMin)
-	if !metadata.UseMMap {
-		args = append(args, "--no-mmap")
+	appendLoadMode(&args, metadata.LoadMode, metadata.UseMMap, metadata.UseMLock)
+	appendStringArg(&args, "--reasoning-preserve", metadata.ReasoningPreserve)
+	appendStringArg(&args, "--rpc", metadata.RPCTargets)
+	appendStringArg(&args, "--model-draft", metadata.DraftModel)
+	appendIntArg(&args, "--draft-max", metadata.DraftAmount)
+	appendIntArg(&args, "--draft-n-gpu-layers", metadata.DraftGPULayers)
+	if metadata.DraftDFlash {
+		args = append(args, "--draft-dflash")
 	}
-	if metadata.UseMLock {
-		args = append(args, "--mlock")
+	if metadata.DraftDSpark {
+		args = append(args, "--draft-dspark")
 	}
 	if strings.TrimSpace(metadata.EmbeddingsModel) != "" {
 		args = append(args, "--embeddings")
@@ -337,8 +354,9 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	return args, nil
 }
 
-func sdcppArguments(metadata catalog.RuntimeConfig, modelID string, host string, port string) ([]string, error) {
+func sdcppArguments(metadata catalog.RuntimeConfig, modelID string, host string, port string, mcpServersPath string) ([]string, error) {
 	_ = modelID
+	_ = mcpServersPath
 	modelPath := metadata.ImageModelPath()
 	if modelPath == "" {
 		return nil, fmt.Errorf("sd.cpp config has no image model path")
@@ -358,6 +376,8 @@ func sdcppArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	appendStringArg(&args, "--llm", metadata.SDLLM)
 	appendStringArg(&args, "--llm-vision", metadata.SDLLMVision)
 	appendStringArg(&args, "--clip-vision", metadata.SDClipVision)
+	appendStringArg(&args, "--ip-adapter", metadata.SDIPAdapter)
+	appendStringArg(&args, "--motion-module", metadata.SDMotionModule)
 	appendStringListArg(&args, "--embeddings-connector", metadata.SDEmbeddingsConnectors)
 	appendStringArg(&args, "--control-net", metadata.SDControlNet)
 	appendStringArg(&args, "--pulid-weights", metadata.SDPulidWeights)
@@ -413,6 +433,25 @@ func sdcppArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 		args = append(args, "--vae-tiling", "--vae-tile-size", tileSize)
 	}
 	return args, nil
+}
+
+func appendLoadMode(args *[]string, loadMode string, useMMap bool, useMLock bool) {
+	switch strings.TrimSpace(loadMode) {
+	case "":
+		if !useMMap {
+			*args = append(*args, "--no-mmap")
+		}
+		if useMLock {
+			*args = append(*args, "--mlock")
+		}
+	case "none":
+		*args = append(*args, "--no-mmap")
+	case "mmap":
+	case "mlock", "mmap+mlock":
+		*args = append(*args, "--mlock")
+	case "dio":
+		*args = append(*args, "--direct-io")
+	}
 }
 
 func appendStringArg(args *[]string, flag string, value string) {
@@ -582,9 +621,9 @@ func joinPath(base string, requestPath string) string {
 func RuntimeArgumentsForTest(metadata catalog.RuntimeConfig, kind string) ([]string, error) {
 	switch kind {
 	case "llama":
-		return llamaArguments(metadata, "model", "127.0.0.1", "5002")
+		return llamaArguments(metadata, "model", "127.0.0.1", "5002", "")
 	case "sdcpp":
-		return sdcppArguments(metadata, "model", "127.0.0.1", "7860")
+		return sdcppArguments(metadata, "model", "127.0.0.1", "7860", "")
 	default:
 		return nil, fmt.Errorf("unknown native server kind %q", kind)
 	}

@@ -58,6 +58,12 @@ Text fields cover:
 
 Some fields apply only to KoboldCpp or only to `llama-server`. The catalog records that backend ownership and the WebUI filters incompatible choices.
 
+## MCP
+
+`mcp_servers` is an embedded JSON array and `mcp_enabled` selects whether its generated backend artifact is active. Each entry has a unique nonempty `name` and an object `definition`. Stdio definitions use `command`, optional string-array `args`, and optional string-valued `env`. KoboldCpp also accepts HTTP(S) `url` definitions with string-valued `headers`. Legacy `mcpfile` paths are rejected.
+
+The generated file is never a portable field. Literal environment values and headers in `mcp_servers` are portable by design, so export or share only configurations whose secrets are intended to travel.
+
 ## Multimodal and embedding options
 
 These fields cover:

@@ -45,6 +45,7 @@ type Model struct {
 	HasMultimodal    bool                            `json:"has_multimodal"`
 	HasVoice         bool                            `json:"has_voice"`
 	HasMusic         bool                            `json:"has_music"`
+	MCPEnabled       bool                            `json:"mcp_enabled,omitempty"`
 	ModelHash        string                          `json:"model_hash"`
 	ConfigHash       string                          `json:"config_hash"`
 	Capabilities     catalog.Capabilities            `json:"capabilities"`
@@ -107,10 +108,11 @@ func LocalModelsWithBackendMode(models []catalog.Model, nodeID string, nodeURL s
 			HasMultimodal:    model.HasMultimodal,
 			HasVoice:         model.HasVoice,
 			HasMusic:         model.HasMusic,
+			MCPEnabled:       model.MCPEnabled,
 			ModelHash:        model.ModelHash,
 			ConfigHash:       model.ConfigHash,
 			Capabilities:     model.Capabilities,
-			Options:          model.Options,
+			Options:          catalog.SanitizedOptions(model.Options),
 			BackendMode:      modelBackendMode,
 			Source:           source,
 			NodeID:           nodeID,

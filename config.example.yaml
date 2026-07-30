@@ -26,6 +26,10 @@ models:
 backend:
   mode: "kobold"
 
+mcp:
+  enabled: false
+  directory: "./mcp"
+
 kobold:
   backend_url: "http://127.0.0.1:5001"
   binary_path: "./bin/kobold/koboldcpp"

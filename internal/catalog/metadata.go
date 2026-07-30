@@ -23,6 +23,14 @@ type RuntimeConfig struct {
 	MainGPU                   int     `json:"maingpu"`
 	UseMMap                   bool    `json:"usemmap"`
 	UseMLock                  bool    `json:"usemlock"`
+	LoadMode                  string  `json:"load_mode"`
+	ReasoningPreserve         string  `json:"reasoning_preserve"`
+	RPCTargets                string  `json:"rpctargets"`
+	DraftModel                string  `json:"draftmodel"`
+	DraftAmount               int     `json:"draftamount"`
+	DraftGPULayers            int     `json:"draftgpulayers"`
+	DraftDFlash               bool    `json:"draft_dflash"`
+	DraftDSpark               bool    `json:"draft_dspark"`
 	QuantKV                   string  `json:"quantkv"`
 	CacheTypeK                string  `json:"cache_type_k"`
 	CacheTypeV                string  `json:"cache_type_v"`
@@ -52,6 +60,8 @@ type RuntimeConfig struct {
 	SDLLM                     string  `json:"sdllm"`
 	SDLLMVision               string  `json:"sdllmvision"`
 	SDClipVision              string  `json:"sdclipvision"`
+	SDIPAdapter               string  `json:"sdipadapter"`
+	SDMotionModule            string  `json:"sdmotionmodule"`
 	SDEmbeddingsConnectors    any     `json:"sdembeddingsconnectors"`
 	SDControlNet              string  `json:"sdcontrolnet"`
 	SDPulidWeights            string  `json:"sdpulidweights"`
@@ -115,6 +125,7 @@ type RuntimeConfig struct {
 	MusicDiffusion            string  `json:"musicdiffusion"`
 	MusicVAE                  string  `json:"musicvae"`
 	MusicLowVRAM              bool    `json:"musiclowvram"`
+	MCPEnabled                bool    `json:"mcp_enabled"`
 
 	RouterJinjaKwargsPrecedence string `json:"router_jinja_kwargs_precedence"`
 }
@@ -123,6 +134,7 @@ type configMetadata = RuntimeConfig
 
 type Capabilities struct {
 	LLM        bool                  `json:"llm"`
+	MCP        bool                  `json:"mcp,omitempty"`
 	Image      *ImageCapabilities    `json:"image,omitempty"`
 	Embeddings *EmbeddingCapability  `json:"embeddings,omitempty"`
 	Multimodal *MultimodalCapability `json:"multimodal,omitempty"`
@@ -233,6 +245,7 @@ func (metadata RuntimeConfig) TensorSplitValue() string {
 func capabilitiesFromMetadata(metadata configMetadata, hasLLM bool, hasImage bool, hasEmbeddings bool, hasMultimodal bool, hasVoice bool, hasMusic bool) Capabilities {
 	capabilities := Capabilities{
 		LLM:     hasLLM,
+		MCP:     metadata.MCPEnabled,
 		Context: metadata.ContextSize,
 	}
 	if hasImage {

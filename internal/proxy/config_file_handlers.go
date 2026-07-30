@@ -9,8 +9,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"tensors-router/internal/atomicfile"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/cook"
+	"tensors-router/internal/mcp"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/siteapi"
 )
@@ -44,6 +46,7 @@ func (service *Service) handleSiteConfigFileSave(w http.ResponseWriter, r *http.
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	openai.WriteJSON(w, http.StatusOK, result)
 }
 
@@ -90,6 +93,7 @@ func (service *Service) handleNodeConfigFileSave(w http.ResponseWriter, r *http.
 			return
 		}
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	openai.WriteJSON(w, http.StatusOK, result)
 }
 
@@ -198,16 +202,24 @@ func (service *Service) saveLocalConfigFile(request siteapi.ConfigFileRequest, d
 	if exists && !request.Overwrite {
 		return siteapi.ConfigFileResponse{}, fmt.Errorf("config %q already exists", filename)
 	}
+	content, err := json.MarshalIndent(options, "", "  ")
+	if err != nil {
+		return siteapi.ConfigFileResponse{}, err
+	}
+	if err := mcp.Validate(content, service.backendMode); err != nil {
+		return siteapi.ConfigFileResponse{}, err
+	}
 	if !dryRun {
 		if err := os.MkdirAll(service.configDir, 0o755); err != nil {
 			return siteapi.ConfigFileResponse{}, err
 		}
-		content, err := json.MarshalIndent(options, "", "  ")
-		if err != nil {
+		if err := atomicfile.Write(target, content, 0o600); err != nil {
 			return siteapi.ConfigFileResponse{}, err
 		}
-		if err := os.WriteFile(target, content, 0o644); err != nil {
-			return siteapi.ConfigFileResponse{}, err
+		if service.mcpReconciler != nil {
+			if _, err := service.mcpReconciler.Reconcile(filename, service.backendMode); err != nil {
+				return siteapi.ConfigFileResponse{}, err
+			}
 		}
 	}
 	return siteapi.ConfigFileResponse{
@@ -234,6 +246,11 @@ func (service *Service) deleteLocalConfigFile(request siteapi.ConfigFileRequest)
 			return siteapi.ConfigFileResponse{}, fmt.Errorf("config %q was not found", filename)
 		}
 		return siteapi.ConfigFileResponse{}, err
+	}
+	if service.mcpReconciler != nil {
+		if err := service.mcpReconciler.Remove(filename); err != nil {
+			return siteapi.ConfigFileResponse{}, err
+		}
 	}
 	return siteapi.ConfigFileResponse{
 		NodeID:   service.nodeID,

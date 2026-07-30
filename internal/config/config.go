@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ type Config struct {
 	Cluster    ClusterConfig
 	Analytics  AnalyticsConfig
 	Limits     LimitsConfig
+	MCP        MCPConfig
 	Warnings   []string
 }
 
@@ -51,6 +53,11 @@ type ModelsConfig struct {
 
 type BackendConfig struct {
 	Mode string
+}
+
+type MCPConfig struct {
+	Enabled   bool
+	Directory string
 }
 
 type KoboldConfig struct {
@@ -242,6 +249,10 @@ func Defaults() Config {
 			SelectorScanMB:      64,
 			DrainTimeout:        15 * time.Minute,
 		},
+		MCP: MCPConfig{
+			Enabled:   false,
+			Directory: "./mcp",
+		},
 	}
 }
 
@@ -262,6 +273,13 @@ func LoadWithOptions(path string, options LoadOptions) (Config, error) {
 
 	if err := parseYAML(content, &cfg); err != nil {
 		return cfg, err
+	}
+	if !filepath.IsAbs(cfg.MCP.Directory) {
+		absolutePath, err := filepath.Abs(path)
+		if err != nil {
+			return cfg, err
+		}
+		cfg.MCP.Directory = filepath.Join(filepath.Dir(absolutePath), cfg.MCP.Directory)
 	}
 	if strings.TrimSpace(options.SecurityProfile) != "" {
 		cfg.Security.Profile = strings.TrimSpace(options.SecurityProfile)
@@ -364,6 +382,9 @@ func validate(cfg *Config) error {
 	}
 	if err := validateLimits(cfg.Limits); err != nil {
 		return err
+	}
+	if strings.TrimSpace(cfg.MCP.Directory) == "" {
+		return fmt.Errorf("mcp.directory is required")
 	}
 	if cfg.Cluster.Role != "standalone" && strings.TrimSpace(cfg.Cluster.Token) == "" {
 		return fmt.Errorf("cluster.token is required when cluster.role is not standalone")
@@ -672,6 +693,19 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 				return err
 			}
 			cfg.Models.ConcurrentAssetTransfers = parsed
+			return nil
+		}
+	case "mcp":
+		switch key {
+		case "enabled":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return err
+			}
+			cfg.MCP.Enabled = parsed
+			return nil
+		case "directory":
+			cfg.MCP.Directory = value
 			return nil
 		}
 	case "backend":
