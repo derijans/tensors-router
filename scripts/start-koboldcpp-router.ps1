@@ -21,10 +21,12 @@ param(
     [string]$WebUIPath,
     [string]$DownloaderPath,
     [switch]$IncludeDownloader,
-    [switch]$Wait
+    [switch]$Wait,
+    [switch]$Detach
 )
 
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'router-process-lifecycle.ps1')
 
 function Assert-PortAvailable {
     param([int]$Port, [string]$ServiceName)
@@ -73,6 +75,10 @@ function ConvertTo-YAMLList {
     }
     $prefix = ' ' * $Indent
     "`n" + (($Values | ForEach-Object { "$prefix- $(ConvertTo-YAMLScalar $_)" }) -join "`n")
+}
+
+if ($Wait -and $Detach) {
+    throw 'Wait and Detach cannot be used together.'
 }
 
 $repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -218,21 +224,24 @@ cluster:
 "@
 Write-UTF8File -Path $configPath -Content $yaml
 
-$routerConfigArgument = '"{0}"' -f $configPath
-$routerProcess = Start-Process -FilePath $routerPath -ArgumentList @('serve', '--config', $routerConfigArgument) -PassThru -NoNewWindow
-Write-UTF8File -Path $pidPath -Content $routerProcess.Id
-Wait-HTTPStatus -Uri "http://127.0.0.1:$RouterPort/router/v1/models" -Timeout ([TimeSpan]::FromSeconds(90))
-
+$routerProcess = $null
 $webuiProcess = $null
-$webuiURL = ''
-if ($Role -eq 'master') {
-    if ($IncludeDownloader) {
-        $webuiDownloaderPath = Join-Path (Split-Path -Parent $webuiPath) 'tensor-router-downloader.exe'
-        if (-not (Test-Path -LiteralPath $webuiDownloaderPath)) {
-            Copy-Item -LiteralPath $downloaderPath -Destination $webuiDownloaderPath
+$leaveProcessesRunning = $false
+try {
+    $routerConfigArgument = '"{0}"' -f $configPath
+    $routerProcess = Start-Process -FilePath $routerPath -ArgumentList @('serve', '--config', $routerConfigArgument) -PassThru -NoNewWindow
+    Write-UTF8File -Path $pidPath -Content $routerProcess.Id
+    Wait-HTTPStatus -Uri "http://127.0.0.1:$RouterPort/router/v1/models" -Timeout ([TimeSpan]::FromSeconds(90))
+
+    $webuiURL = ''
+    if ($Role -eq 'master') {
+        if ($IncludeDownloader) {
+            $webuiDownloaderPath = Join-Path (Split-Path -Parent $webuiPath) 'tensor-router-downloader.exe'
+            if (-not (Test-Path -LiteralPath $webuiDownloaderPath)) {
+                Copy-Item -LiteralPath $downloaderPath -Destination $webuiDownloaderPath
+            }
         }
-    }
-    $webuiConfig = @"
+        $webuiConfig = @"
 security:
   profile: "trusted_lan"
 server:
@@ -255,27 +264,39 @@ router:
 logging:
   mode: "normal"
 "@
-    Write-UTF8File -Path $webuiConfigPath -Content $webuiConfig
-    $webuiConfigArgument = '"{0}"' -f $webuiConfigPath
-    $webuiProcess = Start-Process -FilePath $webuiPath -ArgumentList @('--config', $webuiConfigArgument) -PassThru -NoNewWindow
-    Write-UTF8File -Path $webuiPIDPath -Content $webuiProcess.Id
-    $webuiURL = "https://$BindAddress`:$WebUIPort"
+        Write-UTF8File -Path $webuiConfigPath -Content $webuiConfig
+        $webuiConfigArgument = '"{0}"' -f $webuiConfigPath
+        $webuiProcess = Start-Process -FilePath $webuiPath -ArgumentList @('--config', $webuiConfigArgument) -PassThru -NoNewWindow
+        Write-UTF8File -Path $webuiPIDPath -Content $webuiProcess.Id
+        $webuiURL = "https://$BindAddress`:$WebUIPort"
+    }
+
+    [pscustomobject]@{
+        Node = $NodeId
+        Role = $Role
+        Router = "http://$BindAddress`:$RouterPort"
+        Backend = "http://127.0.0.1:$BackendPort"
+        ProcessId = $routerProcess.Id
+        Config = $configPath
+        WebUI = $webuiURL
+        WebUIProcessId = if ($null -eq $webuiProcess) { '' } else { $webuiProcess.Id }
+        Downloader = $IncludeDownloader.IsPresent
+        Mode = if ($Detach) { 'detached' } else { 'attached' }
+        Stop = "Invoke-WebRequest -Method Post http://$BindAddress`:$RouterPort/router/v1/shutdown"
+        StopWebUI = if ($null -eq $webuiProcess) { '' } else { "Stop-Process -Id $($webuiProcess.Id)" }
+    } | Format-List
+
+    if ($Detach) {
+        $leaveProcessesRunning = $true
+        return
+    }
+    Wait-LauncherProcesses -RouterProcess $routerProcess -WebUIProcess $webuiProcess
 }
-
-[pscustomobject]@{
-    Node = $NodeId
-    Role = $Role
-    Router = "http://$BindAddress`:$RouterPort"
-    Backend = "http://127.0.0.1:$BackendPort"
-    ProcessId = $routerProcess.Id
-    Config = $configPath
-    WebUI = $webuiURL
-    WebUIProcessId = if ($null -eq $webuiProcess) { '' } else { $webuiProcess.Id }
-    Downloader = $IncludeDownloader.IsPresent
-    Stop = "Invoke-WebRequest -Method Post http://$BindAddress`:$RouterPort/router/v1/shutdown"
-    StopWebUI = if ($null -eq $webuiProcess) { '' } else { "Stop-Process -Id $($webuiProcess.Id)" }
-} | Format-List
-
-if ($Wait) {
-    $routerProcess.WaitForExit()
+finally {
+    if (-not $leaveProcessesRunning) {
+        Stop-ProcessTree -Process $webuiProcess
+        Stop-RouterProcess -Process $routerProcess -ShutdownURI "http://127.0.0.1:$RouterPort/router/v1/shutdown"
+        Remove-OwnedPIDFile -Path $webuiPIDPath -Process $webuiProcess
+        Remove-OwnedPIDFile -Path $pidPath -Process $routerProcess
+    }
 }
