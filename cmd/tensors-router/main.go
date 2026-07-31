@@ -395,6 +395,10 @@ func createBackends(ctx context.Context, cfg config.Config, mcpReconciler *mcp.R
 	if err != nil {
 		return nil, nil, err
 	}
+	whisperCPPManager, err := native.NewWhisperCPPManager(whisperCPPProcessConfig(cfg))
+	if err != nil {
+		return nil, nil, err
+	}
 
 	if cfg.Backend.Mode != proxy.BackendModeLlamaSDCPP {
 		if err := koboldManager.Start(ctx); err != nil {
@@ -410,14 +414,15 @@ func createBackends(ctx context.Context, cfg config.Config, mcpReconciler *mcp.R
 			Stop:         koboldManager.Stop,
 		},
 		proxy.BackendModeLlamaSDCPP: {
-			TextBackend:  llamaManager,
-			ImageBackend: sdcppManager,
-			Stop:         stopNativeManagers(llamaManager, sdcppManager),
+			TextBackend:          llamaManager,
+			ImageBackend:         sdcppManager,
+			TranscriptionBackend: whisperCPPManager,
+			Stop:                 stopNativeManagers(llamaManager, sdcppManager, whisperCPPManager),
 		},
 	}
 	shutdownBackends := []func(context.Context) error{
 		koboldManager.Stop,
-		stopNativeManagers(llamaManager, sdcppManager),
+		stopNativeManagers(llamaManager, sdcppManager, whisperCPPManager),
 	}
 	return families, shutdownBackends, nil
 }
@@ -473,14 +478,25 @@ func sdcppProcessConfig(cfg config.Config) native.ProcessConfig {
 	}
 }
 
-func stopNativeManagers(llamaManager *native.Manager, sdcppManager *native.Manager) func(context.Context) error {
+func whisperCPPProcessConfig(cfg config.Config) native.ProcessConfig {
+	return native.ProcessConfig{
+		BackendURL: cfg.WhisperCPP.BackendURL,
+		BinaryPath: cfg.WhisperCPP.BinaryPath,
+		ConfigDir:  cfg.Models.ConfigDir,
+		DataDir:    cfg.WhisperCPP.DataDir,
+		ExtraArgs:  cfg.WhisperCPP.ExtraArgs,
+		HideWindow: cfg.WhisperCPP.HideWindow,
+		Logging:    cfg.Logging.BackendLogsToDisk,
+	}
+}
+
+func stopNativeManagers(managers ...*native.Manager) func(context.Context) error {
 	return func(ctx context.Context) error {
 		var firstErr error
-		if err := llamaManager.Unload(ctx); err != nil && firstErr == nil {
-			firstErr = err
-		}
-		if err := sdcppManager.Unload(ctx); err != nil && firstErr == nil {
-			firstErr = err
+		for _, manager := range managers {
+			if err := manager.Unload(ctx); err != nil && firstErr == nil {
+				firstErr = err
+			}
 		}
 		return firstErr
 	}

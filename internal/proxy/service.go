@@ -43,10 +43,11 @@ type Backend interface {
 }
 
 type BackendFamilyConfig struct {
-	TextBackend  Backend
-	ImageBackend Backend
-	Start        func(context.Context) error
-	Stop         func(context.Context) error
+	TextBackend          Backend
+	ImageBackend         Backend
+	TranscriptionBackend Backend
+	Start                func(context.Context) error
+	Stop                 func(context.Context) error
 }
 
 type ModelCatalog interface {
@@ -101,6 +102,7 @@ type Service struct {
 	backend              Backend
 	textRuntime          *backendRuntime
 	imageRuntime         *backendRuntime
+	transcriptionRuntime *backendRuntime
 	backendMode          string
 	backendFamilies      map[string]*backendFamily
 	backendSwitch        *backendFamilySwitchState
@@ -147,6 +149,8 @@ type Service struct {
 	transportBudget      *transportbody.Budget
 	maxControlBodyBytes  int64
 	draining             atomic.Bool
+	autoSTTMu            sync.Mutex
+	autoSTTNext          uint64
 
 	backendRetryAttempts int
 	backendRetryDelay    time.Duration
@@ -174,11 +178,12 @@ type backendRetryResult struct {
 }
 
 type backendFamily struct {
-	mode         string
-	textRuntime  *backendRuntime
-	imageRuntime *backendRuntime
-	start        func(context.Context) error
-	stop         func(context.Context) error
+	mode                 string
+	textRuntime          *backendRuntime
+	imageRuntime         *backendRuntime
+	transcriptionRuntime *backendRuntime
+	start                func(context.Context) error
+	stop                 func(context.Context) error
 }
 
 type backendFamilySwitchState struct {
@@ -268,20 +273,23 @@ func NewService(config ServiceConfig) *Service {
 	}
 	textRuntime := (*backendRuntime)(nil)
 	imageRuntime := (*backendRuntime)(nil)
+	transcriptionRuntime := (*backendRuntime)(nil)
 	if defaultFamily != nil {
 		textRuntime = defaultFamily.textRuntime
 		imageRuntime = defaultFamily.imageRuntime
+		transcriptionRuntime = defaultFamily.transcriptionRuntime
 	}
 	var textBackend Backend
 	if textRuntime != nil {
 		textBackend = textRuntime.backend
 	}
 	service := &Service{
-		backend:         textBackend,
-		textRuntime:     textRuntime,
-		imageRuntime:    imageRuntime,
-		backendMode:     backendMode,
-		backendFamilies: backendFamilies,
+		backend:              textBackend,
+		textRuntime:          textRuntime,
+		imageRuntime:         imageRuntime,
+		transcriptionRuntime: transcriptionRuntime,
+		backendMode:          backendMode,
+		backendFamilies:      backendFamilies,
 		backendSwitch: &backendFamilySwitchState{
 			changed: make(chan struct{}),
 			mode:    backendMode,
@@ -359,8 +367,9 @@ func backendFamiliesFromConfig(config ServiceConfig, defaultMode string) map[str
 			textBackend = config.Backend
 		}
 		configs[defaultMode] = BackendFamilyConfig{
-			TextBackend:  textBackend,
-			ImageBackend: config.ImageBackend,
+			TextBackend:          textBackend,
+			ImageBackend:         config.ImageBackend,
+			TranscriptionBackend: textBackend,
 		}
 	}
 
@@ -386,15 +395,20 @@ func newBackendFamily(mode string, config BackendFamilyConfig) *backendFamily {
 	sharedState := newActiveConfigState()
 	textRuntime := &backendRuntime{backend: textBackend, state: sharedState, mode: mode, name: mode + "-text"}
 	imageRuntime := textRuntime
+	transcriptionRuntime := textRuntime
 	if mode == BackendModeLlamaSDCPP && config.ImageBackend != nil {
 		imageRuntime = &backendRuntime{backend: imageBackend, state: newActiveConfigState(), mode: mode, name: mode + "-image"}
 	}
+	if mode == BackendModeLlamaSDCPP && config.TranscriptionBackend != nil {
+		transcriptionRuntime = &backendRuntime{backend: config.TranscriptionBackend, state: newActiveConfigState(), mode: mode, name: mode + "-transcription"}
+	}
 	return &backendFamily{
-		mode:         mode,
-		textRuntime:  textRuntime,
-		imageRuntime: imageRuntime,
-		start:        config.Start,
-		stop:         config.Stop,
+		mode:                 mode,
+		textRuntime:          textRuntime,
+		imageRuntime:         imageRuntime,
+		transcriptionRuntime: transcriptionRuntime,
+		start:                config.Start,
+		stop:                 config.Stop,
 	}
 }
 
@@ -790,12 +804,25 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
+	var automaticallySelected *cluster.Model
+	if !hasModel && isSTTPath(r.URL.Path) {
+		selected, selectedOK := service.selectAutomaticSTTModel(r.Context())
+		if selectedOK {
+			modelID = firstNonEmpty(selected.PublicID, selected.LocalID)
+			hasModel = true
+			automaticallySelected = &selected
+		}
+		if !hasModel {
+			openai.WriteError(w, http.StatusServiceUnavailable, "backend_error", "no compatible transcription configuration is available")
+			return
+		}
+	}
 
 	if hasModel && service.handleRecipeAudioRequest(w, r, body, modelID, lane) {
 		return
 	}
 	if hasModel && service.registry != nil && service.registryHasAudioModel(modelID, lane) {
-		service.handleRegistryAudioRequest(w, r, body, modelID, lane)
+		service.handleRegistryAudioRequest(w, r, body, modelID, lane, automaticallySelected)
 		return
 	}
 
@@ -851,6 +878,13 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 	started := time.Now()
 	analyticsEvent := service.newAnalyticsEvent(started, r, requestBody, analyticsModelID, audioAnalyticsSection(lane), selectedBackendMode)
 	readiness := audioReadiness(r.URL.Path, lane, selectedBackendMode)
+	if selectedBackendMode == BackendModeLlamaSDCPP && readiness == readinessTranscription {
+		requestBody, err = adaptBufferedWhisperRequest(r, requestBody)
+		if err != nil {
+			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
+	}
 	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readiness, selectedBackendMode)
 	if err != nil {
 		if analyticsModelID != "" {
@@ -1622,10 +1656,14 @@ func uniqueBackendRuntimes(family *backendFamily) []*backendRuntime {
 	if family == nil || family.textRuntime == nil {
 		return nil
 	}
-	if family.imageRuntime == nil || family.imageRuntime == family.textRuntime {
-		return []*backendRuntime{family.textRuntime}
+	runtimes := []*backendRuntime{family.textRuntime}
+	if family.imageRuntime != nil && family.imageRuntime != family.textRuntime {
+		runtimes = append(runtimes, family.imageRuntime)
 	}
-	return []*backendRuntime{family.textRuntime, family.imageRuntime}
+	if family.transcriptionRuntime != nil && family.transcriptionRuntime != family.textRuntime && family.transcriptionRuntime != family.imageRuntime {
+		runtimes = append(runtimes, family.transcriptionRuntime)
+	}
+	return runtimes
 }
 
 func (family *backendFamily) startBackend(ctx context.Context) error {
@@ -1674,6 +1712,9 @@ func (service *Service) runtimeForBackendMode(mode string, readiness backendRead
 	}
 	if readiness == readinessImage {
 		return family.imageRuntime, nil
+	}
+	if readiness == readinessTranscription {
+		return family.transcriptionRuntime, nil
 	}
 	return family.textRuntime, nil
 }
@@ -1733,6 +1774,9 @@ func (service *Service) runtimeForReadiness(readiness backendReadiness) *backend
 	if readiness == readinessImage {
 		return service.imageRuntime
 	}
+	if readiness == readinessTranscription {
+		return service.transcriptionRuntime
+	}
 	return service.textRuntime
 }
 
@@ -1786,8 +1830,8 @@ func (service *Service) waitForBackendEndpoint(runtime *backendRuntime, ctx cont
 	var lastErr error
 
 	for attempt := 1; attempt <= service.backendRetryAttempts; attempt++ {
-		status, body, err := service.probeBackendEndpoint(runtime, ctx, readiness.endpoint())
-		if err == nil && backendEndpointReady(readiness, status, body) {
+		status, body, err := service.probeBackendEndpoint(runtime, ctx, readiness.endpointForMode(runtime.mode))
+		if err == nil && backendEndpointReady(readiness, runtime.mode, status, body) {
 			if attempt > 1 {
 				service.logger.Printf("backend model endpoint ready model=%q config=%q attempt=%d", modelID, configFilename, attempt)
 			}
@@ -1812,12 +1856,15 @@ func (service *Service) waitForBackendEndpoint(runtime *backendRuntime, ctx cont
 	return fmt.Errorf("backend model endpoint unavailable after retries: status %d error=%v body=%q", lastStatus, lastErr, lastBody)
 }
 
-func backendEndpointReady(readiness backendReadiness, status int, body string) bool {
+func backendEndpointReady(readiness backendReadiness, backendMode string, status int, body string) bool {
 	if status < 200 || status >= 300 {
 		return false
 	}
 	if readiness == readinessImage {
 		return backendImageEndpointReady(body)
+	}
+	if readiness == readinessTranscription && backendMode == BackendModeLlamaSDCPP {
+		return true
 	}
 	if capability := readiness.capability(); capability != "" {
 		return backendCapabilityReady(body, capability)
@@ -1928,7 +1975,13 @@ func (service *Service) probeBackendEndpoint(runtime *backendRuntime, ctx contex
 
 func (service *Service) forward(runtime *backendRuntime, ctx context.Context, original *http.Request, body []byte) (*http.Response, error) {
 	target := runtime.backend.URL()
-	target.Path = joinPath(target.Path, original.URL.Path)
+	responseFormat := ""
+	if runtime.mode == BackendModeLlamaSDCPP && strings.HasSuffix(runtime.name, "-transcription") && isVoicePath(original.URL.Path) {
+		responseFormat = original.Header.Get("X-Tensors-Whisper-Response-Format")
+		target.Path = joinPath(target.Path, "/inference")
+	} else {
+		target.Path = joinPath(target.Path, original.URL.Path)
+	}
 	target.RawQuery = original.URL.RawQuery
 
 	request, err := http.NewRequestWithContext(ctx, original.Method, target.String(), bytes.NewReader(body))
@@ -1937,9 +1990,14 @@ func (service *Service) forward(runtime *backendRuntime, ctx context.Context, or
 	}
 
 	copyRequestHeaders(request.Header, original.Header)
+	request.Header.Del("X-Tensors-Whisper-Response-Format")
 	request.Host = target.Host
 
-	return service.client.Do(request)
+	response, err := service.client.Do(request)
+	if err != nil || responseFormat == "" {
+		return response, err
+	}
+	return adaptWhisperResponse(response, responseFormat)
 }
 
 func modelFromRequest(body []byte, r *http.Request) (string, bool, error) {
@@ -2417,6 +2475,10 @@ func isVoicePath(path string) bool {
 	}
 }
 
+func isSTTPath(path string) bool {
+	return path == "/v1/audio/transcriptions" || path == "/v1/audio/translations" || path == "/api/extra/transcribe"
+}
+
 func isMusicPath(path string) bool {
 	return path == "/musicui" ||
 		strings.HasPrefix(path, "/musicui/") ||
@@ -2497,8 +2559,8 @@ func modelSupportsLlamaAudioPath(model catalog.Model, path string) bool {
 	}
 	switch path {
 	case "/v1/audio/speech":
-		return strings.TrimSpace(model.Capabilities.Voice.TalkerModel) != ""
-	case "/v1/audio/transcriptions":
+		return strings.TrimSpace(model.Capabilities.Voice.TalkerModel) != "" || strings.TrimSpace(model.Capabilities.Voice.TTSModel) != ""
+	case "/v1/audio/transcriptions", "/v1/audio/translations", "/api/extra/transcribe":
 		return strings.TrimSpace(model.Capabilities.Voice.WhisperModel) != ""
 	default:
 		return false

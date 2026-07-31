@@ -179,6 +179,8 @@ export interface AnalyticsRecentEvent {
   image_type?: string;
   audio_seconds?: number;
   audio_tokens?: number;
+  audio_language?: string;
+  audio_task?: string;
   load_vram_before_mb?: number;
   load_vram_after_mb?: number;
   load_vram_delta_mb?: number;

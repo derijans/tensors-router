@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
+	"strconv"
 	"strings"
 
 	routeranalytics "tensors-router/internal/analytics"
@@ -50,7 +51,7 @@ func (service *Service) handleStreamingRequest(w http.ResponseWriter, r *http.Re
 	}
 	request := rewriteTransportRequestSelectors(r, route.localID, route.readiness)
 	profile := service.localChatTemplateProfile(route.configFilename, route.remote)
-	forwardBody, err := transformTransportRequestBody(request, body, route.publicID, route.localID, route.readiness, profile)
+	forwardBody, err := transformTransportRequestBody(request, body, route.publicID, route.localID, route.backendMode, route.readiness, profile)
 	if err != nil {
 		route.release()
 		writeTransportError(w, err)
@@ -305,7 +306,7 @@ func (service *Service) transportRecipeRoute(recipe recipes.Recipe, component re
 	}, nil
 }
 
-func transformTransportRequestBody(r *http.Request, body transportbody.Body, publicID string, localID string, readiness backendReadiness, profile catalog.ChatTemplateProfile) (transportbody.Body, error) {
+func transformTransportRequestBody(r *http.Request, body transportbody.Body, publicID string, localID string, backendMode string, readiness backendReadiness, profile catalog.ChatTemplateProfile) (transportbody.Body, error) {
 	if strings.TrimSpace(localID) == "" && chatTemplateProfileForRequest(r.URL.Path, profile) == nil {
 		return body, nil
 	}
@@ -318,9 +319,37 @@ func transformTransportRequestBody(r *http.Request, body transportbody.Body, pub
 		if boundary == "" {
 			return nil, fmt.Errorf("multipart boundary is required")
 		}
-		transformed, newBoundary, err := transportbody.TransformMultipart(body, boundary, transportbody.MultipartRewrite{Fields: map[string]transportbody.StringReplacement{
-			"model": {To: localID},
-		}})
+		fields := map[string]transportbody.StringReplacement{"model": {To: localID}}
+		dropFields := map[string]bool{}
+		if backendMode == BackendModeLlamaSDCPP && readiness == readinessTranscription {
+			header, hasFile, headerErr := transportbody.InspectMultipartFileHeader(body, boundary, "file", 12)
+			if headerErr != nil {
+				return nil, headerErr
+			}
+			if !hasFile {
+				return nil, fmt.Errorf("transcription file is required")
+			}
+			if len(header) < 12 || string(header[:4]) != "RIFF" || string(header[8:12]) != "WAVE" {
+				return nil, fmt.Errorf("only native WAV transcription input is supported")
+			}
+			format, present, inspectErr := transportbody.InspectMultipartField(body, boundary, "response_format")
+			if inspectErr != nil && inspectErr != transportbody.ErrSelectorRequired {
+				return nil, inspectErr
+			}
+			if !present || strings.TrimSpace(format) == "" {
+				format = "json"
+			}
+			switch format {
+			case "json", "verbose_json", "text", "srt", "vtt":
+			default:
+				return nil, fmt.Errorf("unsupported transcription response format %q", format)
+			}
+			r.Header.Set("X-Tensors-Whisper-Response-Format", format)
+			fields["response_format"] = transportbody.StringReplacement{To: "verbose_json"}
+			fields["translate"] = transportbody.StringReplacement{To: strconv.FormatBool(r.URL.Path == "/v1/audio/translations")}
+			dropFields["model"] = true
+		}
+		transformed, newBoundary, err := transportbody.TransformMultipart(body, boundary, transportbody.MultipartRewrite{Fields: fields, DropFields: dropFields})
 		if err != nil {
 			return nil, err
 		}

@@ -425,12 +425,6 @@ func TestSplitModeRoutesLlamaAudioAssetsToTextBackend(t *testing.T) {
 			config: `{"talkermodel":"C:\\models\\talker.gguf","code2wavmodel":"C:\\models\\code2wav.gguf"}`,
 			body:   `{"model":"voice","input":"hello","voice":"alloy"}`,
 		},
-		{
-			name:   "transcription",
-			path:   "/v1/audio/transcriptions",
-			config: `{"whispermodel":"C:\\models\\whisper.gguf"}`,
-			body:   `{"model":"voice","input":"audio"}`,
-		},
 	}
 
 	for _, testCase := range tests {

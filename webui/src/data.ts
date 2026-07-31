@@ -125,6 +125,7 @@ export function usedPaths(selected: PaletteComponentPayload): string[] {
     "sdclipg",
     "sdupscaler",
     "whispermodel",
+    "whispercpp_vad_model",
     "ttsmodel",
     "ttswavtokenizer",
     "ttsdir",

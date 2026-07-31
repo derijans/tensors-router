@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	routeranalytics "tensors-router/internal/analytics"
@@ -74,18 +75,40 @@ func (service *Service) prepareTransportCompanionRuntime(ctx context.Context, pa
 		return service.loadLocalRuntimeForRequest(ctx, route.backendMode, imageID, route.configFilename, readinessImage)
 	}
 	if isVoicePath(path) || isMusicPath(path) {
-		if isMusicPath(path) || !modelSupportsLlamaAudioPath(model, path) {
+		if isMusicPath(path) || !routeSupportsSplitAudio(route, path) {
 			return fmt.Errorf("audio route is not supported by the selected split backend config")
 		}
 	}
 	return nil
 }
 
+func routeSupportsSplitAudio(route transportRoute, path string) bool {
+	model := route.catalogModel
+	if model.Capabilities.Voice == nil && route.clusterModel.Capabilities.Voice != nil {
+		model.Capabilities.Voice = route.clusterModel.Capabilities.Voice
+	}
+	return modelSupportsLlamaAudioPath(model, path)
+}
+
 func (service *Service) forwardTransportLocal(runtime *backendRuntime, ctx context.Context, original *http.Request, body transportbody.Body) (*http.Response, error) {
 	target := runtime.backend.URL()
-	target.Path = joinPath(target.Path, original.URL.Path)
+	request := original
+	responseFormat := ""
+	if runtime.mode == BackendModeLlamaSDCPP && strings.HasSuffix(runtime.name, "-transcription") && isVoicePath(original.URL.Path) {
+		request = original.Clone(original.Context())
+		request.Header = original.Header.Clone()
+		responseFormat = request.Header.Get("X-Tensors-Whisper-Response-Format")
+		request.Header.Del("X-Tensors-Whisper-Response-Format")
+		target.Path = joinPath(target.Path, "/inference")
+	} else {
+		target.Path = joinPath(target.Path, original.URL.Path)
+	}
 	target.RawQuery = original.URL.RawQuery
-	return service.doTransportAttempts(ctx, original, target, body, false)
+	response, err := service.doTransportAttempts(ctx, request, target, body, false)
+	if err != nil || responseFormat == "" {
+		return response, err
+	}
+	return adaptWhisperResponse(response, responseFormat)
 }
 
 func (service *Service) forwardTransportRemote(ctx context.Context, original *http.Request, body transportbody.Body, nodeURL string) (*http.Response, error) {

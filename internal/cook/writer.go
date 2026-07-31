@@ -789,6 +789,7 @@ var embeddingKeys = []string{
 
 var voiceKeys = []string{
 	"whispermodel",
+	"whispercpp_vad_model",
 	"ttsmodel",
 	"ttswavtokenizer",
 	"talkermodel",
@@ -809,6 +810,7 @@ var musicKeys = []string{
 
 var voiceFileKeys = []string{
 	"whispermodel",
+	"whispercpp_vad_model",
 	"ttsmodel",
 	"ttswavtokenizer",
 	"talkermodel",

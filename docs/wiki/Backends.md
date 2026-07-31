@@ -20,14 +20,15 @@ KoboldCpp must provide:
 
 The router removes the backend's router-mode argument because model selection is handled by `tensors-router`.
 
-## llama.cpp and stable-diffusion.cpp
+## Native split backends
 
-`llama_sdcpp` mode manages two independent processes:
+`llama_sdcpp` mode manages three independent processes:
 
-- [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server` for text, embeddings, multimodal input, and supported audio routes
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server` for text, embeddings, multimodal input, and compatible text-to-speech
 - [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) `sd-server` for image and video routes
+- [whisper.cpp](https://github.com/ggml-org/whisper.cpp) `whisper-server` for transcription and translation
 
-Both processes start lazily. Selecting a text model does not start the image process, and selecting an image model does not start the text process. Each lane waits only for its own in-flight requests during a switch unless an unload policy targets both lanes.
+All processes start lazily and drain independently. Speech uses the llama runtime, while transcription uses the Whisper runtime. A `voice` unload drains both; `all` drains every runtime.
 
 The selected binaries must expose the endpoints requested by clients. `sd-server` does not implement the ComfyUI queue and history endpoints recognized by the router.
 
@@ -40,6 +41,8 @@ For KoboldCpp, it passes the complete configuration to the administration endpoi
 For `llama-server`, it maps text model paths, multimodal projector paths, context and batch sizes, thread counts, GPU offload, device splitting, memory settings, KV cache types, and supported vision limits to server arguments.
 
 For `sd-server`, it maps diffusion model components, VAE and text encoder paths, LoRA settings, thread counts, device selection, offload settings, quantization, tiling, sampling, scheduler, and supported video settings to server arguments.
+
+For `whisper-server`, shared fields map the model, threads, device, flash attention, and CPU controls. Native options use the `whispercpp_*` prefix. Existing llama-only unprefixed fields remain aliases; canonical `llama_*` fields win when both are present.
 
 Backend-specific `extra_args` are appended after mapped arguments. Use them only for options that are accepted by the selected executable. Host and port overrides are rejected because managed backends must stay on their configured loopback listeners.
 
@@ -61,7 +64,7 @@ Run the configured backend download operation with:
 ./tensors-router download --config config.yaml
 ```
 
-Kobold mode resolves the KoboldCpp update source. Split mode resolves both llama.cpp and stable-diffusion.cpp sources.
+Kobold mode resolves the KoboldCpp update source. Split mode resolves llama.cpp, stable-diffusion.cpp, and whisper.cpp sources.
 
 Each source can use a direct HTTPS binary URL or a GitHub repository URL with an asset glob. Direct binaries, `.zip`, `.tar.gz`, and `.tgz` payloads are supported. Archive contents are extracted into the backend folder, so `binary_path` must identify the executable inside the extracted layout.
 
@@ -76,3 +79,5 @@ Both families support OpenAI-compatible text routing when the selected backend p
 KoboldCpp also handles router-recognized Stable Diffusion and ComfyUI-style paths through its single process.
 
 Split mode sends `/v1/images/...`, `/sdapi/v1/...`, and `/sdcpp/v1/...` to `sd-server`. ComfyUI-style paths remain classified as image requests but fail if the configured backend does not implement them.
+
+Split mode adapts `/v1/audio/transcriptions`, `/v1/audio/translations`, and `/api/extra/transcribe` to Whisper's `/inference` endpoint. Input is WAV-only. See [Whisper.cpp](Whisper.cpp).

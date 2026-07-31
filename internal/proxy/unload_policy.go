@@ -65,7 +65,9 @@ func (service *Service) runtimesForUnloadTarget(mode string, target string) ([]*
 		return uniqueBackendRuntimes(family), nil
 	case unloadpolicy.Image:
 		return []*backendRuntime{family.imageRuntime}, nil
-	case unloadpolicy.Text, unloadpolicy.Embeddings, unloadpolicy.Voice, unloadpolicy.Music:
+	case unloadpolicy.Voice:
+		return []*backendRuntime{family.textRuntime, family.transcriptionRuntime}, nil
+	case unloadpolicy.Text, unloadpolicy.Embeddings, unloadpolicy.Music:
 		return []*backendRuntime{family.textRuntime}, nil
 	default:
 		return nil, fmt.Errorf("unload target %q is invalid", target)

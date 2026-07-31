@@ -94,6 +94,10 @@ The catalog marks legacy options separately so existing configurations remain ed
 
 Voice fields cover transcription models, speech models, tokenizers, directories, thread counts, GPU placement, talker models, and waveform decoders.
 
+Shared Whisper fields include `whispermodel`, `threads`, `maingpu`, `flashattention`, and compatible CPU controls. Native server options use `whispercpp_*`, including processors, timing and segment limits, decoding thresholds, language and prompt, translation and diarization, output controls, OpenVINO and DTW, suppression, language probabilities, and the complete VAD group. `whispercpp_vad_model` is a portable asset field.
+
+Every llama-only option also has a canonical `llama_*` spelling. Existing unprefixed keys remain supported, and the canonical value takes precedence.
+
 Music fields cover the language model, embedding model, diffusion model, VAE, and low-memory behavior.
 
 Backend capabilities determine whether a cooked voice or music configuration can be loaded.
@@ -105,5 +109,6 @@ Backend capabilities determine whether a cooked voice or music configuration can
 - [llama.cpp server documentation](https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md)
 - [stable-diffusion.cpp server documentation](https://github.com/leejet/stable-diffusion.cpp/blob/master/examples/server/README.md)
 - [stable-diffusion.cpp CLI documentation](https://github.com/leejet/stable-diffusion.cpp/blob/master/examples/cli/README.md)
+- [whisper.cpp server documentation](https://github.com/ggml-org/whisper.cpp/blob/master/examples/server/README.md)
 
 When upstream introduces or removes a backend option, update the catalog and its focused tests first. The WebUI and this page should describe the resulting catalog rather than maintain a separate option list.

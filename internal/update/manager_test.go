@@ -133,6 +133,8 @@ func TestDownloadSplitModeWritesLlamaAndSDCPPBinaries(t *testing.T) {
 	cfg.Llama.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "llama")
 	cfg.SDCPP.BinaryPath = filepath.Join(binRoot, "stable-diffusion", "sd-server")
 	cfg.SDCPP.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "sdcpp")
+	cfg.WhisperCPP.BinaryPath = filepath.Join(binRoot, "whisper", "whisper-server")
+	cfg.WhisperCPP.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "whispercpp")
 
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -140,6 +142,8 @@ func TestDownloadSplitModeWritesLlamaAndSDCPPBinaries(t *testing.T) {
 			_, _ = w.Write([]byte("llama"))
 		case "/sdcpp":
 			_, _ = w.Write([]byte("sdcpp"))
+		case "/whisper":
+			_, _ = w.Write([]byte("whisper"))
 		default:
 			http.NotFound(w, r)
 		}
@@ -149,6 +153,8 @@ func TestDownloadSplitModeWritesLlamaAndSDCPPBinaries(t *testing.T) {
 	cfg.Updates.LlamaSHA256 = sha256Hex("llama")
 	cfg.Updates.SDCPPBinaryURL = server.URL + "/sdcpp"
 	cfg.Updates.SDCPPSHA256 = sha256Hex("sdcpp")
+	cfg.Updates.WhisperCPPBinaryURL = server.URL + "/whisper"
+	cfg.Updates.WhisperCPPSHA256 = sha256Hex("whisper")
 
 	manager := NewManager(cfg)
 	manager.client = server.Client()
@@ -156,7 +162,7 @@ func TestDownloadSplitModeWritesLlamaAndSDCPPBinaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(paths) != 2 || paths[0] != cfg.Llama.BinaryPath || paths[1] != cfg.SDCPP.BinaryPath {
+	if len(paths) != 3 || paths[0] != cfg.Llama.BinaryPath || paths[1] != cfg.SDCPP.BinaryPath || paths[2] != cfg.WhisperCPP.BinaryPath {
 		t.Fatalf("unexpected downloaded paths %#v", paths)
 	}
 
@@ -174,12 +180,22 @@ func TestDownloadSplitModeWritesLlamaAndSDCPPBinaries(t *testing.T) {
 	if string(sdcppContent) != "sdcpp" {
 		t.Fatalf("unexpected sdcpp binary %q", string(sdcppContent))
 	}
+	whisperContent, err := os.ReadFile(cfg.WhisperCPP.BinaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(whisperContent) != "whisper" {
+		t.Fatalf("unexpected whisper binary %q", string(whisperContent))
+	}
 
 	if manager.readMetadata(manager.targets()[0]).URL != cfg.Updates.LlamaBinaryURL {
 		t.Fatalf("llama metadata was not written")
 	}
 	if manager.readMetadata(manager.targets()[1]).URL != cfg.Updates.SDCPPBinaryURL {
 		t.Fatalf("sdcpp metadata was not written")
+	}
+	if manager.readMetadata(manager.targets()[2]).URL != cfg.Updates.WhisperCPPBinaryURL {
+		t.Fatalf("whisper metadata was not written")
 	}
 }
 
@@ -190,6 +206,8 @@ func TestDownloadSplitModeExtractsArchivedBinaries(t *testing.T) {
 	cfg.Llama.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "llama")
 	cfg.SDCPP.BinaryPath = filepath.Join(filepath.Dir(filepath.Dir(cfg.Kobold.BinaryPath)), "stable-diffusion", "build", "bin", "sd-server")
 	cfg.SDCPP.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "sdcpp")
+	cfg.WhisperCPP.BinaryPath = filepath.Join(filepath.Dir(filepath.Dir(cfg.Kobold.BinaryPath)), "whisper", "bin", "whisper-server")
+	cfg.WhisperCPP.DataDir = filepath.Join(filepath.Dir(cfg.Kobold.DataDir), "whispercpp")
 	sdcppRoot := filepath.Join(filepath.Dir(filepath.Dir(cfg.Kobold.BinaryPath)), "stable-diffusion")
 	if err := os.MkdirAll(sdcppRoot, 0o755); err != nil {
 		t.Fatal(err)
@@ -208,6 +226,10 @@ func TestDownloadSplitModeExtractsArchivedBinaries(t *testing.T) {
 		{Name: "build/bin/libstable-diffusion.so", Content: "sdcpp-lib"},
 		{Name: "build/bin/stable-diffusion.cpp.txt", Content: "sdcpp-license"},
 	})
+	whisperArchive := zipPayload(t, []archiveFile{
+		{Name: "bin/whisper-server", Content: "whisper"},
+		{Name: "bin/libwhisper.so", Content: "whisper-lib"},
+	})
 
 	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -215,6 +237,8 @@ func TestDownloadSplitModeExtractsArchivedBinaries(t *testing.T) {
 			_, _ = w.Write(llamaArchive)
 		case "/sdcpp.zip":
 			_, _ = w.Write(sdcppArchive)
+		case "/whisper.zip":
+			_, _ = w.Write(whisperArchive)
 		default:
 			http.NotFound(w, r)
 		}
@@ -224,6 +248,8 @@ func TestDownloadSplitModeExtractsArchivedBinaries(t *testing.T) {
 	cfg.Updates.LlamaSHA256 = sha256BytesHex(llamaArchive)
 	cfg.Updates.SDCPPBinaryURL = server.URL + "/sdcpp.zip"
 	cfg.Updates.SDCPPSHA256 = sha256BytesHex(sdcppArchive)
+	cfg.Updates.WhisperCPPBinaryURL = server.URL + "/whisper.zip"
+	cfg.Updates.WhisperCPPSHA256 = sha256BytesHex(whisperArchive)
 
 	manager := NewManager(cfg)
 	manager.client = server.Client()
@@ -248,6 +274,8 @@ func TestDownloadSplitModeExtractsArchivedBinaries(t *testing.T) {
 	assertFileContent(t, filepath.Join(filepath.Dir(cfg.Llama.BinaryPath), "libllama.so"), "llama-lib")
 	assertFileContent(t, filepath.Join(filepath.Dir(cfg.SDCPP.BinaryPath), "libstable-diffusion.so"), "sdcpp-lib")
 	assertFileContent(t, filepath.Join(filepath.Dir(cfg.SDCPP.BinaryPath), "sd-cli"), "sdcpp-cli")
+	assertFileContent(t, cfg.WhisperCPP.BinaryPath, "whisper")
+	assertFileContent(t, filepath.Join(filepath.Dir(cfg.WhisperCPP.BinaryPath), "libwhisper.so"), "whisper-lib")
 	assertFileContent(t, filepath.Join(filepath.Dir(cfg.SDCPP.BinaryPath), "stable-diffusion.cpp.txt"), "sdcpp-license")
 	if fileExists(filepath.Join(sdcppRoot, "stale-runtime.so")) {
 		t.Fatalf("stale archive content was not removed")

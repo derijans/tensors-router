@@ -14,7 +14,7 @@ var modelFields = map[string]struct{}{
 	"sdmodel": {}, "sddiffusionmodel": {}, "sdhighnoisediffusionmodel": {}, "sdunconddiffusionmodel": {},
 	"sdupscaler": {}, "sdvae": {}, "sdaudiovae": {}, "sdt5xxl": {}, "sdclip1": {}, "sdclip2": {}, "sdclipl": {}, "sdclipg": {}, "sdclipvision": {},
 	"sdphotomaker": {}, "sdlora": {}, "sdllm": {}, "sdllmvision": {}, "sdembeddingsconnectors": {}, "sdcontrolnet": {}, "sdpulidweights": {}, "sdpulididembedding": {}, "sdipadapter": {}, "sdmotionmodule": {},
-	"whispermodel": {}, "ttsmodel": {}, "ttswavtokenizer": {}, "talkermodel": {}, "code2wavmodel": {},
+	"whispermodel": {}, "whispercpp_vad_model": {}, "ttsmodel": {}, "ttswavtokenizer": {}, "talkermodel": {}, "code2wavmodel": {},
 	"musicllm": {}, "musicembeddings": {}, "musicdiffusion": {}, "musicvae": {}, "embeddingsmodel": {},
 }
 

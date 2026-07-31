@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,6 +38,14 @@ func (service *Service) responseWithAnalytics(response *http.Response, event rou
 	}
 	event.StatusCode = response.StatusCode
 	event.Success = response.StatusCode >= 200 && response.StatusCode < 300
+	event.AudioLanguage = response.Header.Get("X-Tensors-Audio-Language")
+	event.AudioTask = response.Header.Get("X-Tensors-Audio-Task")
+	if value, err := strconv.ParseFloat(response.Header.Get("X-Tensors-Audio-Duration"), 64); err == nil {
+		event.AudioSeconds = value
+	}
+	response.Header.Del("X-Tensors-Audio-Language")
+	response.Header.Del("X-Tensors-Audio-Task")
+	response.Header.Del("X-Tensors-Audio-Duration")
 	if response.Body == nil {
 		service.recordAnalyticsFinished(event, finalizers...)
 		return response

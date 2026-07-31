@@ -334,7 +334,7 @@ func (catalog *Catalog) withMetadata(model Model, includeModelHash bool) Model {
 	model.HasImage = metadata.ImageModelPath() != "" || portableModelField(options, "sdmodel", "sddiffusionmodel", "sdhighnoisediffusionmodel", "sdunconddiffusionmodel")
 	model.HasEmbeddings = strings.TrimSpace(metadata.EmbeddingsModel) != "" || portableModelField(options, "embeddingsmodel")
 	model.HasMultimodal = modelHasValue(metadata.MMProj) || portableModelField(options, "mmproj")
-	model.HasVoice = hasVoiceModel(metadata) || portableModelField(options, "whispermodel", "ttsmodel", "ttswavtokenizer", "talkermodel", "code2wavmodel")
+	model.HasVoice = hasVoiceModel(metadata) || portableModelField(options, "whispermodel", "whispercpp_vad_model", "ttsmodel", "ttswavtokenizer", "talkermodel", "code2wavmodel")
 	model.HasMusic = hasMusicModel(metadata) || portableModelField(options, "musicllm", "musicembeddings", "musicdiffusion", "musicvae")
 	model.HasLLM = hasLLMModel(metadata) || portableModelField(options, "model", "model_param", "draftmodel")
 	model.BackendMode = strings.TrimSpace(metadata.BackendMode)

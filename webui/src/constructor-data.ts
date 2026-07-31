@@ -130,7 +130,7 @@ function modelFileForLane(lane: LaneKind, selected: PaletteComponentPayload): La
     return {path: stringOption(options.embeddingsmodel) || selected.file?.path || ""};
   }
   if (lane === "voice") {
-    return firstModelFile(options, ["whispermodel", "ttsmodel", "ttswavtokenizer", "ttsdir"], selected.file?.path);
+    return firstModelFile(options, ["whispermodel", "whispercpp_vad_model", "ttsmodel", "ttswavtokenizer", "ttsdir"], selected.file?.path);
   }
   if (lane === "music") {
     return firstModelFile(options, ["musicllm", "musicembeddings", "musicdiffusion", "musicvae"], selected.file?.path);

@@ -269,6 +269,21 @@ func (registry *Registry) AcquireVoice(publicID string, localHealthy bool) (Rout
 	return registry.acquireRouteLocked(route)
 }
 
+func (registry *Registry) AcquireSpecificVoice(publicID string, nodeID string, filename string, localHealthy bool) (Route, func(), bool) {
+	registry.mu.Lock()
+	for _, model := range registry.view {
+		if model.PublicID != publicID || model.NodeID != nodeID || model.Filename != filename || !model.HasVoice || !model.Available {
+			continue
+		}
+		if model.NodeID == registry.localID && !localHealthy {
+			break
+		}
+		return registry.acquireRouteLocked(routeFromModel(model, model.NodeID != registry.localID, RouteLaneVoice))
+	}
+	registry.mu.Unlock()
+	return Route{}, func() {}, false
+}
+
 func (registry *Registry) AcquireMusic(publicID string, localHealthy bool) (Route, func(), bool) {
 	registry.mu.Lock()
 	route, ok := registry.selectRouteLocked(publicID, registry.musicReplicasLocked(publicID), localHealthy, RouteLaneMusic)

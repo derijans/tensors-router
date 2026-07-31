@@ -54,6 +54,7 @@ func (service *Service) validateCookGroups(ctx context.Context, groups []cookGro
 		}
 		fact.backendMode = groupBackendMode
 		issues = append(issues, validateKoboldMix(group, fact)...)
+		issues = append(issues, validateNativeTTSMix(group, fact, groupOptions)...)
 		issues = append(issues, validateThreadBudget(group, fact, groupOptions)...)
 		issues = append(issues, validateCUDAOptions(group, fact, groupOptions)...)
 		issues = append(issues, validateOptionSupport(group, fact, groupOptions)...)
@@ -64,6 +65,22 @@ func (service *Service) validateCookGroups(ctx context.Context, groups []cookGro
 		return issues, cookValidationError{message: validationMessage(issues), issues: issues}
 	}
 	return issues, nil
+}
+
+func validateNativeTTSMix(group cookGroup, fact cookNodeFacts, options cook.Options) []cook.ValidationIssue {
+	if fact.backendMode != BackendModeLlamaSDCPP || !groupHasKind(group, cook.KindText) {
+		return nil
+	}
+	if !rawTruthy(selectedOptions(group, fact, options)["ttsmodel"]) {
+		return nil
+	}
+	return []cook.ValidationIssue{{
+		Severity: "error",
+		Code:     "llama_text_standalone_tts_mix",
+		Message:  "llama-server cannot combine a text model with standalone ttsmodel; use talkermodel and code2wavmodel as supplemental speech assets.",
+		NodeID:   group.nodeID,
+		Field:    "ttsmodel",
+	}}
 }
 
 func effectiveGroupBackendMode(group cookGroup, fact cookNodeFacts, options cook.Options) (string, error) {

@@ -20,6 +20,8 @@ Jobs are queued and can be inspected, paused, resumed, or cancelled. Job and per
 
 The library can be rescanned after files change outside the downloader. Indexed artifacts are available to portable `.kcpps` resolution. See [KCPPS Sharing](KCPPS-Sharing).
 
+The router's backend download operation installs one target in Kobold mode and three targets in `llama_sdcpp` mode: llama-server, sd-server, and whisper-server. whisper.cpp release archives are normalized so the executable and required runtime libraries are installed together. Direct sources can be pinned with `updates.whispercpp_binary_sha256`; repository sources default to the official whisper.cpp releases and support `updates.whispercpp_asset_glob`.
+
 ## Command-line use
 
 ```text

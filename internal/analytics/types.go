@@ -44,6 +44,8 @@ type Event struct {
 	ImageType       string    `json:"image_type,omitempty"`
 	AudioSeconds    float64   `json:"audio_seconds,omitempty"`
 	AudioTokens     int64     `json:"audio_tokens,omitempty"`
+	AudioLanguage   string    `json:"audio_language,omitempty"`
+	AudioTask       string    `json:"audio_task,omitempty"`
 	LoadVRAMBefore  int64     `json:"load_vram_before_mb,omitempty"`
 	LoadVRAMAfter   int64     `json:"load_vram_after_mb,omitempty"`
 	LoadVRAMDelta   int64     `json:"load_vram_delta_mb,omitempty"`
@@ -183,6 +185,8 @@ type RecentEvent struct {
 	ImageType       string  `json:"image_type,omitempty"`
 	AudioSeconds    float64 `json:"audio_seconds,omitempty"`
 	AudioTokens     int64   `json:"audio_tokens,omitempty"`
+	AudioLanguage   string  `json:"audio_language,omitempty"`
+	AudioTask       string  `json:"audio_task,omitempty"`
 	LoadVRAMBefore  int64   `json:"load_vram_before_mb,omitempty"`
 	LoadVRAMAfter   int64   `json:"load_vram_after_mb,omitempty"`
 	LoadVRAMDelta   int64   `json:"load_vram_delta_mb,omitempty"`

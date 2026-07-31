@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,6 +79,45 @@ func TestKnownAssetSelectionRequiresExactRuntimeWhenMultipleExist(t *testing.T) 
 	}
 	if _, err := selectKnownPayloads("llama-server", assets, hardware.Info{GPUBackend: hardware.GPUBackendROCm}); err == nil {
 		t.Fatal("expected missing runtime version to reject ambiguous assets")
+	}
+}
+
+func TestWhisperOfficialAssetSelectionMatchesPlatformArchitecture(t *testing.T) {
+	if runtime.GOOS == "darwin" {
+		t.Skip("official XCFramework assets do not contain whisper-server")
+	}
+	architecture := "x64"
+	if runtime.GOARCH == "386" {
+		architecture = "Win32"
+	} else if runtime.GOARCH == "arm64" {
+		architecture = "arm64"
+	}
+	name := "whisper-bin-" + architecture + ".zip"
+	otherArchitecture := "arm64"
+	if architecture == "arm64" {
+		otherArchitecture = "x64"
+	}
+	if runtime.GOOS != "windows" {
+		name = "whisper-bin-ubuntu-" + architecture + ".zip"
+	}
+	assets := []githubAsset{
+		{Name: name},
+		{Name: "whisper-bin-ubuntu-" + otherArchitecture + ".zip"},
+		{Name: strings.TrimSuffix(name, ".zip") + "-blas.zip"},
+		{Name: "whisper-model-large.bin"},
+	}
+	payloads, err := selectKnownPayloads("whisper-server", assets, hardware.Info{GPUBackend: hardware.GPUBackendCPU})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(payloads) != 1 || payloads[0].Name != name {
+		t.Fatalf("unexpected whisper payloads %#v", payloads)
+	}
+}
+
+func TestWhisperRecognizesOfficialCuBLASAsset(t *testing.T) {
+	if !matchesAcceleratorForBackend("whisper-server", "whisper-bin-x64-cublas-12.4.0.zip", hardware.GPUBackendCUDA) {
+		t.Fatal("official whisper cuBLAS asset was not recognized as CUDA")
 	}
 }
 

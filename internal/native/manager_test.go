@@ -166,6 +166,127 @@ func TestLlamaEmbeddingLaunchArgumentsEnableEmbeddings(t *testing.T) {
 	}
 }
 
+func TestWhisperCPPLaunchArgumentsAndCanonicalLlamaPrecedence(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "voice.kcpps"), []byte(`{
+		"whispermodel":"C:/models/whisper.bin",
+		"threads":8,
+		"maingpu":2,
+		"flashattention":false,
+		"whispercpp_processors":3,
+		"whispercpp_language":"lv",
+		"whispercpp_vad":true,
+		"whispercpp_vad_model":"C:/models/vad.bin",
+		"whispercpp_vad_threshold":0.6
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewWhisperCPPManager(ProcessConfig{
+		BackendURL: "http://127.0.0.1:6004",
+		BinaryPath: "whisper-server",
+		ConfigDir:  dir,
+		DataDir:    t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, err := manager.LaunchArguments("voice.kcpps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{"--model", "C:/models/whisper.bin", "--threads", "8", "--device", "2", "--no-flash-attn", "--processors", "3", "--language", "lv", "--vad", "--vad-model", "C:/models/vad.bin", "--vad-threshold", "0.6"} {
+		if !containsArgument(args, expected) {
+			t.Fatalf("missing whisper argument %q in %#v", expected, args)
+		}
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "alias.kcpps"), []byte(`{"model_param":"text.gguf","parallel":1,"llama_parallel":4}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	llamaManager, err := NewLlamaManager(ProcessConfig{BackendURL: "http://127.0.0.1:6005", BinaryPath: "llama-server", ConfigDir: dir, DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	llamaArgs, err := llamaManager.LaunchArguments("alias.kcpps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsAdjacentArguments(llamaArgs, "--parallel", "4") {
+		t.Fatalf("canonical llama alias did not win %#v", llamaArgs)
+	}
+}
+
+func TestWhisperCPPRejectsRouterOwnedArguments(t *testing.T) {
+	for _, argument := range []string{"--public", "--public-path=/ui", "--request-path", "--inference-path=/inference", "--convert", "--no-convert", "--tmp-dir=C:/tmp"} {
+		_, err := NewWhisperCPPManager(ProcessConfig{BackendURL: "http://127.0.0.1:6004", BinaryPath: "whisper-server", ConfigDir: t.TempDir(), DataDir: t.TempDir(), ExtraArgs: []string{argument}})
+		if err == nil {
+			t.Fatalf("expected %q to be rejected", argument)
+		}
+	}
+}
+
+func TestWhisperCPPMapsCompleteServerOptions(t *testing.T) {
+	options := map[string]any{
+		"whispercpp_offset_t": 125.0, "whispercpp_offset_n": 2.0, "whispercpp_duration": 900.0,
+		"whispercpp_max_context": 64.0, "whispercpp_max_len": 80.0, "whispercpp_split_on_word": true,
+		"whispercpp_best_of": 3.0, "whispercpp_beam_size": 4.0, "whispercpp_audio_ctx": 768.0,
+		"whispercpp_word_threshold": 0.1, "whispercpp_entropy_threshold": 2.2, "whispercpp_logprob_threshold": -0.8,
+		"whispercpp_no_speech_threshold": 0.5, "whispercpp_debug": true, "whispercpp_translate": true,
+		"whispercpp_diarize": true, "whispercpp_tiny_diarize": true, "whispercpp_no_fallback": true,
+		"whispercpp_no_context": true, "whispercpp_detect_language": true, "whispercpp_carry_initial_prompt": true,
+		"whispercpp_openvino_device": "GPU", "whispercpp_dtw": "tiny", "whispercpp_suppress_non_speech": true,
+		"whispercpp_print_special": true, "whispercpp_print_colors": true, "whispercpp_print_realtime": true,
+		"whispercpp_print_progress": true, "whispercpp_no_timestamps": true, "whispercpp_language_probabilities": false,
+		"whispercpp_vad_min_speech_duration_ms": 250.0, "whispercpp_vad_min_silence_duration_ms": 100.0,
+		"whispercpp_vad_max_speech_duration_s": 30.0, "whispercpp_vad_speech_pad_ms": 30.0,
+		"whispercpp_vad_samples_overlap": 0.1,
+	}
+	flash := true
+	args, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{WhisperModel: "whisper.bin", Threads: 8, MainGPU: 1, FlashAttention: &flash, UseCPU: true, WhisperCPPOptions: options}, "whispercpp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, expected := range []string{
+		"--threads", "--device", "--flash-attn", "--no-gpu", "--offset-t", "--offset-n", "--duration",
+		"--max-context", "--max-len", "--split-on-word", "--best-of", "--beam-size", "--audio-ctx",
+		"--word-thold", "--entropy-thold", "--logprob-thold", "--no-speech-thold", "--debug-mode",
+		"--translate", "--diarize", "--tinydiarize", "--no-fallback", "--no-context", "--detect-language",
+		"--carry-initial-prompt", "--ov-e-device", "--dtw", "--suppress-nst", "--print-special",
+		"--print-colors", "--print-realtime", "--print-progress", "--no-timestamps", "--no-language-probabilities",
+		"--vad-min-speech-duration-ms", "--vad-min-silence-duration-ms", "--vad-max-speech-duration-s",
+		"--vad-speech-pad-ms", "--vad-samples-overlap",
+	} {
+		if !containsArgument(args, expected) {
+			t.Fatalf("missing whisper argument %q in %#v", expected, args)
+		}
+	}
+	for _, unsupported := range []string{"--output-json", "--output-json-full", "--output-srt", "--suppress-regex", "--language-probability"} {
+		if containsArgument(args, unsupported) {
+			t.Fatalf("unsupported v1.9.1 whisper-server argument %q in %#v", unsupported, args)
+		}
+	}
+}
+
+func TestLlamaTTSLaunchModesAndConflictValidation(t *testing.T) {
+	ttsOnly, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{TTSModel: "tts.gguf", TTSWAVTokenizer: "vocoder.gguf"}, "llama")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsAdjacentArguments(ttsOnly, "--model", "tts.gguf") || !containsAdjacentArguments(ttsOnly, "--model-vocoder", "vocoder.gguf") {
+		t.Fatalf("unexpected TTS-only arguments %#v", ttsOnly)
+	}
+	supplemental, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{ModelParam: "text.gguf", TalkerModel: "talker.gguf", Code2WAVModel: "code2wav.gguf"}, "llama")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsAdjacentArguments(supplemental, "--model-talker", "talker.gguf") || !containsAdjacentArguments(supplemental, "--model-vocoder", "code2wav.gguf") {
+		t.Fatalf("unexpected supplemental TTS arguments %#v", supplemental)
+	}
+	if _, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{ModelParam: "text.gguf", TTSModel: "tts.gguf"}, "llama"); err == nil {
+		t.Fatal("expected text plus standalone TTS rejection")
+	}
+}
+
 func TestCurrentReleaseArgumentsPreserveOptionalAndAssignmentValues(t *testing.T) {
 	mmprojAuto := true
 	llamaArgs, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{
@@ -207,6 +328,15 @@ func TestCurrentReleaseArgumentsPreserveOptionalAndAssignmentValues(t *testing.T
 func containsArgument(args []string, expected string) bool {
 	for _, arg := range args {
 		if arg == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func containsAdjacentArguments(args []string, flag string, value string) bool {
+	for index := 0; index+1 < len(args); index++ {
+		if args[index] == flag && args[index+1] == value {
 			return true
 		}
 	}
@@ -451,6 +581,9 @@ func main() {
 	})
 	mux.HandleFunc("/sdapi/v1/sd-models", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode([]any{})
+	})
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 	})
 
 	server := &http.Server{

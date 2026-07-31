@@ -1,6 +1,6 @@
 # Backend WebUI Interfaces
 
-The WebUIs tab exposes browser interfaces supplied by KoboldCpp, llama.cpp, and stable-diffusion.cpp. It does not connect the browser directly to a backend listener. Browser traffic passes through `tensor-router-webui`, then through the router, and finally to the active local or clustered backend.
+The WebUIs tab exposes browser interfaces supplied by KoboldCpp, llama.cpp, stable-diffusion.cpp, and whisper.cpp. It does not connect the browser directly to a backend listener. Browser traffic passes through `tensor-router-webui`, then through the router, and finally to the active local or clustered backend.
 
 This provides two ways to use the interfaces:
 
@@ -21,6 +21,7 @@ An interface appears only when the model catalog contains at least one compatibl
 | `kobold` | KoboldCpp MusicUI | Music model | `/router/webuis/kobold-music/` |
 | `llama_sdcpp` | llama-server UI | Text-side model | `/router/webuis/llama/` |
 | `llama_sdcpp` | sd-server UI | Image model | `/router/webuis/sdcpp/` |
+| `llama_sdcpp` | whisper-server UI | Whisper model | `/router/webuis/whispercpp/` |
 
 Text-side compatibility includes text, embedding, and multimodal configurations. KoboldCpp voice configurations are also included in its text-side catalog.
 
@@ -60,7 +61,7 @@ The value must contain only an HTTPS origin. Credentials, paths, queries, and fr
 6. If no compatible model is active, select Resolve or Models, then select Load beside a model.
 7. After the backend reports ready, the interface opens in a new browser tab. If it does not open automatically, select Open.
 
-Loading from this tab performs a normal router model load. It starts the required lazy backend process, resolves portable assets when needed, loads the selected `.kcpps` configuration, and waits for the correct text or image readiness endpoint.
+Loading from this tab performs a normal router model load. It starts the required lazy backend process, resolves portable assets when needed, loads the selected `.kcpps` configuration, and waits for the correct text, image, or transcription readiness endpoint.
 
 Enablement only permits the proxy route. It does not start a backend or load a model. The enabled state is stored in router memory and resets when the router restarts. Enable only the interfaces needed for the current session.
 
@@ -75,6 +76,8 @@ Requests made by the native interface are restricted to the API paths assigned t
 - request streaming and response rendering
 - backend-specific options exposed by its own UI
 - local and clustered backend routing
+
+The Whisper interface proxies its static files, `/health`, and `/inference` traffic. Direct `/load` access is denied; model changes must use router controls.
 
 An interface test does not replace direct API testing. Use [API Reference](API-Reference) and [Testing and Troubleshooting](Testing-and-Troubleshooting) when the request body, response format, authentication, or client compatibility must be checked directly.
 

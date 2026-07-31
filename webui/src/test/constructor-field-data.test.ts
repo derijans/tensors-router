@@ -26,7 +26,7 @@ describe("constructor field staging data", () => {
   });
 
   it("exposes exact raw file assignment keys", () => {
-    expect(rawFileKeysForLane("voice")).toEqual(["whispermodel", "ttsmodel", "ttswavtokenizer", "ttsdir"]);
+    expect(rawFileKeysForLane("voice")).toEqual(["whispermodel", "whispercpp_vad_model", "ttsmodel", "ttswavtokenizer", "ttsdir"]);
     expect(rawFileKeysForLane("music")).toEqual(["musicllm", "musicembeddings", "musicdiffusion", "musicvae"]);
     expect(validAssignmentKey("music", "musicvae")).toBe(true);
     expect(validAssignmentKey("music", "sdmodel")).toBe(false);

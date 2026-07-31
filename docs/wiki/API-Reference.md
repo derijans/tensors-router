@@ -85,7 +85,11 @@ The router recognizes:
 - `POST /api/extra/tts`
 - `POST /api/extra/transcribe`
 
-Availability depends on the selected backend and `.kcpps` voice fields. In split mode, llama.cpp routing currently requires a talker model for `/v1/audio/speech` and a Whisper model for `/v1/audio/transcriptions`. Other listed voice paths require backend support.
+Availability depends on the selected backend and `.kcpps` voice fields. In split mode, compatible TTS uses the llama runtime and configurations containing `whispermodel` use the independent Whisper runtime for all three STT routes. A TTS-only `ttsmodel` can be llama-server's primary model; a standalone `ttsmodel` cannot coexist with a text primary model. Supplemental `talkermodel` and `code2wavmodel` configurations remain valid.
+
+OpenAI transcription and translation accept multipart WAV input and `json`, `verbose_json`, `text`, `srt`, or `vtt` output. Translation is forced to English by route. Kobold transcription accepts JSON `audio_data`, `prompt`, `langcode` or `language`, and `suppress_non_speech`, returning `{"text":"..."}`. ffmpeg conversion is not enabled; non-WAV input returns HTTP 400.
+
+The model selector can be supplied in the multipart field, query, or `X-Tensors-Model` header. STT requests without a selector use automatic loaded/idle/queue-aware cluster scheduling described in [Cluster Routing](Cluster-Routing).
 
 ## Music APIs
 

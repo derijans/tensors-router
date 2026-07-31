@@ -20,10 +20,19 @@ const (
 )
 
 func (readiness backendReadiness) endpoint() string {
+	return readiness.endpointForMode(BackendModeKobold)
+}
+
+func (readiness backendReadiness) endpointForMode(backendMode string) string {
 	switch readiness {
 	case readinessImage:
 		return "/sdapi/v1/sd-models"
-	case readinessSpeech, readinessTranscription, readinessMusic:
+	case readinessTranscription:
+		if backendMode == BackendModeLlamaSDCPP {
+			return "/health"
+		}
+		return "/api/extra/version"
+	case readinessSpeech, readinessMusic:
 		return "/api/extra/version"
 	default:
 		return "/v1/models"
@@ -45,6 +54,9 @@ func (readiness backendReadiness) capability() string {
 
 func audioReadiness(path string, lane string, backendMode string) backendReadiness {
 	if backendMode != BackendModeKobold {
+		if path == "/v1/audio/transcriptions" || path == "/v1/audio/translations" || path == "/api/extra/transcribe" {
+			return readinessTranscription
+		}
 		return readinessText
 	}
 	if lane == recipes.KindMusic || isMusicPath(path) {
@@ -59,12 +71,12 @@ func audioReadiness(path string, lane string, backendMode string) backendReadine
 }
 
 func readinessForVoiceModel(model catalog.Model, backendMode string) backendReadiness {
-	if backendMode != BackendModeKobold {
-		return readinessText
-	}
 	voice := model.Capabilities.Voice
 	if voice != nil && strings.TrimSpace(voice.TTSModel) == "" && strings.TrimSpace(voice.WAVTokenizer) == "" && strings.TrimSpace(voice.Directory) == "" && strings.TrimSpace(voice.TalkerModel) == "" && strings.TrimSpace(voice.Code2WAVModel) == "" && strings.TrimSpace(voice.WhisperModel) != "" {
 		return readinessTranscription
+	}
+	if backendMode == BackendModeLlamaSDCPP {
+		return readinessText
 	}
 	return readinessSpeech
 }

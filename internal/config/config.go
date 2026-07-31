@@ -21,6 +21,7 @@ type Config struct {
 	Kobold     KoboldConfig
 	Llama      NativeServerConfig
 	SDCPP      NativeServerConfig
+	WhisperCPP NativeServerConfig
 	Logging    LoggingConfig
 	Updates    UpdatesConfig
 	Downloader DownloaderConfig
@@ -89,21 +90,25 @@ type LoggingConfig struct {
 }
 
 type UpdatesConfig struct {
-	Enabled             bool
-	CheckInterval       time.Duration
-	IncludePrereleases  bool
-	BinaryURL           string
-	BinarySHA256        string
-	BinaryRepositoryURL string
-	BinaryAssetGlob     string
-	LlamaBinaryURL      string
-	LlamaSHA256         string
-	LlamaRepositoryURL  string
-	LlamaAssetGlob      string
-	SDCPPBinaryURL      string
-	SDCPPSHA256         string
-	SDCPPRepositoryURL  string
-	SDCPPAssetGlob      string
+	Enabled                 bool
+	CheckInterval           time.Duration
+	IncludePrereleases      bool
+	BinaryURL               string
+	BinarySHA256            string
+	BinaryRepositoryURL     string
+	BinaryAssetGlob         string
+	LlamaBinaryURL          string
+	LlamaSHA256             string
+	LlamaRepositoryURL      string
+	LlamaAssetGlob          string
+	SDCPPBinaryURL          string
+	SDCPPSHA256             string
+	SDCPPRepositoryURL      string
+	SDCPPAssetGlob          string
+	WhisperCPPBinaryURL     string
+	WhisperCPPSHA256        string
+	WhisperCPPRepositoryURL string
+	WhisperCPPAssetGlob     string
 }
 
 type DownloaderConfig struct {
@@ -128,6 +133,10 @@ func (updates UpdatesConfig) LlamaSource() BackendUpdateSource {
 
 func (updates UpdatesConfig) SDCPPSource() BackendUpdateSource {
 	return BackendUpdateSource{BinaryURL: updates.SDCPPBinaryURL, SHA256: updates.SDCPPSHA256, RepositoryURL: updates.SDCPPRepositoryURL, AssetGlob: updates.SDCPPAssetGlob}
+}
+
+func (updates UpdatesConfig) WhisperCPPSource() BackendUpdateSource {
+	return BackendUpdateSource{BinaryURL: updates.WhisperCPPBinaryURL, SHA256: updates.WhisperCPPSHA256, RepositoryURL: updates.WhisperCPPRepositoryURL, AssetGlob: updates.WhisperCPPAssetGlob}
 }
 
 type ClusterConfig struct {
@@ -205,22 +214,30 @@ func Defaults() Config {
 			ExtraArgs:  []string{},
 			HideWindow: true,
 		},
+		WhisperCPP: NativeServerConfig{
+			BackendURL: "http://127.0.0.1:5003",
+			BinaryPath: "./bin/whisper/whisper-server",
+			DataDir:    "./data/whispercpp",
+			ExtraArgs:  []string{},
+			HideWindow: true,
+		},
 		Logging: LoggingConfig{
 			Mode:              LoggingModeNormal,
 			Enabled:           true,
 			BackendLogsToDisk: false,
 		},
 		Updates: UpdatesConfig{
-			Enabled:            false,
-			CheckInterval:      168 * time.Hour,
-			BinaryURL:          "https://koboldai.org/cpplinuxrocm",
-			BinarySHA256:       "",
-			LlamaBinaryURL:     "",
-			LlamaSHA256:        "",
-			SDCPPBinaryURL:     "",
-			SDCPPSHA256:        "",
-			LlamaRepositoryURL: "https://github.com/ggml-org/llama.cpp",
-			SDCPPRepositoryURL: "https://github.com/leejet/stable-diffusion.cpp",
+			Enabled:                 false,
+			CheckInterval:           168 * time.Hour,
+			BinaryURL:               "https://koboldai.org/cpplinuxrocm",
+			BinarySHA256:            "",
+			LlamaBinaryURL:          "",
+			LlamaSHA256:             "",
+			SDCPPBinaryURL:          "",
+			SDCPPSHA256:             "",
+			LlamaRepositoryURL:      "https://github.com/ggml-org/llama.cpp",
+			SDCPPRepositoryURL:      "https://github.com/leejet/stable-diffusion.cpp",
+			WhisperCPPRepositoryURL: "https://github.com/ggml-org/whisper.cpp",
 		},
 		Downloader: DownloaderConfig{
 			Enabled: true,
@@ -337,6 +354,9 @@ func validate(cfg *Config) error {
 		if err := validateNativeServerConfig("sdcpp", cfg.SDCPP); err != nil {
 			return err
 		}
+		if err := validateWhisperServerConfig(cfg.WhisperCPP); err != nil {
+			return err
+		}
 	}
 	if cfg.Updates.CheckInterval <= 0 {
 		return fmt.Errorf("updates.check_interval must be positive")
@@ -351,6 +371,9 @@ func validate(cfg *Config) error {
 			return err
 		}
 		if err := validateUpdateSource("sdcpp", cfg.Updates.SDCPPSource()); err != nil {
+			return err
+		}
+		if err := validateUpdateSource("whispercpp", cfg.Updates.WhisperCPPSource()); err != nil {
 			return err
 		}
 	}
@@ -427,6 +450,16 @@ func validateNativeServerConfig(section string, server NativeServerConfig) error
 	}
 	if server.DataDir == "" {
 		return fmt.Errorf("%s.data_dir is required", section)
+	}
+	return nil
+}
+
+func validateWhisperServerConfig(server NativeServerConfig) error {
+	if err := validateNativeServerConfig("whispercpp", server); err != nil {
+		return err
+	}
+	if err := backendendpoint.RejectConflictingArgs(server.ExtraArgs, "--public", "--public-path", "--request-path", "--inference-path", "--convert", "--no-convert", "--tmp-dir"); err != nil {
+		return fmt.Errorf("whispercpp.%w", err)
 	}
 	return nil
 }
@@ -765,6 +798,8 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 		return setNativeServerScalar(&cfg.Llama, section, key, value)
 	case "sdcpp":
 		return setNativeServerScalar(&cfg.SDCPP, section, key, value)
+	case "whispercpp":
+		return setNativeServerScalar(&cfg.WhisperCPP, section, key, value)
 	case "logging":
 		switch key {
 		case "mode":
@@ -845,6 +880,18 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			return nil
 		case "sdcpp_asset_glob":
 			cfg.Updates.SDCPPAssetGlob = value
+			return nil
+		case "whispercpp_binary_url":
+			cfg.Updates.WhisperCPPBinaryURL = value
+			return nil
+		case "whispercpp_binary_sha256":
+			cfg.Updates.WhisperCPPSHA256 = value
+			return nil
+		case "whispercpp_repository_url":
+			cfg.Updates.WhisperCPPRepositoryURL = value
+			return nil
+		case "whispercpp_asset_glob":
+			cfg.Updates.WhisperCPPAssetGlob = value
 			return nil
 		}
 	case "downloader":
@@ -1035,6 +1082,11 @@ func setListValue(cfg *Config, section string, key string, values []string) erro
 			cfg.SDCPP.ExtraArgs = values
 			return nil
 		}
+	case "whispercpp":
+		if key == "extra_args" {
+			cfg.WhisperCPP.ExtraArgs = values
+			return nil
+		}
 	case "cluster":
 		if key == "slave_urls" {
 			cfg.Cluster.SlaveURLs = values
@@ -1081,6 +1133,11 @@ func appendListValue(cfg *Config, section string, key string, value string) erro
 	case "sdcpp":
 		if key == "extra_args" {
 			cfg.SDCPP.ExtraArgs = append(cfg.SDCPP.ExtraArgs, value)
+			return nil
+		}
+	case "whispercpp":
+		if key == "extra_args" {
+			cfg.WhisperCPP.ExtraArgs = append(cfg.WhisperCPP.ExtraArgs, value)
 			return nil
 		}
 	case "cluster":

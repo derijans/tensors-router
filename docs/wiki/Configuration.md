@@ -86,6 +86,16 @@ MCP server definitions remain embedded in the `.kcpps` source. When active, the 
 | `sdcpp.hide_window` | Boolean | `true` | Hides the child process window on supported platforms. |
 | `sdcpp.extra_args` | List of strings | `[]` | Additional arguments. Managed listen address and port options cannot be overridden. |
 
+### whisper.cpp process
+
+| Field | Type or options | Example or default | Description |
+| --- | --- | --- | --- |
+| `whispercpp.backend_url` | Loopback HTTP URL string | `http://127.0.0.1:5003` | Managed `whisper-server` endpoint. |
+| `whispercpp.binary_path` | Path string | `./bin/whisper/whisper-server` | `whisper-server` executable. |
+| `whispercpp.data_dir` | Path string | `./data/whispercpp` | Working directory and location of `whisper-server.log`. |
+| `whispercpp.hide_window` | Boolean | `true` | Hides the child process window on supported platforms. |
+| `whispercpp.extra_args` | List of strings | `[]` | Additional arguments. Router-owned bind, public path, inference path, conversion, and temporary-directory flags are rejected. |
+
 ### Logging
 
 | Field | Type or options | Example or default | Description |
@@ -115,6 +125,10 @@ When updates are enabled, each selected backend needs either a direct binary URL
 | `updates.sdcpp_binary_sha256` | Empty or 64-character SHA-256 string | Empty | Expected digest for a direct stable-diffusion.cpp download. |
 | `updates.sdcpp_repository_url` | Empty or HTTPS repository URL string | `https://github.com/leejet/stable-diffusion.cpp` | stable-diffusion.cpp release repository source. |
 | `updates.sdcpp_asset_glob` | String glob | Empty | Selects a stable-diffusion.cpp release asset. |
+| `updates.whispercpp_binary_url` | Empty or HTTPS URL string | Empty | Direct whisper.cpp executable or archive source. |
+| `updates.whispercpp_binary_sha256` | Empty or 64-character SHA-256 string | Empty | Expected digest for a direct whisper.cpp download. |
+| `updates.whispercpp_repository_url` | Empty or HTTPS repository URL string | `https://github.com/ggml-org/whisper.cpp` | whisper.cpp release repository source. |
+| `updates.whispercpp_asset_glob` | String glob | Empty | Selects an official whisper.cpp release asset. |
 
 ### Downloader companion
 

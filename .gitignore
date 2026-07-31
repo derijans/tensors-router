@@ -22,6 +22,10 @@ config.smoke.yaml
 .env
 .env.*
 
+CLAUDE.md
+AGENTS.md
+GEMINI.md
+
 /tensors-router
 /tensors-router-*
 *.exe

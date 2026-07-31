@@ -265,7 +265,9 @@ function imageDetail(event: AnalyticsRecentEvent): string {
 }
 
 function audioDetail(event: AnalyticsRecentEvent): string {
-  return `${formatDurationSeconds(event.audio_seconds)} / ${formatCount(event.audio_tokens)} tokens${workVRAMDetail(event)}`;
+  const metadata = [event.audio_language, event.audio_task].filter(Boolean).join(" / ");
+  const prefix = metadata ? `${metadata} / ` : "";
+  return `${prefix}${formatDurationSeconds(event.audio_seconds)} / ${formatCount(event.audio_tokens)} tokens${workVRAMDetail(event)}`;
 }
 
 function loadDetail(event: AnalyticsRecentEvent): string {

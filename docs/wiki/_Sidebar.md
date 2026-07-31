@@ -18,6 +18,7 @@
 ## Reference
 
 - [Backends](Backends)
+- [Whisper.cpp](Whisper.cpp)
 - [Model Configs and Routing](Model-Configs-and-Routing)
 - [KCPPS Sharing](KCPPS-Sharing)
 - [API Reference](API-Reference)

@@ -245,8 +245,12 @@ func (service *Service) handleRegistryImageOptions(w http.ResponseWriter, r *htt
 	return true
 }
 
-func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string, lane string) {
+func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string, lane string, selected *cluster.Model) {
 	model, ok := service.registryAudioModel(publicID, lane)
+	if selected != nil {
+		model = *selected
+		ok = true
+	}
 	if !ok {
 		openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", publicID))
 		return
@@ -257,7 +261,13 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 		return
 	}
 	readiness := audioReadiness(r.URL.Path, lane, modelBackendMode)
-	route, release, ok := service.acquireRegistryAudioRoute(r, publicID, lane, modelBackendMode, readiness)
+	var route cluster.Route
+	var release func()
+	if selected != nil {
+		route, release, ok = service.registry.AcquireSpecificVoice(publicID, selected.NodeID, selected.Filename, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readiness))
+	} else {
+		route, release, ok = service.acquireRegistryAudioRoute(r, publicID, lane, modelBackendMode, readiness)
+	}
 	if !ok {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("model %q has no available replicas", publicID))
 		return

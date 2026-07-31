@@ -148,6 +148,17 @@ func (manager *Manager) targets() []downloadTarget {
 				DataDir:      manager.config.SDCPP.DataDir,
 				MetadataName: "sd-server-update.json",
 			},
+			{
+				Name:         "whisper-server",
+				URL:          manager.config.Updates.WhisperCPPBinaryURL,
+				URLField:     "whispercpp_binary_url",
+				SHA256:       manager.config.Updates.WhisperCPPSHA256,
+				SHA256Field:  "whispercpp_binary_sha256",
+				Source:       manager.config.Updates.WhisperCPPSource(),
+				BinaryPath:   manager.config.WhisperCPP.BinaryPath,
+				DataDir:      manager.config.WhisperCPP.DataDir,
+				MetadataName: "whisper-server-update.json",
+			},
 		}
 	}
 	return []downloadTarget{

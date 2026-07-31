@@ -154,7 +154,7 @@ func TestOptionCatalogIncludesReleaseCatchUpKeys(t *testing.T) {
 		{key: "cache_ram", backend: "llama_sdcpp", nativeFlag: "--cache-ram"},
 		{key: "spec_type", backend: "llama_sdcpp", nativeFlag: "--spec-type"},
 		{key: "whispermodel", backend: "llama_sdcpp", nativeFlag: "--model"},
-		{key: "talkermodel", backend: "llama_sdcpp", nativeFlag: "--model"},
+		{key: "talkermodel", backend: "llama_sdcpp", nativeFlag: "--model-talker"},
 		{key: "code2wavmodel", backend: "llama_sdcpp", nativeFlag: "--model-vocoder"},
 		{key: "sddiffusionmodel", backend: "llama_sdcpp", nativeFlag: "--diffusion-model"},
 		{key: "sdbackend", backend: "llama_sdcpp", nativeFlag: "--backend"},

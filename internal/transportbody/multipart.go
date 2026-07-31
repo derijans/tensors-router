@@ -9,7 +9,68 @@ import (
 )
 
 type MultipartRewrite struct {
-	Fields map[string]StringReplacement
+	Fields     map[string]StringReplacement
+	DropFields map[string]bool
+}
+
+func InspectMultipartField(body Body, boundary string, fieldName string) (string, bool, error) {
+	if body == nil || !body.Replayable() {
+		return "", false, ErrSelectorRequired
+	}
+	attempt, err := body.OpenAttempt()
+	if err != nil {
+		return "", false, err
+	}
+	defer attempt.Close()
+	reader := multipart.NewReader(attempt, boundary)
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			return "", false, nil
+		}
+		if err != nil {
+			return "", false, err
+		}
+		if part.FormName() != fieldName {
+			_ = part.Close()
+			continue
+		}
+		value, err := readSelectorPart(part)
+		_ = part.Close()
+		return value, true, err
+	}
+}
+
+func InspectMultipartFileHeader(body Body, boundary string, fieldName string, size int) ([]byte, bool, error) {
+	if body == nil || !body.Replayable() {
+		return nil, false, ErrSelectorRequired
+	}
+	attempt, err := body.OpenAttempt()
+	if err != nil {
+		return nil, false, err
+	}
+	defer attempt.Close()
+	reader := multipart.NewReader(attempt, boundary)
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			return nil, false, nil
+		}
+		if err != nil {
+			return nil, false, err
+		}
+		if part.FormName() != fieldName {
+			_ = part.Close()
+			continue
+		}
+		header := make([]byte, size)
+		read, readErr := io.ReadFull(part, header)
+		_ = part.Close()
+		if readErr != nil && readErr != io.ErrUnexpectedEOF {
+			return nil, false, readErr
+		}
+		return header[:read], true, nil
+	}
 }
 
 func InspectMultipartModel(body Body, boundary string) (string, bool, error) {
@@ -64,14 +125,32 @@ func rewriteMultipart(source io.Reader, destination io.Writer, oldBoundary strin
 	if err := writer.SetBoundary(newBoundary); err != nil {
 		return err
 	}
+	writtenFields := make(map[string]bool)
 	for {
 		part, err := reader.NextPart()
 		if err == io.EOF {
+			for name, replacement := range rewrite.Fields {
+				if writtenFields[name] || rewrite.DropFields[name] {
+					continue
+				}
+				target, createErr := writer.CreateFormField(name)
+				if createErr != nil {
+					return createErr
+				}
+				if _, writeErr := io.WriteString(target, replacement.To); writeErr != nil {
+					return writeErr
+				}
+			}
 			return writer.Close()
 		}
 		if err != nil {
 			return err
 		}
+		if rewrite.DropFields[part.FormName()] {
+			_ = part.Close()
+			continue
+		}
+		writtenFields[part.FormName()] = true
 		target, err := writer.CreatePart(cloneMIMEHeader(part.Header))
 		if err != nil {
 			_ = part.Close()

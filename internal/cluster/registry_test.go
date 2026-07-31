@@ -131,6 +131,29 @@ func TestRegistryAcquiresVoiceAndMusicLanes(t *testing.T) {
 	releaseMusic()
 }
 
+func TestRegistryAcquiresExactVoiceReplica(t *testing.T) {
+	registry := NewRegistry(RoleMaster, "master", "http://master")
+	local := testModel("audio", "master", "hash", "config", SourceMaster)
+	local.HasVoice = true
+	remote := testModel("audio", "slave-a", "hash", "config", SourceSlave)
+	remote.HasVoice = true
+	if err := registry.UpdateLocal([]Model{local}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.UpdateNode(Snapshot{NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{remote}}); err != nil {
+		t.Fatal(err)
+	}
+
+	route, release, ok := registry.AcquireSpecificVoice("audio", "slave-a", "audio.kcpps", true)
+	if !ok || !route.Remote || route.NodeID != "slave-a" || route.Filename != "audio.kcpps" {
+		t.Fatalf("expected exact remote voice route %#v ok=%t", route, ok)
+	}
+	release()
+	if _, _, ok := registry.AcquireSpecificVoice("audio", "missing", "audio.kcpps", true); ok {
+		t.Fatal("unexpected route for missing node")
+	}
+}
+
 func TestRegistryWebUIRoutePrefersLocalActiveRoute(t *testing.T) {
 	registry := NewRegistry(RoleMaster, "master", "http://master")
 	route, release, ok := registry.AcquireWebUI("kobold-lite", []Route{

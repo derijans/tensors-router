@@ -44,6 +44,7 @@ const (
 	SourceKoboldCPP             = "https://github.com/LostRuins/koboldcpp/blob/concedo/koboldcpp.py"
 	SourceKoboldCPPWiki         = "https://github.com/LostRuins/koboldcpp/wiki"
 	SourceLlamaCPPServer        = "https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md"
+	SourceWhisperCPPServer      = "https://github.com/ggml-org/whisper.cpp/blob/master/examples/server/README.md"
 	SourceStableDiffusionCPP    = "https://github.com/leejet/stable-diffusion.cpp/blob/master/examples/server/README.md"
 	SourceStableDiffusionCLICPP = "https://github.com/leejet/stable-diffusion.cpp/blob/master/examples/cli/README.md"
 )
@@ -256,10 +257,51 @@ var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option("cache_mode", "Cache Mode", LaneImage, ValueString, "--cache-mode", false, "llama_sdcpp"),
 	option("cache_option", "Cache Option", LaneImage, ValueString, "--cache-option", false, "llama_sdcpp"),
 	option("whispermodel", "Whisper Model", LaneVoice, ValueString, "--model", false, "kobold", "llama_sdcpp"),
-	option("ttsmodel", "TTS Model", LaneVoice, ValueString, "", false, "kobold"),
-	option("ttswavtokenizer", "TTS WAV Tokenizer", LaneVoice, ValueString, "", false, "kobold"),
-	option("talkermodel", "Talker Model", LaneVoice, ValueString, "--model", false, "llama_sdcpp"),
-	option("code2wavmodel", "Code2WAV Model", LaneVoice, ValueString, "--model-vocoder", false, "llama_sdcpp"),
+	option("ttsmodel", "TTS Model", LaneVoice, ValueString, "--model", false, "kobold", "llama_sdcpp"),
+	option("ttswavtokenizer", "TTS WAV Tokenizer", LaneVoice, ValueString, "--model-vocoder", false, "kobold", "llama_sdcpp"),
+	option("talkermodel", "Talker Model", LaneVoice, ValueString, "--model-talker", false, "kobold", "llama_sdcpp"),
+	option("code2wavmodel", "Code2WAV Model", LaneVoice, ValueString, "--model-vocoder", false, "kobold", "llama_sdcpp"),
+	option("whispercpp_processors", "Whisper Processors", LaneVoice, ValueNumber, "--processors", false, "llama_sdcpp"),
+	option("whispercpp_offset_t", "Whisper Time Offset", LaneVoice, ValueNumber, "--offset-t", false, "llama_sdcpp"),
+	option("whispercpp_offset_n", "Whisper Segment Offset", LaneVoice, ValueNumber, "--offset-n", false, "llama_sdcpp"),
+	option("whispercpp_duration", "Whisper Duration", LaneVoice, ValueNumber, "--duration", false, "llama_sdcpp"),
+	option("whispercpp_max_context", "Whisper Max Context", LaneVoice, ValueNumber, "--max-context", false, "llama_sdcpp"),
+	option("whispercpp_max_len", "Whisper Max Segment Length", LaneVoice, ValueNumber, "--max-len", false, "llama_sdcpp"),
+	option("whispercpp_split_on_word", "Whisper Split On Word", LaneVoice, ValueBool, "--split-on-word", false, "llama_sdcpp"),
+	option("whispercpp_best_of", "Whisper Best Of", LaneVoice, ValueNumber, "--best-of", false, "llama_sdcpp"),
+	option("whispercpp_beam_size", "Whisper Beam Size", LaneVoice, ValueNumber, "--beam-size", false, "llama_sdcpp"),
+	option("whispercpp_audio_ctx", "Whisper Audio Context", LaneVoice, ValueNumber, "--audio-ctx", false, "llama_sdcpp"),
+	option("whispercpp_word_threshold", "Whisper Word Threshold", LaneVoice, ValueNumber, "--word-thold", false, "llama_sdcpp"),
+	option("whispercpp_entropy_threshold", "Whisper Entropy Threshold", LaneVoice, ValueNumber, "--entropy-thold", false, "llama_sdcpp"),
+	option("whispercpp_logprob_threshold", "Whisper Log Probability Threshold", LaneVoice, ValueNumber, "--logprob-thold", false, "llama_sdcpp"),
+	option("whispercpp_no_speech_threshold", "Whisper No Speech Threshold", LaneVoice, ValueNumber, "--no-speech-thold", false, "llama_sdcpp"),
+	option("whispercpp_debug", "Whisper Debug", LaneVoice, ValueBool, "--debug-mode", false, "llama_sdcpp"),
+	option("whispercpp_translate", "Whisper Translate", LaneVoice, ValueBool, "--translate", false, "llama_sdcpp"),
+	option("whispercpp_diarize", "Whisper Diarize", LaneVoice, ValueBool, "--diarize", false, "llama_sdcpp"),
+	option("whispercpp_tiny_diarize", "Whisper Tiny Diarize", LaneVoice, ValueBool, "--tinydiarize", false, "llama_sdcpp"),
+	option("whispercpp_no_fallback", "Whisper Disable Fallback", LaneVoice, ValueBool, "--no-fallback", false, "llama_sdcpp"),
+	option("whispercpp_no_context", "Whisper Disable Previous Context", LaneVoice, ValueBool, "--no-context", false, "llama_sdcpp"),
+	option("whispercpp_language", "Whisper Language", LaneVoice, ValueString, "--language", false, "llama_sdcpp"),
+	option("whispercpp_detect_language", "Whisper Detect Language Only", LaneVoice, ValueBool, "--detect-language", false, "llama_sdcpp"),
+	option("whispercpp_prompt", "Whisper Prompt", LaneVoice, ValueString, "--prompt", false, "llama_sdcpp"),
+	option("whispercpp_carry_initial_prompt", "Whisper Carry Initial Prompt", LaneVoice, ValueBool, "--carry-initial-prompt", false, "llama_sdcpp"),
+	option("whispercpp_openvino_device", "Whisper OpenVINO Device", LaneVoice, ValueString, "--ov-e-device", false, "llama_sdcpp"),
+	option("whispercpp_dtw", "Whisper DTW", LaneVoice, ValueString, "--dtw", false, "llama_sdcpp"),
+	option("whispercpp_suppress_non_speech", "Whisper Suppress Non Speech", LaneVoice, ValueBool, "--suppress-nst", false, "llama_sdcpp"),
+	option("whispercpp_print_special", "Whisper Print Special Tokens", LaneVoice, ValueBool, "--print-special", false, "llama_sdcpp"),
+	option("whispercpp_print_colors", "Whisper Print Colors", LaneVoice, ValueBool, "--print-colors", false, "llama_sdcpp"),
+	option("whispercpp_print_realtime", "Whisper Print Realtime", LaneVoice, ValueBool, "--print-realtime", false, "llama_sdcpp"),
+	option("whispercpp_print_progress", "Whisper Print Progress", LaneVoice, ValueBool, "--print-progress", false, "llama_sdcpp"),
+	option("whispercpp_no_timestamps", "Whisper Disable Timestamps", LaneVoice, ValueBool, "--no-timestamps", false, "llama_sdcpp"),
+	option("whispercpp_language_probabilities", "Whisper Include Language Probabilities", LaneVoice, ValueBool, "--no-language-probabilities when false", false, "llama_sdcpp"),
+	option("whispercpp_vad", "Whisper VAD", LaneVoice, ValueBool, "--vad", false, "llama_sdcpp"),
+	option("whispercpp_vad_model", "Whisper VAD Model", LaneVoice, ValueString, "--vad-model", false, "llama_sdcpp"),
+	option("whispercpp_vad_threshold", "Whisper VAD Threshold", LaneVoice, ValueNumber, "--vad-threshold", false, "llama_sdcpp"),
+	option("whispercpp_vad_min_speech_duration_ms", "Whisper VAD Minimum Speech", LaneVoice, ValueNumber, "--vad-min-speech-duration-ms", false, "llama_sdcpp"),
+	option("whispercpp_vad_min_silence_duration_ms", "Whisper VAD Minimum Silence", LaneVoice, ValueNumber, "--vad-min-silence-duration-ms", false, "llama_sdcpp"),
+	option("whispercpp_vad_max_speech_duration_s", "Whisper VAD Maximum Speech", LaneVoice, ValueNumber, "--vad-max-speech-duration-s", false, "llama_sdcpp"),
+	option("whispercpp_vad_speech_pad_ms", "Whisper VAD Speech Padding", LaneVoice, ValueNumber, "--vad-speech-pad-ms", false, "llama_sdcpp"),
+	option("whispercpp_vad_samples_overlap", "Whisper VAD Sample Overlap", LaneVoice, ValueNumber, "--vad-samples-overlap", false, "llama_sdcpp"),
 	option("ttsdir", "TTS Directory", LaneVoice, ValueString, "", false, "kobold"),
 	option("ttsgpu", "TTS GPU", LaneVoice, ValueBool, "", false, "kobold"),
 	option("ttsmaxlen", "TTS Max Length", LaneVoice, ValueNumber, "", false, "kobold"),
@@ -439,10 +481,24 @@ func enrichOptionCatalog(values []OptionDefinition) []OptionDefinition {
 		values[index].Source = metadata.source
 		values[index].Legacy = metadata.legacy
 		if values[index].Source == "" {
-			values[index].Source = defaultSource(values[index].Backends)
+			if strings.HasPrefix(values[index].Key, "whispercpp_") {
+				values[index].Source = SourceWhisperCPPServer
+			} else {
+				values[index].Source = defaultSource(values[index].Backends)
+			}
 		}
 	}
-	return values
+	aliases := make([]OptionDefinition, 0)
+	for _, value := range values {
+		if value.Source != SourceLlamaCPPServer || len(value.Backends) != 1 || value.Backends[0] != backendmode.LlamaSDCPP || strings.HasPrefix(value.Key, "llama_") {
+			continue
+		}
+		alias := value
+		alias.Key = "llama_" + value.Key
+		alias.Name = "Llama " + value.Name
+		aliases = append(aliases, alias)
+	}
+	return append(values, aliases...)
 }
 
 var optionMetadataByKey = map[string]optionMetadata{

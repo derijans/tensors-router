@@ -1,6 +1,10 @@
 package analytics
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestApplyResponseExtractsTextUsageAndSpeed(t *testing.T) {
 	event := Event{DurationMS: 2000}
@@ -45,10 +49,17 @@ func TestApplyRequestExtractsImageMetadata(t *testing.T) {
 
 func TestApplyResponseExtractsAudioMetadata(t *testing.T) {
 	event := Event{Section: SectionVoice}
-	ApplyResponse(&event, "application/json", []byte(`{"duration_seconds":1.25,"audio_tokens":40}`))
+	ApplyResponse(&event, "application/json", []byte(`{"duration_seconds":1.25,"audio_tokens":40,"language":"lv","task":"transcribe","text":"private transcript","segments":[{"text":"private segment"}]}`))
 
-	if event.AudioSeconds != 1.25 || event.AudioTokens != 40 {
+	if event.AudioSeconds != 1.25 || event.AudioTokens != 40 || event.AudioLanguage != "lv" || event.AudioTask != "transcribe" {
 		t.Fatalf("unexpected audio metadata %#v", event)
+	}
+	encoded, err := json.Marshal(event)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(encoded), "private transcript") || strings.Contains(string(encoded), "private segment") {
+		t.Fatalf("transcript content leaked into analytics event %s", encoded)
 	}
 }
 

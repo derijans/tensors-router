@@ -163,6 +163,37 @@ func applyAudioResponse(event *Event, root map[string]any) {
 			[]string{"tokens"},
 		))
 	}
+	if event.AudioLanguage == "" {
+		event.AudioLanguage = firstString(root, []string{"language"}, []string{"detected_language"})
+	}
+	if event.AudioTask == "" {
+		event.AudioTask = firstString(root, []string{"task"})
+	}
+}
+
+func firstString(root map[string]any, paths ...[]string) string {
+	for _, path := range paths {
+		var current any = root
+		found := true
+		for _, key := range path {
+			object, ok := current.(map[string]any)
+			if !ok {
+				found = false
+				break
+			}
+			current, ok = object[key]
+			if !ok {
+				found = false
+				break
+			}
+		}
+		if found {
+			if value, ok := current.(string); ok {
+				return strings.TrimSpace(value)
+			}
+		}
+	}
+	return ""
 }
 
 func applyTokenResponse(event *Event, root map[string]any) {

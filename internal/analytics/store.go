@@ -292,10 +292,10 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 		node_id, model_id, section, backend_mode, event_type, route, config_filename, status_code, success,
 		started_at, finished_at, duration_ms, request_bytes, response_bytes, input_tokens, output_tokens,
 		total_tokens, tokens_per_second, image_count, image_width, image_height,
-		image_type, audio_seconds, audio_tokens, load_vram_before_mb, load_vram_after_mb,
+		image_type, audio_seconds, audio_tokens, audio_language, audio_task, load_vram_before_mb, load_vram_after_mb,
 		load_vram_delta_mb, work_vram_start_mb, work_vram_max_mb, work_vram_end_mb,
 		model_vram_estimate_mb, vram_total_mb, vram_peak_percent
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -334,6 +334,8 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 			event.ImageType,
 			event.AudioSeconds,
 			event.AudioTokens,
+			event.AudioLanguage,
+			event.AudioTask,
 			event.LoadVRAMBefore,
 			event.LoadVRAMAfter,
 			event.LoadVRAMDelta,

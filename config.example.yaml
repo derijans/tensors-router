@@ -55,6 +55,13 @@ sdcpp:
   hide_window: true
   extra_args: []
 
+whispercpp:
+  backend_url: "http://127.0.0.1:5003"
+  binary_path: "./bin/whisper/whisper-server"
+  data_dir: "./data/whispercpp"
+  hide_window: true
+  extra_args: []
+
 logging:
   mode: "normal"
   backend_logs_to_disk: false
@@ -75,6 +82,10 @@ updates:
   sdcpp_binary_sha256: ""
   sdcpp_repository_url: "https://github.com/leejet/stable-diffusion.cpp"
   sdcpp_asset_glob: ""
+  whispercpp_binary_url: ""
+  whispercpp_binary_sha256: ""
+  whispercpp_repository_url: "https://github.com/ggml-org/whisper.cpp"
+  whispercpp_asset_glob: ""
 
 downloader:
   enabled: true

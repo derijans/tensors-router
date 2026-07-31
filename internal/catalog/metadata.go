@@ -8,124 +8,128 @@ import (
 )
 
 type RuntimeConfig struct {
-	BackendMode               string  `json:"backend_mode"`
-	RouterUnloadPolicy        string  `json:"router_unload_policy"`
-	Model                     any     `json:"model"`
-	ModelParam                string  `json:"model_param"`
-	NoModel                   bool    `json:"nomodel"`
-	Threads                   int     `json:"threads"`
-	BLASThreads               int     `json:"blasthreads"`
-	BatchSize                 int     `json:"batchsize"`
-	UBatchSize                int     `json:"ubatchsize"`
-	GPULayers                 int     `json:"gpulayers"`
-	SplitMode                 string  `json:"splitmode"`
-	TensorSplit               any     `json:"tensor_split"`
-	MainGPU                   int     `json:"maingpu"`
-	UseMMap                   bool    `json:"usemmap"`
-	UseMLock                  bool    `json:"usemlock"`
-	LoadMode                  string  `json:"load_mode"`
-	ReasoningPreserve         string  `json:"reasoning_preserve"`
-	RPCTargets                string  `json:"rpctargets"`
-	DraftModel                string  `json:"draftmodel"`
-	DraftAmount               int     `json:"draftamount"`
-	DraftGPULayers            int     `json:"draftgpulayers"`
-	DraftDFlash               bool    `json:"draft_dflash"`
-	DraftDSpark               bool    `json:"draft_dspark"`
-	QuantKV                   string  `json:"quantkv"`
-	CacheTypeK                string  `json:"cache_type_k"`
-	CacheTypeV                string  `json:"cache_type_v"`
-	Parallel                  int     `json:"parallel"`
-	ContBatching              *bool   `json:"cont_batching"`
-	CacheRAM                  int     `json:"cache_ram"`
-	CtxCheckpoints            int     `json:"ctx_checkpoints"`
-	KVUnified                 *bool   `json:"kv_unified"`
-	CacheIdleSlots            *bool   `json:"cache_idle_slots"`
-	SWAFull                   bool    `json:"swa_full"`
-	SpecType                  string  `json:"spec_type"`
-	SpecDraftTypeK            string  `json:"spec_draft_type_k"`
-	SpecDraftTypeV            string  `json:"spec_draft_type_v"`
-	SpecDraftPMin             float64 `json:"spec_draft_p_min"`
-	APIKeyFile                string  `json:"api_key_file"`
-	LogPromptsDir             string  `json:"log_prompts_dir"`
-	Agent                     bool    `json:"agent"`
-	ModelsDir                 string  `json:"models_dir"`
-	ModelsPreset              string  `json:"models_preset"`
-	ModelsMax                 int     `json:"models_max"`
-	ModelsAutoload            *bool   `json:"models_autoload"`
-	SSEPingInterval           int     `json:"sse_ping_interval"`
-	SDModel                   string  `json:"sdmodel"`
-	SDDiffusionModel          string  `json:"sddiffusionmodel"`
-	SDHighNoiseDiffusionModel string  `json:"sdhighnoisediffusionmodel"`
-	SDUncondDiffusionModel    string  `json:"sdunconddiffusionmodel"`
-	SDLLM                     string  `json:"sdllm"`
-	SDLLMVision               string  `json:"sdllmvision"`
-	SDClipVision              string  `json:"sdclipvision"`
-	SDIPAdapter               string  `json:"sdipadapter"`
-	SDMotionModule            string  `json:"sdmotionmodule"`
-	SDEmbeddingsConnectors    any     `json:"sdembeddingsconnectors"`
-	SDControlNet              string  `json:"sdcontrolnet"`
-	SDPulidWeights            string  `json:"sdpulidweights"`
-	SDPulidIDEmbedding        string  `json:"sdpulididembedding"`
-	SDPulidIDWeight           float64 `json:"sdpulididweight"`
-	SDBackend                 string  `json:"sdbackend"`
-	SDParamsBackend           string  `json:"sdparamsbackend"`
-	SDRPCServers              any     `json:"sdrpcservers"`
-	SDMaxVRAM                 any     `json:"sdmaxvram"`
-	SDStreamLayers            int     `json:"sdstreamlayers"`
-	SDStreaming               bool    `json:"sdstreaming"`
-	SDAutoFit                 bool    `json:"sdautofit"`
-	SDSplitMode               string  `json:"sdsplitmode"`
-	SDCircular                bool    `json:"sdcircular"`
-	SDCircularX               bool    `json:"sdcircularx"`
-	SDCircularY               bool    `json:"sdcirculary"`
-	SDTensorTypeRules         any     `json:"sdtensortyperules"`
-	SDVAEFormat               string  `json:"sdvaeformat"`
-	SDLoRAModelDir            string  `json:"sdloramodeldir"`
-	SDHiresUpscalersDir       string  `json:"sdhiresupscalersdir"`
-	SDDiffusionFlashAttention bool    `json:"sddiffusionflashattention"`
-	SDDiffusionConvDirect     bool    `json:"sddiffusionconvdirect"`
-	SDVAEConvDirect           bool    `json:"sdvaeconvdirect"`
-	SDUpscaler                string  `json:"sdupscaler"`
-	SDVAE                     string  `json:"sdvae"`
-	SDVAEAuto                 bool    `json:"sdvaeauto"`
-	SDT5XXL                   string  `json:"sdt5xxl"`
-	SDClip1                   string  `json:"sdclip1"`
-	SDClip2                   string  `json:"sdclip2"`
-	SDClipL                   string  `json:"sdclipl"`
-	SDClipG                   string  `json:"sdclipg"`
-	SDLoRA                    any     `json:"sdlora"`
-	SDQuant                   int     `json:"sdquant"`
-	SDTiledVAE                int     `json:"sdtiledvae"`
-	SDFlashAttention          bool    `json:"sdflashattention"`
-	SDOffloadCPU              bool    `json:"sdoffloadcpu"`
-	SDVAECPU                  bool    `json:"sdvaecpu"`
-	SDClipGPU                 bool    `json:"sdclipgpu"`
-	SDThreads                 int     `json:"sdthreads"`
-	ContextSize               int     `json:"contextsize"`
-	EmbeddingsModel           string  `json:"embeddingsmodel"`
-	EmbeddingsMaxCtx          int     `json:"embeddingsmaxctx"`
-	EmbeddingsGPU             bool    `json:"embeddingsgpu"`
-	MMProj                    any     `json:"mmproj"`
-	MMProjCPU                 bool    `json:"mmprojcpu"`
-	MMProjAuto                *bool   `json:"mmproj_auto"`
-	VisionMaxRes              int     `json:"visionmaxres"`
-	VisionMinTokens           int     `json:"visionmintokens"`
-	VisionMaxTokens           int     `json:"visionmaxtokens"`
-	WhisperModel              string  `json:"whispermodel"`
-	TTSModel                  string  `json:"ttsmodel"`
-	TTSWAVTokenizer           string  `json:"ttswavtokenizer"`
-	TalkerModel               string  `json:"talkermodel"`
-	Code2WAVModel             string  `json:"code2wavmodel"`
-	TTSDir                    string  `json:"ttsdir"`
-	TTSGPU                    bool    `json:"ttsgpu"`
-	TTSMaxLen                 int     `json:"ttsmaxlen"`
-	TTSThreads                int     `json:"ttsthreads"`
-	MusicLLM                  string  `json:"musicllm"`
-	MusicEmbeddings           string  `json:"musicembeddings"`
-	MusicDiffusion            string  `json:"musicdiffusion"`
-	MusicVAE                  string  `json:"musicvae"`
-	MusicLowVRAM              bool    `json:"musiclowvram"`
-	MCPEnabled                bool    `json:"mcp_enabled"`
+	BackendMode               string         `json:"backend_mode"`
+	RouterUnloadPolicy        string         `json:"router_unload_policy"`
+	Model                     any            `json:"model"`
+	ModelParam                string         `json:"model_param"`
+	NoModel                   bool           `json:"nomodel"`
+	Threads                   int            `json:"threads"`
+	BLASThreads               int            `json:"blasthreads"`
+	BatchSize                 int            `json:"batchsize"`
+	UBatchSize                int            `json:"ubatchsize"`
+	GPULayers                 int            `json:"gpulayers"`
+	SplitMode                 string         `json:"splitmode"`
+	TensorSplit               any            `json:"tensor_split"`
+	MainGPU                   int            `json:"maingpu"`
+	UseCPU                    bool           `json:"usecpu"`
+	FlashAttention            *bool          `json:"flashattention"`
+	UseMMap                   bool           `json:"usemmap"`
+	UseMLock                  bool           `json:"usemlock"`
+	LoadMode                  string         `json:"load_mode"`
+	ReasoningPreserve         string         `json:"reasoning_preserve"`
+	RPCTargets                string         `json:"rpctargets"`
+	DraftModel                string         `json:"draftmodel"`
+	DraftAmount               int            `json:"draftamount"`
+	DraftGPULayers            int            `json:"draftgpulayers"`
+	DraftDFlash               bool           `json:"draft_dflash"`
+	DraftDSpark               bool           `json:"draft_dspark"`
+	QuantKV                   string         `json:"quantkv"`
+	CacheTypeK                string         `json:"cache_type_k"`
+	CacheTypeV                string         `json:"cache_type_v"`
+	Parallel                  int            `json:"parallel"`
+	ContBatching              *bool          `json:"cont_batching"`
+	CacheRAM                  int            `json:"cache_ram"`
+	CtxCheckpoints            int            `json:"ctx_checkpoints"`
+	KVUnified                 *bool          `json:"kv_unified"`
+	CacheIdleSlots            *bool          `json:"cache_idle_slots"`
+	SWAFull                   bool           `json:"swa_full"`
+	SpecType                  string         `json:"spec_type"`
+	SpecDraftTypeK            string         `json:"spec_draft_type_k"`
+	SpecDraftTypeV            string         `json:"spec_draft_type_v"`
+	SpecDraftPMin             float64        `json:"spec_draft_p_min"`
+	APIKeyFile                string         `json:"api_key_file"`
+	LogPromptsDir             string         `json:"log_prompts_dir"`
+	Agent                     bool           `json:"agent"`
+	ModelsDir                 string         `json:"models_dir"`
+	ModelsPreset              string         `json:"models_preset"`
+	ModelsMax                 int            `json:"models_max"`
+	ModelsAutoload            *bool          `json:"models_autoload"`
+	SSEPingInterval           int            `json:"sse_ping_interval"`
+	SDModel                   string         `json:"sdmodel"`
+	SDDiffusionModel          string         `json:"sddiffusionmodel"`
+	SDHighNoiseDiffusionModel string         `json:"sdhighnoisediffusionmodel"`
+	SDUncondDiffusionModel    string         `json:"sdunconddiffusionmodel"`
+	SDLLM                     string         `json:"sdllm"`
+	SDLLMVision               string         `json:"sdllmvision"`
+	SDClipVision              string         `json:"sdclipvision"`
+	SDIPAdapter               string         `json:"sdipadapter"`
+	SDMotionModule            string         `json:"sdmotionmodule"`
+	SDEmbeddingsConnectors    any            `json:"sdembeddingsconnectors"`
+	SDControlNet              string         `json:"sdcontrolnet"`
+	SDPulidWeights            string         `json:"sdpulidweights"`
+	SDPulidIDEmbedding        string         `json:"sdpulididembedding"`
+	SDPulidIDWeight           float64        `json:"sdpulididweight"`
+	SDBackend                 string         `json:"sdbackend"`
+	SDParamsBackend           string         `json:"sdparamsbackend"`
+	SDRPCServers              any            `json:"sdrpcservers"`
+	SDMaxVRAM                 any            `json:"sdmaxvram"`
+	SDStreamLayers            int            `json:"sdstreamlayers"`
+	SDStreaming               bool           `json:"sdstreaming"`
+	SDAutoFit                 bool           `json:"sdautofit"`
+	SDSplitMode               string         `json:"sdsplitmode"`
+	SDCircular                bool           `json:"sdcircular"`
+	SDCircularX               bool           `json:"sdcircularx"`
+	SDCircularY               bool           `json:"sdcirculary"`
+	SDTensorTypeRules         any            `json:"sdtensortyperules"`
+	SDVAEFormat               string         `json:"sdvaeformat"`
+	SDLoRAModelDir            string         `json:"sdloramodeldir"`
+	SDHiresUpscalersDir       string         `json:"sdhiresupscalersdir"`
+	SDDiffusionFlashAttention bool           `json:"sddiffusionflashattention"`
+	SDDiffusionConvDirect     bool           `json:"sddiffusionconvdirect"`
+	SDVAEConvDirect           bool           `json:"sdvaeconvdirect"`
+	SDUpscaler                string         `json:"sdupscaler"`
+	SDVAE                     string         `json:"sdvae"`
+	SDVAEAuto                 bool           `json:"sdvaeauto"`
+	SDT5XXL                   string         `json:"sdt5xxl"`
+	SDClip1                   string         `json:"sdclip1"`
+	SDClip2                   string         `json:"sdclip2"`
+	SDClipL                   string         `json:"sdclipl"`
+	SDClipG                   string         `json:"sdclipg"`
+	SDLoRA                    any            `json:"sdlora"`
+	SDQuant                   int            `json:"sdquant"`
+	SDTiledVAE                int            `json:"sdtiledvae"`
+	SDFlashAttention          bool           `json:"sdflashattention"`
+	SDOffloadCPU              bool           `json:"sdoffloadcpu"`
+	SDVAECPU                  bool           `json:"sdvaecpu"`
+	SDClipGPU                 bool           `json:"sdclipgpu"`
+	SDThreads                 int            `json:"sdthreads"`
+	ContextSize               int            `json:"contextsize"`
+	EmbeddingsModel           string         `json:"embeddingsmodel"`
+	EmbeddingsMaxCtx          int            `json:"embeddingsmaxctx"`
+	EmbeddingsGPU             bool           `json:"embeddingsgpu"`
+	MMProj                    any            `json:"mmproj"`
+	MMProjCPU                 bool           `json:"mmprojcpu"`
+	MMProjAuto                *bool          `json:"mmproj_auto"`
+	VisionMaxRes              int            `json:"visionmaxres"`
+	VisionMinTokens           int            `json:"visionmintokens"`
+	VisionMaxTokens           int            `json:"visionmaxtokens"`
+	WhisperModel              string         `json:"whispermodel"`
+	TTSModel                  string         `json:"ttsmodel"`
+	TTSWAVTokenizer           string         `json:"ttswavtokenizer"`
+	TalkerModel               string         `json:"talkermodel"`
+	Code2WAVModel             string         `json:"code2wavmodel"`
+	TTSDir                    string         `json:"ttsdir"`
+	TTSGPU                    bool           `json:"ttsgpu"`
+	TTSMaxLen                 int            `json:"ttsmaxlen"`
+	TTSThreads                int            `json:"ttsthreads"`
+	MusicLLM                  string         `json:"musicllm"`
+	MusicEmbeddings           string         `json:"musicembeddings"`
+	MusicDiffusion            string         `json:"musicdiffusion"`
+	MusicVAE                  string         `json:"musicvae"`
+	MusicLowVRAM              bool           `json:"musiclowvram"`
+	MCPEnabled                bool           `json:"mcp_enabled"`
+	WhisperCPPVADModel        string         `json:"whispercpp_vad_model"`
+	WhisperCPPOptions         map[string]any `json:"-"`
 
 	RouterJinjaKwargsPrecedence string `json:"router_jinja_kwargs_precedence"`
 }
@@ -177,6 +181,7 @@ type MultimodalCapability struct {
 
 type VoiceCapabilities struct {
 	WhisperModel  string `json:"whisper_model,omitempty"`
+	VADModel      string `json:"vad_model,omitempty"`
 	TTSModel      string `json:"tts_model,omitempty"`
 	WAVTokenizer  string `json:"wav_tokenizer,omitempty"`
 	TalkerModel   string `json:"talker_model,omitempty"`
@@ -200,9 +205,33 @@ func LoadRuntimeConfig(path string) (RuntimeConfig, error) {
 	if err != nil {
 		return RuntimeConfig{}, err
 	}
-	var metadata RuntimeConfig
-	if err := json.Unmarshal(content, &metadata); err != nil {
+	var values map[string]json.RawMessage
+	if err := json.Unmarshal(content, &values); err != nil {
 		return RuntimeConfig{}, err
+	}
+	for key, value := range values {
+		if strings.HasPrefix(key, "llama_") {
+			values[strings.TrimPrefix(key, "llama_")] = value
+		}
+	}
+	normalized, err := json.Marshal(values)
+	if err != nil {
+		return RuntimeConfig{}, err
+	}
+	var metadata RuntimeConfig
+	if err := json.Unmarshal(normalized, &metadata); err != nil {
+		return RuntimeConfig{}, err
+	}
+	metadata.WhisperCPPOptions = make(map[string]any)
+	for key, raw := range values {
+		if !strings.HasPrefix(key, "whispercpp_") {
+			continue
+		}
+		var value any
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return RuntimeConfig{}, err
+		}
+		metadata.WhisperCPPOptions[key] = value
 	}
 	return metadata, nil
 }
@@ -217,8 +246,18 @@ func (metadata RuntimeConfig) TextModelPath() string {
 	if strings.TrimSpace(metadata.TalkerModel) != "" {
 		return strings.TrimSpace(metadata.TalkerModel)
 	}
-	if strings.TrimSpace(metadata.WhisperModel) != "" {
-		return strings.TrimSpace(metadata.WhisperModel)
+	if strings.TrimSpace(metadata.TTSModel) != "" {
+		return strings.TrimSpace(metadata.TTSModel)
+	}
+	return strings.TrimSpace(metadata.EmbeddingsModel)
+}
+
+func (metadata RuntimeConfig) ExplicitTextModelPath() string {
+	if strings.TrimSpace(metadata.ModelParam) != "" {
+		return strings.TrimSpace(metadata.ModelParam)
+	}
+	if value := firstStringValue(metadata.Model); value != "" {
+		return value
 	}
 	return strings.TrimSpace(metadata.EmbeddingsModel)
 }
@@ -286,6 +325,7 @@ func capabilitiesFromMetadata(metadata configMetadata, hasLLM bool, hasImage boo
 	if hasVoice {
 		capabilities.Voice = &VoiceCapabilities{
 			WhisperModel:  strings.TrimSpace(metadata.WhisperModel),
+			VADModel:      strings.TrimSpace(metadata.WhisperCPPVADModel),
 			TTSModel:      strings.TrimSpace(metadata.TTSModel),
 			WAVTokenizer:  strings.TrimSpace(metadata.TTSWAVTokenizer),
 			TalkerModel:   strings.TrimSpace(metadata.TalkerModel),

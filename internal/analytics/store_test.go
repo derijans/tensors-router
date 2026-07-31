@@ -143,6 +143,34 @@ func TestStoreSeparatesModelLoadsFromRequestCounts(t *testing.T) {
 	}
 }
 
+func TestStorePersistsAudioLanguageAndTaskInRecentEvents(t *testing.T) {
+	store := newTestStore(t, "node-a")
+	now := time.Now().UTC()
+	store.Record(Event{
+		ModelID:       "whisper",
+		Section:       SectionVoice,
+		BackendMode:   "llama_sdcpp",
+		Route:         "/v1/audio/*",
+		StatusCode:    200,
+		Success:       true,
+		StartedAt:     now.Add(-time.Second),
+		FinishedAt:    now,
+		AudioSeconds:  3.5,
+		AudioLanguage: "lv",
+		AudioTask:     "translate",
+	})
+	if err := store.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	response, err := store.Query(context.Background(), Query{Period: PeriodAll})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(response.Recent) != 1 || response.Recent[0].AudioLanguage != "lv" || response.Recent[0].AudioTask != "translate" || response.Recent[0].AudioSeconds != 3.5 {
+		t.Fatalf("unexpected audio event %#v", response.Recent)
+	}
+}
+
 func TestStoreMigratesOldAnalyticsDatabase(t *testing.T) {
 	databasePath := filepath.Join(t.TempDir(), "analytics.sqlite")
 	db, err := sql.Open("sqlite", databasePath)

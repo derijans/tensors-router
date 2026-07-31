@@ -29,6 +29,10 @@ func (service *Service) handleSiteWebUIProxy(w http.ResponseWriter, r *http.Requ
 		openai.WriteError(w, http.StatusNotFound, "not_found", "webui not found")
 		return
 	}
+	if definition.kind == "whispercpp" && webUIPathIs(strippedPath, "/load", "/load/") {
+		openai.WriteError(w, http.StatusNotFound, "not_found", "direct whisper-server model loading is disabled")
+		return
+	}
 	if !service.webUISession.isEnabled(definition.kind) {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "webui is not enabled")
 		return
@@ -53,6 +57,10 @@ func (service *Service) handleNodeWebUIProxy(w http.ResponseWriter, r *http.Requ
 	definition, strippedPath, ok, _ := webUIProxyPath(r.URL.Path, nodeWebUIProxyPrefix)
 	if !ok {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "webui not found")
+		return
+	}
+	if definition.kind == "whispercpp" && webUIPathIs(strippedPath, "/load", "/load/") {
+		openai.WriteError(w, http.StatusNotFound, "not_found", "direct whisper-server model loading is disabled")
 		return
 	}
 	route, release, ok := service.acquireLocalWebUIProxyRoute(r.Context(), definition)
@@ -362,6 +370,8 @@ func webUIBackendAPIPath(definition webUIDefinition, path string) bool {
 	case "llama":
 		return webUIPathHasPrefix(path, "/v1/", "/api/v1/") ||
 			webUIPathIs(path, "/completion", "/chat", "/infill", "/embedding", "/embeddings", "/rerank", "/tokenize", "/detokenize", "/props", "/slots", "/metrics", "/health")
+	case "whispercpp":
+		return webUIPathIs(path, "/health", "/inference")
 	case "kobold-lite", "kobold-lcpp":
 		return webUIPathHasPrefix(path, "/v1/", "/api/v1/", "/api/extra/") ||
 			webUIPathIs(path, "/api/generate", "/api/chat", "/api/show", "/api/tags", "/api/ps", "/api/version")

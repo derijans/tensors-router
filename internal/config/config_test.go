@@ -61,6 +61,13 @@ sdcpp:
   hide_window: false
   extra_args: ["--verbose"]
 
+whispercpp:
+  backend_url: "http://127.0.0.1:6003"
+  binary_path: "./bin/whisper-server"
+  data_dir: "./whisper-state"
+  hide_window: false
+  extra_args: ["--language", "auto"]
+
 logging:
   enabled: false
   backend_logs_to_disk: true
@@ -74,6 +81,10 @@ updates:
   llama_binary_sha256: "0000000000000000000000000000000000000000000000000000000000000002"
   sdcpp_binary_url: "https://example.test/sd-server"
   sdcpp_binary_sha256: "0000000000000000000000000000000000000000000000000000000000000003"
+  whispercpp_binary_url: "https://example.test/whisper-server"
+  whispercpp_binary_sha256: "0000000000000000000000000000000000000000000000000000000000000004"
+  whispercpp_repository_url: "https://github.com/ggml-org/whisper.cpp"
+  whispercpp_asset_glob: "whisper-bin-x64.zip"
 
 downloader:
   enabled: false
@@ -145,6 +156,12 @@ analytics:
 	if !reflect.DeepEqual(cfg.SDCPP.ExtraArgs, []string{"--verbose"}) {
 		t.Fatalf("unexpected sdcpp extra args %#v", cfg.SDCPP.ExtraArgs)
 	}
+	if cfg.WhisperCPP.BackendURL != "http://127.0.0.1:6003" || cfg.WhisperCPP.BinaryPath != "./bin/whisper-server" || cfg.WhisperCPP.DataDir != "./whisper-state" || cfg.WhisperCPP.HideWindow {
+		t.Fatalf("unexpected whispercpp config %#v", cfg.WhisperCPP)
+	}
+	if !reflect.DeepEqual(cfg.WhisperCPP.ExtraArgs, []string{"--language", "auto"}) {
+		t.Fatalf("unexpected whispercpp extra args %#v", cfg.WhisperCPP.ExtraArgs)
+	}
 	if cfg.Logging.Enabled {
 		t.Fatalf("logging should be disabled")
 	}
@@ -160,11 +177,14 @@ analytics:
 	if cfg.Updates.CheckInterval != 24*time.Hour {
 		t.Fatalf("unexpected check interval %s", cfg.Updates.CheckInterval)
 	}
-	if cfg.Updates.BinaryURL != "https://example.test/koboldcpp" || cfg.Updates.LlamaBinaryURL != "https://example.test/llama-server" || cfg.Updates.SDCPPBinaryURL != "https://example.test/sd-server" {
+	if cfg.Updates.BinaryURL != "https://example.test/koboldcpp" || cfg.Updates.LlamaBinaryURL != "https://example.test/llama-server" || cfg.Updates.SDCPPBinaryURL != "https://example.test/sd-server" || cfg.Updates.WhisperCPPBinaryURL != "https://example.test/whisper-server" {
 		t.Fatalf("unexpected update urls %#v", cfg.Updates)
 	}
-	if cfg.Updates.BinarySHA256 != "0000000000000000000000000000000000000000000000000000000000000001" || cfg.Updates.LlamaSHA256 != "0000000000000000000000000000000000000000000000000000000000000002" || cfg.Updates.SDCPPSHA256 != "0000000000000000000000000000000000000000000000000000000000000003" {
+	if cfg.Updates.BinarySHA256 != "0000000000000000000000000000000000000000000000000000000000000001" || cfg.Updates.LlamaSHA256 != "0000000000000000000000000000000000000000000000000000000000000002" || cfg.Updates.SDCPPSHA256 != "0000000000000000000000000000000000000000000000000000000000000003" || cfg.Updates.WhisperCPPSHA256 != "0000000000000000000000000000000000000000000000000000000000000004" {
 		t.Fatalf("unexpected update hashes %#v", cfg.Updates)
+	}
+	if cfg.Updates.WhisperCPPRepositoryURL != "https://github.com/ggml-org/whisper.cpp" || cfg.Updates.WhisperCPPAssetGlob != "whisper-bin-x64.zip" {
+		t.Fatalf("unexpected whispercpp update source %#v", cfg.Updates.WhisperCPPSource())
 	}
 	if cfg.Downloader.Enabled || cfg.Downloader.BinaryLocation != "./tools/tensor-router-downloader" {
 		t.Fatalf("unexpected downloader config %#v", cfg.Downloader)

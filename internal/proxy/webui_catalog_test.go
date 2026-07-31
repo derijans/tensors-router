@@ -24,6 +24,7 @@ func TestSiteWebUICatalogBuildsCompatibleEntriesWithStableURLs(t *testing.T) {
 		"music":       `{"nomodel":true,"musicllm":"music.gguf"}`,
 		"split-text":  `{"backend_mode":"llama_sdcpp","model_param":"split.gguf"}`,
 		"split-image": `{"backend_mode":"llama_sdcpp","nomodel":true,"sdmodel":"split.safetensors"}`,
+		"split-voice": `{"backend_mode":"llama_sdcpp","nomodel":true,"whispermodel":"whisper.bin"}`,
 	})
 
 	response := requestWebUICatalog(t, service, "/router/v1/site/webuis", "")
@@ -35,6 +36,7 @@ func TestSiteWebUICatalogBuildsCompatibleEntriesWithStableURLs(t *testing.T) {
 		"kobold-music": "/router/webuis/kobold-music/",
 		"llama":        "/router/webuis/llama/",
 		"sdcpp":        "/router/webuis/sdcpp/",
+		"whispercpp":   "/router/webuis/whispercpp/",
 	}
 	for id, expectedURL := range expectedURLs {
 		if entries[id].URL != expectedURL {
@@ -46,6 +48,21 @@ func TestSiteWebUICatalogBuildsCompatibleEntriesWithStableURLs(t *testing.T) {
 	}
 	if len(entries["kobold-music"].CompatibleModels) != 1 || entries["kobold-music"].CompatibleModels[0].ModelID != "music" {
 		t.Fatalf("unexpected music compatible models %#v", entries["kobold-music"].CompatibleModels)
+	}
+	if len(entries["whispercpp"].CompatibleModels) != 1 || entries["whispercpp"].CompatibleModels[0].ModelID != "split-voice" {
+		t.Fatalf("unexpected whisper compatible models %#v", entries["whispercpp"].CompatibleModels)
+	}
+}
+
+func TestWhisperWebUIDeniesDirectLoad(t *testing.T) {
+	service := newWebUICatalogTestService(t, map[string]string{
+		"voice": `{"backend_mode":"llama_sdcpp","nomodel":true,"whispermodel":"whisper.bin"}`,
+	})
+	service.webUISession.set("whispercpp", true)
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/webuis/whispercpp/load", nil))
+	if recorder.Code != http.StatusNotFound || !strings.Contains(recorder.Body.String(), "direct whisper-server model loading is disabled") {
+		t.Fatalf("unexpected direct load response status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 }
 

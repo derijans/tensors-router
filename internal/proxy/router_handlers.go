@@ -207,6 +207,10 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		if service.requireClusterToken(w, r) {
 			service.handleNodeSiteWebUIs(w, r)
 		}
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/runtime-status":
+		if service.requireClusterToken(w, r) {
+			openai.WriteJSON(w, http.StatusOK, service.localRuntimeStatus())
+		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/webuis/load":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeSiteWebUILoad(w, r)

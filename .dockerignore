@@ -13,4 +13,6 @@ tensor-router-webui.exe
 tensors-router
 tensors-router.exe
 webui/node_modules
-
+CLAUDE.md
+AGENTS.md
+GEMINI.md

@@ -14,7 +14,9 @@ A slave requires `cluster.master_url` and its own reachable `cluster.public_url`
 
 Slaves register their snapshots with the master at startup and on the synchronization interval. The master polls configured slaves and records lane-specific health.
 
-Text, embedding, multimodal, voice, and music routes use the appropriate text-side readiness. Image and video routes use image-side readiness. A node is selected only when its required lane is available.
+Text, embedding, multimodal, speech, and music routes use text-side readiness. Image and video routes use image-side readiness. Split transcription uses Whisper `/health`; Kobold capability checks cover its shared process. A node is selected only when its required lane is available.
+
+Selector-less STT scheduling uses authenticated runtime status from current nodes. It prefers a loaded local STT configuration, then a loaded healthy remote configuration with the shortest whole-node active-plus-queued workload, then a wholly idle capable node. If every node is busy, the master queues locally when compatible, otherwise it chooses the shortest remote whole-node queue. Equal candidates rotate round-robin, and the selected route is reserved before its configuration can load. Nodes without runtime-status support remain available for explicit-model requests but do not participate in automatic selection.
 
 ## Model identity
 

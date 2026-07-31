@@ -191,6 +191,7 @@ func referencesByPath(models []cluster.Model) map[string][]pathReference {
 		}
 		if model.Capabilities.Voice != nil {
 			addReference(references, model.Capabilities.Voice.WhisperModel, RoleVoice, modelName)
+			addReference(references, model.Capabilities.Voice.VADModel, RoleVoice, modelName)
 			addReference(references, model.Capabilities.Voice.TTSModel, RoleVoice, modelName)
 			addReference(references, model.Capabilities.Voice.WAVTokenizer, RoleVoice, modelName)
 			addReference(references, model.Capabilities.Voice.Directory, RoleVoice, modelName)

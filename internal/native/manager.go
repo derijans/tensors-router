@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -54,6 +55,13 @@ func NewLlamaManager(config ProcessConfig) (*Manager, error) {
 
 func NewSDCPPManager(config ProcessConfig) (*Manager, error) {
 	return newManager(config, "7860", "/sdapi/v1/sd-models", "sd-server.log", sdcppArguments)
+}
+
+func NewWhisperCPPManager(config ProcessConfig) (*Manager, error) {
+	if err := backendendpoint.RejectConflictingArgs(config.ExtraArgs, "--public", "--public-path", "--request-path", "--inference-path", "--convert", "--no-convert", "--tmp-dir"); err != nil {
+		return nil, err
+	}
+	return newManager(config, "5003", "/health", "whisper-server.log", whisperCPPArguments)
 }
 
 func newManager(config ProcessConfig, defaultPort string, readinessPath string, logName string, argumentBuilder func(catalog.RuntimeConfig, string, string, string, string) ([]string, error)) (*Manager, error) {
@@ -281,6 +289,9 @@ func (manager *Manager) hostPort() (string, string) {
 }
 
 func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string, port string, mcpServersPath string) ([]string, error) {
+	if metadata.ExplicitTextModelPath() != "" && strings.TrimSpace(metadata.TTSModel) != "" {
+		return nil, fmt.Errorf("llama config cannot combine a text model with standalone ttsmodel")
+	}
 	modelPath := metadata.TextModelPath()
 	if modelPath == "" {
 		return nil, fmt.Errorf("llama config has no text, embedding, or multimodal model path")
@@ -301,6 +312,7 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	appendStringArg(&args, "--split-mode", metadata.SplitMode)
 	appendStringArg(&args, "--tensor-split", metadata.TensorSplitValue())
 	appendIntArg(&args, "--main-gpu", nonNegative(metadata.MainGPU))
+	appendOptionalBoolArg(&args, "--flash-attn", "--no-flash-attn", metadata.FlashAttention)
 	appendIntArg(&args, "--parallel", metadata.Parallel)
 	appendOptionalBoolArg(&args, "--cont-batching", "--no-cont-batching", metadata.ContBatching)
 	appendIntArg(&args, "--cache-ram", metadata.CacheRAM)
@@ -340,7 +352,10 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	appendOptionalBoolArg(&args, "--mmproj-auto", "--no-mmproj-auto", metadata.MMProjAuto)
 	appendIntArg(&args, "--image-min-tokens", positive(metadata.VisionMinTokens))
 	appendIntArg(&args, "--image-max-tokens", positive(metadata.VisionMaxTokens))
-	appendStringArg(&args, "--model-vocoder", metadata.Code2WAVModel)
+	if talker := strings.TrimSpace(metadata.TalkerModel); talker != "" && talker != modelPath {
+		appendStringArg(&args, "--model-talker", talker)
+	}
+	appendStringArg(&args, "--model-vocoder", firstNonEmpty(metadata.Code2WAVModel, metadata.TTSWAVTokenizer))
 	appendStringArg(&args, "--api-key-file", metadata.APIKeyFile)
 	appendStringArg(&args, "--log-prompts-dir", metadata.LogPromptsDir)
 	if metadata.Agent {
@@ -352,6 +367,89 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	appendOptionalBoolArg(&args, "--models-autoload", "--no-models-autoload", metadata.ModelsAutoload)
 	appendIntArg(&args, "--sse-ping-interval", metadata.SSEPingInterval)
 	return args, nil
+}
+
+func whisperCPPArguments(metadata catalog.RuntimeConfig, modelID string, host string, port string, mcpServersPath string) ([]string, error) {
+	_ = modelID
+	_ = mcpServersPath
+	modelPath := strings.TrimSpace(metadata.WhisperModel)
+	if modelPath == "" {
+		return nil, fmt.Errorf("whisper.cpp config has no whispermodel")
+	}
+	args := []string{"--host", host, "--port", port, "--model", modelPath}
+	appendIntArg(&args, "--threads", metadata.Threads)
+	appendIntArg(&args, "--device", nonNegative(metadata.MainGPU))
+	appendOptionalBoolArg(&args, "--flash-attn", "--no-flash-attn", metadata.FlashAttention)
+	if metadata.UseCPU {
+		args = append(args, "--no-gpu")
+	}
+	whisperFlags := map[string]string{
+		"whispercpp_processors":                  "--processors",
+		"whispercpp_offset_t":                    "--offset-t",
+		"whispercpp_offset_n":                    "--offset-n",
+		"whispercpp_duration":                    "--duration",
+		"whispercpp_max_context":                 "--max-context",
+		"whispercpp_max_len":                     "--max-len",
+		"whispercpp_split_on_word":               "--split-on-word",
+		"whispercpp_best_of":                     "--best-of",
+		"whispercpp_beam_size":                   "--beam-size",
+		"whispercpp_audio_ctx":                   "--audio-ctx",
+		"whispercpp_word_threshold":              "--word-thold",
+		"whispercpp_entropy_threshold":           "--entropy-thold",
+		"whispercpp_logprob_threshold":           "--logprob-thold",
+		"whispercpp_no_speech_threshold":         "--no-speech-thold",
+		"whispercpp_debug":                       "--debug-mode",
+		"whispercpp_translate":                   "--translate",
+		"whispercpp_diarize":                     "--diarize",
+		"whispercpp_tiny_diarize":                "--tinydiarize",
+		"whispercpp_no_fallback":                 "--no-fallback",
+		"whispercpp_no_context":                  "--no-context",
+		"whispercpp_language":                    "--language",
+		"whispercpp_detect_language":             "--detect-language",
+		"whispercpp_prompt":                      "--prompt",
+		"whispercpp_carry_initial_prompt":        "--carry-initial-prompt",
+		"whispercpp_openvino_device":             "--ov-e-device",
+		"whispercpp_dtw":                         "--dtw",
+		"whispercpp_suppress_non_speech":         "--suppress-nst",
+		"whispercpp_print_colors":                "--print-colors",
+		"whispercpp_print_special":               "--print-special",
+		"whispercpp_print_realtime":              "--print-realtime",
+		"whispercpp_print_progress":              "--print-progress",
+		"whispercpp_no_timestamps":               "--no-timestamps",
+		"whispercpp_vad":                         "--vad",
+		"whispercpp_vad_model":                   "--vad-model",
+		"whispercpp_vad_threshold":               "--vad-threshold",
+		"whispercpp_vad_min_speech_duration_ms":  "--vad-min-speech-duration-ms",
+		"whispercpp_vad_min_silence_duration_ms": "--vad-min-silence-duration-ms",
+		"whispercpp_vad_max_speech_duration_s":   "--vad-max-speech-duration-s",
+		"whispercpp_vad_speech_pad_ms":           "--vad-speech-pad-ms",
+		"whispercpp_vad_samples_overlap":         "--vad-samples-overlap",
+	}
+	keys := make([]string, 0, len(whisperFlags))
+	for key := range whisperFlags {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	for _, key := range keys {
+		appendWhisperOption(&args, whisperFlags[key], metadata.WhisperCPPOptions[key])
+	}
+	if enabled, ok := metadata.WhisperCPPOptions["whispercpp_language_probabilities"].(bool); ok && !enabled {
+		args = append(args, "--no-language-probabilities")
+	}
+	return args, nil
+}
+
+func appendWhisperOption(args *[]string, flag string, value any) {
+	switch typed := value.(type) {
+	case bool:
+		if typed {
+			*args = append(*args, flag)
+		}
+	case string:
+		appendStringArg(args, flag, typed)
+	case float64:
+		*args = append(*args, flag, strconv.FormatFloat(typed, 'f', -1, 64))
+	}
 }
 
 func sdcppArguments(metadata catalog.RuntimeConfig, modelID string, host string, port string, mcpServersPath string) ([]string, error) {
@@ -624,6 +722,8 @@ func RuntimeArgumentsForTest(metadata catalog.RuntimeConfig, kind string) ([]str
 		return llamaArguments(metadata, "model", "127.0.0.1", "5002", "")
 	case "sdcpp":
 		return sdcppArguments(metadata, "model", "127.0.0.1", "7860", "")
+	case "whispercpp":
+		return whisperCPPArguments(metadata, "model", "127.0.0.1", "5003", "")
 	default:
 		return nil, fmt.Errorf("unknown native server kind %q", kind)
 	}

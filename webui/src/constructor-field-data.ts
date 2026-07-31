@@ -1,7 +1,7 @@
 import type { FieldPreset, JsonValue, LaneKind, Options, PaletteComponentPayload } from "./types";
 
 export const rawFileOptionKeys: Record<Extract<LaneKind, "voice" | "music">, string[]> = {
-  voice: ["whispermodel", "ttsmodel", "ttswavtokenizer", "ttsdir"],
+  voice: ["whispermodel", "whispercpp_vad_model", "ttsmodel", "ttswavtokenizer", "ttsdir"],
   music: ["musicllm", "musicembeddings", "musicdiffusion", "musicvae"]
 };
 

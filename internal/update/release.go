@@ -168,7 +168,7 @@ func selectGlobbedPayload(backend string, assets []githubAsset, assetGlob string
 func selectKnownPayloads(backend string, assets []githubAsset, info hardware.Info) ([]resolvedPayload, error) {
 	candidates := make([]githubAsset, 0)
 	for _, asset := range assets {
-		if isPrimaryAsset(backend, asset.Name) && matchesPlatform(asset.Name) && matchesAccelerator(asset.Name, info.GPUBackend) {
+		if isPrimaryAsset(backend, asset.Name) && matchesPlatformForBackend(backend, asset.Name) && matchesAcceleratorForBackend(backend, asset.Name, info.GPUBackend) {
 			candidates = append(candidates, asset)
 		}
 	}
@@ -204,9 +204,53 @@ func isPrimaryAsset(backend string, name string) bool {
 		return strings.Contains(lowerName, "llama") && (strings.HasSuffix(lowerName, ".zip") || strings.HasSuffix(lowerName, ".tar.gz") || strings.HasSuffix(lowerName, ".tgz"))
 	case "sd-server":
 		return (strings.Contains(lowerName, "stable") || strings.HasPrefix(lowerName, "sd-")) && (strings.HasSuffix(lowerName, ".zip") || strings.HasSuffix(lowerName, ".tar.gz") || strings.HasSuffix(lowerName, ".tgz"))
+	case "whisper-server":
+		return strings.HasPrefix(lowerName, "whisper-") && strings.Contains(lowerName, "bin") && (strings.HasSuffix(lowerName, ".zip") || strings.HasSuffix(lowerName, ".tar.gz") || strings.HasSuffix(lowerName, ".tgz"))
 	default:
 		return strings.Contains(lowerName, "kobold") && (strings.HasSuffix(lowerName, ".zip") || strings.HasSuffix(lowerName, ".tar.gz") || strings.HasSuffix(lowerName, ".tgz") || !strings.Contains(lowerName, "."))
 	}
+}
+
+func matchesPlatformForBackend(backend string, name string) bool {
+	if backend != "whisper-server" {
+		return matchesPlatform(name)
+	}
+	lowerName := strings.ToLower(name)
+	switch runtime.GOOS {
+	case "windows":
+		return !strings.Contains(lowerName, "ubuntu") && matchesWhisperArchitecture(lowerName)
+	case "darwin":
+		return strings.Contains(lowerName, "xcframework")
+	default:
+		return strings.Contains(lowerName, "ubuntu") && matchesWhisperArchitecture(lowerName)
+	}
+}
+
+func matchesWhisperArchitecture(lowerName string) bool {
+	switch runtime.GOARCH {
+	case "amd64":
+		return strings.Contains(lowerName, "x64") || strings.Contains(lowerName, "amd64")
+	case "386":
+		return strings.Contains(lowerName, "win32") || strings.Contains(lowerName, "x86") && !strings.Contains(lowerName, "x64")
+	case "arm64":
+		return strings.Contains(lowerName, "arm64") || strings.Contains(lowerName, "aarch64")
+	default:
+		return strings.Contains(lowerName, runtime.GOARCH)
+	}
+}
+
+func matchesAcceleratorForBackend(backend string, name string, accelerator string) bool {
+	if backend != "whisper-server" {
+		return matchesAccelerator(name, accelerator)
+	}
+	lowerName := strings.ToLower(name)
+	if accelerator == hardware.GPUBackendCUDA {
+		return strings.Contains(lowerName, "cuda") || strings.Contains(lowerName, "nvidia") || strings.Contains(lowerName, "cublas")
+	}
+	if accelerator == hardware.GPUBackendCPU || accelerator == "" {
+		return !strings.Contains(lowerName, "blas") && !strings.Contains(lowerName, "openvino") && matchesAccelerator(name, accelerator)
+	}
+	return matchesAccelerator(name, accelerator)
 }
 
 func matchesPlatform(name string) bool {

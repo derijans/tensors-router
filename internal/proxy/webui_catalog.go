@@ -131,6 +131,14 @@ var webUIDefinitions = []webUIDefinition{
 		lane:        cluster.RouteLaneImage,
 		path:        "/",
 	},
+	{
+		kind:        "whispercpp",
+		name:        "whisper-server UI",
+		backend:     "whisper.cpp",
+		backendMode: BackendModeLlamaSDCPP,
+		lane:        cluster.RouteLaneVoice,
+		path:        "/",
+	},
 }
 
 func newWebUISession() *webUISession {
@@ -538,6 +546,8 @@ func webUIModelSupportsLane(definition webUIDefinition, model cluster.Model) boo
 		return model.HasImage
 	case cluster.RouteLaneMusic:
 		return definition.backendMode == BackendModeKobold && model.HasMusic
+	case cluster.RouteLaneVoice:
+		return model.Capabilities.Voice != nil && strings.TrimSpace(model.Capabilities.Voice.WhisperModel) != ""
 	default:
 		return model.HasLLM || model.HasEmbeddings || model.HasMultimodal || (definition.backendMode == BackendModeKobold && model.HasVoice)
 	}
@@ -546,6 +556,9 @@ func webUIModelSupportsLane(definition webUIDefinition, model cluster.Model) boo
 func webUIReadiness(lane string) backendReadiness {
 	if lane == cluster.RouteLaneImage {
 		return readinessImage
+	}
+	if lane == cluster.RouteLaneVoice {
+		return readinessTranscription
 	}
 	return readinessText
 }

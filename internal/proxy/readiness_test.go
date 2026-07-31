@@ -83,4 +83,7 @@ func TestVoiceModelReadinessSelection(t *testing.T) {
 	if got := readinessForVoiceModel(ttsModel, BackendModeLlamaSDCPP); got != readinessText {
 		t.Fatalf("unexpected llama-sdcpp voice readiness %v", got)
 	}
+	if got := readinessForVoiceModel(transcriptionModel, BackendModeLlamaSDCPP); got != readinessTranscription {
+		t.Fatalf("unexpected split transcription readiness %v", got)
+	}
 }
