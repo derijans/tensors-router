@@ -515,12 +515,16 @@ export interface ErrorResponse {
 }
 
 export interface DownloadCapability {
+  enabled: boolean;
+  present: boolean;
+  working: boolean;
   available: boolean;
   configured: boolean;
   configured_token: boolean;
   storage_root?: string;
   free_bytes?: number;
   free_space_reserve_bytes?: number;
+  reason?: string;
   error?: string;
 }
 

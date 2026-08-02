@@ -8,19 +8,7 @@ import (
 	"testing"
 )
 
-func TestDownloadCapabilityIsHiddenWithoutSiblingDownloader(t *testing.T) {
-	server := NewServer(Config{}, nil, NewSessionManager("admin-secret"))
-	cookie, _ := loginForServerTest(t, server)
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodGet, "/api/download/capabilities", nil)
-	request.AddCookie(cookie)
-	server.ServeHTTP(recorder, request)
-	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"available":false`) {
-		t.Fatalf("unexpected absent downloader response status=%d body=%s", recorder.Code, recorder.Body.String())
-	}
-}
-
-func TestDownloadRoutesProxyOnlyWhenDownloaderIsAvailable(t *testing.T) {
+func TestDownloadRoutesAlwaysDelegateToRouter(t *testing.T) {
 	seen := []string{}
 	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		seen = append(seen, r.Method+" "+r.URL.RequestURI())
@@ -36,7 +24,7 @@ func TestDownloadRoutesProxyOnlyWhenDownloaderIsAvailable(t *testing.T) {
 	}))
 	defer router.Close()
 	process := NewRouterProcess(RouterConfig{URL: router.URL}, t.TempDir())
-	server := NewServer(Config{Router: RouterConfig{URL: router.URL, Token: "router-secret"}, DownloaderAvailable: true}, process, NewSessionManager("admin-secret"))
+	server := NewServer(Config{Router: RouterConfig{URL: router.URL, Token: "router-secret"}}, process, NewSessionManager("admin-secret"))
 	cookie, csrf := loginForServerTest(t, server)
 	getRecorder := httptest.NewRecorder()
 	getRequest := httptest.NewRequest(http.MethodGet, "/api/download/capabilities", nil)

@@ -34,19 +34,19 @@ type ArtifactHandler func(ArtifactRecord) error
 
 func NewManager(config Config, command string) (*Manager, error) {
 	if err := ensureDirectory(config.Storage.Root); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("initialize downloader storage root: %w", err)
 	}
 	if err := ensureDirectory(config.Storage.StateDir); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("initialize downloader state storage: %w", err)
 	}
 	logger, logFile, err := newManagerLogger(config.Logging)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("initialize downloader logging: %w", err)
 	}
 	store, err := OpenStore(config.Storage.DatabasePath)
 	if err != nil {
 		_ = closeManagerLog(logFile)
-		return nil, err
+		return nil, fmt.Errorf("initialize downloader database: %w", err)
 	}
 	command = strings.TrimSpace(command)
 	if command == "" {
@@ -76,11 +76,26 @@ func (manager *Manager) SetArtifactHandler(handler ArtifactHandler) {
 func (manager *Manager) Capability() Capability {
 	capability := Capability{Available: true, Configured: true, ConfiguredToken: strings.TrimSpace(manager.config.HuggingFace.Token) != "", StorageRoot: manager.config.Storage.Root, FreeSpaceReserveBytes: manager.config.Storage.FreeSpaceReserveGB << 30}
 	if bytes, known, err := availableSpace(manager.config.Storage.Root); err != nil {
-		capability.Error = err.Error()
+		capability.Error = fmt.Sprintf("inspect downloader storage capacity: %v", err)
+		capability.Reason = capability.Error
 	} else if known {
 		capability.FreeBytes = bytes
 	}
 	return capability
+}
+
+func MergeRuntimeCapability(startup Capability, runtime Capability) Capability {
+	runtime.Enabled = startup.Enabled
+	runtime.Present = startup.Present
+	runtime.Working = startup.Working
+	if runtime.Error != "" {
+		runtime.Working = false
+		runtime.Reason = runtime.Error
+	} else if !runtime.Working {
+		runtime.Reason = startup.Reason
+		runtime.Error = startup.Error
+	}
+	return runtime
 }
 
 func (manager *Manager) Search(ctx context.Context, request SearchRequest, operationToken string) ([]SearchResult, error) {

@@ -13,6 +13,7 @@ import {
   substituteModelAsset
 } from "./api";
 import { elements } from "./elements";
+import { downloadNodeStatus, enabledDownloadNodes, preferredDownloadNodeID } from "./download-capability-data";
 import { normalizeModelHash, normalizeParameterRange, parseOfficialHFURL, splitSearchFilters } from "./download-finder-data";
 import { selectedDownloadBytes, selectedDownloadFiles, toggleDownloadPath } from "./download-plan-data";
 import { hfFilterCatalog, hfFilterCatalogVersion } from "./hf-filter-catalog";
@@ -24,17 +25,21 @@ export async function loadDownloads(): Promise<void> {
   try {
     const capabilities = await getDownloadCapabilities();
     state.downloads.capabilities = capabilities;
-    state.downloads.available = capabilities.available !== false && capabilities.nodes.length > 0;
-    const selected = state.downloads.nodeID;
-    if (!capabilities.nodes.some(node => node.node_id === selected)) {
-      state.downloads.nodeID = capabilities.nodes[0]?.node_id || "";
-    }
-    if (state.downloads.available && state.downloads.nodeID) {
-      state.downloads.library = await getDownloadLibrary(state.downloads.nodeID);
+    const enabledNodes = enabledDownloadNodes(capabilities.nodes);
+    state.downloads.available = enabledNodes.length > 0;
+    state.downloads.nodeID = preferredDownloadNodeID(capabilities.nodes, state.downloads.nodeID);
+    const selectedNode = enabledNodes.find(node => node.node_id === state.downloads.nodeID);
+    state.downloads.error = "";
+    if (selectedNode?.capability.working) {
+      try {
+        state.downloads.library = await getDownloadLibrary(state.downloads.nodeID);
+      } catch (error) {
+        state.downloads.library = null;
+        state.downloads.error = error instanceof Error ? error.message : String(error);
+      }
     } else {
       state.downloads.library = null;
     }
-    state.downloads.error = "";
   } catch (error) {
     state.downloads.available = false;
     state.downloads.error = error instanceof Error ? error.message : String(error);
@@ -49,7 +54,10 @@ export function selectDownloadNode(nodeID: string): void {
 }
 
 export async function loadDownloadLibrary(): Promise<void> {
-  if (!state.downloads.nodeID) {
+  const selectedNode = state.downloads.capabilities?.nodes.find(node => node.node_id === state.downloads.nodeID);
+  if (!selectedNode?.capability.working) {
+    state.downloads.library = null;
+    renderDownloads();
     return;
   }
   state.downloads.library = await getDownloadLibrary(state.downloads.nodeID);
@@ -361,16 +369,15 @@ export function renderDownloads(): void {
   if (!state.downloads.available) {
     return;
   }
-  const nodes = state.downloads.capabilities?.nodes || [];
+  const nodes = enabledDownloadNodes(state.downloads.capabilities?.nodes || []);
   elements.downloadNodeSelect.innerHTML = nodes.map(node => {
-    const enabled = node.available && node.capability.configured;
-    const status = enabled ? "ready" : node.capability.error || "downloader unavailable";
-    return `<option value="${escapeAttribute(node.node_id)}"${node.node_id === state.downloads.nodeID ? " selected" : ""}${enabled ? "" : " disabled"}>${escapeHTML(node.node_id)} — ${escapeHTML(status)}</option>`;
+    const status = downloadNodeStatus(node);
+    return `<option value="${escapeAttribute(node.node_id)}"${node.node_id === state.downloads.nodeID ? " selected" : ""}>${escapeHTML(node.node_id)} — ${escapeHTML(status)}</option>`;
   }).join("");
   const node = nodes.find(value => value.node_id === state.downloads.nodeID);
+  const working = node?.capability.working === true;
   const configuredToken = node?.capability.configured_token ? "configured fallback token is available" : "anonymous access unless a temporary token is entered";
-  elements.downloadStatus.textContent = state.downloads.error || configuredToken;
-  elements.downloadStartButton.disabled = state.downloads.plan === null || state.downloads.selectedPlanFiles.length === 0;
+  elements.downloadStatus.textContent = state.downloads.error || (node && !working ? downloadNodeStatus(node) : configuredToken);
   renderDownloadFilters();
   elements.downloadSearchResults.innerHTML = `${state.downloads.finderMessage ? `<p class="action-status">${escapeHTML(state.downloads.finderMessage)}</p>` : ""}${state.downloads.search.map(result => `
     <button class="download-entry" type="button" data-download-repository="${escapeAttribute(result.id)}">
@@ -390,6 +397,16 @@ export function renderDownloads(): void {
   elements.downloadLibrary.innerHTML = (state.downloads.library?.artifacts || []).map(artifact => `
     <div class="download-entry"><strong>${escapeHTML(artifact.path)}</strong><span>${formatBytes(artifact.size)} · ${escapeHTML(artifact.verification_source)} · ${escapeHTML(artifact.sha256)}</span></div>
   `).join("") || "<p class=\"muted\">No indexed artifacts on this node.</p>";
+  setDownloadControlsWorking(working);
+  elements.downloadStartButton.disabled = !working || state.downloads.plan === null || state.downloads.selectedPlanFiles.length === 0;
+}
+
+function setDownloadControlsWorking(working: boolean): void {
+  elements.downloadPanel.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("button, input, select, textarea").forEach(control => {
+    if (control !== elements.downloadNodeSelect) {
+      control.disabled = !working;
+    }
+  });
 }
 
 function renderDownloadFilters(): void {

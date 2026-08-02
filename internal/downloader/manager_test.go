@@ -28,6 +28,37 @@ func TestManagerWritesConfiguredDownloaderLog(t *testing.T) {
 	}
 }
 
+func TestManagerCapabilityReportsCapacityInspectionFailure(t *testing.T) {
+	directory := t.TempDir()
+	config := DefaultConfig(filepath.Join(directory, "downloader.yaml"))
+	config.Logging.Mode = "off"
+	manager, err := NewManager(config, "hf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Close() })
+	if err := os.Remove(config.Storage.Root); err != nil {
+		t.Fatal(err)
+	}
+	capability := manager.Capability()
+	if !strings.Contains(capability.Reason, "inspect downloader storage capacity") || capability.Error != capability.Reason {
+		t.Fatalf("unexpected capacity failure %#v", capability)
+	}
+}
+
+func TestMergeRuntimeCapabilityPreservesStartupState(t *testing.T) {
+	startup := Capability{Enabled: true, Present: true, Working: true}
+	merged := MergeRuntimeCapability(startup, Capability{Available: true, Configured: true, StorageRoot: "models", FreeBytes: 10})
+	if !merged.Enabled || !merged.Present || !merged.Working || !merged.Available || !merged.Configured || merged.StorageRoot != "models" || merged.FreeBytes != 10 {
+		t.Fatalf("startup status was not preserved %#v", merged)
+	}
+
+	failed := MergeRuntimeCapability(startup, Capability{Available: true, Configured: true, Error: "capacity failed"})
+	if failed.Working || failed.Reason != "capacity failed" {
+		t.Fatalf("runtime failure did not update working status %#v", failed)
+	}
+}
+
 func TestPromotedAndRescannedArtifactsNotifyHandler(t *testing.T) {
 	root := t.TempDir()
 	manager, err := NewManager(Config{

@@ -1,8 +1,14 @@
 # Downloader
 
-The downloader is a separate companion executable. The router exposes its management routes when `downloader.enabled` is `true` and the executable is available.
+The downloader is a separate companion executable. The router is the source of truth for its availability and exposes downloader management routes according to `downloader.enabled`.
 
 If `downloader.binary_location` is empty, the router looks for the companion beside its own executable. A configured relative path is resolved from the router configuration directory.
+
+At startup the router always logs downloader status with `enabled`, `present`, and `working` fields. A ready installation reports `downloader status enabled=true present=true working=true`. Disabled or failed initialization also includes an actionable `reason`.
+
+`working` describes local readiness only. It requires companion-file detection, loading `downloader.yaml`, creating or opening storage and the SQLite database, initializing the manager, and inspecting local free capacity. This startup check does not execute the downloader CLI or contact Hugging Face.
+
+The WebUI shows the Download tab when at least one router node reports `enabled: true`. Enabled nodes remain selectable when initialization fails, and the selected node's router-provided reason is shown while download operations are disabled. The tab is hidden when every reporting node explicitly disables downloading. In a mixed cluster, the initial selection prefers an enabled working node and otherwise selects the first enabled failed node so its diagnostic is visible.
 
 ## Hugging Face search
 

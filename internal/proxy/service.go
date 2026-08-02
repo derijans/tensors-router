@@ -341,7 +341,7 @@ func NewService(config ServiceConfig) *Service {
 		service.hardware = hardware.NewCache()
 	}
 	if service.downloader != nil {
-		service.downloaderCapability = service.downloader.Capability()
+		service.downloaderCapability = downloader.MergeRuntimeCapability(service.downloaderCapability, service.downloader.Capability())
 	}
 	if config.ClusterClient != nil {
 		service.clusterClient = config.ClusterClient

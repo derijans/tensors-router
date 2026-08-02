@@ -45,7 +45,7 @@ func (service *Service) handleNodeDownloadCapabilities(w http.ResponseWriter, r 
 func (service *Service) localDownloadCapability(ctx context.Context) siteapi.DownloadCapability {
 	capability := service.downloaderCapability
 	if service.downloader != nil {
-		capability = service.downloader.Capability()
+		capability = downloader.MergeRuntimeCapability(capability, service.downloader.Capability())
 	}
 	devices := []downloader.DeviceCapability{}
 	info := service.hardware.Info(ctx)

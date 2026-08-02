@@ -10,7 +10,7 @@ The main executables are:
 - `tensor-router-webui` for the optional management interface
 - `tensor-router-downloader` for model downloads used by the management interface
 
-Keep companion executables in the same directory when the WebUI or downloader should be discovered automatically.
+Keep the router and downloader companion executables in the same directory when `downloader.binary_location` should be discovered automatically. The WebUI obtains downloader availability from the router.
 
 ## Build from source
 

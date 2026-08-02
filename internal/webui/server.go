@@ -158,10 +158,6 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/api/inventory" && r.Method == http.MethodGet:
 		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/inventory")
 	case r.URL.Path == "/api/download/capabilities" && r.Method == http.MethodGet:
-		if !server.config.DownloaderAvailable {
-			writeWebJSON(w, http.StatusOK, map[string]any{"available": false, "nodes": []any{}})
-			return
-		}
 		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/download/capabilities")
 	case r.URL.Path == "/api/download/search" && r.Method == http.MethodPost:
 		server.proxyDownload(w, r, http.MethodPost, "/router/v1/site/download/search")
@@ -234,10 +230,6 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 }
 
 func (server *Server) proxyDownload(w http.ResponseWriter, r *http.Request, method string, path string) {
-	if !server.config.DownloaderAvailable {
-		writeWebError(w, http.StatusNotFound, "downloader is not installed beside this WebUI")
-		return
-	}
 	server.proxyRouter(w, r, method, path)
 }
 

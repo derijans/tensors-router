@@ -134,7 +134,7 @@ When updates are enabled, each selected backend needs either a direct binary URL
 
 | Field | Type or options | Example or default | Description |
 | --- | --- | --- | --- |
-| `downloader.enabled` | Boolean | `true` | Exposes downloader management when the companion is available. |
+| `downloader.enabled` | Boolean | `true` | Enables router-owned downloader initialization and capability reporting. |
 | `downloader.binary_location` | Path string | Empty | Downloader executable. Empty searches beside the router executable. |
 
 ### Cluster

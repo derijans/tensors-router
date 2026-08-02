@@ -46,12 +46,16 @@ type LoggingConfig struct {
 }
 
 type Capability struct {
+	Enabled               bool   `json:"enabled"`
+	Present               bool   `json:"present"`
+	Working               bool   `json:"working"`
 	Available             bool   `json:"available"`
 	Configured            bool   `json:"configured"`
 	ConfiguredToken       bool   `json:"configured_token"`
 	StorageRoot           string `json:"storage_root,omitempty"`
 	FreeBytes             int64  `json:"free_bytes,omitempty"`
 	FreeSpaceReserveBytes int64  `json:"free_space_reserve_bytes,omitempty"`
+	Reason                string `json:"reason,omitempty"`
 	Error                 string `json:"error,omitempty"`
 }
 
