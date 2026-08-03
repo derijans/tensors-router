@@ -88,6 +88,14 @@ func TestPromotedAndRescannedArtifactsNotifyHandler(t *testing.T) {
 	if err := manager.promote(job, file, staged, hash); err != nil {
 		t.Fatal(err)
 	}
+	destination := filepath.Join(root, "owner", "repository", "model.gguf")
+	promoted, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(promoted) != string(content) {
+		t.Fatalf("unexpected promoted content %q", promoted)
+	}
 	if notified.SHA256 != hash || notified.Repository != job.Repository || notified.RepositoryPath != file.Path {
 		t.Fatalf("promoted artifact was not notified: %#v", notified)
 	}
@@ -97,5 +105,46 @@ func TestPromotedAndRescannedArtifactsNotifyHandler(t *testing.T) {
 	}
 	if notified.SHA256 != hash || notified.Path == "" {
 		t.Fatalf("rescanned artifact was not notified: %#v", notified)
+	}
+}
+
+func TestStagingDirectoryUsesLocalStateStorage(t *testing.T) {
+	storageRoot := t.TempDir()
+	stateDir := t.TempDir()
+	manager := &Manager{config: Config{Storage: StorageConfig{Root: storageRoot, StateDir: stateDir}}}
+	staging, err := manager.stagingDirectory(DownloadJob{ID: "job", Repository: "owner/repository"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !pathWithin(staging, stateDir) || pathWithin(staging, storageRoot) {
+		t.Fatalf("staging path %q was not isolated under state storage %q", staging, stateDir)
+	}
+}
+
+func TestCopyPromotionFilePreservesVerifiedContent(t *testing.T) {
+	content := []byte("cross-filesystem download")
+	stagedPath := filepath.Join(t.TempDir(), "model.gguf")
+	if err := os.WriteFile(stagedPath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hash, _, err := SHA256File(stagedPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(t.TempDir(), "model.gguf")
+	temporaryPath, err := copyPromotionFile(stagedPath, destination, hash)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Remove(temporaryPath) })
+	copied, err := os.ReadFile(temporaryPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(copied) != string(content) {
+		t.Fatalf("unexpected copied content %q", copied)
+	}
+	if _, err := os.Stat(stagedPath); err != nil {
+		t.Fatalf("cross-filesystem copy removed staging content: %v", err)
 	}
 }

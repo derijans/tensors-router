@@ -424,6 +424,7 @@ func (manager *Manager) transfer(ctx context.Context, job DownloadJob) error {
 	if err != nil {
 		return err
 	}
+	defer os.RemoveAll(staging)
 	for _, file := range job.Files {
 		current, found, err := manager.store.Job(job.ID)
 		if err != nil || !found {
@@ -501,6 +502,16 @@ func (manager *Manager) promote(job DownloadJob, file JobFile, stagedPath string
 	if err := ensureDirectory(filepath.Dir(destination)); err != nil {
 		return err
 	}
+	temporary, err := preparePromotionFile(job.ID, stagedPath, destination, hash)
+	if err != nil {
+		return err
+	}
+	removeTemporary := true
+	defer func() {
+		if removeTemporary {
+			_ = os.Remove(temporary)
+		}
+	}()
 	backup := ""
 	if info, err := os.Lstat(destination); err == nil {
 		if info.Mode()&os.ModeSymlink != 0 {
@@ -513,12 +524,13 @@ func (manager *Manager) promote(job DownloadJob, file JobFile, stagedPath string
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	if err := os.Rename(stagedPath, destination); err != nil {
+	if err := os.Rename(temporary, destination); err != nil {
 		if backup != "" {
 			_ = os.Rename(backup, destination)
 		}
 		return err
 	}
+	removeTemporary = false
 	if backup != "" {
 		_ = os.Remove(backup)
 	}
@@ -553,11 +565,69 @@ func (manager *Manager) notifyArtifact(record ArtifactRecord) error {
 }
 
 func (manager *Manager) stagingDirectory(job DownloadJob) (string, error) {
-	destination, err := RepositoryDirectory(manager.config.Storage.Root, job.Repository)
+	return secureJoin(manager.config.Storage.StateDir, "staging", job.ID)
+}
+
+func copyPromotionFile(stagedPath string, destination string, expectedHash string) (string, error) {
+	info, err := os.Lstat(stagedPath)
 	if err != nil {
 		return "", err
 	}
-	return secureJoin(destination, ".tensor-router-staging", job.ID)
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		return "", fmt.Errorf("staged download is not a regular file")
+	}
+	source, err := os.Open(stagedPath)
+	if err != nil {
+		return "", err
+	}
+	defer source.Close()
+	temporary, err := os.CreateTemp(filepath.Dir(destination), ".tensor-router-promote-*")
+	if err != nil {
+		return "", err
+	}
+	temporaryPath := temporary.Name()
+	removeTemporary := true
+	defer func() {
+		if removeTemporary {
+			_ = os.Remove(temporaryPath)
+		}
+	}()
+	if _, err := io.Copy(temporary, source); err != nil {
+		_ = temporary.Close()
+		return "", err
+	}
+	if err := temporary.Sync(); err != nil {
+		_ = temporary.Close()
+		return "", err
+	}
+	if err := temporary.Close(); err != nil {
+		return "", err
+	}
+	copiedHash, copiedSize, err := SHA256File(temporaryPath)
+	if err != nil {
+		return "", err
+	}
+	if copiedHash != expectedHash || copiedSize != info.Size() {
+		return "", fmt.Errorf("copied download differs from verified staging file")
+	}
+	removeTemporary = false
+	return temporaryPath, nil
+}
+
+func preparePromotionFile(jobID string, stagedPath string, destination string, expectedHash string) (string, error) {
+	if !safeRepositoryPart(jobID) {
+		return "", fmt.Errorf("download job ID is invalid")
+	}
+	temporaryPath := filepath.Join(filepath.Dir(destination), "."+filepath.Base(destination)+".tensor-router-promote-"+jobID)
+	if _, err := os.Lstat(temporaryPath); err == nil {
+		return "", fmt.Errorf("promotion path already exists")
+	} else if !os.IsNotExist(err) {
+		return "", err
+	}
+	if err := os.Rename(stagedPath, temporaryPath); err == nil {
+		return temporaryPath, nil
+	}
+	return copyPromotionFile(stagedPath, destination, expectedHash)
 }
 
 func secureStagingPath(staging string, repositoryPath string) (string, error) {

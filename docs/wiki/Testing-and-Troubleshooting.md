@@ -86,6 +86,8 @@ Invoke-RestMethod http://127.0.0.1:18080/router/v1/models
 
 Confirm that the slave appears in the returned model records and reports an available node before sending inference through the master. The launcher prints shutdown commands and supports `-Wait` when the terminal should remain attached.
 
+Use `-DownloaderStorageRoot` with `-IncludeDownloader` to test a mounted or remote destination. `-DownloaderStateDir` can keep temporary staging local; relative values resolve from the generated node configuration directory.
+
 ## Basic API checks
 
 List text models:

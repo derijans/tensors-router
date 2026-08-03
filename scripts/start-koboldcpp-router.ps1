@@ -20,6 +20,8 @@ param(
     [string]$RouterPath,
     [string]$WebUIPath,
     [string]$DownloaderPath,
+    [string]$DownloaderStorageRoot,
+    [string]$DownloaderStateDir,
     [switch]$IncludeDownloader,
     [switch]$Wait,
     [switch]$Detach
@@ -149,11 +151,17 @@ $downloaderBinaryLocation = ''
 if ($IncludeDownloader) {
     $downloaderBinaryLocation = $downloaderPath
     $downloaderConfigPath = Join-Path $runtimePath 'downloader.yaml'
+    if ([string]::IsNullOrWhiteSpace($DownloaderStorageRoot)) {
+        $DownloaderStorageRoot = Join-Path $runtimePath 'models'
+    }
+    if ([string]::IsNullOrWhiteSpace($DownloaderStateDir)) {
+        $DownloaderStateDir = Join-Path $runtimePath 'downloader-state'
+    }
     $downloaderConfig = @"
 storage:
-  root: $(ConvertTo-YAMLScalar (Join-Path $runtimePath 'models'))
-  state_dir: $(ConvertTo-YAMLScalar (Join-Path $runtimePath 'downloader-state'))
-  database_path: $(ConvertTo-YAMLScalar (Join-Path $runtimePath 'downloader-state\downloads.sqlite'))
+  root: $(ConvertTo-YAMLScalar $DownloaderStorageRoot)
+  state_dir: $(ConvertTo-YAMLScalar $DownloaderStateDir)
+  database_path: $(ConvertTo-YAMLScalar (Join-Path $DownloaderStateDir 'downloads.sqlite'))
   free_space_reserve_gb: 0
 downloads:
   concurrent_jobs: 2

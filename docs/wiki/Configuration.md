@@ -220,7 +220,7 @@ See [Backend WebUI Interfaces](Backend-WebUI-Interfaces) for listener setup, ext
 | Field | Type or options | Example or default | Description |
 | --- | --- | --- | --- |
 | `storage.root` | Required path string | `./models` | Destination root for downloaded repositories and files. |
-| `storage.state_dir` | Required path string | `./downloader-state` | Stores downloader state. |
+| `storage.state_dir` | Required path string | `./downloader-state` | Stores downloader state and temporary download staging before verified promotion to `storage.root`. |
 | `storage.database_path` | Required path string inside `state_dir` | `./downloader-state/downloads.sqlite` | SQLite job and artifact database. |
 | `storage.free_space_reserve_gb` | Integer, at least `0`, GiB | `5` | Space that download planning must leave unused. |
 | `huggingface.token` | String | Empty | Optional token for private or gated Hugging Face repositories. |
