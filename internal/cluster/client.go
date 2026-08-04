@@ -22,6 +22,15 @@ type Client struct {
 	allowed map[string]string
 }
 
+type RemoteError struct {
+	StatusCode int
+	Body       []byte
+}
+
+func (err *RemoteError) Error() string {
+	return fmt.Sprintf("cluster request failed with status %d: %s", err.StatusCode, strings.TrimSpace(string(err.Body)))
+}
+
 func NewClient(token string, baseURLs ...string) *Client {
 	client := &Client{
 		token:   token,
@@ -131,7 +140,7 @@ func (client *Client) JSON(ctx context.Context, method string, baseURL string, p
 		return fmt.Errorf("cluster response body exceeds %d bytes", maxClusterJSONBytes)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return fmt.Errorf("cluster request failed with status %d: %s", response.StatusCode, strings.TrimSpace(string(content)))
+		return &RemoteError{StatusCode: response.StatusCode, Body: content}
 	}
 	if responseBody == nil {
 		return nil

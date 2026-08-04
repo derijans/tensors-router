@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"tensors-router/internal/backenddiagnostic"
 	"tensors-router/internal/backendendpoint"
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/mcp"
@@ -43,9 +44,14 @@ type Manager struct {
 	argumentBuilder func(catalog.RuntimeConfig, string, string, string, string) ([]string, error)
 	client          *http.Client
 	mu              sync.Mutex
+	exitMu          sync.RWMutex
 	cmd             *exec.Cmd
 	logFile         *os.File
 	waitDone        chan error
+	exitDone        <-chan error
+	exitErr         error
+	exitObserved    bool
+	capture         *backenddiagnostic.Capture
 	currentFilename string
 }
 
@@ -82,6 +88,7 @@ func newManager(config ProcessConfig, defaultPort string, readinessPath string, 
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		capture: backenddiagnostic.NewCapture(),
 	}, nil
 }
 
@@ -176,7 +183,7 @@ func (manager *Manager) startLocked(ctx context.Context, filename string, args [
 	}
 
 	var logFile *os.File
-	processOutput := io.Writer(io.Discard)
+	processOutput := io.Writer(manager.capture)
 	if manager.config.Logging {
 		logPath := filepath.Join(manager.config.DataDir, manager.logName)
 		var err error
@@ -184,7 +191,7 @@ func (manager *Manager) startLocked(ctx context.Context, filename string, args [
 		if err != nil {
 			return err
 		}
-		processOutput = logFile
+		processOutput = io.MultiWriter(manager.capture, logFile)
 	}
 
 	cmd := exec.Command(manager.config.BinaryPath, args...)
@@ -198,21 +205,35 @@ func (manager *Manager) startLocked(ctx context.Context, filename string, args [
 	}
 
 	manager.cmd = cmd
+	manager.exitMu.Lock()
+	manager.exitErr = nil
+	manager.exitObserved = false
+	manager.exitMu.Unlock()
 	manager.logFile = logFile
 	manager.currentFilename = filename
 	waitDone := make(chan error, 1)
 	manager.waitDone = waitDone
+	exitDone := make(chan error, 1)
+	manager.exitDone = exitDone
 
 	go func() {
-		waitDone <- cmd.Wait()
+		err := cmd.Wait()
+		manager.exitMu.Lock()
+		manager.exitErr = err
+		manager.exitObserved = true
+		manager.exitMu.Unlock()
+		manager.capture.RecordExit(err)
+		waitDone <- err
+		exitDone <- err
 		_ = closeLogFile(logFile)
 	}()
 
-	if err := manager.waitHealthy(ctx, 90*time.Second); err != nil {
+	if err := manager.waitHealthy(ctx, 90*time.Second, exitDone); err != nil {
 		_ = processcontrol.Kill(cmd)
 		manager.cmd = nil
 		manager.logFile = nil
 		manager.waitDone = nil
+		manager.exitDone = nil
 		manager.currentFilename = ""
 		return err
 	}
@@ -227,6 +248,7 @@ func (manager *Manager) stopLocked(ctx context.Context) error {
 	manager.logFile = nil
 	waitDone := manager.waitDone
 	manager.waitDone = nil
+	manager.exitDone = nil
 
 	if cmd == nil || cmd.Process == nil {
 		if logFile != nil {
@@ -258,19 +280,47 @@ func (manager *Manager) healthy(ctx context.Context) bool {
 	return response.StatusCode >= 200 && response.StatusCode < 500
 }
 
-func (manager *Manager) waitHealthy(ctx context.Context, timeout time.Duration) error {
+func (manager *Manager) waitHealthy(ctx context.Context, timeout time.Duration, exitDone <-chan error) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
+		select {
+		case err := <-exitDone:
+			return unexpectedExitError("native server", err)
+		default:
+		}
 		if manager.healthy(ctx) {
 			return nil
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case err := <-exitDone:
+			return unexpectedExitError("native server", err)
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
 	return fmt.Errorf("native server did not become healthy within %s", timeout)
+}
+
+func (manager *Manager) BackendExitError() error {
+	manager.exitMu.RLock()
+	defer manager.exitMu.RUnlock()
+	if !manager.exitObserved {
+		return nil
+	}
+	return unexpectedExitError("native server", manager.exitErr)
+}
+
+func unexpectedExitError(name string, err error) error {
+	if err == nil {
+		return fmt.Errorf("%s exited during startup", name)
+	}
+	return fmt.Errorf("%s exited during startup: %w", name, err)
+}
+
+func (manager *Manager) BeginLoadDiagnostic() func(bool) backenddiagnostic.Diagnostic {
+	manager.capture.Begin()
+	return manager.capture.End
 }
 
 func (manager *Manager) hostPort() (string, string) {

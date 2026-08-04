@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"tensors-router/internal/auth"
+	"tensors-router/internal/backenddiagnostic"
 	"tensors-router/internal/catalog"
 )
 
@@ -45,17 +46,22 @@ func (service *Service) acquireModelConfigForBackendMode(mode string, ctx contex
 	if err := service.ensureModelAssets(ctx, configFilename); err != nil {
 		return nil, nil, false, err
 	}
-	if err := service.ensureBackendFamily(ctx, mode); err != nil {
-		return nil, nil, false, err
-	}
-	if err := service.enforceUnloadPolicy(ctx, mode, configFilename); err != nil {
-		return nil, nil, false, err
-	}
 	runtime, err := service.runtimeForBackendMode(mode, readiness)
 	if err != nil {
 		return nil, nil, false, err
 	}
+	finishDiagnostic := beginBackendDiagnostic(runtime.backend)
+	if err := service.ensureBackendFamily(ctx, mode); err != nil {
+		return nil, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
+	}
+	if err := service.enforceUnloadPolicy(ctx, mode, configFilename); err != nil {
+		return nil, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
+	}
 	release, loadedFresh, err := service.acquireModelConfig(runtime, ctx, modelID, configFilename, readiness, force)
+	if err != nil {
+		return runtime, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
+	}
+	finishDiagnostic(true)
 	return runtime, release, loadedFresh, err
 }
 
@@ -193,6 +199,24 @@ func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.
 		service.invalidateWebUIRoutes()
 		return release, true, nil
 	}
+}
+
+type backendDiagnosticRecorder interface {
+	BeginLoadDiagnostic() func(bool) backenddiagnostic.Diagnostic
+}
+
+func beginBackendDiagnostic(backend Backend) func(bool) backenddiagnostic.Diagnostic {
+	if recorder, ok := backend.(backendDiagnosticRecorder); ok {
+		return recorder.BeginLoadDiagnostic()
+	}
+	return func(bool) backenddiagnostic.Diagnostic { return backenddiagnostic.Diagnostic{} }
+}
+
+func (service *Service) backendLoadDiagnosticError(err error, runtime *backendRuntime, finish func(bool) backenddiagnostic.Diagnostic) error {
+	diagnostic := finish(false)
+	diagnostic.NodeID = service.nodeID
+	diagnostic.Backend = runtime.name
+	return backenddiagnostic.WithDiagnostic(err, diagnostic)
 }
 
 func (service *Service) unloadRuntime(ctx context.Context, runtime *backendRuntime) error {

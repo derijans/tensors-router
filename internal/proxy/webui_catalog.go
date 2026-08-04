@@ -3,12 +3,14 @@ package proxy
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
 	"strings"
 	"sync"
 
+	"tensors-router/internal/backenddiagnostic"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
 )
@@ -80,6 +82,11 @@ type webUILoadResponse struct {
 	URL     string `json:"url"`
 	ModelID string `json:"model_id,omitempty"`
 	ImageID string `json:"image_id,omitempty"`
+}
+
+type webUILoadErrorResponse struct {
+	Error             openai.ErrorDetail            `json:"error"`
+	BackendDiagnostic *backenddiagnostic.Diagnostic `json:"backend_diagnostic,omitempty"`
 }
 
 var webUIDefinitions = []webUIDefinition{
@@ -237,7 +244,7 @@ func (service *Service) handleSiteWebUILoad(w http.ResponseWriter, r *http.Reque
 	defer cancel()
 	response, err := service.loadSiteWebUI(ctx, request)
 	if err != nil {
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		writeWebUILoadError(w, err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, response)
@@ -256,7 +263,7 @@ func (service *Service) handleNodeSiteWebUILoad(w http.ResponseWriter, r *http.R
 	defer cancel()
 	response, err := service.loadLocalWebUI(ctx, request)
 	if err != nil {
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		writeWebUILoadError(w, err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, response)
@@ -453,12 +460,36 @@ func (service *Service) loadSiteWebUI(ctx context.Context, request webUILoadRequ
 			ImageID: firstNonEmpty(model.LocalImageID, model.ImageID),
 		}
 		if err := service.clusterClient.JSON(ctx, http.MethodPost, model.NodeURL, "/router/v1/node/site/webuis/load", remoteRequest, &response); err != nil {
-			return webUILoadResponse{}, err
+			return webUILoadResponse{}, remoteWebUILoadError(err)
 		}
 		response.URL = entry.URL
 		return response, nil
 	}
 	return service.loadLocalWebUIEntry(ctx, entry, model)
+}
+
+func writeWebUILoadError(w http.ResponseWriter, err error) {
+	response := webUILoadErrorResponse{Error: openai.ErrorDetail{Message: err.Error(), Type: "backend_error"}}
+	if diagnostic, ok := backenddiagnostic.FromError(err); ok {
+		response.BackendDiagnostic = &diagnostic
+	}
+	openai.WriteJSON(w, http.StatusBadGateway, response)
+}
+
+func remoteWebUILoadError(err error) error {
+	var remote *cluster.RemoteError
+	if !errors.As(err, &remote) {
+		return err
+	}
+	var response webUILoadErrorResponse
+	if json.Unmarshal(remote.Body, &response) != nil || response.Error.Message == "" {
+		return err
+	}
+	loadErr := errors.New(response.Error.Message)
+	if response.BackendDiagnostic == nil {
+		return loadErr
+	}
+	return backenddiagnostic.WithDiagnostic(loadErr, *response.BackendDiagnostic)
 }
 
 func (service *Service) loadLocalWebUI(ctx context.Context, request webUILoadRequest) (webUILoadResponse, error) {

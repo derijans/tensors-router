@@ -42,6 +42,10 @@ type Backend interface {
 	Healthy(ctx context.Context) bool
 }
 
+type backendExitReporter interface {
+	BackendExitError() error
+}
+
 type BackendFamilyConfig struct {
 	TextBackend          Backend
 	ImageBackend         Backend
@@ -1830,6 +1834,11 @@ func (service *Service) waitForBackendEndpoint(runtime *backendRuntime, ctx cont
 	var lastErr error
 
 	for attempt := 1; attempt <= service.backendRetryAttempts; attempt++ {
+		if reporter, ok := runtime.backend.(backendExitReporter); ok {
+			if err := reporter.BackendExitError(); err != nil {
+				return err
+			}
+		}
 		status, body, err := service.probeBackendEndpoint(runtime, ctx, readiness.endpointForMode(runtime.mode))
 		if err == nil && backendEndpointReady(readiness, runtime.mode, status, body) {
 			if attempt > 1 {

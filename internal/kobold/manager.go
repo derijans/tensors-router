@@ -18,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"tensors-router/internal/backenddiagnostic"
 	"tensors-router/internal/backendendpoint"
 	"tensors-router/internal/mcp"
 	"tensors-router/internal/processcontrol"
@@ -44,9 +45,14 @@ type Manager struct {
 	adminPassword string
 	client        *http.Client
 	mu            sync.Mutex
+	exitMu        sync.RWMutex
 	cmd           *exec.Cmd
 	logFile       *os.File
 	waitDone      chan error
+	exitDone      <-chan error
+	exitErr       error
+	exitObserved  bool
+	capture       *backenddiagnostic.Capture
 	forceNoModel  bool
 }
 
@@ -79,6 +85,7 @@ func NewManager(config ProcessConfig) (*Manager, error) {
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		capture: backenddiagnostic.NewCapture(adminPassword),
 	}, nil
 }
 
@@ -147,7 +154,7 @@ func (manager *Manager) startLocked(ctx context.Context) error {
 	}
 
 	var logFile *os.File
-	processOutput := io.Writer(io.Discard)
+	processOutput := io.Writer(manager.capture)
 	if manager.config.Logging {
 		logPath := filepath.Join(manager.config.DataDir, "koboldcpp.log")
 		var err error
@@ -155,7 +162,7 @@ func (manager *Manager) startLocked(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		processOutput = logFile
+		processOutput = io.MultiWriter(manager.capture, logFile)
 	}
 
 	cmd := exec.Command(manager.config.BinaryPath, manager.LaunchArguments()...)
@@ -168,20 +175,34 @@ func (manager *Manager) startLocked(ctx context.Context) error {
 	}
 
 	manager.cmd = cmd
+	manager.exitMu.Lock()
+	manager.exitErr = nil
+	manager.exitObserved = false
+	manager.exitMu.Unlock()
 	manager.logFile = logFile
 	waitDone := make(chan error, 1)
 	manager.waitDone = waitDone
+	exitDone := make(chan error, 1)
+	manager.exitDone = exitDone
 
 	go func() {
-		waitDone <- cmd.Wait()
+		err := cmd.Wait()
+		manager.exitMu.Lock()
+		manager.exitErr = err
+		manager.exitObserved = true
+		manager.exitMu.Unlock()
+		manager.capture.RecordExit(err)
+		waitDone <- err
+		exitDone <- err
 		_ = closeLogFile(logFile)
 	}()
 
-	if err := manager.waitHealthy(ctx, 90*time.Second); err != nil {
+	if err := manager.waitHealthy(ctx, 90*time.Second, exitDone); err != nil {
 		_ = processcontrol.Kill(cmd)
 		manager.cmd = nil
 		manager.logFile = nil
 		manager.waitDone = nil
+		manager.exitDone = nil
 		return err
 	}
 
@@ -202,6 +223,7 @@ func (manager *Manager) stopLocked(ctx context.Context) error {
 	manager.logFile = nil
 	waitDone := manager.waitDone
 	manager.waitDone = nil
+	manager.exitDone = nil
 
 	if cmd == nil || cmd.Process == nil {
 		if logFile != nil {
@@ -302,7 +324,10 @@ func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error
 		return fmt.Errorf("admin reload failed")
 	}
 
-	return manager.waitHealthy(ctx, 90*time.Second)
+	manager.mu.Lock()
+	exitDone := manager.exitDone
+	manager.mu.Unlock()
+	return manager.waitHealthy(ctx, 90*time.Second, exitDone)
 }
 
 func (manager *Manager) Healthy(ctx context.Context) bool {
@@ -324,19 +349,47 @@ func (manager *Manager) Healthy(ctx context.Context) bool {
 	return response.StatusCode >= 200 && response.StatusCode < 500
 }
 
-func (manager *Manager) waitHealthy(ctx context.Context, timeout time.Duration) error {
+func (manager *Manager) waitHealthy(ctx context.Context, timeout time.Duration, exitDone <-chan error) error {
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
+		select {
+		case err := <-exitDone:
+			return unexpectedExitError("koboldcpp", err)
+		default:
+		}
 		if manager.Healthy(ctx) {
 			return nil
 		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
+		case err := <-exitDone:
+			return unexpectedExitError("koboldcpp", err)
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
 	return fmt.Errorf("koboldcpp did not become healthy within %s", timeout)
+}
+
+func (manager *Manager) BackendExitError() error {
+	manager.exitMu.RLock()
+	defer manager.exitMu.RUnlock()
+	if !manager.exitObserved {
+		return nil
+	}
+	return unexpectedExitError("koboldcpp", manager.exitErr)
+}
+
+func unexpectedExitError(name string, err error) error {
+	if err == nil {
+		return fmt.Errorf("%s exited during startup", name)
+	}
+	return fmt.Errorf("%s exited during startup: %w", name, err)
+}
+
+func (manager *Manager) BeginLoadDiagnostic() func(bool) backenddiagnostic.Diagnostic {
+	manager.capture.Begin()
+	return manager.capture.End
 }
 
 func generateAdminPassword() (string, error) {

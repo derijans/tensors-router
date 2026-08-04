@@ -139,6 +139,8 @@ Check:
 
 Kobold mode starts its process during router startup. Split backend processes start only after a matching model is selected.
 
+During a model load, the router keeps the final 256 KiB of combined backend stdout and stderr in memory. If the backend exits or never becomes ready, `tensor-router-webui` writes this sanitized diagnostic to its stderr, including the node, backend, and exit status. The diagnostic is forwarded through cluster nodes for that load only, then discarded after a successful load; it is never returned to the browser. Disk logging remains optional and, when enabled, receives the same backend output.
+
 ## Model is missing
 
 Check that:

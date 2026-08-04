@@ -660,3 +660,14 @@ func TestTrustedLANSkipsSessionAndCSRF(t *testing.T) {
 		t.Fatalf("trusted LAN load status=%d seen=%t body=%s", loadRecorder.Code, loadSeen, loadRecorder.Body.String())
 	}
 }
+
+func TestReportAndDiscardBackendDiagnosticKeepsConciseError(t *testing.T) {
+	content := []byte(`{"error":{"message":"backend unavailable","type":"backend_error"},"backend_diagnostic":{"output":"failed model load","node_id":"node-a","backend":"llama"}}`)
+	filtered := reportAndDiscardBackendDiagnostic(content)
+	if strings.Contains(string(filtered), "failed model load") || strings.Contains(string(filtered), "backend_diagnostic") {
+		t.Fatalf("browser response retained diagnostic: %s", filtered)
+	}
+	if !strings.Contains(string(filtered), "backend unavailable") {
+		t.Fatalf("concise error was removed: %s", filtered)
+	}
+}
