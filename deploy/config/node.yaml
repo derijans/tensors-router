@@ -15,7 +15,7 @@ auth:
   admin_keys: []
 
 models:
-  config_dir: "/data/configs"
+  config_dir: "/kcpps"
   startup_model: ""
   file_roots: ["/models"]
 
@@ -24,8 +24,8 @@ backend:
 
 kobold:
   backend_url: "http://127.0.0.1:5001"
-  binary_path: "/bin/koboldcpp"
-  data_dir: "/data/kobold"
+  binary_path: "/backends/kobold/koboldcpp"
+  data_dir: "/logs/kobold"
   multiuser: 1
   quiet: true
   skip_launcher: true
@@ -35,28 +35,28 @@ kobold:
 
 llama:
   backend_url: "http://127.0.0.1:5002"
-  binary_path: "/bin/llama-server"
-  data_dir: "/data/llama"
+  binary_path: "/backends/llama/llama-server"
+  data_dir: "/logs/llama"
   hide_window: true
   extra_args: []
 
 sdcpp:
   backend_url: "http://127.0.0.1:7860"
-  binary_path: "/bin/sd-server"
-  data_dir: "/data/sdcpp"
+  binary_path: "/backends/sdcpp/sd-server"
+  data_dir: "/logs/sdcpp"
   hide_window: true
   extra_args: []
 
 whispercpp:
   backend_url: "http://127.0.0.1:5003"
-  binary_path: "/bin/whisper-server"
-  data_dir: "/data/whispercpp"
+  binary_path: "/backends/whisper/whisper-server"
+  data_dir: "/logs/whisper"
   hide_window: true
   extra_args: []
 
 logging:
   mode: "startup_only"
-  backend_logs_to_disk: false
+  backend_logs_to_disk: true
 
 updates:
   enabled: false

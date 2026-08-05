@@ -1,0 +1,34 @@
+name: tensors-router-node
+
+services:
+  router-node:
+    image: "${TENSORS_ROUTER_NODE_IMAGE:-ghcr.io/derijans/tensors-router/tensors-router-node:latest}"
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 16m
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu"]
+    ports:
+      - "8080:8080"
+    volumes:
+      - "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/config/node.yaml:/config/config.yaml:ro"
+      - "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/config/downloader.yaml:/config/downloader.yaml:ro"
+      - "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/logs/downloader:/config/data"
+      - "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/kcpps:/kcpps"
+      - "${TENSORS_ROUTER_MODELS_PATH:?Set TENSORS_ROUTER_MODELS_PATH}:/models"
+      - "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/logs:/logs"
+      - "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/backends:/backends"
+      - "node-data:/data"
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+
+volumes:
+  node-data:

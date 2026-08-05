@@ -1,0 +1,30 @@
+name: tensors-router-webui
+
+services:
+  router-webui:
+    image: "${TENSORS_ROUTER_WEBUI_IMAGE:-ghcr.io/derijans/tensors-router/tensors-router-webui:latest}"
+    restart: unless-stopped
+    init: true
+    read_only: true
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    stop_grace_period: 16m
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+      - "8444:8444"
+    volumes:
+      - "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/config/router-managed.yaml:/config/config.yaml:ro"
+      - "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/config/downloader.yaml:/config/downloader.yaml:ro"
+      - "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/config/webui.yaml:/config/webui.yaml:ro"
+      - "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/logs/downloader:/config/data"
+      - "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/kcpps:/kcpps"
+      - "${TENSORS_ROUTER_MODELS_PATH:?Set TENSORS_ROUTER_MODELS_PATH}:/models"
+      - "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/logs:/logs"
+      - "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/backends:/backends"
+      - "webui-data:/data"
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+
+volumes:
+  webui-data:
