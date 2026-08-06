@@ -1,4 +1,4 @@
-import type { AnalyticsQuery, AnalyticsResponse, BenchmarkRecord, BenchmarkSection, BenchmarkType, CookComponent, DownloadCapabilitiesResponse, DownloadLibraryResponse, DownloadPlan, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, RouterProcessStatus, WebUICatalogResponse } from "./api";
+import type { AnalyticsQuery, AnalyticsResponse, LoadCaptureAttempt, LoadCaptureDetailResponse, LoadCaptureListResponse, LoadCaptureOutputChunk, LoadCaptureQuery, BenchmarkRecord, BenchmarkSection, BenchmarkType, CookComponent, DownloadCapabilitiesResponse, DownloadLibraryResponse, DownloadPlan, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, RouterProcessStatus, WebUICatalogResponse } from "./api";
 import type { JsonValue, Options } from "./json";
 
 export type CookMode = "quick" | "constructor";
@@ -118,6 +118,18 @@ export interface AppState {
   analytics: {
     query: AnalyticsQuery;
     data: AnalyticsResponse | null;
+    loading: boolean;
+    error: string;
+  };
+  loadCaptures: {
+    query: LoadCaptureQuery;
+    data: LoadCaptureListResponse | null;
+    attempts: LoadCaptureAttempt[];
+    nextCursor: string;
+    detail: LoadCaptureDetailResponse | null;
+    output: LoadCaptureOutputChunk[];
+    outputCursor: number;
+    outputMore: boolean;
     loading: boolean;
     error: string;
   };

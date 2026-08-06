@@ -55,6 +55,18 @@ export const state: AppState = {
     loading: false,
     error: ""
   },
+  loadCaptures: {
+    query: {node_ids: [], status: "", kind: "", backend: ""},
+    data: null,
+    attempts: [],
+    nextCursor: "",
+    detail: null,
+    output: [],
+    outputCursor: 0,
+    outputMore: false,
+    loading: false,
+    error: ""
+  },
   webuis: {
     data: null,
     filter: "",

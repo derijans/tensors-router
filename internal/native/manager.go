@@ -20,6 +20,7 @@ import (
 	"tensors-router/internal/backenddiagnostic"
 	"tensors-router/internal/backendendpoint"
 	"tensors-router/internal/catalog"
+	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/mcp"
 	"tensors-router/internal/processcontrol"
 )
@@ -52,6 +53,7 @@ type Manager struct {
 	exitErr         error
 	exitObserved    bool
 	capture         *backenddiagnostic.Capture
+	captureHub      *loadcapture.Hub
 	currentFilename string
 }
 
@@ -88,7 +90,8 @@ func newManager(config ProcessConfig, defaultPort string, readinessPath string, 
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		capture: backenddiagnostic.NewCapture(),
+		capture:    backenddiagnostic.NewCapture(),
+		captureHub: loadcapture.NewHub(),
 	}, nil
 }
 
@@ -183,7 +186,8 @@ func (manager *Manager) startLocked(ctx context.Context, filename string, args [
 	}
 
 	var logFile *os.File
-	processOutput := io.Writer(manager.capture)
+	stdout := io.MultiWriter(manager.capture, manager.captureHub.Stdout())
+	stderr := io.MultiWriter(manager.capture, manager.captureHub.Stderr())
 	if manager.config.Logging {
 		logPath := filepath.Join(manager.config.DataDir, manager.logName)
 		var err error
@@ -191,13 +195,14 @@ func (manager *Manager) startLocked(ctx context.Context, filename string, args [
 		if err != nil {
 			return err
 		}
-		processOutput = io.MultiWriter(manager.capture, logFile)
+		stdout = io.MultiWriter(stdout, logFile)
+		stderr = io.MultiWriter(stderr, logFile)
 	}
 
 	cmd := exec.Command(manager.config.BinaryPath, args...)
 	cmd.Env = nativeProcessEnv(manager.config.BinaryPath, os.Environ())
-	cmd.Stdout = processOutput
-	cmd.Stderr = processOutput
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
 
 	if err := processcontrol.Start(cmd, processcontrol.Options{HideWindow: manager.config.HideWindow, ParentDeathGracePeriod: 10 * time.Second}); err != nil {
 		_ = closeLogFile(logFile)
@@ -316,6 +321,10 @@ func unexpectedExitError(name string, err error) error {
 		return fmt.Errorf("%s exited during startup", name)
 	}
 	return fmt.Errorf("%s exited during startup: %w", name, err)
+}
+
+func (manager *Manager) BeginLoadCapture(maxOutputBytes int64) func() loadcapture.Capture {
+	return manager.captureHub.Subscribe(maxOutputBytes)
 }
 
 func (manager *Manager) BeginLoadDiagnostic() func(bool) backenddiagnostic.Diagnostic {

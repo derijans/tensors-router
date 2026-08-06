@@ -27,6 +27,7 @@ import (
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/downloader"
 	"tensors-router/internal/hardware"
+	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/mcp"
 	"tensors-router/internal/modelassets"
 	"tensors-router/internal/openai"
@@ -68,93 +69,97 @@ type modelHashEnsurer interface {
 }
 
 type ServiceConfig struct {
-	Backend                  Backend
-	TextBackend              Backend
-	ImageBackend             Backend
-	BackendMode              string
-	BackendFamilies          map[string]BackendFamilyConfig
-	Catalog                  ModelCatalog
-	Registry                 *cluster.Registry
-	ClusterToken             string
-	ClusterClient            *cluster.Client
-	ClusterRole              string
-	NodeID                   string
-	NodeURL                  string
-	MasterURL                string
-	SlaveURLs                []string
-	ConfigDir                string
-	MCPReconciler            *mcp.Reconciler
-	FileRoots                []string
-	AssetIndex               *modelassets.Index
-	RecipeStore              *recipes.Store
-	BenchmarkStore           *routerbenchmark.Store
-	AnalyticsStore           *routeranalytics.Store
-	VRAMAnalyticsEnabled     bool
-	VRAMSource               hardware.VRAMSource
-	VRAMSampleInterval       time.Duration
-	Hardware                 hardware.Source
-	Downloader               *downloader.Manager
-	DownloaderCapability     downloader.Capability
-	Logger                   *log.Logger
-	Shutdown                 func()
-	TransportLimits          transportbody.Limits
-	MaxControlBodyBytes      int64
-	ConcurrentAssetTransfers int
+	Backend                   Backend
+	TextBackend               Backend
+	ImageBackend              Backend
+	BackendMode               string
+	BackendFamilies           map[string]BackendFamilyConfig
+	Catalog                   ModelCatalog
+	Registry                  *cluster.Registry
+	ClusterToken              string
+	ClusterClient             *cluster.Client
+	ClusterRole               string
+	NodeID                    string
+	NodeURL                   string
+	MasterURL                 string
+	SlaveURLs                 []string
+	ConfigDir                 string
+	MCPReconciler             *mcp.Reconciler
+	FileRoots                 []string
+	AssetIndex                *modelassets.Index
+	RecipeStore               *recipes.Store
+	BenchmarkStore            *routerbenchmark.Store
+	AnalyticsStore            *routeranalytics.Store
+	LoadCaptureStore          *loadcapture.Store
+	LoadCaptureMaxOutputBytes int64
+	VRAMAnalyticsEnabled      bool
+	VRAMSource                hardware.VRAMSource
+	VRAMSampleInterval        time.Duration
+	Hardware                  hardware.Source
+	Downloader                *downloader.Manager
+	DownloaderCapability      downloader.Capability
+	Logger                    *log.Logger
+	Shutdown                  func()
+	TransportLimits           transportbody.Limits
+	MaxControlBodyBytes       int64
+	ConcurrentAssetTransfers  int
 }
 
 type Service struct {
-	backend              Backend
-	textRuntime          *backendRuntime
-	imageRuntime         *backendRuntime
-	transcriptionRuntime *backendRuntime
-	backendMode          string
-	backendFamilies      map[string]*backendFamily
-	backendSwitch        *backendFamilySwitchState
-	webUISession         *webUISession
-	webUIRouteMu         sync.Mutex
-	webUIRoutes          atomic.Pointer[webUIRouteSnapshot]
-	catalog              ModelCatalog
-	registry             *cluster.Registry
-	clusterToken         string
-	clusterClient        *cluster.Client
-	clusterRole          string
-	nodeID               string
-	nodeURL              string
-	masterURL            string
-	slaveURLs            []string
-	configDir            string
-	mcpReconciler        *mcp.Reconciler
-	fileRoots            []string
-	assetIndex           *modelassets.Index
-	assetConfigLocks     sync.Map
-	assetResolutionJobs  sync.Map
-	assetTransfers       sync.Map
-	assetTransferSlots   chan struct{}
-	assetLookupMu        sync.Mutex
-	assetLookupCache     map[string]assetLookupCacheEntry
-	assetLookupTimeout   time.Duration
-	assetTransferTimeout time.Duration
-	recipeStore          *recipes.Store
-	benchmarkStore       *routerbenchmark.Store
-	analyticsStore       *routeranalytics.Store
-	vramAnalyticsEnabled bool
-	vramSource           hardware.VRAMSource
-	vramSampler          *hardware.VRAMSampler
-	vramSampleInterval   time.Duration
-	hardware             hardware.Source
-	downloader           *downloader.Manager
-	downloaderCapability downloader.Capability
-	client               *http.Client
-	logger               *log.Logger
-	shutdown             func()
-	benchmarkMu          sync.Mutex
-	sdcppJobs            *sdcppJobStore
-	transportLimits      transportbody.Limits
-	transportBudget      *transportbody.Budget
-	maxControlBodyBytes  int64
-	draining             atomic.Bool
-	autoSTTMu            sync.Mutex
-	autoSTTNext          uint64
+	backend                   Backend
+	textRuntime               *backendRuntime
+	imageRuntime              *backendRuntime
+	transcriptionRuntime      *backendRuntime
+	backendMode               string
+	backendFamilies           map[string]*backendFamily
+	backendSwitch             *backendFamilySwitchState
+	webUISession              *webUISession
+	webUIRouteMu              sync.Mutex
+	webUIRoutes               atomic.Pointer[webUIRouteSnapshot]
+	catalog                   ModelCatalog
+	registry                  *cluster.Registry
+	clusterToken              string
+	clusterClient             *cluster.Client
+	clusterRole               string
+	nodeID                    string
+	nodeURL                   string
+	masterURL                 string
+	slaveURLs                 []string
+	configDir                 string
+	mcpReconciler             *mcp.Reconciler
+	fileRoots                 []string
+	assetIndex                *modelassets.Index
+	assetConfigLocks          sync.Map
+	assetResolutionJobs       sync.Map
+	assetTransfers            sync.Map
+	assetTransferSlots        chan struct{}
+	assetLookupMu             sync.Mutex
+	assetLookupCache          map[string]assetLookupCacheEntry
+	assetLookupTimeout        time.Duration
+	assetTransferTimeout      time.Duration
+	recipeStore               *recipes.Store
+	benchmarkStore            *routerbenchmark.Store
+	analyticsStore            *routeranalytics.Store
+	loadCaptureStore          *loadcapture.Store
+	loadCaptureMaxOutputBytes int64
+	vramAnalyticsEnabled      bool
+	vramSource                hardware.VRAMSource
+	vramSampler               *hardware.VRAMSampler
+	vramSampleInterval        time.Duration
+	hardware                  hardware.Source
+	downloader                *downloader.Manager
+	downloaderCapability      downloader.Capability
+	client                    *http.Client
+	logger                    *log.Logger
+	shutdown                  func()
+	benchmarkMu               sync.Mutex
+	sdcppJobs                 *sdcppJobStore
+	transportLimits           transportbody.Limits
+	transportBudget           *transportbody.Budget
+	maxControlBodyBytes       int64
+	draining                  atomic.Bool
+	autoSTTMu                 sync.Mutex
+	autoSTTNext               uint64
 
 	backendRetryAttempts int
 	backendRetryDelay    time.Duration
@@ -255,6 +260,9 @@ func NewService(config ServiceConfig) *Service {
 		vramSource = vramSampler
 	}
 	maxControlBodyBytes := config.MaxControlBodyBytes
+	if config.LoadCaptureMaxOutputBytes <= 0 {
+		config.LoadCaptureMaxOutputBytes = 64 * 1024 * 1024
+	}
 	if maxControlBodyBytes <= 0 {
 		maxControlBodyBytes = 8 * transportbody.MiB
 	}
@@ -298,38 +306,40 @@ func NewService(config ServiceConfig) *Service {
 			changed: make(chan struct{}),
 			mode:    backendMode,
 		},
-		webUISession:         newWebUISession(),
-		catalog:              config.Catalog,
-		registry:             config.Registry,
-		clusterToken:         config.ClusterToken,
-		clusterRole:          clusterRole,
-		nodeID:               nodeID,
-		nodeURL:              strings.TrimSpace(config.NodeURL),
-		masterURL:            strings.TrimSpace(config.MasterURL),
-		slaveURLs:            append([]string{}, config.SlaveURLs...),
-		configDir:            strings.TrimSpace(config.ConfigDir),
-		mcpReconciler:        config.MCPReconciler,
-		fileRoots:            append([]string{}, config.FileRoots...),
-		assetIndex:           config.AssetIndex,
-		assetTransferSlots:   make(chan struct{}, concurrentAssetTransfers),
-		assetLookupCache:     make(map[string]assetLookupCacheEntry),
-		assetLookupTimeout:   assetLookupTimeout,
-		assetTransferTimeout: modelOperationTimeout,
-		recipeStore:          config.RecipeStore,
-		benchmarkStore:       config.BenchmarkStore,
-		analyticsStore:       config.AnalyticsStore,
-		vramAnalyticsEnabled: config.VRAMAnalyticsEnabled,
-		vramSource:           vramSource,
-		vramSampler:          vramSampler,
-		vramSampleInterval:   vramSampleInterval,
-		hardware:             config.Hardware,
-		downloader:           config.Downloader,
-		downloaderCapability: config.DownloaderCapability,
-		logger:               logger,
-		shutdown:             config.Shutdown,
-		sdcppJobs:            newSdcppJobStore(),
-		transportLimits:      config.TransportLimits.Normalized(),
-		maxControlBodyBytes:  maxControlBodyBytes,
+		webUISession:              newWebUISession(),
+		catalog:                   config.Catalog,
+		registry:                  config.Registry,
+		clusterToken:              config.ClusterToken,
+		clusterRole:               clusterRole,
+		nodeID:                    nodeID,
+		nodeURL:                   strings.TrimSpace(config.NodeURL),
+		masterURL:                 strings.TrimSpace(config.MasterURL),
+		slaveURLs:                 append([]string{}, config.SlaveURLs...),
+		configDir:                 strings.TrimSpace(config.ConfigDir),
+		mcpReconciler:             config.MCPReconciler,
+		fileRoots:                 append([]string{}, config.FileRoots...),
+		assetIndex:                config.AssetIndex,
+		assetTransferSlots:        make(chan struct{}, concurrentAssetTransfers),
+		assetLookupCache:          make(map[string]assetLookupCacheEntry),
+		assetLookupTimeout:        assetLookupTimeout,
+		assetTransferTimeout:      modelOperationTimeout,
+		recipeStore:               config.RecipeStore,
+		benchmarkStore:            config.BenchmarkStore,
+		analyticsStore:            config.AnalyticsStore,
+		loadCaptureStore:          config.LoadCaptureStore,
+		loadCaptureMaxOutputBytes: config.LoadCaptureMaxOutputBytes,
+		vramAnalyticsEnabled:      config.VRAMAnalyticsEnabled,
+		vramSource:                vramSource,
+		vramSampler:               vramSampler,
+		vramSampleInterval:        vramSampleInterval,
+		hardware:                  config.Hardware,
+		downloader:                config.Downloader,
+		downloaderCapability:      config.DownloaderCapability,
+		logger:                    logger,
+		shutdown:                  config.Shutdown,
+		sdcppJobs:                 newSdcppJobStore(),
+		transportLimits:           config.TransportLimits.Normalized(),
+		maxControlBodyBytes:       maxControlBodyBytes,
 		client: &http.Client{
 			Timeout: 0,
 		},

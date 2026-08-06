@@ -1653,3 +1653,44 @@ td {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+
+.load-capture-controls {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.load-capture-controls label,
+.load-capture-inspector {
+  display: grid;
+  gap: 8px;
+}
+
+.load-capture-inspector {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 18px;
+}
+
+.load-capture-inspector section {
+  min-width: 0;
+}
+
+.load-capture-inspector pre,
+.load-capture-console {
+  max-height: 520px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  background: rgba(5, 10, 18, .96);
+  border: 1px solid rgba(39, 50, 68, .95);
+  border-radius: 8px;
+  padding: 12px;
+}
+
+@media (max-width: 1180px) {
+  .load-capture-controls,
+  .load-capture-inspector {
+    grid-template-columns: 1fr;
+  }
+}

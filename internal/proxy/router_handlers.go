@@ -61,6 +61,10 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		service.handleBenchmarkRun(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/analytics":
 		service.handleSiteAnalytics(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/load-captures":
+		service.handleSiteLoadCaptures(w, r)
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/site/load-captures/"):
+		service.handleSiteLoadCaptureRecord(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/cook/preview":
 		service.handleSiteCookPreview(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/cook/apply":
@@ -230,6 +234,14 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/analytics":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeAnalytics(w, r)
+		}
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/load-captures":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeLoadCaptures(w, r)
+		}
+	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/node/load-captures/"):
+		if service.requireClusterToken(w, r) {
+			service.handleNodeLoadCaptureRecord(w, r)
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/configs":
 		if service.requireClusterToken(w, r) {

@@ -134,8 +134,18 @@ Standalone and master routers expose administration routes in these groups:
 - `/router/v1/site/download/...`
 - `/router/v1/site/webuis/...`
 - `/router/v1/site/analytics`
+- `/router/v1/site/load-captures`
 - `/router/v1/site/cook/...` and `/router/v1/site/config-file/...`
 - `/router/v1/site/model-files/...` and `/router/v1/site/model-assets/...`
+
+Load-capture recording is opt-in on each node. The site endpoint merges enabled nodes and accepts repeated `node` parameters plus `status`, `kind`, `backend`, `from`, `to`, `limit`, and `cursor` filters. Summary records expose content hashes instead of local model paths.
+
+Detailed records and paged output are available from:
+
+- `GET /router/v1/site/load-captures/{attempt_id}?node_id={node_id}`
+- `GET /router/v1/site/load-captures/{attempt_id}/output?node_id={node_id}&after_sequence={sequence}`
+
+Details contain the sanitized KCPPS snapshot and asset hashes. Output payloads are base64-encoded JSON byte fields, preserve stdout/stderr ordering, and may be marked truncated when the configured capture limit is reached. Site routes require admin authentication; corresponding `/router/v1/node/load-captures/...` routes require the cluster token.
 
 The WebUI catalog, session toggle, model load, and proxied browser routes are described in [Backend WebUI Interfaces](Backend-WebUI-Interfaces).
 

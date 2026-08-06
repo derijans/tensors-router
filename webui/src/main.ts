@@ -47,6 +47,12 @@ import {
   updateAnalyticsPeriod,
   updateAnalyticsSection
 } from "./analytics";
+import {
+  loadLoadCaptures,
+  loadMoreCaptureOutput,
+  selectLoadCapture,
+  updateLoadCaptureFilters
+} from "./load-captures";
 import { closestElement, elementTarget, queryElements } from "./dom";
 import { bootstrapApplication } from "./bootstrap";
 import { elements } from "./elements";
@@ -140,6 +146,7 @@ async function refreshAll(): Promise<void> {
   await loadWebUIs();
   await loadAnalytics();
   await loadDownloads();
+  await loadLoadCaptures();
 }
 
 async function refreshRouterStatus(): Promise<void> {
@@ -373,6 +380,21 @@ elements.analyticsSectionSelect.addEventListener("change", () => runTask(async (
   await loadAnalytics();
 }, "analytics-section", "analytics", "Loading analytics…"));
 elements.analyticsRefreshButton.addEventListener("click", () => runTask(loadAnalytics, "analytics-refresh", "analytics", "Loading analytics…"));
+elements.loadCaptureRefreshButton.addEventListener("click", () => runTask(async () => {
+  updateLoadCaptureFilters();
+  await loadLoadCaptures();
+}, "load-captures-refresh", "load-captures", "Loading captures…"));
+elements.loadCaptureMoreButton.addEventListener("click", () => runTask(() => loadLoadCaptures(false), "load-captures-more", "load-captures", "Loading captures…"));
+elements.loadCaptureOutputMoreButton.addEventListener("click", () => runTask(loadMoreCaptureOutput, "load-capture-output", "load-captures", "Loading output…"));
+elements.loadCaptureRows.addEventListener("click", event => {
+  const target = elementTarget(event);
+  const nodeID = target?.dataset.loadCaptureNode;
+  const attemptID = target?.dataset.loadCaptureId;
+  if (nodeID && attemptID) {
+    runTask(() => selectLoadCapture(nodeID, attemptID), `load-capture-${attemptID}`, "load-captures", "Loading capture…");
+  }
+});
+
 elements.constructorFilterInput.addEventListener("input", renderConstructor);
 
 elements.launchButton.addEventListener("click", () => runTask(handleLaunchRouter, "router-launch", "router", "Launching router…"));

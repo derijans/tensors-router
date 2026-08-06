@@ -49,6 +49,7 @@
         <button class="tab-button" type="button" data-tab="models">Models</button>
         <button class="tab-button" type="button" data-tab="benchmarks">Benchmarks</button>
         <button class="tab-button" type="button" data-tab="analytics">Analytics</button>
+        <button id="loadCapturesTab" class="tab-button" type="button" data-tab="load-captures" hidden>Load captures</button>
         <button class="tab-button" type="button" data-tab="cook">Cook</button>
         <button class="tab-button" type="button" data-tab="recipes">Recipes</button>
       </nav>
@@ -321,6 +322,39 @@
               <tbody id="analyticsRecentTable"></tbody>
             </table>
           </div>
+        </div>
+      </section>
+
+      <section id="loadCapturesPanel" class="tab-panel" data-panel="load-captures" hidden>
+        <div class="panel-head">
+          <div>
+            <h2>Load captures</h2>
+            <p class="muted">sanitized backend load attempts and reuse metadata</p>
+          </div>
+          <button id="loadCaptureRefreshButton" type="button" data-operation-group="load-captures">Refresh</button>
+        </div>
+        <div class="load-capture-controls">
+          <label>Nodes<select id="loadCaptureNodeSelect" multiple size="4"></select></label>
+          <label>Status<select id="loadCaptureStatusSelect"><option value="">All</option><option value="loading">Loading</option><option value="succeeded">Succeeded</option><option value="failed">Failed</option><option value="interrupted">Interrupted</option><option value="reused">Reused</option></select></label>
+          <label>Kind<select id="loadCaptureKindSelect"><option value="">All</option><option value="physical">Physical</option><option value="reuse">Reuse</option></select></label>
+          <label>Backend<input id="loadCaptureBackendInput" type="search" placeholder="kobold or llama_sdcpp"></label>
+          <label>From<input id="loadCaptureFromInput" type="datetime-local"></label>
+          <label>To<input id="loadCaptureToInput" type="datetime-local"></label>
+        </div>
+        <div id="loadCaptureStatus"></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Started</th><th>Node</th><th>Kind</th><th>Status</th><th>Backend</th><th>Runtime / lane</th><th>Duration</th><th>Snapshot</th><th>Truncated</th><th></th></tr></thead>
+            <tbody id="loadCaptureRows"></tbody>
+          </table>
+        </div>
+        <button id="loadCaptureMoreButton" type="button" data-operation-group="load-captures" hidden>Load more</button>
+        <div class="load-capture-inspector">
+          <section id="loadCaptureDetail"></section>
+          <section>
+            <div class="panel-head"><h3>Console output</h3><button id="loadCaptureOutputMoreButton" type="button" data-operation-group="load-captures" hidden>Load more output</button></div>
+            <pre id="loadCaptureOutput" class="load-capture-console"></pre>
+          </section>
         </div>
       </section>
 

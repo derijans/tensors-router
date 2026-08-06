@@ -105,6 +105,9 @@ cluster:
 analytics:
   enabled: false
   vram_enabled: true
+  load_capture_enabled: false
+  load_capture_database_path: ""
+  load_capture_max_output_mb: 64
   flush_interval: "3m"
   database_path: ""
   raw_retention: "720h"

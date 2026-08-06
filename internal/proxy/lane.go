@@ -24,6 +24,7 @@ type activeConfigState struct {
 	filename            string
 	physicalFingerprint string
 	physicalShareable   bool
+	physicalAttemptID   string
 	users               int
 	switching           bool
 	switchWaiters       int
@@ -136,8 +137,10 @@ func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.
 			logicalConfigChanged := state.filename != configFilename
 			state.filename = configFilename
 			state.users++
+			physicalAttemptID := state.physicalAttemptID
 			release := releaseActiveConfigOnce(state)
 			state.mu.Unlock()
+			service.recordLoadReuse(physicalAttemptID)
 			if logicalConfigChanged {
 				service.invalidateWebUIRoutes()
 			}
@@ -170,17 +173,32 @@ func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.
 		state.switching = true
 		state.mu.Unlock()
 
+		capture, err := service.beginPhysicalLoadCapture(ctx, runtime, configFilename, readiness)
+		if err != nil {
+			state.mu.Lock()
+			state.switching = false
+			state.filename = ""
+			state.physicalAttemptID = ""
+			clearPhysicalLoadProfileLocked(state)
+			clearVRAMLoadStateLocked(state)
+			notifyActiveConfigLocked(state)
+			state.mu.Unlock()
+			service.invalidateWebUIRoutes()
+			return nil, false, err
+		}
 		vramLoad := service.beginVRAMLoad(ctx)
-		err := service.reloadModelConfig(runtime, ctx, modelID, configFilename)
+		err = service.reloadModelConfig(runtime, ctx, modelID, configFilename)
 		if err == nil {
 			err = service.waitForBackendEndpoint(runtime, ctx, readiness, modelID, configFilename)
 		}
 		service.finishVRAMLoad(ctx, vramLoad)
+		service.finishPhysicalLoadCapture(capture, err)
 
 		state.mu.Lock()
 		state.switching = false
 		if err != nil {
 			state.filename = ""
+			state.physicalAttemptID = ""
 			clearPhysicalLoadProfileLocked(state)
 			clearVRAMLoadStateLocked(state)
 			notifyActiveConfigLocked(state)
@@ -189,6 +207,11 @@ func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.
 			return nil, false, err
 		}
 		state.filename = configFilename
+		if capture != nil {
+			state.physicalAttemptID = capture.attempt.ID
+		} else {
+			state.physicalAttemptID = ""
+		}
 		applyPhysicalLoadProfileLocked(state, profile)
 		applyVRAMLoadStateLocked(state, vramLoad)
 		state.users++
@@ -383,6 +406,7 @@ func applyPhysicalLoadProfileLocked(state *activeConfigState, profile catalog.Ch
 
 func clearPhysicalLoadProfileLocked(state *activeConfigState) {
 	state.physicalFingerprint = ""
+	state.physicalAttemptID = ""
 	state.physicalShareable = false
 }
 

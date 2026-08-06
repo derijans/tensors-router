@@ -42,4 +42,10 @@ Cooking can create a normal `.kcpps` file on one node or a split recipe on the m
 
 Portable export replaces local model paths with verified asset references for sharing. See [KCPPS Sharing](KCPPS-Sharing).
 
+## Load captures
+
+The Load Captures tab appears when at least one selected node has `analytics.load_capture_enabled`. It can filter and merge attempt summaries across nodes, inspect sanitized KCPPS and asset identities, and fetch bounded stdout/stderr output incrementally. Reused loads link back to their physical attempt output.
+
+The capture database is node-local. A node that disables capture remains absent from the viewer and does not receive capture storage writes.
+
 See [Cook Backend Options](Cook-Backend-Options) for the option catalog.

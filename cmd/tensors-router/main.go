@@ -24,6 +24,7 @@ import (
 	"tensors-router/internal/config"
 	"tensors-router/internal/downloader"
 	"tensors-router/internal/kobold"
+	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/mcp"
 	"tensors-router/internal/modelassets"
 	"tensors-router/internal/native"
@@ -117,6 +118,7 @@ func runServe(args []string) error {
 	assetIndex.SetHashWorkers(cfg.Models.HashWorkers)
 	defer assetIndex.Close()
 	var analyticsStore *routeranalytics.Store
+	var loadCaptureStore *loadcapture.Store
 	var downloaderManager *downloader.Manager
 	var routerService *proxy.Service
 	var shutdownBackends []func(context.Context) error
@@ -126,7 +128,7 @@ func runServe(args []string) error {
 			return nil
 		}
 		runtimeCleaned = true
-		return errors.Join(closeRouterRuntime(routerService, modelCatalog, analyticsStore, shutdownBackends, serveLogger), closeDownloader(downloaderManager))
+		return errors.Join(closeRouterRuntime(routerService, modelCatalog, analyticsStore, shutdownBackends, serveLogger), loadCaptureStore.Close(), closeDownloader(downloaderManager))
 	}
 	defer func() {
 		if err := cleanupRuntime(); err != nil {
@@ -138,6 +140,10 @@ func runServe(args []string) error {
 		return err
 	}
 	analyticsStore, err = newAnalyticsStore(cfg, serveLogger)
+	if err != nil {
+		return err
+	}
+	loadCaptureStore, err = newLoadCaptureStore(cfg, serveLogger)
 	if err != nil {
 		return err
 	}
@@ -197,31 +203,33 @@ func runServe(args []string) error {
 	}
 
 	router := proxy.NewService(proxy.ServiceConfig{
-		BackendMode:              cfg.Backend.Mode,
-		BackendFamilies:          backendFamilies,
-		Catalog:                  modelCatalog,
-		Registry:                 registry,
-		ClusterToken:             cfg.Cluster.Token,
-		ClusterClient:            clusterClient,
-		ClusterRole:              cfg.Cluster.Role,
-		NodeID:                   cfg.Cluster.NodeID,
-		NodeURL:                  cfg.Cluster.PublicURL,
-		MasterURL:                cfg.Cluster.MasterURL,
-		SlaveURLs:                cfg.Cluster.SlaveURLs,
-		ConfigDir:                cfg.Models.ConfigDir,
-		MCPReconciler:            mcpReconciler,
-		FileRoots:                cfg.Models.FileRoots,
-		AssetIndex:               assetIndex,
-		ConcurrentAssetTransfers: cfg.Models.ConcurrentAssetTransfers,
-		RecipeStore:              recipeStore,
-		BenchmarkStore:           benchmarkStore,
-		AnalyticsStore:           analyticsStore,
-		VRAMAnalyticsEnabled:     cfg.Analytics.Enabled && cfg.Analytics.VRAMEnabled,
-		VRAMSampleInterval:       cfg.Analytics.VRAMSampleInterval,
-		Downloader:               downloaderManager,
-		DownloaderCapability:     downloaderCapability,
-		Logger:                   serveLogger,
-		Shutdown:                 routerShutdownFunc(cfg, shutdownRequested),
+		BackendMode:               cfg.Backend.Mode,
+		BackendFamilies:           backendFamilies,
+		Catalog:                   modelCatalog,
+		Registry:                  registry,
+		ClusterToken:              cfg.Cluster.Token,
+		ClusterClient:             clusterClient,
+		ClusterRole:               cfg.Cluster.Role,
+		NodeID:                    cfg.Cluster.NodeID,
+		NodeURL:                   cfg.Cluster.PublicURL,
+		MasterURL:                 cfg.Cluster.MasterURL,
+		SlaveURLs:                 cfg.Cluster.SlaveURLs,
+		ConfigDir:                 cfg.Models.ConfigDir,
+		MCPReconciler:             mcpReconciler,
+		FileRoots:                 cfg.Models.FileRoots,
+		AssetIndex:                assetIndex,
+		ConcurrentAssetTransfers:  cfg.Models.ConcurrentAssetTransfers,
+		RecipeStore:               recipeStore,
+		BenchmarkStore:            benchmarkStore,
+		AnalyticsStore:            analyticsStore,
+		LoadCaptureStore:          loadCaptureStore,
+		LoadCaptureMaxOutputBytes: cfg.Analytics.LoadCaptureMaxOutputMB * 1024 * 1024,
+		VRAMAnalyticsEnabled:      cfg.Analytics.Enabled && cfg.Analytics.VRAMEnabled,
+		VRAMSampleInterval:        cfg.Analytics.VRAMSampleInterval,
+		Downloader:                downloaderManager,
+		DownloaderCapability:      downloaderCapability,
+		Logger:                    serveLogger,
+		Shutdown:                  routerShutdownFunc(cfg, shutdownRequested),
 		TransportLimits: transportbody.Limits{
 			ReplayBufferBytes: cfg.Limits.ReplayBufferMB * transportbody.MiB,
 			MemoryBudgetBytes: cfg.Limits.MemoryBudgetMB * transportbody.MiB,
@@ -370,6 +378,17 @@ func newAnalyticsStore(cfg config.Config, logger *log.Logger) (*routeranalytics.
 		RawRetention:  cfg.Analytics.RawRetention,
 		Logger:        logger,
 	})
+}
+
+func newLoadCaptureStore(cfg config.Config, logger *log.Logger) (*loadcapture.Store, error) {
+	if !cfg.Analytics.LoadCaptureEnabled {
+		return nil, nil
+	}
+	databasePath := strings.TrimSpace(cfg.Analytics.LoadCaptureDatabasePath)
+	if databasePath == "" {
+		databasePath = filepath.Join(cfg.Cluster.StoreDir, "load-captures.sqlite")
+	}
+	return loadcapture.NewStore(loadcapture.StoreConfig{NodeID: cfg.Cluster.NodeID, DatabasePath: databasePath, Logger: logger})
 }
 
 func clusterClientTargets(cfg config.Config) []string {

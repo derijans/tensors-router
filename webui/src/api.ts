@@ -1,4 +1,5 @@
 import { state } from "./state";
+import type { LoadCaptureDetailResponse, LoadCaptureListResponse, LoadCaptureOutputResponse, LoadCaptureQuery } from "./types";
 import { jsonRecord } from "./json";
 import type {
   ConfigFileRequest,
@@ -331,4 +332,27 @@ function isValidationIssue(value: unknown): value is ValidationIssue {
   return typeof record?.severity === "string" &&
     typeof record.code === "string" &&
     typeof record.message === "string";
+}
+
+export function getLoadCaptures(query: LoadCaptureQuery): Promise<LoadCaptureListResponse> {
+  const params = new URLSearchParams();
+  query.node_ids.forEach(nodeID => params.append("node_id", nodeID));
+  if (query.status) params.set("status", query.status);
+  if (query.kind) params.set("kind", query.kind);
+  if (query.backend) params.set("backend", query.backend);
+  if (query.from) params.set("from", String(query.from));
+  if (query.to) params.set("to", String(query.to));
+  if (query.cursor) params.set("cursor", query.cursor);
+  params.set("limit", "100");
+  return api<LoadCaptureListResponse>(`/api/load-captures?${params.toString()}`);
+}
+
+export function getLoadCaptureDetail(nodeID: string, attemptID: string): Promise<LoadCaptureDetailResponse> {
+  const params = new URLSearchParams({node_id: nodeID});
+  return api<LoadCaptureDetailResponse>(`/api/load-captures/${encodeURIComponent(attemptID)}?${params.toString()}`);
+}
+
+export function getLoadCaptureOutput(nodeID: string, attemptID: string, afterSequence: number): Promise<LoadCaptureOutputResponse> {
+  const params = new URLSearchParams({node_id: nodeID, after_sequence: String(afterSequence)});
+  return api<LoadCaptureOutputResponse>(`/api/load-captures/${encodeURIComponent(attemptID)}/output?${params.toString()}`);
 }

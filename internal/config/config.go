@@ -152,12 +152,15 @@ type ClusterConfig struct {
 }
 
 type AnalyticsConfig struct {
-	Enabled            bool
-	VRAMEnabled        bool
-	FlushInterval      time.Duration
-	DatabasePath       string
-	RawRetention       time.Duration
-	VRAMSampleInterval time.Duration
+	Enabled                 bool
+	VRAMEnabled             bool
+	LoadCaptureEnabled      bool
+	LoadCaptureDatabasePath string
+	LoadCaptureMaxOutputMB  int64
+	FlushInterval           time.Duration
+	DatabasePath            string
+	RawRetention            time.Duration
+	VRAMSampleInterval      time.Duration
 }
 
 func Defaults() Config {
@@ -251,11 +254,13 @@ func Defaults() Config {
 			HealthInterval: 15 * time.Second,
 		},
 		Analytics: AnalyticsConfig{
-			Enabled:            false,
-			VRAMEnabled:        true,
-			FlushInterval:      3 * time.Minute,
-			RawRetention:       30 * 24 * time.Hour,
-			VRAMSampleInterval: time.Second,
+			Enabled:                false,
+			VRAMEnabled:            true,
+			LoadCaptureEnabled:     false,
+			LoadCaptureMaxOutputMB: 64,
+			FlushInterval:          3 * time.Minute,
+			RawRetention:           30 * 24 * time.Hour,
+			VRAMSampleInterval:     time.Second,
 		},
 		Limits: LimitsConfig{
 			MaxControlBodyMB:    8,
@@ -402,6 +407,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Analytics.VRAMSampleInterval <= 0 {
 		return fmt.Errorf("analytics.vram_sample_interval must be positive")
+	}
+	if cfg.Analytics.LoadCaptureMaxOutputMB <= 0 {
+		return fmt.Errorf("analytics.load_capture_max_output_mb must be positive")
 	}
 	if err := validateLimits(cfg.Limits); err != nil {
 		return err
@@ -958,6 +966,18 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			}
 			cfg.Analytics.VRAMEnabled = parsed
 			return nil
+		case "load_capture_enabled":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return err
+			}
+			cfg.Analytics.LoadCaptureEnabled = parsed
+			return nil
+		case "load_capture_database_path":
+			cfg.Analytics.LoadCaptureDatabasePath = value
+			return nil
+		case "load_capture_max_output_mb":
+			return setPositiveInt64(&cfg.Analytics.LoadCaptureMaxOutputMB, value)
 		case "flush_interval":
 			parsed, err := time.ParseDuration(value)
 			if err != nil {

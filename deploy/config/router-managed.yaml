@@ -94,6 +94,9 @@ analytics:
   database_path: "/data/analytics.sqlite"
   raw_retention: "720h"
   vram_sample_interval: "1s"
+  load_capture_enabled: false
+  load_capture_database_path: "/data/load-captures.sqlite"
+  load_capture_max_output_mb: 64
 
 limits:
   max_control_body_mb: 8

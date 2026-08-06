@@ -157,10 +157,15 @@ When updates are enabled, each selected backend needs either a direct binary URL
 | --- | --- | --- | --- |
 | `analytics.enabled` | Boolean | `false` | Enables persisted request and runtime analytics. |
 | `analytics.vram_enabled` | Boolean | `true` | Enables VRAM sampling when analytics is active. |
+| `analytics.load_capture_enabled` | Boolean | `false` | Independently records backend load attempts and reuse metadata on each enabled node. |
+| `analytics.load_capture_database_path` | Path string | Empty | SQLite path. Empty uses `cluster.store_dir/load-captures.sqlite` on that node. |
+| `analytics.load_capture_max_output_mb` | Positive integer | `64` | Per-physical-load RAM cap for captured stdout and stderr. Overflow is marked and backend loading continues. |
 | `analytics.flush_interval` | Positive duration string | `3m` | Interval between analytics aggregation flushes. |
 | `analytics.database_path` | Path string | Empty | SQLite path. Empty uses `cluster.store_dir/analytics.sqlite`. |
 | `analytics.raw_retention` | Positive duration string | `720h` | Retention period for raw analytics samples. |
 | `analytics.vram_sample_interval` | Positive duration string | `1s` | Interval between VRAM samples. |
+
+Load captures are opt-in and independent from request analytics, VRAM analytics, and backend disk logging. Records are retained permanently until an operator removes the database. The capture database, WAL, and SHM files are owner-restricted; size grows with load attempts and reuse records.
 
 ### Request and memory limits
 
