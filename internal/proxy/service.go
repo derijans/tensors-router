@@ -10,6 +10,7 @@ import (
 	"html"
 	"io"
 	"log"
+	"math"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -2374,7 +2375,11 @@ func rewriteTopLevelStringField(body []byte, quotedFieldName []byte, quotedField
 			if valueEnd == -1 {
 				return body, false
 			}
-			rewritten := make([]byte, 0, len(body)+len(quotedFieldValue)-(valueEnd-valueStart))
+			rewrittenCapacity, ok := replacementBufferCapacity(len(body), len(quotedFieldValue), valueEnd-valueStart)
+			if !ok {
+				return body, false
+			}
+			rewritten := make([]byte, 0, rewrittenCapacity)
 			rewritten = append(rewritten, body[:valueStart]...)
 			rewritten = append(rewritten, quotedFieldValue...)
 			rewritten = append(rewritten, body[valueEnd:]...)
@@ -2389,6 +2394,17 @@ func rewriteTopLevelStringField(body []byte, quotedFieldName []byte, quotedField
 	}
 
 	return body, true
+}
+
+func replacementBufferCapacity(originalLength int, replacementLength int, replacedLength int) (int, bool) {
+	if originalLength < 0 || replacementLength < 0 || replacedLength < 0 || replacedLength > originalLength {
+		return 0, false
+	}
+	preservedLength := originalLength - replacedLength
+	if replacementLength > math.MaxInt-preservedLength {
+		return 0, false
+	}
+	return preservedLength + replacementLength, true
 }
 
 func findJSONStringEnd(body []byte, start int) int {
