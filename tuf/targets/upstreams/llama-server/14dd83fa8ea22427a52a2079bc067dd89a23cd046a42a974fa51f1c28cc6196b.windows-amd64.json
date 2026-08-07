@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/ggml-org/llama.cpp",
+  "releases": [
+    {
+      "id": "366789479",
+      "tag": "b10308",
+      "published_at": "2026-08-07T14:05:22Z",
+      "payloads": [
+        {
+          "name": "llama-b10308-bin-win-cpu-x64.zip",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10308/llama-b10308-bin-win-cpu-x64.zip",
+          "length": 18360773,
+          "sha256": "14eed8010074e65de139401c870d9c196856e52326580e418bdcc3eb5578860a"
+        }
+      ]
+    }
+  ]
+}
