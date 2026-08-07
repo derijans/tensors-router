@@ -1,0 +1,43 @@
+{
+	"signatures": [
+		{
+			"keyid": "f814d1efa3df268a08e8c4ed410cdaf4f0aa1f1453cc18c554f4154631ab17f1",
+			"sig": "2235bd06f978c336c220525761c279558481093f53114d47af98d8fcd8f97c107d38d22a0f83cfd19bc89bfa35ced34562c3aa92b24f0fcfc148d7127adc9e04"
+		},
+		{
+			"keyid": "980ced33fab10bb3a52e86debd7b5207c1e0b48ba262a969a5318da8ee612e33",
+			"sig": "717d14e10b60f2e146c1ae320e97f188d6e6918196869a135c04e3873b3f5a444a9edb1a27b2480f08e2b76da153970e7c77e343770239304c428d51e8ec2706"
+		}
+	],
+	"signed": {
+		"_type": "targets",
+		"delegations": {
+			"keys": {
+				"5a226ee87c683f7fb870630783d02dc82f5d46a047aaf9d54e22282771bdc4a2": {
+					"keytype": "ed25519",
+					"keyval": {
+						"public": "40bbc81e0db79038bfc851c1f3fc6d0059e9bd923be6ae3bd403a61cb03bd1c4"
+					},
+					"scheme": "ed25519"
+				}
+			},
+			"roles": [
+				{
+					"keyids": [
+						"5a226ee87c683f7fb870630783d02dc82f5d46a047aaf9d54e22282771bdc4a2"
+					],
+					"name": "upstream-targets",
+					"paths": [
+						"upstreams/*/*"
+					],
+					"terminating": true,
+					"threshold": 1
+				}
+			]
+		},
+		"expires": "2027-02-07T12:38:33.7919434Z",
+		"spec_version": "1.0.31",
+		"targets": {},
+		"version": 1
+	}
+}
