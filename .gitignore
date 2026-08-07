@@ -34,3 +34,5 @@ GEMINI.md
 coverage.out
 
 webui/node_modules/
+
+/docs/audits/full-repository-audit.md
