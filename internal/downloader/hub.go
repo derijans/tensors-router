@@ -18,10 +18,11 @@ import (
 const hubAPIURL = "https://huggingface.co/api"
 
 type HubClient struct {
-	baseURL string
-	client  *http.Client
-	mu      sync.Mutex
-	cache   map[string]cachedSearch
+	baseURL        string
+	client         *http.Client
+	downloadClient *http.Client
+	mu             sync.Mutex
+	cache          map[string]cachedSearch
 }
 
 type cachedSearch struct {
@@ -33,7 +34,25 @@ func NewHubClient(timeout time.Duration) *HubClient {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	return &HubClient{baseURL: hubAPIURL, client: &http.Client{Timeout: timeout}, cache: map[string]cachedSearch{}}
+	downloadClient := &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: timeout}}
+	downloadClient.CheckRedirect = func(request *http.Request, via []*http.Request) error {
+		if len(via) > 0 && !strings.EqualFold(request.URL.Host, via[0].URL.Host) {
+			request.Header.Del("Authorization")
+		}
+		if len(via) >= 10 {
+			return fmt.Errorf("too many download redirects")
+		}
+		return nil
+	}
+	return &HubClient{baseURL: hubAPIURL, client: &http.Client{Timeout: timeout}, downloadClient: downloadClient, cache: map[string]cachedSearch{}}
+}
+
+func (client *HubClient) FileURL(repository string, commit string, repositoryPath string) string {
+	owner, name, _ := splitRepository(repository)
+	apiURL, _ := url.Parse(client.baseURL)
+	apiURL.Path = strings.TrimSuffix(apiURL.Path, "/api") + "/" + owner + "/" + name + "/resolve/" + commit + "/" + repositoryPath
+	apiURL.RawQuery = "download=true"
+	return apiURL.String()
 }
 
 func (client *HubClient) Search(ctx context.Context, request SearchRequest, token string) ([]SearchResult, error) {

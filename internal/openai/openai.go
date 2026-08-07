@@ -54,10 +54,15 @@ func WriteJSON(w http.ResponseWriter, status int, value any) {
 }
 
 func WriteError(w http.ResponseWriter, status int, errorType string, message string) {
+	WriteErrorCode(w, status, errorType, "", message)
+}
+
+func WriteErrorCode(w http.ResponseWriter, status int, errorType string, code string, message string) {
 	WriteJSON(w, status, ErrorBody{
 		Error: ErrorDetail{
 			Message: message,
 			Type:    errorType,
+			Code:    code,
 		},
 	})
 }

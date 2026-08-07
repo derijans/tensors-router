@@ -1,0 +1,6 @@
+package update
+
+import _ "embed"
+
+//go:embed trusted-root.json
+var embeddedTrustedRoot string

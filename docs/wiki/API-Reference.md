@@ -27,19 +27,25 @@ The router recognizes all paths at `/v1` and `/v1/...` as text-side API paths un
 - `POST /v1/rerank`
 - `POST /v1/reranking`
 
-The exact `/v1/...` operations depend on the selected text backend. The router also recognizes these explicit text compatibility paths:
+The exact `/v1/...` operations depend on the selected text backend. The router also recognizes Kobold-compatible text paths:
 
 - `/api/v1/generate`
 - `/api/extra/generate/stream`
 - `/api/extra/tokencount`
-- `/api/generate`
-- `/api/chat`
-- `/api/show`
-- `/api/tags`
-- `/api/ps`
-- `/api/version`
 
-`/api/generate`, `/api/chat`, and `/api/show` use the request model when present. Other compatibility paths use the active compatible runtime where the route permits it. Non-image KoboldCpp paths outside these groups are not proxied.
+Ollama compatibility uses the official methods:
+
+- `POST /api/show`
+- `POST /api/generate`
+- `POST /api/chat`
+- `POST /api/embed`
+- `GET /api/tags`
+- `GET /api/ps`
+- `GET /api/version`
+
+Method mismatches return `405` with `Allow`. Ollama failures use `{"error":"message"}`. Generate and chat streams are NDJSON; each successful record exposes the router-visible model ID, while error-only records pass through unchanged. `/api/tags` is synthesized from deduplicated router-visible text models, and `/api/ps` contains only loaded models on healthy nodes. Backend-local model IDs are not exposed by either response.
+
+The model-aware compatibility paths use the request model. Non-image KoboldCpp paths outside these groups are not proxied.
 
 Example:
 

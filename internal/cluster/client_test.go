@@ -3,11 +3,13 @@ package cluster
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestClientRejectsUnauthorizedTarget(t *testing.T) {
@@ -149,4 +151,42 @@ func TestClientAllowsRedirectWithinConfiguredBasePath(t *testing.T) {
 
 func serverURL(r *http.Request) string {
 	return "http://" + r.Host
+}
+
+func TestClientJSONRetainsTotalControlTimeoutWhileReadingBody(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		if flusher, ok := w.(http.Flusher); ok {
+			flusher.Flush()
+		}
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	client := NewClientWithTimeout("", 50*time.Millisecond, server.URL)
+	started := time.Now()
+	err := client.JSON(context.Background(), http.MethodGet, server.URL, "/hang", nil, &Snapshot{})
+	if err == nil {
+		t.Fatal("expected total control timeout")
+	}
+	if elapsed := time.Since(started); elapsed > time.Second {
+		t.Fatalf("control timeout took %s", elapsed)
+	}
+}
+
+func TestClientDecodesClusterErrorCode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusConflict)
+		_, _ = w.Write([]byte(`{"error":{"type":"cluster_error","code":"duplicate_node","message":"duplicate"}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("", server.URL)
+	err := client.Register(context.Background(), server.URL, Snapshot{NodeID: "node", NodeURL: "http://node"})
+	var remoteError *RemoteError
+	if !errors.As(err, &remoteError) || remoteError.Code != ErrorCodeDuplicateNode || remoteError.Type != "cluster_error" {
+		t.Fatalf("unexpected remote error %#v", err)
+	}
 }

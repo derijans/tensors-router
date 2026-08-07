@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
+
+	"tensors-router/internal/ollama"
 )
 
 const (
@@ -88,7 +90,7 @@ func NewGuard(allowedCIDRs []string, bearerKeys []string) (*Guard, error) {
 func (policy *Policy) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !policy.allowedRemote(r.RemoteAddr) {
-			http.Error(w, "forbidden", http.StatusForbidden)
+			writeAccessError(w, r.URL.Path, http.StatusForbidden, "forbidden")
 			return
 		}
 		principal := policy.principal(r.Header.Get("Authorization"))
@@ -96,7 +98,7 @@ func (policy *Policy) Middleware(next http.Handler) http.Handler {
 		class := classifyRoute(r.URL.Path)
 		if class == routeCluster {
 			if policy.clusterToken == "" || !allowedBearer(r.Header.Get("Authorization"), []string{policy.clusterToken}) {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				writeAccessError(w, r.URL.Path, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 		} else if policy.profile == ProfileSecure {
@@ -105,12 +107,20 @@ func (policy *Policy) Middleware(next http.Handler) http.Handler {
 				keys = policy.adminKeys
 			}
 			if len(keys) > 0 && !allowedBearer(r.Header.Get("Authorization"), keys) {
-				http.Error(w, "unauthorized", http.StatusUnauthorized)
+				writeAccessError(w, r.URL.Path, http.StatusUnauthorized, "unauthorized")
 				return
 			}
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func writeAccessError(w http.ResponseWriter, path string, status int, message string) {
+	if _, ok := ollama.Method(path); ok {
+		ollama.WriteError(w, status, message)
+		return
+	}
+	http.Error(w, message, status)
 }
 
 func PrincipalFromContext(ctx context.Context) Principal {

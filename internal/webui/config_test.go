@@ -215,7 +215,20 @@ logging:
 }
 
 func TestContainerWebUIExampleIsValid(t *testing.T) {
-	if _, err := LoadConfig(filepath.Join("..", "..", "deploy", "config", "webui.yaml"), t.TempDir()); err != nil {
+	overrides := ConfigOverrides{AdminToken: "deployment-webui-admin", RouterToken: "deployment-router-admin"}
+	if _, err := LoadConfigWithOverrides(filepath.Join("..", "..", "deploy", "config", "webui.yaml"), t.TempDir(), overrides); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestLoadConfigRejectsCredentialReuseAcrossRoles(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "webui.yaml")
+	content := "server:\n  admin_token: \"shared-secret\"\nrouter:\n  token: \"shared-secret\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LoadConfig(path, dir); err == nil {
+		t.Fatal("expected cross-role credential reuse rejection")
 	}
 }

@@ -57,12 +57,15 @@ func run(args []string) error {
 	}
 	executableDir := filepath.Dir(executablePath)
 	profileOverride := webui.ResolveSecurityProfile(*securityProfile, os.Getenv("TENSORS_ROUTER_SECURITY_PROFILE"))
-	adminTokenOverride := firstNonEmpty(*adminToken, os.Getenv("TENSORS_ROUTER_WEBUI_TOKEN"), os.Getenv("TENSOR_ROUTER_WEBUI_TOKEN"))
+	adminTokenOverride, routerTokenOverride, err := webUICredentialOverrides(*adminToken, *routerToken)
+	if err != nil {
+		return err
+	}
 	cfg, err := webui.LoadConfigWithOverrides(*configPath, executableDir, webui.ConfigOverrides{
 		SecurityProfile: profileOverride,
 		Bind:            *bind,
 		RouterURL:       *routerURL,
-		RouterToken:     *routerToken,
+		RouterToken:     routerTokenOverride,
 		AdminToken:      adminTokenOverride,
 	})
 	if err != nil {

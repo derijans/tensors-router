@@ -8,7 +8,7 @@ services:
     read_only: true
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
-    stop_grace_period: 16m
+    stop_grace_period: 16m30s
     deploy:
       resources:
         reservations:
@@ -16,6 +16,10 @@ services:
             - driver: nvidia
               count: all
               capabilities: ["gpu"]
+    environment:
+      TENSORS_ROUTER_INFERENCE_TOKEN: "${TENSORS_ROUTER_INFERENCE_TOKEN:?Set TENSORS_ROUTER_INFERENCE_TOKEN}"
+      TENSORS_ROUTER_ADMIN_TOKEN: "${TENSORS_ROUTER_ADMIN_TOKEN:?Set TENSORS_ROUTER_ADMIN_TOKEN}"
+      TENSORS_ROUTER_CLUSTER_TOKEN: "${TENSORS_ROUTER_CLUSTER_TOKEN:?Set TENSORS_ROUTER_CLUSTER_TOKEN}"
     ports:
       - "8080:8080"
     volumes:

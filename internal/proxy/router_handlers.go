@@ -101,7 +101,7 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		service.handleRouterModels(w)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/models":
 		if service.requireClusterToken(w, r) {
-			service.handleNodeModels(w)
+			service.handleNodeModels(w, r)
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/resolve":
 		if service.requireClusterToken(w, r) {
@@ -329,10 +329,10 @@ func (service *Service) handleRouterModels(w http.ResponseWriter) {
 	})
 }
 
-func (service *Service) handleNodeModels(w http.ResponseWriter) {
+func (service *Service) handleNodeModels(w http.ResponseWriter, r *http.Request) {
 	if service.registry != nil {
 		snapshot := service.registry.Snapshot()
-		snapshot.Models = service.withBenchmarks(snapshot.Models)
+		snapshot.Models = service.withBenchmarks(service.modelsWithRuntimeState(r.Context(), snapshot.Models))
 		openai.WriteJSON(w, http.StatusOK, snapshot)
 		return
 	}
@@ -358,18 +358,26 @@ func (service *Service) handleNodeRegister(w http.ResponseWriter, r *http.Reques
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
-	if err := service.allowRegisteredNodeURL(snapshot.NodeURL); err != nil {
+	if err := service.validateRegisteredNodeURL(snapshot.NodeURL); err != nil {
 		openai.WriteError(w, http.StatusBadRequest, "cluster_error", err.Error())
 		return
 	}
 	if err := service.registry.UpdateNode(snapshot); err != nil {
+		if cluster.ErrorCode(err) == cluster.ErrorCodeDuplicateNode {
+			openai.WriteErrorCode(w, http.StatusConflict, "cluster_error", cluster.ErrorCodeDuplicateNode, err.Error())
+			return
+		}
 		openai.WriteError(w, http.StatusBadRequest, "cluster_error", err.Error())
+		return
+	}
+	if err := service.clusterClient.AllowBaseURLs(snapshot.NodeURL); err != nil {
+		openai.WriteError(w, http.StatusInternalServerError, "cluster_error", err.Error())
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-func (service *Service) allowRegisteredNodeURL(nodeURL string) error {
+func (service *Service) validateRegisteredNodeURL(nodeURL string) error {
 	nodeURL = strings.TrimSpace(nodeURL)
 	if nodeURL == "" {
 		return fmt.Errorf("node url is required")
@@ -377,7 +385,7 @@ func (service *Service) allowRegisteredNodeURL(nodeURL string) error {
 	if !configuredBaseURL(nodeURL, service.slaveURLs) {
 		return fmt.Errorf("node url %q is not configured", nodeURL)
 	}
-	return service.clusterClient.AllowBaseURLs(nodeURL)
+	return nil
 }
 
 func configuredBaseURL(nodeURL string, configured []string) bool {

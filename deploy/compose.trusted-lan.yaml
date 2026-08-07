@@ -1,0 +1,8 @@
+services:
+  router-node:
+    environment:
+      TENSORS_ROUTER_SECURITY_PROFILE: "trusted_lan"
+
+  router-webui:
+    environment:
+      TENSORS_ROUTER_SECURITY_PROFILE: "trusted_lan"

@@ -1,6 +1,9 @@
 package cluster
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
 func TestRegistryRetainsNodeURLWithoutModels(t *testing.T) {
 	registry := NewRegistry(RoleMaster, "master", "http://master")
@@ -234,4 +237,78 @@ func countPublicID(models []Model, publicID string) int {
 		}
 	}
 	return count
+}
+
+func TestRegistryRejectsDuplicateNodeIdentitiesWithoutMutation(t *testing.T) {
+	registry := NewRegistry(RoleMaster, "master", "http://MASTER:80/")
+	if err := registry.UpdateLocal([]Model{testModel("local", "master", "hash", "config", SourceMaster)}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.UpdateNode(Snapshot{NodeID: "slave-a", NodeURL: "http://SLAVE:80/"}); err != nil {
+		t.Fatal(err)
+	}
+	baselineRevision := registry.Revision()
+	baselineModels := registry.Models()
+
+	conflicts := []Snapshot{
+		{NodeID: "master", NodeURL: "http://other"},
+		{NodeID: "slave-master-url", NodeURL: "http://master"},
+		{NodeID: "slave-a", NodeURL: "http://other"},
+		{NodeID: "slave-b", NodeURL: "http://slave"},
+	}
+	for _, snapshot := range conflicts {
+		err := registry.UpdateNode(snapshot)
+		if ErrorCode(err) != ErrorCodeDuplicateNode {
+			t.Fatalf("expected duplicate_node for %#v, got %v", snapshot, err)
+		}
+		if registry.Revision() != baselineRevision {
+			t.Fatalf("rejected snapshot changed revision from %d to %d", baselineRevision, registry.Revision())
+		}
+		if !reflect.DeepEqual(registry.Models(), baselineModels) {
+			t.Fatalf("rejected snapshot changed models")
+		}
+	}
+}
+
+func TestRegistryAcceptsNormalizedOwnerRefresh(t *testing.T) {
+	registry := NewRegistry(RoleMaster, "master", "http://master")
+	if err := registry.UpdateNode(Snapshot{NodeID: " slave-a ", NodeURL: "HTTP://SLAVE:80/"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := registry.UpdateNode(Snapshot{NodeID: "slave-a", NodeURL: "http://slave", Models: []Model{testModel("fresh", "slave-a", "hash", "config", SourceSlave)}}); err != nil {
+		t.Fatal(err)
+	}
+	if models := registry.Models(); len(models) != 1 || models[0].LocalID != "fresh" {
+		t.Fatalf("unexpected refreshed models %#v", models)
+	}
+}
+
+func TestRegistryConcurrentIdentityClaimHasOneOwner(t *testing.T) {
+	registry := NewRegistry(RoleMaster, "master", "http://master")
+	start := make(chan struct{})
+	errors := make(chan error, 2)
+	for _, snapshot := range []Snapshot{{NodeID: "first", NodeURL: "http://shared"}, {NodeID: "second", NodeURL: "http://shared"}} {
+		snapshot := snapshot
+		go func() {
+			<-start
+			errors <- registry.UpdateNode(snapshot)
+		}()
+	}
+	close(start)
+	var successes int
+	var duplicates int
+	for range 2 {
+		err := <-errors
+		if err == nil {
+			successes++
+		} else if ErrorCode(err) == ErrorCodeDuplicateNode {
+			duplicates++
+		}
+	}
+	if successes != 1 || duplicates != 1 {
+		t.Fatalf("unexpected claim results successes=%d duplicates=%d", successes, duplicates)
+	}
+	if len(registry.NodeURLsByID()) != 2 {
+		t.Fatalf("unexpected owners %#v", registry.NodeURLsByID())
+	}
 }

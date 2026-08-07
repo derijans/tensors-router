@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,6 +15,8 @@ import (
 )
 
 const maxClusterJSONBytes = int64(8 * 1024 * 1024)
+
+const DefaultControlTimeout = 30 * time.Second
 
 type Client struct {
 	token   string
@@ -25,19 +28,33 @@ type Client struct {
 type RemoteError struct {
 	StatusCode int
 	Body       []byte
+	Type       string
+	Code       string
+	Message    string
 }
 
 func (err *RemoteError) Error() string {
-	return fmt.Sprintf("cluster request failed with status %d: %s", err.StatusCode, strings.TrimSpace(string(err.Body)))
+	message := strings.TrimSpace(err.Message)
+	if message == "" {
+		message = strings.TrimSpace(string(err.Body))
+	}
+	return fmt.Sprintf("cluster request failed with status %d: %s", err.StatusCode, message)
 }
 
 func NewClient(token string, baseURLs ...string) *Client {
+	return NewClientWithTimeout(token, DefaultControlTimeout, baseURLs...)
+}
+
+func NewClientWithTimeout(token string, controlTimeout time.Duration, baseURLs ...string) *Client {
+	if controlTimeout <= 0 {
+		controlTimeout = DefaultControlTimeout
+	}
 	client := &Client{
 		token:   token,
 		allowed: map[string]string{},
 	}
 	client.client = &http.Client{
-		Timeout:       30 * time.Second,
+		Timeout:       controlTimeout,
 		CheckRedirect: client.checkRedirect,
 	}
 	_ = client.AllowBaseURLs(baseURLs...)
@@ -121,9 +138,7 @@ func (client *Client) JSON(ctx context.Context, method string, baseURL string, p
 		request.Header.Set("Authorization", "Bearer "+client.token)
 	}
 
-	streamClient := *client.client
-	streamClient.Timeout = 0
-	response, err := streamClient.Do(request)
+	response, err := client.client.Do(request)
 	if err != nil {
 		return err
 	}
@@ -140,12 +155,29 @@ func (client *Client) JSON(ctx context.Context, method string, baseURL string, p
 		return fmt.Errorf("cluster response body exceeds %d bytes", maxClusterJSONBytes)
 	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return &RemoteError{StatusCode: response.StatusCode, Body: content}
+		return decodeRemoteError(response.StatusCode, content)
 	}
 	if responseBody == nil {
 		return nil
 	}
 	return json.Unmarshal(content, responseBody)
+}
+
+func decodeRemoteError(statusCode int, body []byte) *RemoteError {
+	remoteError := &RemoteError{StatusCode: statusCode, Body: body}
+	var envelope struct {
+		Error struct {
+			Type    string `json:"type"`
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &envelope) == nil {
+		remoteError.Type = envelope.Error.Type
+		remoteError.Code = envelope.Error.Code
+		remoteError.Message = envelope.Error.Message
+	}
+	return remoteError
 }
 
 func (client *Client) Stream(ctx context.Context, method string, baseURL string, path string) (*http.Response, error) {
@@ -276,7 +308,18 @@ func NormalizeBaseURL(baseURL string) (string, error) {
 		return "", fmt.Errorf("cluster target host is invalid")
 	}
 	parsed.Scheme = strings.ToLower(parsed.Scheme)
-	parsed.Host = strings.ToLower(parsed.Host)
+	hostname := strings.ToLower(parsed.Hostname())
+	port := parsed.Port()
+	if (parsed.Scheme == "http" && port == "80") || (parsed.Scheme == "https" && port == "443") {
+		port = ""
+	}
+	if port != "" {
+		parsed.Host = net.JoinHostPort(hostname, port)
+	} else if strings.Contains(hostname, ":") {
+		parsed.Host = "[" + hostname + "]"
+	} else {
+		parsed.Host = hostname
+	}
 	parsed.RawQuery = ""
 	parsed.Fragment = ""
 	parsed.Path = strings.TrimRight(parsed.Path, "/")

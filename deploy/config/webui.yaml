@@ -1,5 +1,5 @@
 security:
-  profile: "trusted_lan"
+  profile: "secure"
 
 server:
   bind: "0.0.0.0:8443"

@@ -9,7 +9,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -19,7 +18,8 @@ type Manager struct {
 	config          Config
 	store           *Store
 	hub             *HubClient
-	command         string
+	lifecycle       context.Context
+	stopLifecycle   context.CancelFunc
 	mu              sync.Mutex
 	running         map[string]context.CancelFunc
 	tokens          map[string]string
@@ -28,11 +28,15 @@ type Manager struct {
 	artifactHandler func(ArtifactRecord) error
 	logger          *log.Logger
 	logFile         *os.File
+	jobs            sync.WaitGroup
+	closed          bool
+	closeOnce       sync.Once
+	closeError      error
 }
 
 type ArtifactHandler func(ArtifactRecord) error
 
-func NewManager(config Config, command string) (*Manager, error) {
+func NewManager(config Config, _ string) (*Manager, error) {
 	if err := ensureDirectory(config.Storage.Root); err != nil {
 		return nil, fmt.Errorf("initialize downloader storage root: %w", err)
 	}
@@ -48,23 +52,25 @@ func NewManager(config Config, command string) (*Manager, error) {
 		_ = closeManagerLog(logFile)
 		return nil, fmt.Errorf("initialize downloader database: %w", err)
 	}
-	command = strings.TrimSpace(command)
-	if command == "" {
-		command = "hf"
-	}
-	manager := &Manager{config: config, store: store, hub: NewHubClient(config.Downloads.Timeout), command: command, running: map[string]context.CancelFunc{}, tokens: map[string]string{}, subscribers: map[string]map[chan DownloadJob]struct{}{}, semaphore: make(chan struct{}, config.Downloads.ConcurrentJobs), logger: logger, logFile: logFile}
+	lifecycle, stopLifecycle := context.WithCancel(context.Background())
+	manager := &Manager{config: config, store: store, hub: NewHubClient(config.Downloads.Timeout), lifecycle: lifecycle, stopLifecycle: stopLifecycle, running: map[string]context.CancelFunc{}, tokens: map[string]string{}, subscribers: map[string]map[chan DownloadJob]struct{}{}, semaphore: make(chan struct{}, config.Downloads.ConcurrentJobs), logger: logger, logFile: logFile}
 	manager.logStartup("downloader initialized storage=%q", config.Storage.Root)
 	return manager, nil
 }
 
 func (manager *Manager) Close() error {
-	manager.mu.Lock()
-	for _, cancel := range manager.running {
-		cancel()
-	}
-	manager.running = map[string]context.CancelFunc{}
-	manager.mu.Unlock()
-	return errors.Join(manager.store.Close(), closeManagerLog(manager.logFile))
+	manager.closeOnce.Do(func() {
+		manager.mu.Lock()
+		manager.closed = true
+		manager.stopLifecycle()
+		for _, cancel := range manager.running {
+			cancel()
+		}
+		manager.mu.Unlock()
+		manager.jobs.Wait()
+		manager.closeError = errors.Join(manager.store.Close(), closeManagerLog(manager.logFile))
+	})
+	return manager.closeError
 }
 
 func (manager *Manager) SetArtifactHandler(handler ArtifactHandler) {
@@ -160,7 +166,9 @@ func (manager *Manager) CreatePlannedJob(plan DownloadPlan, operationToken strin
 	}
 	manager.mu.Unlock()
 	manager.logRuntime("download queued job=%s repository=%q files=%d bytes=%d", stored.ID, stored.Repository, len(stored.Files), stored.TotalBytes)
-	go manager.run(stored)
+	if err := manager.startJob(stored); err != nil {
+		return DownloadJob{}, err
+	}
 	return stored, nil
 }
 
@@ -220,7 +228,9 @@ func (manager *Manager) Resume(id string) (DownloadJob, error) {
 		return DownloadJob{}, err
 	}
 	manager.logRuntime("download resumed job=%s repository=%q", stored.ID, stored.Repository)
-	go manager.run(stored)
+	if err := manager.startJob(stored); err != nil {
+		return DownloadJob{}, err
+	}
 	return stored, nil
 }
 
@@ -326,9 +336,13 @@ func (manager *Manager) Rescan() ([]ArtifactRecord, error) {
 }
 
 func (manager *Manager) run(initial DownloadJob) {
-	manager.semaphore <- struct{}{}
+	select {
+	case manager.semaphore <- struct{}{}:
+	case <-manager.lifecycle.Done():
+		return
+	}
 	defer func() { <-manager.semaphore }()
-	context, cancel := context.WithCancel(context.Background())
+	context, cancel := context.WithCancel(manager.lifecycle)
 	manager.mu.Lock()
 	if current, found, err := manager.store.Job(initial.ID); err != nil || !found || current.State != JobQueued {
 		manager.mu.Unlock()
@@ -378,6 +392,20 @@ func (manager *Manager) run(initial DownloadJob) {
 	}
 }
 
+func (manager *Manager) startJob(job DownloadJob) error {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	if manager.closed {
+		return fmt.Errorf("downloader manager is closed")
+	}
+	manager.jobs.Add(1)
+	go func() {
+		defer manager.jobs.Done()
+		manager.run(job)
+	}()
+	return nil
+}
+
 func newManagerLogger(config LoggingConfig) (*log.Logger, *os.File, error) {
 	if config.Mode == "off" || strings.TrimSpace(config.Path) == "" {
 		return log.New(io.Discard, "", 0), nil, nil
@@ -424,7 +452,12 @@ func (manager *Manager) transfer(ctx context.Context, job DownloadJob) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(staging)
+	completed := false
+	defer func() {
+		if completed {
+			_ = os.RemoveAll(staging)
+		}
+	}()
 	for _, file := range job.Files {
 		current, found, err := manager.store.Job(job.ID)
 		if err != nil || !found {
@@ -446,11 +479,11 @@ func (manager *Manager) transfer(ctx context.Context, job DownloadJob) error {
 			return err
 		}
 		manager.publish(current)
-		if err := manager.runHFDownload(ctx, job.Repository, job.Commit, file.Path, staging, manager.jobToken(job.ID)); err != nil {
-			return err
-		}
 		stagedPath, err := secureStagingPath(staging, file.Path)
 		if err != nil {
+			return err
+		}
+		if err := manager.downloadFile(ctx, job.Repository, job.Commit, file.Path, stagedPath, file.Size, manager.jobToken(job.ID)); err != nil {
 			return err
 		}
 		hash, size, err := SHA256File(stagedPath)
@@ -461,6 +494,7 @@ func (manager *Manager) transfer(ctx context.Context, job DownloadJob) error {
 			return fmt.Errorf("downloaded size for %q differs from the planned size", file.Path)
 		}
 		if expected := strings.TrimPrefix(file.ExpectedSHA256, "sha256:"); expected != "" && validSHA256(expected) && hash != expected {
+			_ = os.Remove(stagedPath)
 			return fmt.Errorf("downloaded hash for %q does not match the remote LFS SHA-256", file.Path)
 		}
 		if err := manager.promote(job, file, stagedPath, hash); err != nil {
@@ -479,18 +513,7 @@ func (manager *Manager) transfer(ctx context.Context, job DownloadJob) error {
 		}
 		manager.publish(current)
 	}
-	return nil
-}
-
-func (manager *Manager) runHFDownload(ctx context.Context, repository string, commit string, repositoryPath string, staging string, token string) error {
-	args := []string{"download", repository, repositoryPath, "--revision", commit, "--local-dir", staging}
-	command := exec.CommandContext(ctx, manager.command, args...)
-	command.Dir = manager.config.Storage.StateDir
-	command.Env = isolatedHFEnvironment(manager.config.Storage.StateDir, token)
-	output, err := command.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("official Hugging Face CLI failed: %s", redactSensitive(string(output), token))
-	}
+	completed = true
 	return nil
 }
 
@@ -723,22 +746,6 @@ func (manager *Manager) publish(job DownloadJob) {
 		default:
 		}
 	}
-}
-
-func isolatedHFEnvironment(stateDir string, token string) []string {
-	blocked := map[string]struct{}{"HF_TOKEN": {}, "HUGGINGFACE_HUB_TOKEN": {}, "HF_HOME": {}}
-	environment := make([]string, 0, len(os.Environ())+6)
-	for _, value := range os.Environ() {
-		key, _, _ := strings.Cut(value, "=")
-		if _, found := blocked[key]; !found {
-			environment = append(environment, value)
-		}
-	}
-	environment = append(environment, "HF_HUB_DISABLE_TELEMETRY=1", "DO_NOT_TRACK=1", "HF_HUB_DISABLE_UPDATE_CHECK=1", "HF_HUB_DISABLE_IMPLICIT_TOKEN=1", "NO_COLOR=1", "HF_HOME="+filepath.Join(stateDir, "hf-home"))
-	if token = strings.TrimSpace(token); token != "" {
-		environment = append(environment, "HF_TOKEN="+token)
-	}
-	return environment
 }
 
 func redactSensitive(value string, secrets ...string) string {

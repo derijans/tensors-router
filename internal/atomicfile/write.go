@@ -36,7 +36,7 @@ func Write(path string, content []byte, mode os.FileMode) error {
 	if err := temporary.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(temporaryPath, path); err != nil {
+	if err := replace(temporaryPath, path); err != nil {
 		return err
 	}
 	removeTemporary = false

@@ -6,7 +6,9 @@ import (
 	"io"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -70,7 +72,7 @@ func TestOptionalDownloaderReportsMissingAndInvalidConfiguration(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			manager, capability := optionalDownloader(filepath.Join(directory, "router.yaml"), config.DownloaderConfig{Enabled: true, BinaryLocation: "downloader-companion"}, log.New(io.Discard, "", 0))
+			manager, capability := optionalDownloader(filepath.Join(directory, "router.yaml"), config.DownloaderConfig{Enabled: true, BinaryLocation: downloaderCompanionTestName()}, log.New(io.Discard, "", 0))
 			if manager != nil || !capability.Enabled || !capability.Present || capability.Working || !strings.Contains(capability.Reason, test.reason) {
 				t.Fatalf("unexpected configuration failure status %#v", capability)
 			}
@@ -99,7 +101,7 @@ func TestOptionalDownloaderReportsStorageAndDatabaseInitializationFailures(t *te
 				t.Fatal(err)
 			}
 			test.prepare(t, directory)
-			manager, capability := optionalDownloader(filepath.Join(directory, "router.yaml"), config.DownloaderConfig{Enabled: true, BinaryLocation: "downloader-companion"}, log.New(io.Discard, "", 0))
+			manager, capability := optionalDownloader(filepath.Join(directory, "router.yaml"), config.DownloaderConfig{Enabled: true, BinaryLocation: downloaderCompanionTestName()}, log.New(io.Discard, "", 0))
 			if manager != nil || capability.Working || !strings.Contains(capability.Reason, test.reason) {
 				t.Fatalf("unexpected initialization failure status %#v", capability)
 			}
@@ -114,7 +116,7 @@ func TestOptionalDownloaderReportsSuccessfulReadiness(t *testing.T) {
 		t.Fatal(err)
 	}
 	var output bytes.Buffer
-	manager, capability := optionalDownloader(filepath.Join(directory, "router.yaml"), config.DownloaderConfig{Enabled: true, BinaryLocation: "downloader-companion"}, log.New(&output, "", 0))
+	manager, capability := optionalDownloader(filepath.Join(directory, "router.yaml"), config.DownloaderConfig{Enabled: true, BinaryLocation: downloaderCompanionTestName()}, log.New(&output, "", 0))
 	if manager == nil || !capability.Enabled || !capability.Present || !capability.Working || capability.Reason != "" || capability.Error != "" {
 		t.Fatalf("unexpected ready status %#v", capability)
 	}
@@ -126,9 +128,17 @@ func TestOptionalDownloaderReportsSuccessfulReadiness(t *testing.T) {
 
 func writeDownloaderCompanion(t *testing.T, directory string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(directory, "downloader-companion"), nil, 0o700); err != nil {
-		t.Fatal(err)
+	command := exec.Command("go", "build", "-o", filepath.Join(directory, downloaderCompanionTestName()), "../tensor-router-downloader")
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("build downloader companion: %v\n%s", err, output)
 	}
+}
+
+func downloaderCompanionTestName() string {
+	if runtime.GOOS == "windows" {
+		return "downloader-companion.exe"
+	}
+	return "downloader-companion"
 }
 
 func assertDownloaderStatusLog(t *testing.T, output string, enabled bool, present bool, working bool, hasReason bool) {

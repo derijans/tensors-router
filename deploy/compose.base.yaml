@@ -12,9 +12,17 @@ services:
     read_only: true
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
-    stop_grace_period: 16m
+    stop_grace_period: 16m30s
+    environment:
+      TENSORS_ROUTER_INFERENCE_TOKEN_FILE: "/run/secrets/router-inference-token"
+      TENSORS_ROUTER_ADMIN_TOKEN_FILE: "/run/secrets/router-admin-token"
+      TENSORS_ROUTER_CLUSTER_TOKEN_FILE: "/run/secrets/cluster-token"
     ports:
       - "8080:8080"
+    secrets:
+      - router-inference-token
+      - router-admin-token
+      - cluster-token
     volumes:
       - "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/config/node.yaml:/config/config.yaml:ro"
       - "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/config/downloader.yaml:/config/downloader.yaml:ro"
@@ -38,11 +46,21 @@ services:
     read_only: true
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
-    stop_grace_period: 16m
+    stop_grace_period: 16m30s
+    environment:
+      TENSORS_ROUTER_INFERENCE_TOKEN_FILE: "/run/secrets/router-inference-token"
+      TENSORS_ROUTER_ADMIN_TOKEN_FILE: "/run/secrets/router-admin-token"
+      TENSORS_ROUTER_CLUSTER_TOKEN_FILE: "/run/secrets/cluster-token"
+      TENSORS_ROUTER_WEBUI_ADMIN_TOKEN_FILE: "/run/secrets/webui-admin-token"
+      TENSORS_ROUTER_MANAGED_ROUTER_TOKEN_FILE: "/run/secrets/router-admin-token"
     ports:
-      - "8080:8080"
       - "8443:8443"
       - "8444:8444"
+    secrets:
+      - router-inference-token
+      - router-admin-token
+      - cluster-token
+      - webui-admin-token
     volumes:
       - "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/config/router-managed.yaml:/config/config.yaml:ro"
       - "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/config/downloader.yaml:/config/downloader.yaml:ro"
@@ -59,3 +77,13 @@ services:
 volumes:
   node-data:
   webui-data:
+
+secrets:
+  router-inference-token:
+    file: "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/secrets/router-inference.token"
+  router-admin-token:
+    file: "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/secrets/router-admin.token"
+  cluster-token:
+    file: "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/secrets/cluster.token"
+  webui-admin-token:
+    file: "${TENSORS_ROUTER_ROOT:?Set TENSORS_ROUTER_ROOT}/secrets/webui-admin.token"

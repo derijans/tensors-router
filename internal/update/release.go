@@ -36,12 +36,14 @@ type githubAsset struct {
 	Name               string `json:"name"`
 	BrowserDownloadURL string `json:"browser_download_url"`
 	Digest             string `json:"digest"`
+	Size               int64  `json:"size"`
 }
 
 type resolvedPayload struct {
 	Name   string
 	URL    string
 	SHA256 string
+	Length int64
 }
 
 type resolvedRelease struct {
@@ -191,7 +193,7 @@ func selectKnownPayloads(backend string, assets []githubAsset, info hardware.Inf
 }
 
 func payloadFromAsset(asset githubAsset) resolvedPayload {
-	return resolvedPayload{Name: asset.Name, URL: asset.BrowserDownloadURL, SHA256: strings.TrimPrefix(strings.ToLower(strings.TrimSpace(asset.Digest)), "sha256:")}
+	return resolvedPayload{Name: asset.Name, URL: asset.BrowserDownloadURL, SHA256: strings.TrimPrefix(strings.ToLower(strings.TrimSpace(asset.Digest)), "sha256:"), Length: asset.Size}
 }
 
 func isPrimaryAsset(backend string, name string) bool {

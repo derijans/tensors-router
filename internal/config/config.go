@@ -93,6 +93,8 @@ type UpdatesConfig struct {
 	Enabled                 bool
 	CheckInterval           time.Duration
 	IncludePrereleases      bool
+	TUFRepositoryURL        string
+	TUFRootPath             string
 	BinaryURL               string
 	BinarySHA256            string
 	BinaryRepositoryURL     string
@@ -140,15 +142,17 @@ func (updates UpdatesConfig) WhisperCPPSource() BackendUpdateSource {
 }
 
 type ClusterConfig struct {
-	Role           string
-	NodeID         string
-	PublicURL      string
-	MasterURL      string
-	SlaveURLs      []string
-	Token          string
-	StoreDir       string
-	SyncInterval   time.Duration
-	HealthInterval time.Duration
+	Role            string
+	NodeID          string
+	PublicURL       string
+	MasterURL       string
+	SlaveURLs       []string
+	Token           string
+	StoreDir        string
+	SyncInterval    time.Duration
+	HealthInterval  time.Duration
+	ControlTimeout  time.Duration
+	SyncConcurrency int
 }
 
 type AnalyticsConfig struct {
@@ -232,8 +236,10 @@ func Defaults() Config {
 		Updates: UpdatesConfig{
 			Enabled:                 false,
 			CheckInterval:           168 * time.Hour,
-			BinaryURL:               "https://koboldai.org/cpplinuxrocm",
+			TUFRepositoryURL:        "https://derijans.github.io/tensors-router/tuf/metadata",
+			BinaryURL:               "",
 			BinarySHA256:            "",
+			BinaryRepositoryURL:     "https://github.com/LostRuins/koboldcpp",
 			LlamaBinaryURL:          "",
 			LlamaSHA256:             "",
 			SDCPPBinaryURL:          "",
@@ -246,12 +252,14 @@ func Defaults() Config {
 			Enabled: true,
 		},
 		Cluster: ClusterConfig{
-			Role:           "standalone",
-			NodeID:         "local",
-			SlaveURLs:      []string{},
-			StoreDir:       "./router-store",
-			SyncInterval:   60 * time.Second,
-			HealthInterval: 15 * time.Second,
+			Role:            "standalone",
+			NodeID:          "local",
+			SlaveURLs:       []string{},
+			StoreDir:        "./router-store",
+			SyncInterval:    60 * time.Second,
+			HealthInterval:  15 * time.Second,
+			ControlTimeout:  30 * time.Second,
+			SyncConcurrency: 4,
 		},
 		Analytics: AnalyticsConfig{
 			Enabled:                false,
@@ -307,6 +315,15 @@ func LoadWithOptions(path string, options LoadOptions) (Config, error) {
 		cfg.Security.Profile = strings.TrimSpace(options.SecurityProfile)
 	}
 	finalizeCompatibility(&cfg)
+	if value := strings.TrimSpace(options.InferenceKey); value != "" {
+		cfg.Auth.InferenceKeys = []string{value}
+	}
+	if value := strings.TrimSpace(options.AdminKey); value != "" {
+		cfg.Auth.AdminKeys = []string{value}
+	}
+	if value := strings.TrimSpace(options.ClusterToken); value != "" {
+		cfg.Cluster.Token = value
+	}
 
 	return cfg, validate(&cfg)
 }
@@ -367,19 +384,34 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("updates.check_interval must be positive")
 	}
 	if cfg.Updates.Enabled && cfg.Backend.Mode == "kobold" {
-		if err := validateUpdateSource("binary", cfg.Updates.KoboldSource()); err != nil {
+		source := cfg.Updates.KoboldSource()
+		if err := validateUpdateSource("binary", source); err != nil {
 			return err
+		}
+		if updateSourceUsesTrustedRepository(source) {
+			if err := validateTUFRepositoryURL(cfg.Updates.TUFRepositoryURL); err != nil {
+				return err
+			}
 		}
 	}
 	if cfg.Updates.Enabled && cfg.Backend.Mode == "llama_sdcpp" {
-		if err := validateUpdateSource("llama", cfg.Updates.LlamaSource()); err != nil {
-			return err
+		sources := []struct {
+			name   string
+			source BackendUpdateSource
+		}{
+			{name: "llama", source: cfg.Updates.LlamaSource()},
+			{name: "sdcpp", source: cfg.Updates.SDCPPSource()},
+			{name: "whispercpp", source: cfg.Updates.WhisperCPPSource()},
 		}
-		if err := validateUpdateSource("sdcpp", cfg.Updates.SDCPPSource()); err != nil {
-			return err
-		}
-		if err := validateUpdateSource("whispercpp", cfg.Updates.WhisperCPPSource()); err != nil {
-			return err
+		for _, candidate := range sources {
+			if err := validateUpdateSource(candidate.name, candidate.source); err != nil {
+				return err
+			}
+			if updateSourceUsesTrustedRepository(candidate.source) {
+				if err := validateTUFRepositoryURL(cfg.Updates.TUFRepositoryURL); err != nil {
+					return err
+				}
+			}
 		}
 	}
 	switch cfg.Cluster.Role {
@@ -398,6 +430,12 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Cluster.HealthInterval <= 0 {
 		return fmt.Errorf("cluster.health_interval must be positive")
+	}
+	if cfg.Cluster.ControlTimeout <= 0 {
+		return fmt.Errorf("cluster.control_timeout must be positive")
+	}
+	if cfg.Cluster.SyncConcurrency <= 0 || cfg.Cluster.SyncConcurrency > 128 {
+		return fmt.Errorf("cluster.sync_concurrency must be between 1 and 128")
 	}
 	if cfg.Analytics.FlushInterval <= 0 {
 		return fmt.Errorf("analytics.flush_interval must be positive")
@@ -485,6 +523,9 @@ func validateUpdateSource(name string, source BackendUpdateSource) error {
 	if strings.TrimSpace(source.SHA256) != "" && !validSHA256Hex(source.SHA256) {
 		return fmt.Errorf("updates.%s_binary_sha256 must be a 64 character SHA-256 hex digest when provided", name)
 	}
+	if strings.TrimSpace(source.BinaryURL) != "" && strings.TrimSpace(source.SHA256) == "" {
+		return fmt.Errorf("updates.%s_binary_sha256 is required for a direct binary URL", name)
+	}
 	return nil
 }
 
@@ -501,6 +542,30 @@ func validateHTTPSUpdateURL(field string, rawURL string) error {
 	}
 	if parsed.Host == "" {
 		return fmt.Errorf("%s must include a host", field)
+	}
+	return nil
+}
+
+func updateSourceUsesTrustedRepository(source BackendUpdateSource) bool {
+	return strings.TrimSpace(source.BinaryURL) == "" && strings.TrimSpace(source.RepositoryURL) != ""
+}
+
+func validateTUFRepositoryURL(rawURL string) error {
+	if strings.TrimSpace(rawURL) == "" {
+		return fmt.Errorf("updates.tuf_repository_url is required for repository updates")
+	}
+	if err := validateHTTPSUpdateURL("updates.tuf_repository_url", rawURL); err != nil {
+		return err
+	}
+	parsed, err := url.ParseRequestURI(rawURL)
+	if err != nil {
+		return fmt.Errorf("updates.tuf_repository_url is invalid: %w", err)
+	}
+	if parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" {
+		return fmt.Errorf("updates.tuf_repository_url cannot contain credentials, a query, or a fragment")
+	}
+	if !strings.HasSuffix(strings.TrimRight(parsed.Path, "/"), "/metadata") {
+		return fmt.Errorf("updates.tuf_repository_url must end with /metadata")
 	}
 	return nil
 }
@@ -853,6 +918,12 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			}
 			cfg.Updates.IncludePrereleases = parsed
 			return nil
+		case "tuf_repository_url":
+			cfg.Updates.TUFRepositoryURL = value
+			return nil
+		case "tuf_root_path":
+			cfg.Updates.TUFRootPath = value
+			return nil
 		case "binary_url":
 			cfg.Updates.BinaryURL = value
 			return nil
@@ -948,6 +1019,20 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 				return err
 			}
 			cfg.Cluster.HealthInterval = parsed
+			return nil
+		case "control_timeout":
+			parsed, err := time.ParseDuration(value)
+			if err != nil {
+				return err
+			}
+			cfg.Cluster.ControlTimeout = parsed
+			return nil
+		case "sync_concurrency":
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				return err
+			}
+			cfg.Cluster.SyncConcurrency = parsed
 			return nil
 		}
 	case "analytics":

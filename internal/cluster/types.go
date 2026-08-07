@@ -2,11 +2,40 @@ package cluster
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 
 	"tensors-router/internal/backendmode"
 	routerbenchmark "tensors-router/internal/benchmark"
 	"tensors-router/internal/catalog"
 )
+
+const ErrorCodeDuplicateNode = "duplicate_node"
+
+type Error struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func (clusterError *Error) Error() string {
+	return clusterError.Message
+}
+
+func NewDuplicateNodeError(message string) error {
+	return &Error{Code: ErrorCodeDuplicateNode, Message: message}
+}
+
+func ErrorCode(err error) string {
+	var clusterError *Error
+	if errors.As(err, &clusterError) {
+		return clusterError.Code
+	}
+	return ""
+}
+
+func DuplicateNodeError(nodeID string, nodeURL string) error {
+	return NewDuplicateNodeError(fmt.Sprintf("node identity conflicts with an existing owner: node_id=%q node_url=%q", nodeID, nodeURL))
+}
 
 const (
 	RoleStandalone = "standalone"
@@ -39,6 +68,7 @@ type Model struct {
 	PublicImageID    string                          `json:"public_image_id,omitempty"`
 	Filename         string                          `json:"filename"`
 	Created          int64                           `json:"created"`
+	Size             int64                           `json:"size,omitempty"`
 	HasLLM           bool                            `json:"has_llm"`
 	HasImage         bool                            `json:"has_image"`
 	HasEmbeddings    bool                            `json:"has_embeddings"`
@@ -55,6 +85,7 @@ type Model struct {
 	NodeID           string                          `json:"node_id"`
 	NodeURL          string                          `json:"node_url,omitempty"`
 	Available        bool                            `json:"available"`
+	Loaded           bool                            `json:"loaded,omitempty"`
 	AssetState       string                          `json:"asset_state,omitempty"`
 	UnresolvedFields int                             `json:"unresolved_fields,omitempty"`
 	AssetFailure     string                          `json:"asset_failure,omitempty"`
@@ -102,6 +133,7 @@ func LocalModelsWithBackendMode(models []catalog.Model, nodeID string, nodeURL s
 			PublicImageID:    model.ImageID,
 			Filename:         model.Filename,
 			Created:          model.Created,
+			Size:             model.Size,
 			HasLLM:           model.HasLLM,
 			HasImage:         model.HasImage,
 			HasEmbeddings:    model.HasEmbeddings,

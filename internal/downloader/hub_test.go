@@ -4,10 +4,30 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
 )
+
+func TestFileURLEncodesSpecialFilenameOnce(t *testing.T) {
+	client := NewHubClient(0)
+	client.baseURL = "https://huggingface.co/api"
+	fileURL := client.FileURL("owner/model", "commit", "weights/model #1%+雪.gguf")
+	parsed, err := url.Parse(fileURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed.Path != "/owner/model/resolve/commit/weights/model #1%+雪.gguf" {
+		t.Fatalf("unexpected decoded path %q", parsed.Path)
+	}
+	if parsed.EscapedPath() != "/owner/model/resolve/commit/weights/model%20%231%25+%E9%9B%AA.gguf" {
+		t.Fatalf("unexpected escaped path %q", parsed.EscapedPath())
+	}
+	if parsed.Query().Get("download") != "true" {
+		t.Fatalf("unexpected download query %q", parsed.RawQuery)
+	}
+}
 
 func TestRepositoryUsesJSONAPIForNFAAAndBooleanGatedStatus(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

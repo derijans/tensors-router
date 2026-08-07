@@ -81,7 +81,7 @@ jobs:
             goarm: "7"
             binary: tensors-router-linux-armv7
             webui_binary: tensor-router-webui-linux-armv7
-            downloader_binary: ""
+            downloader_binary: tensor-router-downloader-linux-armv7
             archive: tensors-router-linux-armv7.tar.gz
           - name: windows-amd64
             goos: windows
@@ -190,6 +190,10 @@ jobs:
         env:
           TENSORS_ROUTER_ROOT: /srv/tensors-router
           TENSORS_ROUTER_MODELS_PATH: /srv/tensors-models
+          TENSORS_ROUTER_INFERENCE_TOKEN: ci-inference-validation-token
+          TENSORS_ROUTER_ADMIN_TOKEN: ci-admin-validation-token
+          TENSORS_ROUTER_CLUSTER_TOKEN: ci-cluster-validation-token
+          TENSORS_ROUTER_WEBUI_ADMIN_TOKEN: ci-webui-validation-token
         run: |
           jq -e '.version == "2" and (.templates | length == 6)' deploy/portainer/templates.json
           jq -r '.templates[].repository.stackfile' deploy/portainer/templates.json | while IFS= read -r file; do
@@ -248,7 +252,7 @@ jobs:
     name: Publish release assets
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
-    needs: build
+    needs: [build, containers]
     permissions:
       contents: write
     steps:
@@ -273,3 +277,13 @@ jobs:
           else
             gh release create "$RELEASE_TAG_NAME" release/* --generate-notes --title "$RELEASE_TAG_NAME" --target "$GITHUB_SHA"
           fi
+  publish-containers:
+    name: Publish container images
+    if: github.event_name == 'release'
+    needs: [build, containers]
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/containers.yml
+    with:
+      version: ${{ github.event.release.tag_name }}

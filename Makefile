@@ -49,7 +49,6 @@ build-linux-webui: webui-build
 	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=$(CGO_ENABLED) $(GO) build -buildvcs=false -trimpath -ldflags "-s -w $(BUILDINFO_LDFLAGS)" -o $(DIST_DIR)/$(WEBUI_NAME)-$(GOOS)-$(GOARCH) $(WEBUI_CMD)
 
 build-linux-downloader:
-	@if [ "$(GOOS)-$(GOARCH)" = "linux-arm" ]; then exit 0; fi
 	mkdir -p $(DIST_DIR)
 	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=$(CGO_ENABLED) $(GO) build -buildvcs=false -trimpath -ldflags "-s -w $(BUILDINFO_LDFLAGS)" -o $(DIST_DIR)/$(DOWNLOADER_NAME)-$(GOOS)-$(GOARCH) $(DOWNLOADER_CMD)
 

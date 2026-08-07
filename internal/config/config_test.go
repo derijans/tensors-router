@@ -444,8 +444,9 @@ func TestResolveSecurityProfilePrefersCLI(t *testing.T) {
 }
 
 func TestContainerRouterExamplesAreValid(t *testing.T) {
+	options := LoadOptions{InferenceKey: "deployment-inference", AdminKey: "deployment-admin"}
 	for _, name := range []string{"node.yaml", "router-managed.yaml"} {
-		if _, err := Load(filepath.Join("..", "..", "deploy", "config", name)); err != nil {
+		if _, err := LoadWithOptions(filepath.Join("..", "..", "deploy", "config", name), options); err != nil {
 			t.Fatalf("%s: %v", name, err)
 		}
 	}
@@ -465,5 +466,88 @@ func TestLoadRejectsIncoherentOrOverflowingTransportLimits(t *testing.T) {
 		if _, err := Load(path); err == nil {
 			t.Fatalf("expected limit validation error for %q", content)
 		}
+	}
+}
+
+func TestLoadCredentialOverridesReplaceConfiguredRoles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := "security:\n  profile: \"secure\"\nserver:\n  bind: \"0.0.0.0:8080\"\nauth:\n  inference_keys: [\"configured-inference\"]\n  admin_keys: [\"configured-admin\"]\ncluster:\n  token: \"configured-cluster\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadWithOptions(path, LoadOptions{
+		InferenceKey: "environment-inference",
+		AdminKey:     "environment-admin",
+		ClusterToken: "environment-cluster",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfg.Auth.InferenceKeys, []string{"environment-inference"}) ||
+		!reflect.DeepEqual(cfg.Auth.AdminKeys, []string{"environment-admin"}) ||
+		cfg.Cluster.Token != "environment-cluster" {
+		t.Fatalf("unexpected credential overrides %#v cluster=%q", cfg.Auth, cfg.Cluster.Token)
+	}
+}
+
+func TestLoadCredentialOverrideReplacesLegacyBearerKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := "auth:\n  bearer_keys: [legacy-inference]\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := LoadWithOptions(path, LoadOptions{InferenceKey: "environment-inference"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfg.Auth.InferenceKeys, []string{"environment-inference"}) {
+		t.Fatalf("unexpected inference credentials %#v", cfg.Auth.InferenceKeys)
+	}
+	if len(cfg.Warnings) != 1 {
+		t.Fatalf("expected legacy configuration warning, got %#v", cfg.Warnings)
+	}
+}
+
+func TestLoadRejectsCredentialReuseAcrossRoles(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := "auth:\n  inference_keys: [\"shared-secret\"]\n  admin_keys: [\"shared-secret\"]\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected cross-role credential reuse rejection")
+	}
+}
+
+func TestValidateRepositoryUpdatesRequireCanonicalTUFMetadataURL(t *testing.T) {
+	tests := []struct {
+		name string
+		url  string
+	}{
+		{name: "missing", url: ""},
+		{name: "http", url: "http://updates.example.test/metadata"},
+		{name: "wrong path", url: "https://updates.example.test/tuf"},
+		{name: "credentials", url: "https://token@updates.example.test/metadata"},
+		{name: "query", url: "https://updates.example.test/metadata?channel=stable"},
+		{name: "fragment", url: "https://updates.example.test/metadata#stable"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := Defaults()
+			cfg.Updates.Enabled = true
+			cfg.Updates.TUFRepositoryURL = test.url
+			if err := validate(&cfg); err == nil {
+				t.Fatal("expected invalid TUF repository URL rejection")
+			}
+		})
+	}
+}
+
+func TestValidateAcceptsBuiltInTrustedRepositoryUpdate(t *testing.T) {
+	cfg := Defaults()
+	cfg.Updates.Enabled = true
+	cfg.Updates.TUFRepositoryURL += "/"
+	if err := validate(&cfg); err != nil {
+		t.Fatal(err)
 	}
 }
