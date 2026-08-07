@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -153,7 +155,36 @@ func TestDownloadRepositoryReleaseNormalizesVersionedArchiveRoot(t *testing.T) {
 	manager := NewManager(cfg)
 	manager.client = server.Client()
 	manager.hardware = hardware.NewStatic(hardware.Info{GPUBackend: hardware.GPUBackendCPU})
-	manager.releaseAPIBase = server.URL
+	manager.prepareRepositoryRelease = func(_ context.Context, target downloadTarget, info hardware.Info) (resolvedRelease, *preparedTrust, error) {
+		manifest, err := json.Marshal(signedReleaseManifest{
+			Schema:     1,
+			Repository: cfg.Updates.LlamaRepositoryURL,
+			Releases: []signedManifestRelease{{
+				ID:          "1",
+				Tag:         "b999",
+				PublishedAt: time.Now().UTC(),
+				Payloads: []signedManifestPayload{{
+					Name:   "llama-b999.tar.gz",
+					URL:    server.URL + "/llama-b999.tar.gz",
+					Length: int64(len(archive)),
+					SHA256: hex.EncodeToString(digest[:]),
+				}},
+			}},
+		})
+		if err != nil {
+			return resolvedRelease{}, nil, err
+		}
+		release, err := releaseFromSignedManifest(manifest, target, info, false)
+		if err != nil {
+			return resolvedRelease{}, nil, err
+		}
+		trustRoot := filepath.Join(cfg.Llama.DataDir, "test-trust")
+		stagingDir := filepath.Join(trustRoot, "staging")
+		if err := os.MkdirAll(stagingDir, 0o700); err != nil {
+			return resolvedRelease{}, nil, err
+		}
+		return release, &preparedTrust{currentDir: filepath.Join(trustRoot, "current"), stagingDir: stagingDir}, nil
+	}
 	if err := manager.downloadRelease(context.Background(), manager.targets()[0], metadata{}); err != nil {
 		t.Fatal(err)
 	}

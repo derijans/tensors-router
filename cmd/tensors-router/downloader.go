@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
@@ -12,7 +13,7 @@ import (
 	"tensors-router/internal/downloader"
 )
 
-func optionalDownloader(routerConfigPath string, downloaderConfig config.DownloaderConfig, logger *log.Logger) (manager *downloader.Manager, capability downloader.Capability) {
+func optionalDownloader(routerConfigPath string, downloaderConfig config.DownloaderConfig, logger *log.Logger) (client downloader.Service, capability downloader.Capability) {
 	capability.Enabled = downloaderConfig.Enabled
 	defer func() { logDownloaderStatus(logger, capability) }()
 	if !downloaderConfig.Enabled {
@@ -35,24 +36,24 @@ func optionalDownloader(routerConfigPath string, downloaderConfig config.Downloa
 	capability.Present = true
 	capability.Available = true
 	configPath := filepath.Join(filepath.Dir(routerConfigPath), "downloader.yaml")
-	config, warnings, err := downloader.LoadConfig(configPath)
+	_, warnings, err := downloader.LoadConfig(configPath)
 	if err != nil {
 		return nil, failedDownloaderCapability(capability, fmt.Sprintf("load downloader configuration %q: %v", configPath, err))
 	}
 	for _, warning := range warnings {
 		logger.Printf("configuration warning: %s", warning)
 	}
-	manager, err = downloader.NewManager(config, "")
+	client, err = downloader.StartClient(context.Background(), binaryPath, configPath)
 	if err != nil {
 		return nil, failedDownloaderCapability(capability, err.Error())
 	}
 	capability.Working = true
-	capability = downloader.MergeRuntimeCapability(capability, manager.Capability())
+	capability = downloader.MergeRuntimeCapability(capability, client.Capability())
 	if !capability.Working {
-		_ = manager.Close()
+		_ = client.Close()
 		return nil, capability
 	}
-	return manager, capability
+	return client, capability
 }
 
 func failedDownloaderCapability(capability downloader.Capability, reason string) downloader.Capability {
@@ -87,11 +88,11 @@ func downloaderBinaryPath(routerConfigPath string, binaryLocation string) (strin
 	return companion.PreferredSibling(executablePath, "tensor-router-downloader", "tensors-router"), nil
 }
 
-func closeDownloader(manager *downloader.Manager) error {
-	if manager == nil {
+func closeDownloader(service downloader.Service) error {
+	if service == nil {
 		return nil
 	}
-	return manager.Close()
+	return service.Close()
 }
 
 func downloaderExecutableName() string {

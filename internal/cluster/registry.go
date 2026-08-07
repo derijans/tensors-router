@@ -3,6 +3,7 @@ package cluster
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 
 	"tensors-router/internal/catalog"
@@ -23,6 +24,12 @@ type Registry struct {
 }
 
 func NewRegistry(role string, localID string, localURL string) *Registry {
+	localID = strings.TrimSpace(localID)
+	if normalizedURL, err := NormalizeBaseURL(localURL); err == nil {
+		localURL = normalizedURL
+	} else {
+		localURL = strings.TrimSpace(localURL)
+	}
 	return &Registry{
 		role:      role,
 		localID:   localID,
@@ -44,11 +51,32 @@ func (registry *Registry) UpdateLocal(models []Model) error {
 }
 
 func (registry *Registry) UpdateNode(snapshot Snapshot) error {
+	snapshot.NodeID = strings.TrimSpace(snapshot.NodeID)
+	if snapshot.NodeID == "" {
+		return fmt.Errorf("node_id is required")
+	}
+	normalizedURL, err := NormalizeBaseURL(snapshot.NodeURL)
+	if err != nil {
+		return fmt.Errorf("node_url is invalid: %w", err)
+	}
+	snapshot.NodeURL = normalizedURL
+
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 
-	if snapshot.NodeID == "" {
-		return fmt.Errorf("node_id is required")
+	if snapshot.NodeID == registry.localID {
+		return DuplicateNodeError(snapshot.NodeID, snapshot.NodeURL)
+	}
+	if registry.localURL != "" && snapshot.NodeURL == registry.localURL {
+		return DuplicateNodeError(snapshot.NodeID, snapshot.NodeURL)
+	}
+	if existing, ok := registry.nodes[snapshot.NodeID]; ok && existing.NodeURL != snapshot.NodeURL {
+		return DuplicateNodeError(snapshot.NodeID, snapshot.NodeURL)
+	}
+	for existingID, existing := range registry.nodes {
+		if existingID != snapshot.NodeID && existing.NodeURL == snapshot.NodeURL {
+			return DuplicateNodeError(snapshot.NodeID, snapshot.NodeURL)
+		}
 	}
 	registry.nodes[snapshot.NodeID] = normalizeNodeSnapshot(snapshot)
 	delete(registry.unhealthy, snapshot.NodeID)
@@ -69,6 +97,9 @@ func (registry *Registry) MarkNodeHealth(nodeID string, healthy bool) {
 }
 
 func (registry *Registry) MarkNodeURLHealth(nodeURL string, healthy bool) {
+	if normalizedURL, err := NormalizeBaseURL(nodeURL); err == nil {
+		nodeURL = normalizedURL
+	}
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
 

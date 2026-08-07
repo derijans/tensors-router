@@ -190,31 +190,26 @@ func TestModelAwareTextEndpointsRouteSelectedConfig(t *testing.T) {
 	}
 }
 
-func TestTextStatusEndpointsForwardWithoutModel(t *testing.T) {
-	endpoints := []string{"/api/tags", "/api/ps", "/api/version"}
-	for _, endpoint := range endpoints {
+func TestOllamaStatusEndpointsAreSynthesizedWithoutBackendLeakage(t *testing.T) {
+	endpoints := map[string]string{"/api/tags": `"models"`, "/api/ps": `"models"`, "/api/version": `"version"`}
+	for endpoint, responseField := range endpoints {
 		t.Run(endpoint, func(t *testing.T) {
 			var sawRequest bool
 			service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.URL.Path != endpoint {
-					t.Fatalf("unexpected path %s", r.URL.Path)
-				}
 				sawRequest = true
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"ok":true}`))
 			}), map[string]string{})
 
 			recorder := httptest.NewRecorder()
 			service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, endpoint, nil))
 
-			if recorder.Code != http.StatusOK {
-				t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+			if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), responseField) {
+				t.Fatalf("unexpected response status=%d body=%s", recorder.Code, recorder.Body.String())
 			}
-			if !sawRequest {
-				t.Fatalf("backend did not receive request")
+			if sawRequest {
+				t.Fatal("Ollama status endpoint leaked to backend")
 			}
 			if backend.reloads.Load() != 0 {
-				t.Fatalf("status endpoint should not reload config, got %d", backend.reloads.Load())
+				t.Fatalf("status endpoint reloaded config %d times", backend.reloads.Load())
 			}
 		})
 	}

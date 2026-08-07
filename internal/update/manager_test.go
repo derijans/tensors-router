@@ -125,6 +125,40 @@ func TestDownloadFailureKeepsPreviousBinary(t *testing.T) {
 	}
 }
 
+func TestMetadataCommitFailureRollsBackPromotedBinary(t *testing.T) {
+	cfg := testConfig(t)
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte("replacement"))
+	}))
+	defer server.Close()
+	cfg.Updates.BinaryURL = server.URL
+	cfg.Updates.BinarySHA256 = sha256Hex("replacement")
+	if err := os.MkdirAll(filepath.Dir(cfg.Kobold.BinaryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg.Kobold.BinaryPath, []byte("incumbent"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(cfg.Kobold.DataDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfg.Kobold.DataDir, "blocked"), []byte("not a directory"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	manager := NewManager(cfg)
+	manager.client = server.Client()
+	target := manager.targets()[0]
+	target.MetadataName = filepath.Join("blocked", "update.json")
+
+	if err := manager.download(context.Background(), target, metadata{}); err == nil {
+		t.Fatal("expected metadata commit failure")
+	}
+	assertFileContent(t, cfg.Kobold.BinaryPath, "incumbent")
+	if fileExists(cfg.Kobold.BinaryPath + ".previous") {
+		t.Fatal("rollback left an executable backup")
+	}
+}
+
 func TestDownloadSplitModeWritesLlamaAndSDCPPBinaries(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.Backend.Mode = "llama_sdcpp"
@@ -403,6 +437,26 @@ func TestWriteExtractedFileDoesNotFollowSymlinkLeaf(t *testing.T) {
 	}
 }
 
+func TestDownloadRejectsMissingSHA256BeforeRequest(t *testing.T) {
+	cfg := testConfig(t)
+	var requests atomic.Int32
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		_, _ = w.Write([]byte("binary"))
+	}))
+	defer server.Close()
+	cfg.Updates.BinaryURL = server.URL
+	cfg.Updates.BinarySHA256 = ""
+
+	manager := NewManager(cfg)
+	manager.client = server.Client()
+	if err := manager.Download(context.Background()); err == nil {
+		t.Fatal("expected missing SHA-256 rejection")
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("missing SHA-256 made %d network requests", requests.Load())
+	}
+}
 func TestDownloadRejectsHTTPURL(t *testing.T) {
 	cfg := testConfig(t)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

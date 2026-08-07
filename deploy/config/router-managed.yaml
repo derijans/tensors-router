@@ -1,8 +1,8 @@
 security:
-  profile: "trusted_lan"
+  profile: "secure"
 
 server:
-  bind: "0.0.0.0:8080"
+  bind: "127.0.0.1:8080"
   allowed_cidrs:
     - "127.0.0.0/8"
     - "::1/128"
@@ -61,8 +61,12 @@ logging:
 updates:
   enabled: false
   check_interval: "168h"
-  binary_url: "https://koboldai.org/cpplinuxrocm"
+  tuf_repository_url: "https://derijans.github.io/tensors-router/tuf/metadata"
+  tuf_root_path: ""
+  binary_url: ""
   binary_sha256: ""
+  binary_repository_url: "https://github.com/LostRuins/koboldcpp"
+  binary_asset_glob: ""
   llama_binary_url: ""
   llama_binary_sha256: ""
   sdcpp_binary_url: ""
@@ -86,6 +90,8 @@ cluster:
   store_dir: "/data/router"
   sync_interval: "60s"
   health_interval: "15s"
+  control_timeout: "30s"
+  sync_concurrency: 4
 
 analytics:
   enabled: true

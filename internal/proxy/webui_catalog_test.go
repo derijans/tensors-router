@@ -352,9 +352,14 @@ func TestRemoteWebUIBackendAPIUsesSlaveRootAndToken(t *testing.T) {
 	slaveServer := httptest.NewServer(slave)
 	defer slaveServer.Close()
 
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
+	if err := registry.UpdateNode(cluster.Snapshot{NodeID: "slave-a", NodeURL: slaveServer.URL}); err != nil {
+		t.Fatal(err)
+	}
 	service := NewService(ServiceConfig{
 		Backend:      &fakeBackend{url: mustParseURL(t, "http://127.0.0.1:1"), healthy: false},
 		Catalog:      catalog.New(t.TempDir()),
+		Registry:     registry,
 		ClusterRole:  cluster.RoleMaster,
 		NodeID:       "master",
 		ClusterToken: "secret",
@@ -402,9 +407,14 @@ func TestRemoteWebUIProxyUsesSlaveTokenAndRewritesNodeRedirect(t *testing.T) {
 	}))
 	defer remote.Close()
 
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
+	if err := registry.UpdateNode(cluster.Snapshot{NodeID: "slave-a", NodeURL: remote.URL}); err != nil {
+		t.Fatal(err)
+	}
 	service := NewService(ServiceConfig{
 		Backend:      &fakeBackend{url: mustParseURL(t, "http://127.0.0.1:1"), healthy: false},
 		Catalog:      catalog.New(t.TempDir()),
+		Registry:     registry,
 		ClusterRole:  cluster.RoleMaster,
 		NodeID:       "master",
 		ClusterToken: "secret",

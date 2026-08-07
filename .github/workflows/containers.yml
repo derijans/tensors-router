@@ -1,8 +1,11 @@
 name: Publish container images
 
 on:
-  release:
-    types: [published]
+  workflow_call:
+    inputs:
+      version:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       version:
@@ -51,11 +54,10 @@ jobs:
         id: image
         shell: bash
         env:
-          RELEASE_VERSION: ${{ github.event.release.tag_name }}
-          MANUAL_VERSION: ${{ inputs.version }}
+          REQUESTED_VERSION: ${{ inputs.version }}
           TARGET: ${{ matrix.target }}
         run: |
-          VERSION="${RELEASE_VERSION:-$MANUAL_VERSION}"
+          VERSION="$REQUESTED_VERSION"
           if [[ ! "$VERSION" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
             echo "Invalid container version: $VERSION" >&2
             exit 1

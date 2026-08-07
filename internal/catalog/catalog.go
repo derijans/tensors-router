@@ -34,6 +34,7 @@ type Model struct {
 	Filename         string
 	Path             string
 	Created          int64
+	Size             int64
 	HasLLM           bool
 	HasImage         bool
 	HasEmbeddings    bool
@@ -337,6 +338,9 @@ func (catalog *Catalog) withMetadata(model Model, includeModelHash bool) Model {
 	model.HasVoice = hasVoiceModel(metadata) || portableModelField(options, "whispermodel", "whispercpp_vad_model", "ttsmodel", "ttswavtokenizer", "talkermodel", "code2wavmodel")
 	model.HasMusic = hasMusicModel(metadata) || portableModelField(options, "musicllm", "musicembeddings", "musicdiffusion", "musicvae")
 	model.HasLLM = hasLLMModel(metadata) || portableModelField(options, "model", "model_param", "draftmodel")
+	if model.HasLLM {
+		model.Size = regularFileSize(metadata.TextModelPath())
+	}
 	model.BackendMode = strings.TrimSpace(metadata.BackendMode)
 	model.MCPEnabled = metadata.MCPEnabled
 	if model.HasImage {
@@ -355,6 +359,14 @@ func (catalog *Catalog) withMetadata(model Model, includeModelHash bool) Model {
 		model.ModelHash = ModelReferenceHash(content, nil)
 	}
 	return model
+}
+
+func regularFileSize(path string) int64 {
+	info, err := os.Stat(strings.TrimSpace(path))
+	if err != nil || !info.Mode().IsRegular() {
+		return 0
+	}
+	return info.Size()
 }
 
 func portableModelField(options map[string]json.RawMessage, fields ...string) bool {

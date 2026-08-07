@@ -3,6 +3,7 @@ package auth
 import (
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -138,5 +139,46 @@ func TestTrustedLANSkipsPublicAuthButRequiresClusterToken(t *testing.T) {
 	handler.ServeHTTP(clusterRecorder, clusterRequest)
 	if clusterRecorder.Code != http.StatusUnauthorized {
 		t.Fatalf("trusted LAN cluster route status %d", clusterRecorder.Code)
+	}
+}
+
+func TestPolicyUsesOllamaErrorContractForAccessFailures(t *testing.T) {
+	policy, err := NewPolicy(PolicyConfig{
+		AllowedCIDRs:  []string{"127.0.0.0/8"},
+		Profile:       ProfileSecure,
+		InferenceKeys: []string{"inference"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := policy.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	testCases := []struct {
+		name       string
+		remoteAddr string
+		status     int
+		message    string
+	}{
+		{name: "unauthorized", remoteAddr: "127.0.0.1:1234", status: http.StatusUnauthorized, message: "unauthorized"},
+		{name: "forbidden", remoteAddr: "203.0.113.10:1234", status: http.StatusForbidden, message: "forbidden"},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/api/generate", nil)
+			request.RemoteAddr = testCase.remoteAddr
+			handler.ServeHTTP(recorder, request)
+			if recorder.Code != testCase.status {
+				t.Fatalf("status=%d want=%d", recorder.Code, testCase.status)
+			}
+			if recorder.Header().Get("Content-Type") != "application/json" {
+				t.Fatalf("unexpected content type %q", recorder.Header().Get("Content-Type"))
+			}
+			wantBody := `{"error":"` + testCase.message + `"}`
+			if strings.TrimSpace(recorder.Body.String()) != wantBody {
+				t.Fatalf("body=%s want=%s", recorder.Body.String(), wantBody)
+			}
+		})
 	}
 }

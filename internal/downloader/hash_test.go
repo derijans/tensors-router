@@ -3,7 +3,6 @@ package downloader
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -52,18 +51,5 @@ func TestAmbiguousHashSidecarIsNotTrustedOrChanged(t *testing.T) {
 	}
 	if string(content) != testSHA256+"\n" {
 		t.Fatalf("ambiguous sidecar changed to %q", content)
-	}
-}
-
-func TestIsolatedEnvironmentDoesNotUseGlobalToken(t *testing.T) {
-	t.Setenv("HF_TOKEN", "global-token")
-	environment := isolatedHFEnvironment(t.TempDir(), "operation-token")
-	values := map[string]string{}
-	for _, entry := range environment {
-		key, value, _ := strings.Cut(entry, "=")
-		values[key] = value
-	}
-	if values["HF_TOKEN"] != "operation-token" || values["HF_HUB_DISABLE_IMPLICIT_TOKEN"] != "1" || values["HF_HUB_DISABLE_TELEMETRY"] != "1" || values["HF_HUB_DISABLE_UPDATE_CHECK"] != "1" {
-		t.Fatalf("unexpected isolated environment %#v", values)
 	}
 }

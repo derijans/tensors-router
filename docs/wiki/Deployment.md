@@ -24,7 +24,7 @@ Keep all managed backend listeners on loopback addresses.
 Install the user service:
 
 ```sh
-bash scripts/install-systemd-user.sh "$PWD" "$PWD/tensors-router" "$PWD/config.yaml"
+bash scripts/install-systemd-user.sh "$PWD" "$PWD/tensors-router" "$PWD/config.yaml" 16m30s
 systemctl --user start tensors-router.service
 ```
 
@@ -41,7 +41,7 @@ Remove it with:
 bash scripts/uninstall-systemd-user.sh
 ```
 
-The installer enables the service and writes it under the current user's systemd configuration.
+The installer enables the service and writes it under the current user's systemd configuration. Its optional fourth argument is a strict positive `h`/`m`/`s` duration. The default `16m30s` stop deadline exceeds the router's 15-minute drain timeout.
 
 ## Container images
 
@@ -79,6 +79,7 @@ Prepare a WebUI host layout before deployment:
 export TENSORS_ROUTER_ROOT=/srv/tensors-router
 export TENSORS_ROUTER_MODELS_PATH=/srv/tensors-models
 install -d -m 0750 "$TENSORS_ROUTER_ROOT"/{config,kcpps,logs/downloader,backends} "$TENSORS_ROUTER_MODELS_PATH"
+bash scripts/bootstrap-secrets.sh "$TENSORS_ROUTER_ROOT"
 cp deploy/config/router-managed.yaml "$TENSORS_ROUTER_ROOT/config/"
 cp deploy/config/webui.yaml "$TENSORS_ROUTER_ROOT/config/"
 cp deploy/config/downloader.yaml "$TENSORS_ROUTER_ROOT/config/"
@@ -115,7 +116,15 @@ Add AMD access:
 docker compose -f deploy/compose.base.yaml -f deploy/compose.amd.yaml --profile webui up -d router-webui
 ```
 
-The supplied configurations use `trusted_lan` so they can start without bundled credentials. Restrict them to a trusted private network or change the security profile and configure credentials before exposing a listener.
+The supplied configurations use `secure`. The bootstrap helper creates separate 256-bit inference, router-admin, cluster, and WebUI-admin credentials below `secrets/`, with a `0700` directory and `0600` files. Compose mounts them through `/run/secrets`; it never places credential values in the stack environment.
+
+Direct environment values remain available for Portainer and other orchestrators. Set exactly one value or file variable for each role; value/file pairs are mutually exclusive, and values cannot be reused across security roles.
+
+`trusted_lan` disables these authentication requirements and is intentionally an explicit opt-in. Use it only on an isolated network:
+
+```sh
+docker compose -f deploy/compose.base.yaml -f deploy/compose.trusted-lan.yaml --profile node up -d router-node
+```
 
 ## Portainer
 
@@ -130,7 +139,7 @@ Portainer reads custom app-template catalogs from a reachable URL. Configure tha
 - WebUI or Node
 - CPU, NVIDIA, or AMD
 
-Each template prompts for `TENSORS_ROUTER_ROOT` and `TENSORS_ROUTER_MODELS_PATH`. Use absolute paths on the Docker host. The six standalone stack files are also available under `deploy/portainer`; deploy one directly from Git when a custom app-template catalog is not wanted.
+Each template prompts for `TENSORS_ROUTER_ROOT`, `TENSORS_ROUTER_MODELS_PATH`, and distinct inference, router-admin, and cluster credentials. WebUI templates also require a separate WebUI-admin credential. Portainer passes these direct values to the container; do not also configure the corresponding `_FILE` variables. Use absolute host paths. The six standalone stack files are also available under `deploy/portainer`; deploy one directly from Git when a custom app-template catalog is not wanted.
 
 ## Logs and runtime state
 
@@ -161,8 +170,9 @@ Use the same paths, mounts, named `/data` volume, and device configuration as th
 
 The WebUI container exposes:
 
-- router API on `8080`
 - management HTTPS on `8443`
 - backend UI HTTPS on `8444`
+
+Its managed router binds to loopback inside the container and port `8080` is not published. The node stacks publish router inference and administration on `8080`, protected by their separate credentials.
 
 When NAT or proxying changes the visible backend UI origin, set `server.backend_ui_public_url` to the browser-visible HTTPS origin for the backend UI listener.

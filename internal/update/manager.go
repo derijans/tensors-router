@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"hash"
 	"io"
-	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -21,16 +20,18 @@ import (
 	"strings"
 	"time"
 
+	"tensors-router/internal/atomicfile"
 	"tensors-router/internal/config"
 	"tensors-router/internal/hardware"
 )
 
 type Manager struct {
-	config         config.Config
-	client         *http.Client
-	hardware       hardware.Source
-	releaseAPIBase string
-	Now            func() time.Time
+	config                   config.Config
+	client                   *http.Client
+	hardware                 hardware.Source
+	releaseAPIBase           string
+	prepareRepositoryRelease func(context.Context, downloadTarget, hardware.Info) (resolvedRelease, *preparedTrust, error)
+	Now                      func() time.Time
 }
 
 type downloadTarget struct {
@@ -213,10 +214,6 @@ func (manager *Manager) download(ctx context.Context, target downloadTarget, pre
 	if response.StatusCode < 200 || response.StatusCode > 299 {
 		return fmt.Errorf("%s download failed with status %d", target.Name, response.StatusCode)
 	}
-	if len(expectedHash) == 0 {
-		log.Printf("SECURITY WARNING: %s download from %s has no publisher or configured SHA-256; continuing is not secure against source compromise or tampering. Configure updates.%s.", target.Name, target.URL, target.SHA256Field)
-	}
-
 	if err := os.MkdirAll(filepath.Dir(target.BinaryPath), 0o755); err != nil {
 		return err
 	}
@@ -225,7 +222,7 @@ func (manager *Manager) download(ctx context.Context, target downloadTarget, pre
 	}
 
 	tempPath := target.BinaryPath + ".download"
-	output, err := os.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o755)
+	output, err := os.OpenFile(tempPath, os.O_CREATE|os.O_RDWR|os.O_TRUNC, 0o755)
 	if err != nil {
 		return err
 	}
@@ -233,10 +230,15 @@ func (manager *Manager) download(ctx context.Context, target downloadTarget, pre
 
 	downloadHash := sha256.New()
 	_, copyErr := io.Copy(io.MultiWriter(output, downloadHash), response.Body)
+	syncErr := syncStagedHandle(output)
 	closeErr := output.Close()
 	if copyErr != nil {
 		_ = os.Remove(tempPath)
 		return copyErr
+	}
+	if syncErr != nil {
+		_ = os.Remove(tempPath)
+		return syncErr
 	}
 	if closeErr != nil {
 		_ = os.Remove(tempPath)
@@ -247,8 +249,17 @@ func (manager *Manager) download(ctx context.Context, target downloadTarget, pre
 		return fmt.Errorf("%s download sha256 mismatch", target.Name)
 	}
 
-	binarySHA256, err := installDownloadedPayload(tempPath, target)
+	binarySHA256, promotion, err := installDownloadedPayload(tempPath, target)
 	if err != nil {
+		return err
+	}
+	committed := false
+	defer func() {
+		if !committed {
+			_ = promotion.Rollback()
+		}
+	}()
+	if err := verifyPromotedBinary(target.BinaryPath, binarySHA256); err != nil {
 		return err
 	}
 
@@ -260,10 +271,14 @@ func (manager *Manager) download(ctx context.Context, target downloadTarget, pre
 		SHA256:       normalizedSHA256(target.SHA256),
 		BinarySHA256: binarySHA256,
 	}
-	return manager.writeMetadata(target, next)
+	if err := manager.writeMetadata(target, next); err != nil {
+		return err
+	}
+	committed = true
+	return promotion.Commit()
 }
 
-func installDownloadedPayload(payloadPath string, target downloadTarget) (string, error) {
+func installDownloadedPayload(payloadPath string, target downloadTarget) (string, *installationPromotion, error) {
 	payloadType := archiveType(target.URL)
 	if payloadType == "" {
 		payloadType = archiveType(payloadPath)
@@ -275,54 +290,61 @@ func installDownloadedPayload(payloadPath string, target downloadTarget) (string
 		return installArchivedPayload(payloadPath, target, tarGzArchiveBinaryPath, extractTarGzPayload)
 	default:
 		if err := os.Chmod(payloadPath, 0o755); err != nil {
-			return "", err
+			return "", nil, err
 		}
-		if err := replaceBinary(payloadPath, target.BinaryPath); err != nil {
-			return "", err
+		promotion, err := promoteBinary(payloadPath, target.BinaryPath)
+		if err != nil {
+			return "", nil, err
 		}
-		return fileSHA256Hex(target.BinaryPath)
+		binarySHA256, err := fileSHA256Hex(target.BinaryPath)
+		if err != nil {
+			_ = promotion.Rollback()
+			return "", nil, err
+		}
+		return binarySHA256, promotion, nil
 	}
 }
 
-func installArchivedPayload(payloadPath string, target downloadTarget, findBinaryPath func(string, downloadTarget) (string, error), extract func(string, string, downloadTarget) error) (string, error) {
+func installArchivedPayload(payloadPath string, target downloadTarget, findBinaryPath func(string, downloadTarget) (string, error), extract func(string, string, downloadTarget) error) (string, *installationPromotion, error) {
 	archiveBinaryPath, err := findBinaryPath(payloadPath, target)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	installDir, err := archiveInstallDir(target, archiveBinaryPath)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	extractedDir := installDir + ".extracted"
 	_ = os.RemoveAll(extractedDir)
 	if err := os.MkdirAll(extractedDir, 0o755); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	defer os.RemoveAll(extractedDir)
 
 	if err := extract(payloadPath, extractedDir, target); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	installedBinaryPath, err := normalizeVersionedArchiveRoot(extractedDir, archiveBinaryPath, target)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 
 	extractedBinaryPath := filepath.Join(extractedDir, filepath.FromSlash(installedBinaryPath))
 	if !fileExists(extractedBinaryPath) {
-		return "", fmt.Errorf("%s archive does not contain %s", target.Name, installedBinaryPath)
+		return "", nil, fmt.Errorf("%s archive does not contain %s", target.Name, installedBinaryPath)
 	}
 	binarySHA256, err := fileSHA256Hex(extractedBinaryPath)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	if err := os.Chmod(extractedBinaryPath, 0o755); err != nil {
-		return "", err
+		return "", nil, err
 	}
-	if err := swapInstallDir(extractedDir, installDir); err != nil {
-		return "", err
+	promotion, err := promoteArchiveTree(extractedDir, installDir, installedBinaryPath)
+	if err != nil {
+		return "", nil, err
 	}
-	return binarySHA256, nil
+	return binarySHA256, promotion, nil
 }
 
 func archiveType(rawURL string) string {
@@ -583,14 +605,18 @@ func writeExtractedFile(root string, name string, input io.Reader, mode os.FileM
 	if err := removeExtractedOutput(outputPath, name); err != nil {
 		return err
 	}
-	output, err := os.OpenFile(outputPath, os.O_CREATE|os.O_WRONLY|os.O_EXCL, mode)
+	output, err := os.OpenFile(outputPath, os.O_CREATE|os.O_RDWR|os.O_EXCL, mode)
 	if err != nil {
 		return err
 	}
 	_, copyErr := io.Copy(output, input)
+	syncErr := syncStagedHandle(output)
 	closeErr := output.Close()
 	if copyErr != nil {
 		return copyErr
+	}
+	if syncErr != nil {
+		return syncErr
 	}
 	if closeErr != nil {
 		return closeErr
@@ -745,26 +771,6 @@ func normalizeVersionedArchiveRoot(extractedDir string, archiveBinaryPath string
 	return path.Join(parts[1:]...), nil
 }
 
-func swapInstallDir(extractedDir string, installDir string) error {
-	if err := os.MkdirAll(filepath.Dir(installDir), 0o755); err != nil {
-		return err
-	}
-	backupDir := installDir + ".previous"
-	if err := removeInstallDir(backupDir); err != nil {
-		return err
-	}
-	if err := os.Rename(installDir, backupDir); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-	if err := os.Rename(extractedDir, installDir); err != nil {
-		if rollbackErr := os.Rename(backupDir, installDir); rollbackErr != nil && !os.IsNotExist(rollbackErr) {
-			return fmt.Errorf("install failed: %v; rollback failed: %w", err, rollbackErr)
-		}
-		return err
-	}
-	return removeInstallDir(backupDir)
-}
-
 func matchesBinaryArchiveName(entryName string, names []string) bool {
 	for _, name := range names {
 		if strings.EqualFold(entryName, name) {
@@ -833,7 +839,7 @@ func validateTarget(target downloadTarget) ([]byte, error) {
 		return nil, err
 	}
 	if strings.TrimSpace(target.SHA256) == "" {
-		return nil, nil
+		return nil, fmt.Errorf("updates.%s is required for a direct binary URL", target.SHA256Field)
 	}
 	expectedHash, err := hex.DecodeString(strings.TrimSpace(target.SHA256))
 	if err != nil || len(expectedHash) != sha256.Size {
@@ -887,24 +893,11 @@ func (manager *Manager) writeMetadata(target downloadTarget, value metadata) err
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(manager.metadataPath(target), content, 0o644)
+	return atomicfile.Write(manager.metadataPath(target), content, 0o644)
 }
 
 func (manager *Manager) metadataPath(target downloadTarget) string {
 	return filepath.Join(target.DataDir, target.MetadataName)
-}
-
-func replaceBinary(tempPath string, targetPath string) error {
-	if err := os.Remove(targetPath); err != nil && !os.IsNotExist(err) {
-		_ = os.Remove(tempPath)
-		return err
-	}
-	if err := os.Rename(tempPath, targetPath); err != nil {
-		_ = os.Remove(tempPath)
-		return err
-	}
-
-	return nil
 }
 
 func fileExists(path string) bool {

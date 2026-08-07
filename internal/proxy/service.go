@@ -31,6 +31,7 @@ import (
 	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/mcp"
 	"tensors-router/internal/modelassets"
+	"tensors-router/internal/ollama"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/recipes"
 	"tensors-router/internal/transportbody"
@@ -97,7 +98,7 @@ type ServiceConfig struct {
 	VRAMSource                hardware.VRAMSource
 	VRAMSampleInterval        time.Duration
 	Hardware                  hardware.Source
-	Downloader                *downloader.Manager
+	Downloader                downloader.Service
 	DownloaderCapability      downloader.Capability
 	Logger                    *log.Logger
 	Shutdown                  func()
@@ -148,7 +149,7 @@ type Service struct {
 	vramSampler               *hardware.VRAMSampler
 	vramSampleInterval        time.Duration
 	hardware                  hardware.Source
-	downloader                *downloader.Manager
+	downloader                downloader.Service
 	downloaderCapability      downloader.Capability
 	client                    *http.Client
 	logger                    *log.Logger
@@ -428,7 +429,7 @@ func newBackendFamily(mode string, config BackendFamilyConfig) *backendFamily {
 }
 
 func (service *Service) knownClusterTargets() []string {
-	values := append([]string{service.nodeURL, service.masterURL}, service.slaveURLs...)
+	values := []string{service.nodeURL, service.masterURL}
 	if service.registry != nil {
 		values = append(values, service.registry.NodeURLs()...)
 	}
@@ -467,6 +468,19 @@ func (service *Service) PreloadModel(ctx context.Context, modelID string) error 
 }
 
 func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if !isOllamaPath(r.URL.Path) {
+		service.serveHTTP(w, r)
+		return
+	}
+	writer := ollama.NewErrorResponseWriter(w)
+	service.serveHTTP(writer, r)
+	writer.Finish()
+}
+
+func (service *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	if rejectOllamaMethod(w, r) {
+		return
+	}
 	workingSet, ok := service.reserveTransportWorkingSet(r)
 	if !ok {
 		writeTransportError(w, transportbody.ErrBufferCapacity)
@@ -493,6 +507,11 @@ func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	if strings.HasPrefix(r.URL.Path, "/api/admin/") {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		return
+	}
+
+	if isOllamaPath(r.URL.Path) {
+		service.handleOllamaRequest(w, r)
 		return
 	}
 
@@ -1180,6 +1199,9 @@ func writeModelProxyResponseWithLimit(w http.ResponseWriter, response *http.Resp
 	response.Body = limitProxyResponseBody(response.Body, maxResponseBytes)
 	if isEventStream(response.Header) {
 		return writeEventStreamResponse(w, response, virtualModelID)
+	}
+	if isNDJSONResponse(response.Header) {
+		return writeNDJSONResponseWithVirtualModel(w, response, virtualModelID)
 	}
 	return writeJSONResponseWithVirtualModel(w, response, virtualModelID, maxResponseBytes)
 }

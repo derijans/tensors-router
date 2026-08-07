@@ -1,0 +1,43 @@
+name: Publish trusted update metadata
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: tuf-publication
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: tuf-metadata
+          path: published
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version-file: go.mod
+      - name: Build signed publication
+        env:
+          TUF_UPSTREAM_TARGETS_KEY: ${{ secrets.TUF_UPSTREAM_TARGETS_KEY }}
+          TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_KEY }}
+          TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_KEY }}
+        run: go run ./cmd/tensor-router-tuf-publisher -repository published/tuf -output .tmp/tuf-publication
+      - name: Replace publication
+        shell: bash
+        run: |
+          find published -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
+          mkdir -p published/tuf
+          cp -a .tmp/tuf-publication/. published/tuf/
+          touch published/.nojekyll
+      - name: Push publication
+        working-directory: published
+        shell: bash
+        run: |
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add --all
+          git diff --cached --quiet && exit 0
+          git commit -m "updates: publish trusted metadata"
+          git push origin HEAD:tuf-metadata

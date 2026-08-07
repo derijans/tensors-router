@@ -92,6 +92,9 @@ func validateWebUIConfig(cfg Config) (Config, error) {
 	if err := validateWebUICredential("router.token", cfg.Router.Token); err != nil {
 		return cfg, err
 	}
+	if adminToken := strings.TrimSpace(cfg.Server.AdminToken); adminToken != "" && adminToken == strings.TrimSpace(cfg.Router.Token) {
+		return cfg, fmt.Errorf("credentials cannot be reused across server.admin_token and router.token")
+	}
 	if cfg.Security.Profile == SecurityProfileSecure && !webUILoopbackBind(cfg.Server.Bind) && strings.TrimSpace(cfg.Server.AdminToken) == "" {
 		return cfg, fmt.Errorf("server.admin_token is required for non-loopback secure bind")
 	}

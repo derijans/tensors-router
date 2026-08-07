@@ -113,9 +113,11 @@ When updates are enabled, each selected backend needs either a direct binary URL
 | `updates.enabled` | Boolean | `false` | Enables periodic backend binary checks and replacement. |
 | `updates.check_interval` | Positive duration string | `168h` | Time between update checks. |
 | `updates.include_prereleases` | Boolean | `false` | Allows prerelease GitHub releases when repository resolution is used. |
-| `updates.binary_url` | Empty or HTTPS URL string | KoboldCpp direct URL in the example | Direct KoboldCpp binary source. |
+| `updates.tuf_repository_url` | HTTPS URL ending in `/metadata` | Built-in project metadata repository | TUF metadata endpoint used to authorize repository releases. Credentials, queries, and fragments are rejected. |
+| `updates.tuf_root_path` | Empty or file path | Empty | Optional trusted TUF root override. Empty uses the root embedded in the router. |
+| `updates.binary_url` | Empty or HTTPS URL string | Empty | Direct KoboldCpp binary source. A direct source always requires `updates.binary_sha256`. |
 | `updates.binary_sha256` | Empty or 64-character SHA-256 string | Empty | Expected digest for a direct KoboldCpp download. |
-| `updates.binary_repository_url` | Empty or HTTPS repository URL string | Empty | KoboldCpp release repository source. |
+| `updates.binary_repository_url` | Empty or HTTPS repository URL string | `https://github.com/LostRuins/koboldcpp` | KoboldCpp release repository source authorized by TUF metadata. |
 | `updates.binary_asset_glob` | String glob | Empty | Selects a KoboldCpp release asset. |
 | `updates.llama_binary_url` | Empty or HTTPS URL string | Empty | Direct llama.cpp binary source. |
 | `updates.llama_binary_sha256` | Empty or 64-character SHA-256 string | Empty | Expected digest for a direct llama.cpp download. |
@@ -150,6 +152,8 @@ When updates are enabled, each selected backend needs either a direct binary URL
 | `cluster.store_dir` | Path string | `./router-store` | Stores registry, asset index, recipes, benchmarks, and default analytics data. |
 | `cluster.sync_interval` | Positive duration string | `60s` | Interval between slave registry synchronization attempts. |
 | `cluster.health_interval` | Positive duration string | `15s` | Interval between cluster health checks. |
+| `cluster.control_timeout` | Positive duration string | `30s` | Total deadline for buffered cluster control requests and responses. |
+| `cluster.sync_concurrency` | Integer, `1`–`128` | `4` | Maximum number of slave health snapshots fetched concurrently. |
 
 ### Analytics
 
@@ -260,3 +264,17 @@ The router and WebUI security profiles use this order:
 4. Secure default
 
 Other command-line and environment overrides are resolved by the corresponding executable before validation.
+
+## Credential environment inputs
+
+Credential values can come from configuration or the environment. Each environment role accepts either the direct value or the corresponding `_FILE` path, never both. Secret files must be regular files containing one nonempty credential. Environment credentials replace the configured value for that role before validation.
+
+| Role | Direct value | File path |
+| --- | --- | --- |
+| Router inference | `TENSORS_ROUTER_INFERENCE_TOKEN` | `TENSORS_ROUTER_INFERENCE_TOKEN_FILE` |
+| Router administration | `TENSORS_ROUTER_ADMIN_TOKEN` | `TENSORS_ROUTER_ADMIN_TOKEN_FILE` |
+| Cluster control | `TENSORS_ROUTER_CLUSTER_TOKEN` | `TENSORS_ROUTER_CLUSTER_TOKEN_FILE` |
+| WebUI administration | `TENSORS_ROUTER_WEBUI_ADMIN_TOKEN` | `TENSORS_ROUTER_WEBUI_ADMIN_TOKEN_FILE` |
+| WebUI-to-router management | `TENSORS_ROUTER_MANAGED_ROUTER_TOKEN` | `TENSORS_ROUTER_MANAGED_ROUTER_TOKEN_FILE` |
+
+`TENSORS_ROUTER_WEBUI_TOKEN` and `TENSOR_ROUTER_WEBUI_TOKEN` remain direct-value compatibility aliases for WebUI administration. A credential reused by inference, router administration, cluster control, or WebUI administration is rejected. The WebUI-to-router token must match an administrator credential accepted by that router, because those are the same security role across the two processes.

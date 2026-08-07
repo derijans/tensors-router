@@ -1,11 +1,66 @@
 package downloader
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
+
+func TestManagerCloseCancelsAndJoinsRunningJobs(t *testing.T) {
+	requestStarted := make(chan struct{})
+	requestCancelled := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		close(requestStarted)
+		<-request.Context().Done()
+		close(requestCancelled)
+	}))
+	defer server.Close()
+	manager := transferTestManager(t, server.URL+"/api")
+	job := DownloadJob{
+		ID:         "shutdown-job",
+		Repository: "owner/model",
+		Commit:     "commit",
+		State:      JobQueued,
+		TotalBytes: 5,
+		Files:      []JobFile{{Path: "model.gguf", Size: 5, State: string(JobQueued)}},
+	}
+	if err := manager.store.SaveJob(job); err != nil {
+		t.Fatal(err)
+	}
+	stored, found, err := manager.store.Job(job.ID)
+	if err != nil || !found {
+		t.Fatalf("load shutdown job: found=%t error=%v", found, err)
+	}
+	if err := manager.startJob(stored); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-requestStarted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("download request did not start")
+	}
+	closeCompleted := make(chan error, 1)
+	go func() {
+		closeCompleted <- manager.Close()
+	}()
+	select {
+	case err := <-closeCompleted:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("manager close did not join the cancelled download")
+	}
+	select {
+	case <-requestCancelled:
+	default:
+		t.Fatal("manager close returned before the download request observed cancellation")
+	}
+}
 
 func TestManagerWritesConfiguredDownloaderLog(t *testing.T) {
 	directory := t.TempDir()

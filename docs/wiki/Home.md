@@ -17,6 +17,7 @@
 - [Cluster Routing](Cluster-Routing)
 - [Security and Reverse Proxy](Security-and-Reverse-Proxy)
 - [Deployment](Deployment)
+- [Trusted Updates](Trusted-Updates)
 - [Testing and Troubleshooting](Testing-and-Troubleshooting)
 
 ## Reference

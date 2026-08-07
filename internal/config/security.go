@@ -33,6 +33,9 @@ type LimitsConfig struct {
 
 type LoadOptions struct {
 	SecurityProfile string
+	InferenceKey    string
+	AdminKey        string
+	ClusterToken    string
 }
 
 func ResolveSecurityProfile(cliValue string, environmentValue string) string {
@@ -80,6 +83,9 @@ func validateSecurity(cfg *Config) error {
 	if err := validateCredential("cluster.token", cfg.Cluster.Token, cfg.Cluster.Role != "standalone"); err != nil {
 		return err
 	}
+	if err := validateCredentialRoleSeparation(cfg); err != nil {
+		return err
+	}
 	if cfg.Security.Profile == SecurityProfileSecure && !loopbackBind(cfg.Server.Bind) {
 		if !hasCredential(cfg.Auth.InferenceKeys) {
 			return fmt.Errorf("auth.inference_keys is required for non-loopback secure bind")
@@ -91,6 +97,30 @@ func validateSecurity(cfg *Config) error {
 	return nil
 }
 
+func validateCredentialRoleSeparation(cfg *Config) error {
+	owners := map[string]string{}
+	roles := []struct {
+		name   string
+		values []string
+	}{
+		{name: "auth.inference_keys", values: cfg.Auth.InferenceKeys},
+		{name: "auth.admin_keys", values: cfg.Auth.AdminKeys},
+		{name: "cluster.token", values: []string{cfg.Cluster.Token}},
+	}
+	for _, role := range roles {
+		for _, rawValue := range role.values {
+			value := strings.TrimSpace(rawValue)
+			if value == "" {
+				continue
+			}
+			if owner, exists := owners[value]; exists && owner != role.name {
+				return fmt.Errorf("credentials cannot be reused across %s and %s", owner, role.name)
+			}
+			owners[value] = role.name
+		}
+	}
+	return nil
+}
 func validateLimits(limits LimitsConfig) error {
 	const maxInt64 = int64(^uint64(0) >> 1)
 	values := []struct {

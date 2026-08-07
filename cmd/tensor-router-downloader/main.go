@@ -27,6 +27,9 @@ func run(args []string, input io.Reader, output io.Writer) error {
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		return usage(output)
 	}
+	if args[0] == "worker" {
+		return runWorker(args[1:], input, output)
+	}
 	if args[0] != "download" {
 		return fmt.Errorf("unknown command %q", args[0])
 	}
@@ -80,6 +83,17 @@ func run(args []string, input io.Reader, output io.Writer) error {
 		}
 	}
 	return fmt.Errorf("download event stream closed")
+}
+
+func runWorker(args []string, input io.Reader, output io.Writer) error {
+	if len(args) != 2 || args[0] != "--config" || strings.TrimSpace(args[1]) == "" {
+		return fmt.Errorf("worker requires --config PATH")
+	}
+	config, _, err := downloader.LoadConfig(args[1])
+	if err != nil {
+		return err
+	}
+	return downloader.ServeWorker(config, input, output)
 }
 
 type downloadCommand struct {

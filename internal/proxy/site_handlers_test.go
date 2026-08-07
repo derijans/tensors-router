@@ -89,8 +89,16 @@ func TestSplitRecipeRoutesTextAndImageToDifferentNodes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
+	for nodeID, nodeURL := range map[string]string{"text-node": textNode.URL, "image-node": imageNode.URL} {
+		if err := registry.UpdateNode(cluster.Snapshot{NodeID: nodeID, NodeURL: nodeURL}); err != nil {
+			t.Fatal(err)
+		}
+	}
 	service := NewService(ServiceConfig{
 		Backend:      &fakeBackend{url: backendURL, healthy: true},
+		Registry:     registry,
+		ClusterRole:  cluster.RoleMaster,
 		Catalog:      catalog.New(t.TempDir()),
 		ClusterToken: "secret",
 		NodeID:       "master",

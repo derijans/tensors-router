@@ -71,7 +71,11 @@ func runServe(args []string) error {
 	}
 
 	profileOverride := config.ResolveSecurityProfile(*securityProfile, os.Getenv("TENSORS_ROUTER_SECURITY_PROFILE"))
-	cfg, err := config.LoadWithOptions(*configPath, config.LoadOptions{SecurityProfile: profileOverride})
+	loadOptions, err := environmentLoadOptions(profileOverride)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.LoadWithOptions(*configPath, loadOptions)
 	if err != nil {
 		return err
 	}
@@ -119,7 +123,7 @@ func runServe(args []string) error {
 	defer assetIndex.Close()
 	var analyticsStore *routeranalytics.Store
 	var loadCaptureStore *loadcapture.Store
-	var downloaderManager *downloader.Manager
+	var downloaderManager downloader.Service
 	var routerService *proxy.Service
 	var shutdownBackends []func(context.Context) error
 	runtimeCleaned := false
@@ -160,7 +164,8 @@ func runServe(args []string) error {
 	if err := registry.UpdateLocal(withModelBenchmarks(routercluster.LocalModelsWithBackendMode(localModels, cfg.Cluster.NodeID, cfg.Cluster.PublicURL, localSource, cfg.Backend.Mode), benchmarkStore)); err != nil {
 		return err
 	}
-	clusterClient := routercluster.NewClient(cfg.Cluster.Token, clusterClientTargets(cfg)...)
+	clusterProbeClient := routercluster.NewClientWithTimeout(cfg.Cluster.Token, cfg.Cluster.ControlTimeout, clusterProbeTargets(cfg)...)
+	clusterClient := routercluster.NewClientWithTimeout(cfg.Cluster.Token, cfg.Cluster.ControlTimeout, clusterRoutingTargets(cfg)...)
 	downloaderManager, downloaderCapability := optionalDownloader(*configPath, cfg.Downloader, startupLogger)
 	if downloaderManager != nil {
 		downloaderManager.SetArtifactHandler(func(artifact downloader.ArtifactRecord) error {
@@ -177,13 +182,15 @@ func runServe(args []string) error {
 		}
 	}
 	syncConfig := routercluster.SyncConfig{
-		Role:           cfg.Cluster.Role,
-		MasterURL:      cfg.Cluster.MasterURL,
-		SlaveURLs:      cfg.Cluster.SlaveURLs,
-		SyncInterval:   cfg.Cluster.SyncInterval,
-		HealthInterval: cfg.Cluster.HealthInterval,
+		Role:            cfg.Cluster.Role,
+		MasterURL:       cfg.Cluster.MasterURL,
+		SlaveURLs:       cfg.Cluster.SlaveURLs,
+		SyncInterval:    cfg.Cluster.SyncInterval,
+		HealthInterval:  cfg.Cluster.HealthInterval,
+		SyncConcurrency: cfg.Cluster.SyncConcurrency,
+		AcceptNodeURL:   func(nodeURL string) error { return clusterClient.AllowBaseURLs(nodeURL) },
 	}
-	routercluster.SyncConfiguredSlaves(ctx, syncConfig, registry, clusterClient, serveLogger)
+	routercluster.SyncConfiguredSlaves(ctx, syncConfig, registry, clusterProbeClient, serveLogger)
 
 	backendFamilies, backendShutdowns, err := createBackends(ctx, cfg, mcpReconciler)
 	if err != nil {
@@ -240,7 +247,11 @@ func runServe(args []string) error {
 		MaxControlBodyBytes: cfg.Limits.MaxControlBodyMB * transportbody.MiB,
 	})
 	routerService = router
-	routercluster.StartSync(ctx, syncConfig, registry, clusterClient, serveLogger)
+	if err := routercluster.RegisterInitial(ctx, syncConfig, registry, clusterProbeClient, serveLogger); err != nil {
+		router.BeginDrain()
+		return err
+	}
+	syncErrors := routercluster.StartSync(ctx, syncConfig, registry, clusterProbeClient, serveLogger)
 	startupModel := strings.TrimSpace(cfg.Models.StartupModel)
 	if startupModel != "" {
 		serveLogger.Printf("startup model preload attempt model=%q", startupModel)
@@ -270,6 +281,8 @@ func runServe(args []string) error {
 		if !errors.Is(listenerErr, http.ErrServerClosed) {
 			serveErr = listenerErr
 		}
+	case syncErr := <-syncErrors:
+		serveErr = syncErr
 	}
 	router.BeginDrain()
 	drainErr := shutdownServer(server, cfg.Limits.DrainTimeout)
@@ -391,13 +404,17 @@ func newLoadCaptureStore(cfg config.Config, logger *log.Logger) (*loadcapture.St
 	return loadcapture.NewStore(loadcapture.StoreConfig{NodeID: cfg.Cluster.NodeID, DatabasePath: databasePath, Logger: logger})
 }
 
-func clusterClientTargets(cfg config.Config) []string {
+func clusterProbeTargets(cfg config.Config) []string {
 	targets := []string{
 		cfg.Cluster.PublicURL,
 		cfg.Cluster.MasterURL,
 	}
 	targets = append(targets, cfg.Cluster.SlaveURLs...)
 	return targets
+}
+
+func clusterRoutingTargets(cfg config.Config) []string {
+	return []string{cfg.Cluster.PublicURL, cfg.Cluster.MasterURL}
 }
 
 func createBackends(ctx context.Context, cfg config.Config, mcpReconciler *mcp.Reconciler) (map[string]proxy.BackendFamilyConfig, []func(context.Context) error, error) {
@@ -530,7 +547,11 @@ func runDownload(args []string) error {
 	}
 
 	profileOverride := config.ResolveSecurityProfile(*securityProfile, os.Getenv("TENSORS_ROUTER_SECURITY_PROFILE"))
-	cfg, err := config.LoadWithOptions(*configPath, config.LoadOptions{SecurityProfile: profileOverride})
+	loadOptions, err := environmentLoadOptions(profileOverride)
+	if err != nil {
+		return err
+	}
+	cfg, err := config.LoadWithOptions(*configPath, loadOptions)
 	if err != nil {
 		return err
 	}
