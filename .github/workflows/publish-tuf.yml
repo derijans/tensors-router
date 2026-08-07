@@ -30,6 +30,7 @@ jobs:
           find published -mindepth 1 -maxdepth 1 ! -name .git -exec rm -rf -- {} +
           mkdir -p published/tuf
           cp -a .tmp/tuf-publication/. published/tuf/
+          cp tuf/index.html published/index.html
           touch published/.nojekyll
       - name: Push publication
         working-directory: published
