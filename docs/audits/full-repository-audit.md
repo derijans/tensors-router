@@ -3,29 +3,29 @@
 Audit date: 2026-08-07  
 Audited revision: `a71ea9479b0d9a1c2d3729c39aa769a0c9495182` (`bug fixes`, 2026-08-06 21:53:44 +0300)  
 Scope: repository root, three runtime executables, two TUF operator commands, all root Go packages, browser application, deployment definitions, operational scripts, persistence, and published documentation  
-Report lifecycle: original audit evidence plus remediation implementation and revalidation in the current worktree
+Report lifecycle: original audit evidence, merged remediation, operational activation, and release revalidation
 
 ## Executive summary
 
-This document preserves the baseline evidence from the audit of revision `a71ea9479b0d9a1c2d3729c39aa769a0c9495182` and records the remediation implemented in the current worktree. The insecure behaviors behind TRA-2026-001 through TRA-2026-007 are removed in code: executable downloads now require a direct SHA-256 pin or a valid TUF authorization; shipped deployments authenticate published services; cluster identities are immutable while live; cluster control calls are bounded and concurrent; the downloader is a self-contained Go companion; systemd allows the configured drain; and executable promotion is transactional.
+This document preserves the baseline evidence from the audit of revision `a71ea9479b0d9a1c2d3729c39aa769a0c9495182` and records the remediation merged in `e0bf28fd7b0698f0cb0429c5b9c9f660988a0687`. The insecure behaviors behind TRA-2026-001 through TRA-2026-007 are removed in code: executable downloads now require a direct SHA-256 pin or a valid TUF authorization; shipped deployments authenticate published services; cluster identities are immutable while live; cluster control calls are bounded and concurrent; the downloader is a self-contained Go companion; systemd allows the configured drain; and executable promotion is transactional.
 
-TRA-2026-001 and TRA-2026-007 are code-complete but not yet operationally activated for the default repository. The ignored bootstrap bundle contains the recoverable private keyset and initial repository, while only the public threshold root is tracked. A maintainer must move the offline keys into separate custody, initialize the `tuf-metadata` branch, provision the protected online signing secrets, enable the public metadata endpoint, and perform a clean-client verification. Until then, built-in repository updates fail closed without affecting the installed router or backend.
+TRA-2026-001 and TRA-2026-007 are operationally active for the default repository. GitHub Pages serves the public TUF repository, the `tuf-publication` environment permits deployments only from `main`, and its encrypted secrets contain only the delegated upstream-targets, snapshot, and timestamp keys. Publication run `31183299695` independently downloaded and hashed the allowlisted upstream assets, signed versioned metadata, published timestamp last, and passed its clean-cache verification. A second clean go-tuf v2 client fetched the live Pages endpoint with the embedded root and verified all eight signed target manifests.
 
 The Ollama compatibility review is also complete. Official route methods and `Allow` responses are enforced, all Ollama failures use `{"error":"message"}`, streamed NDJSON records are bounded and rewritten independently, and `/api/tags` and `/api/ps` synthesize deduplicated public model identities without leaking backend-local IDs.
 
-The final Go suite, `go vet`, WebUI audit/lint/tests/type-check/build, repeated high-risk suites, cross-builds, archive smoke checks, YAML/JSON parsing, and the pinned reachable-vulnerability scan pass. Race detection remains blocked by the missing C compiler, and container builds remain blocked because Docker and Podman are unavailable. Those environmental gaps are not represented as successful verification.
+The final Go suite, `go vet`, WebUI audit/lint/tests/type-check/build, repeated high-risk suites, cross-builds, archive smoke checks, YAML/JSON parsing, and the pinned reachable-vulnerability scan pass locally. GitHub run `31183274035` additionally passes the targeted race suite, five-platform builds, container builds, deployment rendering, image-boundary checks, and reachable-vulnerability scan on the exact merged revision. GitHub code scanning reports no new alerts in the remediated pull request.
 
 ## Prioritized action table
 
 | Priority | Finding | Severity | Remediation status | Operational status |
 | --- | --- | --- | --- | --- |
-| 1 | TRA-2026-001: updater installs payloads without an authenticated digest | High | Resolved in code and regression-tested | Default TUF branch, secrets, and endpoint provisioning pending |
+| 1 | TRA-2026-001: updater installs payloads without an authenticated digest | High | Resolved and regression-tested | Default signed TUF service active and clean-client verified |
 | 2 | TRA-2026-002: shipped LAN deployment exposes administrative mutation without authentication | High | Resolved and regression-tested | Secure defaults and bootstrap helper ready |
 | 3 | TRA-2026-004: cluster JSON timeout is disabled and health checks are serialized | High | Resolved and regression-tested | Ready |
 | 4 | TRA-2026-003: duplicate cluster identities silently replace nodes | High | Resolved and regression-tested | Ready |
-| 5 | TRA-2026-005: container downloader lacks its required `hf` executable | High | Resolved and regression-tested | Container runtime smoke remains environment-blocked |
+| 5 | TRA-2026-005: container downloader lacks its required `hf` executable | High | Resolved and regression-tested | Self-contained node and WebUI container images build and pass boundary checks in CI |
 | 6 | TRA-2026-006: systemd stop timeout truncates the configured drain | Medium | Resolved and generated-unit-tested | Ready |
-| 7 | TRA-2026-007: updater removes the old executable before replacement succeeds | Medium | Resolved; Windows regression passes and Unix regression is CI-targeted | Default TUF activation pending as above |
+| 7 | TRA-2026-007: updater removes the old executable before replacement succeeds | Medium | Resolved; Windows and Unix regressions pass | Default signed TUF service active |
 
 ## Audit execution plan artifact
 
@@ -45,12 +45,12 @@ The final Go suite, `go vet`, WebUI audit/lint/tests/type-check/build, repeated 
 | Phase | Outcome | Status |
 | --- | --- | --- |
 | Secure updater | Embedded TUF root, staged metadata, exact signed manifests, direct SHA pins, transactional promotion | Code complete |
-| TUF publication | Bootstrap CLI, delegated online signer, scheduled publisher, independent hashing, clean-cache verification | Code complete; external branch/secret/endpoint activation pending |
+| TUF publication | Bootstrap CLI, delegated online signer, scheduled publisher, independent hashing, clean-cache verification | Complete and operationally verified |
 | Secure deployment | File-backed Compose secrets, direct Portainer credentials, role separation, secure profiles, trusted-LAN overlay | Complete |
 | Cluster correctness | Normalized immutable identities, typed conflicts, terminal slave shutdown, bounded concurrent synchronization | Complete |
 | Self-contained downloader | Framed stdio worker, native HTTP transfer/resume/hash/promotion, lifecycle handshake and cleanup | Complete |
 | Ollama compatibility | Dedicated methods/errors/stream adapter and public cluster model discovery | Complete |
-| Verification and audit | Full local suites, targeted repetition, cross-builds, archive/config checks, evidence update | Complete with documented race/container/external-publication gaps |
+| Verification and audit | Full local suites, CI race/container checks, cross-builds, archive/config checks, GHAS, live TUF verification | Complete with documented upstream and real-backend limitations |
 
 ## Environment and repository state
 
@@ -570,22 +570,24 @@ The router now treats Ollama as a distinct protocol surface rather than an OpenA
 | WebUI `npm run check` | Pass | 0 advisories; ESLint; 16 files/46 Vitest tests; TypeScript; Vite production build |
 | `govulncheck@v1.6.0 ./...` | Pass | No reachable vulnerabilities; 0 called vulnerable symbols |
 | TUF adversarial tests | Pass | Invalid signature/expiry, rollback, mix-and-match, cache immutability, wrong keys, version monotonicity, HTTPS downgrade rejection, and clean-cache publication verification |
+| GitHub Advanced Security | Pass | Code scanning on PR #2 reports no new alerts after malicious-content-type Ollama regressions cleared both reflected-XSS findings |
 | Deployment/workflow parsing | Pass | 18 YAML files and Portainer/TUF JSON policies parsed |
 | Cross-builds | Pass | All three executables for Linux amd64, Linux arm64, Linux ARMv7, and Windows arm64 |
 | Release archive smoke | Pass | Linux amd64/arm64/ARMv7 archives each contain router, WebUI, and downloader |
 | Credential/systemd helpers | Pass | Secret uniqueness/permissions/idempotence and generated `TimeoutStopSec=990s` validated; shell syntax passes |
-| Race suite | Environment-blocked | `CGO_ENABLED=1` reaches `runtime/cgo`, then fails because `gcc` is absent |
-| Container/Compose runtime smoke | Environment-blocked | Docker and Podman are unavailable; static manifests parse successfully |
-| Default TUF service | Provisioning pending | Bootstrap keys/repository exist under ignored, restricted custody; public branch, secrets, Pages/endpoint, and clean remote verification remain external steps |
+| Race suite | Pass in CI | GitHub run `31183274035` passes the targeted cluster/downloader/update/proxy race suite on the merged revision; the Windows workstation still lacks `gcc` |
+| Container/Compose runtime smoke | Pass in CI | GitHub run `31183274035` builds node and WebUI images, validates secure deployment manifests, and verifies image boundaries |
+| Default TUF service | Pass | Publication run `31183299695`; Pages metadata and targets are public by design; a clean embedded-root client verified all eight signed manifests; exact initial public commit audit found zero private-key matches |
+| Private TUF key custody | Restricted | All eight workstation key files moved outside the checkout to a non-inheriting current-user-only directory; root/targets keys are absent from GitHub and must be copied to separate offline media for disaster recovery |
 | Built-in Linux arm64 backend updates | Unsupported upstream matrix | Current upstream releases do not provide the complete required asset set; the updater fails closed before payload download |
 
 ## Acceptance assessment
 
 - Every original repository subsystem remains represented in the coverage matrix, and the remediation implementation plan is recorded above.
-- TRA-2026-001 through TRA-2026-007 are closed at the code level with focused regressions. The default TUF repository is explicitly provisioning-pending, so repository updates fail closed until operators complete the documented external activation.
+- TRA-2026-001 through TRA-2026-007 are closed with focused regressions, and the default TUF repository is active with protected online roles and independent live clean-client verification.
 - Secure deployment defaults, credential role isolation, cluster identity ownership, bounded cluster control, self-contained downloader execution, transactional promotion, and Ollama protocol behavior are implemented and locally verified.
-- Reachable Go and npm vulnerability scans pass after upgrading `golang.org/x/sys` to v0.44.0.
-- Local race, container, and live public-TUF endpoint checks do not meet acceptance because the required compiler, container runtime, and external repository/secrets are absent. Linux arm64 built-in backend publication is unsupported by the current upstream asset matrix.
+- Reachable Go and npm vulnerability scans pass after upgrading `golang.org/x/crypto` to v0.52.0 and `golang.org/x/sys` to v0.45.0. `GO-2026-5932` remains an informational module-level notice for the unmaintained `x/crypto/openpgp` package; that package is not imported, no vulnerable symbol is called, and no fixed module version exists.
+- Race, container, and live public-TUF checks pass in GitHub or against the public endpoint. The local Windows host still lacks a C compiler and container runtime, and Linux arm64 built-in backend publication remains unsupported by the current upstream asset matrix.
 - The original real-backend text and voice evidence remains valid for the audited baseline. SD image inference and full split-native live inference were not rerun and retain their documented host-resource limitations.
 
-The remediation is therefore code-complete with fail-closed behavior. Operational closure requires publishing the bootstrapped TUF repository and running the remaining environment-dependent CI/container checks on a provisioned host.
+The remediation is code-complete and operationally active with fail-closed update behavior. The remaining actions are physical offline backup of the already separated root/targets custody files and future expansion of the upstream asset matrix; neither weakens current signed publication or the serving router.
