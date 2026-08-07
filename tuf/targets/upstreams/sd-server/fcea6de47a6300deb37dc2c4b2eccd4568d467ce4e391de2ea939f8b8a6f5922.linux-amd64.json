@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "365798351",
+      "tag": "master-813-bfbef5b",
+      "published_at": "2026-08-05T20:24:45Z",
+      "payloads": [
+        {
+          "name": "sd-master-bfbef5b-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-813-bfbef5b/sd-master-bfbef5b-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 32645746,
+          "sha256": "e8c7218d2281dcc65be11fe5126e4dad71aaab06d7afae384d8920603103b169"
+        }
+      ]
+    }
+  ]
+}

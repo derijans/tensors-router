@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/ggml-org/whisper.cpp",
+  "releases": [
+    {
+      "id": "364972418",
+      "tag": "v1.9.2",
+      "published_at": "2026-08-04T15:31:37Z",
+      "payloads": [
+        {
+          "name": "whisper-bin-x64.zip",
+          "url": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-x64.zip",
+          "length": 8194445,
+          "sha256": "49dcc16de826f20bd53d44f947a1ae49dfa81f86cad67a64d80820cb192d674a"
+        }
+      ]
+    }
+  ]
+}
