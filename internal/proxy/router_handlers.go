@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/unloadpolicy"
@@ -511,18 +512,41 @@ func (service *Service) loadLocalModel(ctx context.Context, publicID string, loc
 	if err != nil {
 		return err
 	}
-	if modelBackendMode == BackendModeLlamaSDCPP && model.HasImage && modelNeedsPrimaryTextRuntime(model) {
-		if err := service.loadLocalConfig(ctx, modelBackendMode, publicID, model.Filename, readinessText); err != nil {
+	for _, readiness := range modelLoadReadinesses(modelBackendMode, model) {
+		if err := service.loadLocalConfig(ctx, modelBackendMode, publicID, model.Filename, readiness); err != nil {
 			return err
 		}
-		return service.loadLocalConfig(ctx, modelBackendMode, publicID, model.Filename, readinessImage)
+	}
+	return nil
+}
+
+func modelLoadReadinesses(mode string, model catalog.Model) []backendReadiness {
+	separateEmbeddings := model.Capabilities.Embeddings != nil && model.Capabilities.Embeddings.Separate
+	if mode != BackendModeLlamaSDCPP {
+		if !separateEmbeddings {
+			return []backendReadiness{readinessText}
+		}
+		readinesses := make([]backendReadiness, 0, 2)
+		if model.HasLLM || model.HasImage || model.HasMultimodal || model.HasVoice || model.HasMusic {
+			readinesses = append(readinesses, readinessText)
+		}
+		return append(readinesses, readinessEmbeddings)
 	}
 
-	readiness := readinessText
-	if modelBackendMode == BackendModeLlamaSDCPP && model.HasImage && !model.HasLLM && !model.HasEmbeddings && !model.HasMultimodal {
-		readiness = readinessImage
+	readinesses := make([]backendReadiness, 0, 3)
+	if modelNeedsPrimaryTextRuntime(model) {
+		readinesses = append(readinesses, readinessText)
 	}
-	return service.loadLocalConfig(ctx, modelBackendMode, publicID, model.Filename, readiness)
+	if model.HasImage {
+		readinesses = append(readinesses, readinessImage)
+	}
+	if separateEmbeddings {
+		readinesses = append(readinesses, readinessEmbeddings)
+	}
+	if len(readinesses) == 0 {
+		return []backendReadiness{readinessText}
+	}
+	return readinesses
 }
 
 func (service *Service) loadLocalConfig(ctx context.Context, mode string, publicID string, filename string, readiness backendReadiness) error {

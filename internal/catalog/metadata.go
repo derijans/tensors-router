@@ -21,10 +21,11 @@ type RuntimeConfig struct {
 	SplitMode                 string         `json:"splitmode"`
 	TensorSplit               any            `json:"tensor_split"`
 	MainGPU                   int            `json:"maingpu"`
+	MainGPUSet                bool           `json:"-"`
 	Device                    string         `json:"device"`
-	UseCUDA                   bool           `json:"usecuda"`
-	UseCUBLAS                 bool           `json:"usecublas"`
-	UseVulkan                 bool           `json:"usevulkan"`
+	UseCUDA                   any            `json:"usecuda"`
+	UseCUBLAS                 any            `json:"usecublas"`
+	UseVulkan                 any            `json:"usevulkan"`
 	UseCPU                    bool           `json:"usecpu"`
 	FlashAttention            *bool          `json:"flashattention"`
 	UseMMap                   bool           `json:"usemmap"`
@@ -227,6 +228,9 @@ func LoadRuntimeConfig(path string) (RuntimeConfig, error) {
 	var metadata RuntimeConfig
 	if err := json.Unmarshal(normalized, &metadata); err != nil {
 		return RuntimeConfig{}, err
+	}
+	if raw, ok := values["maingpu"]; ok && strings.TrimSpace(string(raw)) != "null" {
+		metadata.MainGPUSet = true
 	}
 	metadata.WhisperCPPOptions = make(map[string]any)
 	for key, raw := range values {

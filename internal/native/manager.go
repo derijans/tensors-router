@@ -43,7 +43,7 @@ type Manager struct {
 	readinessPath   string
 	logName         string
 	argumentBuilder func(catalog.RuntimeConfig, string, string, string, string) ([]string, error)
-	extraArgsFilter func([]string) []string
+	extraArgsFilter func(catalog.RuntimeConfig, []string) []string
 	client          *http.Client
 	mu              sync.Mutex
 	exitMu          sync.RWMutex
@@ -133,7 +133,7 @@ func (manager *Manager) LaunchArguments(filename string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	args = append(args, manager.extraArgsFilter(manager.config.ExtraArgs)...)
+	args = append(args, manager.extraArgsFilter(metadata, manager.config.ExtraArgs)...)
 	return args, nil
 }
 
@@ -473,14 +473,38 @@ func llamaEmbeddingArguments(metadata catalog.RuntimeConfig, modelID string, hos
 	return args, nil
 }
 
-func identityArgs(args []string) []string {
+func identityArgs(_ catalog.RuntimeConfig, args []string) []string {
 	return append([]string(nil), args...)
 }
 
-func embeddingExtraArgs(args []string) []string {
+func embeddingExtraArgs(metadata catalog.RuntimeConfig, args []string) []string {
 	owned := map[string]bool{
 		"--host": true, "--port": true, "--model": true, "--alias": true,
-		"--embeddings": true, "--device": true, "--n-gpu-layers": true, "--ctx-size": true,
+		"--embeddings": false, "--ctx-size": true,
+		"--n-gpu-layers": true, "--gpu-layers": true, "-ngl": true, "--no-gpu": false,
+	}
+	if !metadata.EmbeddingsGPU {
+		addEmbeddingPlacementArguments(owned)
+	} else {
+		if strings.TrimSpace(metadata.Device) != "" {
+			owned["--device"] = true
+			owned["-dev"] = true
+		}
+		if strings.TrimSpace(metadata.SplitMode) != "" {
+			owned["--split-mode"] = true
+			owned["-sm"] = true
+		}
+		if metadata.TensorSplitValue() != "" {
+			owned["--tensor-split"] = true
+			owned["-ts"] = true
+		}
+		if metadata.MainGPUSet && metadata.MainGPU >= 0 {
+			owned["--main-gpu"] = true
+			owned["-mg"] = true
+		}
+		if strings.TrimSpace(metadata.RPCTargets) != "" {
+			owned["--rpc"] = true
+		}
 	}
 	filtered := make([]string, 0, len(args))
 	for index := 0; index < len(args); index++ {
@@ -489,15 +513,22 @@ func embeddingExtraArgs(args []string) []string {
 		if separator := strings.IndexByte(key, '='); separator >= 0 {
 			key = key[:separator]
 		}
-		if !owned[key] {
+		takesValue, managed := owned[key]
+		if !managed {
 			filtered = append(filtered, argument)
 			continue
 		}
-		if argument == key && key != "--embeddings" && index+1 < len(args) && !strings.HasPrefix(args[index+1], "--") {
+		if argument == key && takesValue && index+1 < len(args) {
 			index++
 		}
 	}
 	return filtered
+}
+
+func addEmbeddingPlacementArguments(arguments map[string]bool) {
+	for _, argument := range []string{"--device", "-dev", "--split-mode", "-sm", "--tensor-split", "-ts", "--main-gpu", "-mg", "--rpc"} {
+		arguments[argument] = true
+	}
 }
 
 func whisperCPPArguments(metadata catalog.RuntimeConfig, modelID string, host string, port string, mcpServersPath string) ([]string, error) {

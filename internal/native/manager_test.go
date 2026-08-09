@@ -166,6 +166,61 @@ func TestLlamaEmbeddingLaunchArgumentsEnableEmbeddings(t *testing.T) {
 	}
 }
 
+func TestLegacyLlamaGPUEmbeddingAcceptsKoboldSelectors(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gpu-embed.kcpps"), []byte(`{
+		"backend_mode":"llama_sdcpp",
+		"batchsize":512,
+		"contextsize":16000,
+		"embeddingsgpu":true,
+		"embeddingsmodel":"/home/rocmpimp/Projects/kobold/Qwen3-Embedding-4B-Q8_0.gguf",
+		"gpulayers":-1,
+		"maingpu":-1,
+		"model":[],
+		"nomodel":true,
+		"quantkv":"f16",
+		"splitmode":"layer",
+		"tensor_split":null,
+		"threads":11,
+		"usecuda":["normal","0"],
+		"usemmap":true,
+		"usevulkan":null
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	manager, err := NewLlamaManager(ProcessConfig{
+		BackendURL: "http://127.0.0.1:6003",
+		BinaryPath: "llama-server",
+		ConfigDir:  dir,
+		DataDir:    t.TempDir(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, err := manager.LaunchArguments("gpu-embed.kcpps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for flag, value := range map[string]string{
+		"--model":        "/home/rocmpimp/Projects/kobold/Qwen3-Embedding-4B-Q8_0.gguf",
+		"--ctx-size":     "16000",
+		"--threads":      "11",
+		"--batch-size":   "512",
+		"--n-gpu-layers": "-1",
+		"--split-mode":   "layer",
+		"--cache-type-k": "f16",
+		"--cache-type-v": "f16",
+	} {
+		if !containsAdjacentArguments(args, flag, value) {
+			t.Fatalf("missing %s %s in %#v", flag, value, args)
+		}
+	}
+	if !containsArgument(args, "--embeddings") || containsAdjacentArguments(args, "--device", "none") {
+		t.Fatalf("legacy GPU embedding launch was not preserved: %#v", args)
+	}
+}
+
 func TestSeparateLlamaEmbeddingLaunchArguments(t *testing.T) {
 	dir := t.TempDir()
 	configs := map[string]string{
@@ -173,6 +228,7 @@ func TestSeparateLlamaEmbeddingLaunchArguments(t *testing.T) {
 			"embeddingsmodel":"C:/models/cpu-embed.gguf",
 			"embeddingsmaxctx":2048,
 			"threads":8,
+			"usecuda":["normal","0"],
 			"run_embed_separate":true
 		}`,
 		"gpu.kcpps": `{
@@ -184,6 +240,15 @@ func TestSeparateLlamaEmbeddingLaunchArguments(t *testing.T) {
 			"splitmode":"layer",
 			"tensor_split":[1,2],
 			"maingpu":1
+		}`,
+		"global-gpu.kcpps": `{
+			"embeddingsmodel":"C:/models/global-gpu-embed.gguf",
+			"embeddingsgpu":true,
+			"run_embed_separate":true,
+			"device":"",
+			"tensor_split":null,
+			"maingpu":-1,
+			"usecuda":["normal","0"]
 		}`,
 		"mixed.kcpps": `{
 			"model_param":"C:/models/text.gguf",
@@ -202,7 +267,11 @@ func TestSeparateLlamaEmbeddingLaunchArguments(t *testing.T) {
 		BinaryPath: "llama-server",
 		ConfigDir:  dir,
 		DataDir:    t.TempDir(),
-		ExtraArgs:  []string{"--device", "vulkan", "--n-gpu-layers=7", "--parallel", "2"},
+		ExtraArgs: []string{
+			"--device", "vulkan", "--n-gpu-layers=7",
+			"--split-mode", "row", "--tensor-split", "3,4", "--main-gpu", "2", "--rpc", "rpc0",
+			"--parallel", "2",
+		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -230,10 +299,25 @@ func TestSeparateLlamaEmbeddingLaunchArguments(t *testing.T) {
 		"--model", "C:/models/gpu-embed.gguf", "--alias", "gpu", "--embeddings",
 		"--ctx-size", "4096", "--n-gpu-layers", "-1", "--device", "cuda",
 		"--split-mode", "layer", "--tensor-split", "1,2", "--main-gpu", "1",
-		"--no-mmap", "--parallel", "2",
+		"--no-mmap", "--rpc", "rpc0", "--parallel", "2",
 	}
 	if !reflect.DeepEqual(gpuArgs, gpuExpected) {
 		t.Fatalf("unexpected GPU embedding args %#v", gpuArgs)
+	}
+
+	globalGPUArgs, err := embeddingsManager.LaunchArguments("global-gpu.kcpps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	globalGPUExpected := []string{
+		"--host", "127.0.0.1", "--port", "6005",
+		"--model", "C:/models/global-gpu-embed.gguf", "--alias", "global-gpu", "--embeddings",
+		"--n-gpu-layers", "-1", "--no-mmap",
+		"--device", "vulkan", "--split-mode", "row", "--tensor-split", "3,4", "--main-gpu", "2", "--rpc", "rpc0",
+		"--parallel", "2",
+	}
+	if !reflect.DeepEqual(globalGPUArgs, globalGPUExpected) {
+		t.Fatalf("unexpected globally placed GPU embedding args %#v", globalGPUArgs)
 	}
 
 	primaryManager, err := NewLlamaManager(ProcessConfig{BackendURL: "http://127.0.0.1:6002", ConfigDir: dir})

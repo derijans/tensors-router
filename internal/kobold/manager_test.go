@@ -137,7 +137,7 @@ func TestRoleSpecificRuntimeConfigurations(t *testing.T) {
 		"embeddingsmaxctx":2048,
 		"embeddingsgpu":false,
 		"run_embed_separate":true,
-		"usecuda":true,
+		"usecuda":["normal","0"],
 		"tensor_split":[1,2],
 		"maingpu":1
 	}`), 0o644); err != nil {
@@ -147,7 +147,7 @@ func TestRoleSpecificRuntimeConfigurations(t *testing.T) {
 		"embeddingsmodel":"C:/models/embed-gpu.gguf",
 		"embeddingsgpu":true,
 		"run_embed_separate":true,
-		"usecuda":true,
+		"usecuda":["normal","0"],
 		"tensor_split":[1,2],
 		"maingpu":1
 	}`), 0o644); err != nil {
@@ -197,7 +197,7 @@ func TestRoleSpecificRuntimeConfigurations(t *testing.T) {
 		t.Fatal(err)
 	}
 	gpuValues := readRuntimeConfigValues(t, gpuPath)
-	if string(gpuValues["embeddingsgpu"]) != "true" || string(gpuValues["usecuda"]) != "true" || string(gpuValues["tensor_split"]) != "[1,2]" || string(gpuValues["maingpu"]) != "1" {
+	if string(gpuValues["embeddingsgpu"]) != "true" || string(gpuValues["usecuda"]) != `["normal","0"]` || string(gpuValues["tensor_split"]) != "[1,2]" || string(gpuValues["maingpu"]) != "1" {
 		t.Fatalf("GPU embedding config lost placement %#v", gpuValues)
 	}
 	expectAbsent(t, embeddings.LaunchArguments(), "--usecpu")

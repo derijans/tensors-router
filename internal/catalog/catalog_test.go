@@ -132,6 +132,42 @@ func TestRuntimeConfigParsesRouterUnloadPolicy(t *testing.T) {
 	}
 }
 
+func TestRuntimeConfigPreservesStructuredGPUSelectors(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "embed.kcpps")
+	writeCatalogFile(t, dir, "embed.kcpps", `{
+		"backend_mode":"llama_sdcpp",
+		"nomodel":true,
+		"model":[],
+		"embeddingsmodel":"/models/Qwen3-Embedding-4B-Q8_0.gguf",
+		"embeddingsgpu":true,
+		"gpulayers":-1,
+		"maingpu":-1,
+		"usecuda":["normal","0"],
+		"usevulkan":null
+	}`)
+
+	metadata, err := LoadRuntimeConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selectors, ok := metadata.UseCUDA.([]any)
+	if !ok || len(selectors) != 2 || selectors[0] != "normal" || selectors[1] != "0" {
+		t.Fatalf("structured usecuda was not preserved: %#v", metadata.UseCUDA)
+	}
+	if metadata.TextModelPath() != "/models/Qwen3-Embedding-4B-Q8_0.gguf" {
+		t.Fatalf("legacy embedding model was not selected: %#v", metadata)
+	}
+
+	models, err := New(dir).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0].HasLLM || !models[0].HasEmbeddings || models[0].Capabilities.Embeddings == nil || !models[0].Capabilities.Embeddings.GPU {
+		t.Fatalf("unexpected embedding-only catalog model: %#v", models)
+	}
+}
+
 func TestMissingDirectoryReturnsEmptyCatalog(t *testing.T) {
 	models, err := New(filepath.Join(t.TempDir(), "missing")).List()
 	if err != nil {

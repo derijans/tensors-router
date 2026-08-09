@@ -3403,6 +3403,113 @@ func TestEmbeddingRuntimeUnloadPolicyDistinguishesCPUAndGPU(t *testing.T) {
 	}
 }
 
+func TestRouterLoadSelectsEmbeddingRuntimeFromCapabilities(t *testing.T) {
+	for _, test := range []struct {
+		name           string
+		config         string
+		wantText       int32
+		wantEmbeddings int32
+		wantImage      int32
+	}{
+		{
+			name: "legacy GPU embedding uses primary runtime",
+			config: `{
+				"backend_mode":"llama_sdcpp",
+				"nomodel":true,
+				"model":[],
+				"embeddingsmodel":"/models/embed.gguf",
+				"embeddingsgpu":true,
+				"gpulayers":-1,
+				"usecuda":["normal","0"]
+			}`,
+			wantText: 1,
+		},
+		{
+			name: "separate CPU embedding uses embedding runtime",
+			config: `{
+				"backend_mode":"llama_sdcpp",
+				"nomodel":true,
+				"model":[],
+				"embeddingsmodel":"/models/embed.gguf",
+				"embeddingsgpu":false,
+				"run_embed_separate":true,
+				"usecuda":["normal","0"]
+			}`,
+			wantEmbeddings: 1,
+		},
+		{
+			name: "separate GPU embedding uses embedding runtime",
+			config: `{
+				"backend_mode":"llama_sdcpp",
+				"nomodel":true,
+				"model":[],
+				"embeddingsmodel":"/models/embed.gguf",
+				"embeddingsgpu":true,
+				"run_embed_separate":true,
+				"usecuda":["normal","0"]
+			}`,
+			wantEmbeddings: 1,
+		},
+		{
+			name: "combined config loads independent runtimes",
+			config: `{
+				"backend_mode":"llama_sdcpp",
+				"model_param":"/models/text.gguf",
+				"sdmodel":"/models/image.safetensors",
+				"embeddingsmodel":"/models/embed.gguf",
+				"embeddingsgpu":true,
+				"run_embed_separate":true,
+				"usecuda":["normal","0"]
+			}`,
+			wantText: 1, wantEmbeddings: 1, wantImage: 1,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, textBackend, embeddingsBackend, imageBackend := newExplicitEmbeddingLoadService(t, test.config)
+			postRouterLoad(t, service, `{"model":"embed"}`)
+			if textBackend.reloads.Load() != test.wantText || embeddingsBackend.reloads.Load() != test.wantEmbeddings || imageBackend.reloads.Load() != test.wantImage {
+				t.Fatalf("unexpected reloads text=%d embeddings=%d image=%d", textBackend.reloads.Load(), embeddingsBackend.reloads.Load(), imageBackend.reloads.Load())
+			}
+		})
+	}
+}
+
+func newExplicitEmbeddingLoadService(t *testing.T, configContent string) (*Service, *fakeBackend, *fakeBackend, *fakeBackend) {
+	t.Helper()
+	dir := t.TempDir()
+	writeProxyTestConfig(t, dir, "embed", configContent)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/models":
+			_, _ = w.Write([]byte(`{"object":"list","data":[]}`))
+		case "/sdapi/v1/sd-models":
+			_, _ = w.Write([]byte(`[{"model_name":"ready"}]`))
+		default:
+			t.Fatalf("unexpected readiness path %s", r.URL.Path)
+		}
+	}))
+	t.Cleanup(server.Close)
+	backendURL := mustParseURL(t, server.URL)
+	textBackend := &fakeBackend{url: backendURL, healthy: true}
+	embeddingsBackend := &fakeBackend{url: backendURL, healthy: true}
+	imageBackend := &fakeBackend{url: backendURL, healthy: true}
+	service := NewService(ServiceConfig{
+		BackendMode: BackendModeLlamaSDCPP,
+		BackendFamilies: map[string]BackendFamilyConfig{
+			BackendModeLlamaSDCPP: {
+				TextBackend:       textBackend,
+				EmbeddingsBackend: embeddingsBackend,
+				ImageBackend:      imageBackend,
+			},
+		},
+		Catalog:   catalog.New(dir),
+		ConfigDir: dir,
+		Logger:    log.New(io.Discard, "", 0),
+	})
+	return service, textBackend, embeddingsBackend, imageBackend
+}
+
 func newSeparateEmbeddingTestService(t *testing.T, gpu bool) (*Service, *fakeBackend, *fakeBackend) {
 	t.Helper()
 	dir := t.TempDir()
