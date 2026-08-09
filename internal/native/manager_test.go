@@ -166,6 +166,101 @@ func TestLlamaEmbeddingLaunchArgumentsEnableEmbeddings(t *testing.T) {
 	}
 }
 
+func TestSeparateLlamaEmbeddingLaunchArguments(t *testing.T) {
+	dir := t.TempDir()
+	configs := map[string]string{
+		"cpu.kcpps": `{
+			"embeddingsmodel":"C:/models/cpu-embed.gguf",
+			"embeddingsmaxctx":2048,
+			"threads":8,
+			"run_embed_separate":true
+		}`,
+		"gpu.kcpps": `{
+			"embeddingsmodel":"C:/models/gpu-embed.gguf",
+			"embeddingsmaxctx":4096,
+			"embeddingsgpu":true,
+			"run_embed_separate":true,
+			"device":"cuda",
+			"splitmode":"layer",
+			"tensor_split":[1,2],
+			"maingpu":1
+		}`,
+		"mixed.kcpps": `{
+			"model_param":"C:/models/text.gguf",
+			"embeddingsmodel":"C:/models/embed.gguf",
+			"run_embed_separate":true
+		}`,
+	}
+	for filename, content := range configs {
+		if err := os.WriteFile(filepath.Join(dir, filename), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	embeddingsManager, err := NewLlamaEmbeddingsManager(ProcessConfig{
+		BackendURL: "http://127.0.0.1:6005",
+		BinaryPath: "llama-server",
+		ConfigDir:  dir,
+		DataDir:    t.TempDir(),
+		ExtraArgs:  []string{"--device", "vulkan", "--n-gpu-layers=7", "--parallel", "2"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cpuArgs, err := embeddingsManager.LaunchArguments("cpu.kcpps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cpuExpected := []string{
+		"--host", "127.0.0.1", "--port", "6005",
+		"--model", "C:/models/cpu-embed.gguf", "--alias", "cpu", "--embeddings",
+		"--ctx-size", "2048", "--threads", "8",
+		"--device", "none", "--n-gpu-layers", "0", "--no-mmap", "--parallel", "2",
+	}
+	if !reflect.DeepEqual(cpuArgs, cpuExpected) {
+		t.Fatalf("unexpected CPU embedding args %#v", cpuArgs)
+	}
+
+	gpuArgs, err := embeddingsManager.LaunchArguments("gpu.kcpps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gpuExpected := []string{
+		"--host", "127.0.0.1", "--port", "6005",
+		"--model", "C:/models/gpu-embed.gguf", "--alias", "gpu", "--embeddings",
+		"--ctx-size", "4096", "--n-gpu-layers", "-1", "--device", "cuda",
+		"--split-mode", "layer", "--tensor-split", "1,2", "--main-gpu", "1",
+		"--no-mmap", "--parallel", "2",
+	}
+	if !reflect.DeepEqual(gpuArgs, gpuExpected) {
+		t.Fatalf("unexpected GPU embedding args %#v", gpuArgs)
+	}
+
+	primaryManager, err := NewLlamaManager(ProcessConfig{BackendURL: "http://127.0.0.1:6002", ConfigDir: dir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	primaryArgs, err := primaryManager.LaunchArguments("mixed.kcpps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsAdjacentArguments(primaryArgs, "--model", "C:/models/text.gguf") || slicesContain(primaryArgs, "--embeddings") || slicesContain(primaryArgs, "C:/models/embed.gguf") {
+		t.Fatalf("primary runtime retained embedding configuration %#v", primaryArgs)
+	}
+	if _, err := primaryManager.LaunchArguments("cpu.kcpps"); err == nil {
+		t.Fatal("embedding-only config should not load in the primary runtime")
+	}
+}
+
+func slicesContain(values []string, expected string) bool {
+	for _, value := range values {
+		if value == expected {
+			return true
+		}
+	}
+	return false
+}
+
 func TestWhisperCPPLaunchArgumentsAndCanonicalLlamaPrecedence(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "voice.kcpps"), []byte(`{

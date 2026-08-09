@@ -37,6 +37,25 @@ func TestWriterReusesSingleExistingConfig(t *testing.T) {
 	}
 }
 
+func TestWriterPreservesSeparateEmbeddingRuntime(t *testing.T) {
+	dir := packageTempDir(t)
+	if err := os.WriteFile(filepath.Join(dir, "embed.kcpps"), []byte(`{
+		"embeddingsmodel":"embed.gguf",
+		"embeddingsmaxctx":2048,
+		"run_embed_separate":true
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writer := Writer{ConfigDir: dir, Catalog: catalog.New(dir), NodeID: "node-a"}
+	body, _, err := writer.composedConfig([]Component{{Kind: KindEmbeddings, Source: SourceConfig, ModelID: "embed"}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body["run_embed_separate"]) != "true" {
+		t.Fatalf("separate embedding setting was not preserved: %s", body["run_embed_separate"])
+	}
+}
+
 func TestWriterComposesConfigAndPreservesUnknownKeys(t *testing.T) {
 	dir := packageTempDir(t)
 	root := filepath.Join(packageTempDir(t), "MixedCase", "Models")

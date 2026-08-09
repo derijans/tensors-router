@@ -55,6 +55,7 @@ func (service *Service) validateCookGroups(ctx context.Context, groups []cookGro
 		fact.backendMode = groupBackendMode
 		issues = append(issues, validateKoboldMix(group, fact)...)
 		issues = append(issues, validateNativeTTSMix(group, fact, groupOptions)...)
+		issues = append(issues, validateSeparateEmbeddingRuntime(group, fact, groupOptions)...)
 		issues = append(issues, validateThreadBudget(group, fact, groupOptions)...)
 		issues = append(issues, validateCUDAOptions(group, fact, groupOptions)...)
 		issues = append(issues, validateOptionSupport(group, fact, groupOptions)...)
@@ -65,6 +66,20 @@ func (service *Service) validateCookGroups(ctx context.Context, groups []cookGro
 		return issues, cookValidationError{message: validationMessage(issues), issues: issues}
 	}
 	return issues, nil
+}
+
+func validateSeparateEmbeddingRuntime(group cookGroup, fact cookNodeFacts, options cook.Options) []cook.ValidationIssue {
+	selected := selectedOptions(group, fact, options)
+	if !rawTruthy(selected["run_embed_separate"]) || rawTruthy(selected["embeddingsmodel"]) {
+		return nil
+	}
+	return []cook.ValidationIssue{{
+		Severity: "error",
+		Code:     "separate_embeddings_model_required",
+		Message:  "A separate embedding runtime requires embeddingsmodel.",
+		NodeID:   group.nodeID,
+		Field:    "embeddingsmodel",
+	}}
 }
 
 func validateNativeTTSMix(group cookGroup, fact cookNodeFacts, options cook.Options) []cook.ValidationIssue {

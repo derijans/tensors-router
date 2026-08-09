@@ -207,6 +207,8 @@ func readinessAnalyticsSection(readiness backendReadiness) string {
 	switch readiness {
 	case readinessImage:
 		return routeranalytics.SectionImage
+	case readinessEmbeddings:
+		return routeranalytics.SectionEmbed
 	case readinessSpeech, readinessTranscription:
 		return routeranalytics.SectionVoice
 	case readinessMusic:

@@ -10,7 +10,11 @@ import (
 	"tensors-router/internal/unloadpolicy"
 )
 
-func (service *Service) enforceUnloadPolicy(ctx context.Context, mode string, filename string) error {
+func (service *Service) enforceUnloadPolicy(ctx context.Context, mode string, filename string, readiness backendReadiness) error {
+	resolvedMode, err := service.resolveBackendMode(mode)
+	if err != nil {
+		return err
+	}
 	policy, err := service.resolveUnloadPolicy(filename)
 	if err != nil {
 		return err
@@ -18,19 +22,31 @@ func (service *Service) enforceUnloadPolicy(ctx context.Context, mode string, fi
 	if policy == unloadpolicy.None {
 		return nil
 	}
-	runtimes, err := service.runtimesForUnloadTarget(mode, policy)
+	runtimes, err := service.runtimesForUnloadTarget(resolvedMode, policy)
 	if err != nil {
 		return err
 	}
 	different := make([]*backendRuntime, 0, len(runtimes))
 	profile := service.chatTemplateProfileForConfig(filename)
 	for _, runtime := range uniqueRuntimeList(runtimes) {
+		if runtime == service.backendFamilies[resolvedMode].embeddingsRuntime && readiness != readinessEmbeddings && service.embeddingRuntimeUsesCPU(runtime) {
+			continue
+		}
 		if currentRuntimeConfigFilename(runtime) == "" || activeRuntimeSupportsConfig(runtime, filename, profile) {
 			continue
 		}
 		different = append(different, runtime)
 	}
 	return service.unloadRuntimes(ctx, different)
+}
+
+func (service *Service) embeddingRuntimeUsesCPU(runtime *backendRuntime) bool {
+	filename := currentRuntimeConfigFilename(runtime)
+	if filename == "" {
+		return false
+	}
+	metadata, err := catalog.LoadRuntimeConfig(filepath.Join(service.configDir, filename))
+	return err == nil && metadata.RunEmbedSeparate && !metadata.EmbeddingsGPU
 }
 
 func (service *Service) resolveUnloadPolicy(filename string) (string, error) {
@@ -65,9 +81,11 @@ func (service *Service) runtimesForUnloadTarget(mode string, target string) ([]*
 		return uniqueBackendRuntimes(family), nil
 	case unloadpolicy.Image:
 		return []*backendRuntime{family.imageRuntime}, nil
+	case unloadpolicy.Embeddings:
+		return []*backendRuntime{family.embeddingsRuntime}, nil
 	case unloadpolicy.Voice:
 		return []*backendRuntime{family.textRuntime, family.transcriptionRuntime}, nil
-	case unloadpolicy.Text, unloadpolicy.Embeddings, unloadpolicy.Music:
+	case unloadpolicy.Text, unloadpolicy.Music:
 		return []*backendRuntime{family.textRuntime}, nil
 	default:
 		return nil, fmt.Errorf("unload target %q is invalid", target)

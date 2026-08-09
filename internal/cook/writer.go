@@ -785,6 +785,7 @@ var embeddingKeys = []string{
 	"embeddingsmodel",
 	"embeddingsmaxctx",
 	"embeddingsgpu",
+	"run_embed_separate",
 }
 
 var voiceKeys = []string{

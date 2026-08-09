@@ -72,6 +72,7 @@ These fields cover:
 - vision resolution and token limits
 - embedding model paths and context size
 - embedding GPU placement
+- `run_embed_separate` for an on-demand, independently managed embedding process; omitted values default to `false`
 - pooling behavior
 
 The selected model files must be present on the node that will run the generated configuration.

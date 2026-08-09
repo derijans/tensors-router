@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -123,6 +124,103 @@ func TestReloadConfigPreservesMixedCaseFilename(t *testing.T) {
 	if reloaded != filename {
 		t.Fatalf("unexpected reload filename %q", reloaded)
 	}
+}
+
+func TestRoleSpecificRuntimeConfigurations(t *testing.T) {
+	dir := t.TempDir()
+	filename := "mixed.kcpps"
+	if err := os.WriteFile(filepath.Join(dir, filename), []byte(`{
+		"model_param":"C:/models/text.gguf",
+		"sdmodel":"C:/models/image.safetensors",
+		"ttsmodel":"C:/models/voice.gguf",
+		"embeddingsmodel":"C:/models/embed.gguf",
+		"embeddingsmaxctx":2048,
+		"embeddingsgpu":false,
+		"run_embed_separate":true,
+		"usecuda":true,
+		"tensor_split":[1,2],
+		"maingpu":1
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "gpu.kcpps"), []byte(`{
+		"embeddingsmodel":"C:/models/embed-gpu.gguf",
+		"embeddingsgpu":true,
+		"run_embed_separate":true,
+		"usecuda":true,
+		"tensor_split":[1,2],
+		"maingpu":1
+	}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	primary, err := NewManager(ProcessConfig{BackendURL: "http://127.0.0.1:5001", ConfigDir: dir, Multiuser: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, primaryPath, _, err := primary.runtimeConfig(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	primaryValues := readRuntimeConfigValues(t, primaryPath)
+	if _, ok := primaryValues["embeddingsmodel"]; ok {
+		t.Fatalf("primary config retained embedding model %#v", primaryValues)
+	}
+	if string(primaryValues["model_param"]) != `"C:/models/text.gguf"` || string(primaryValues["sdmodel"]) != `"C:/models/image.safetensors"` {
+		t.Fatalf("primary config lost unrelated components %#v", primaryValues)
+	}
+
+	embeddings, err := NewEmbeddingsManager(ProcessConfig{BackendURL: "http://127.0.0.1:5004", ConfigDir: dir, Multiuser: 1, ExtraArgs: []string{"--usecuda", "--gpulayers", "99", "--quiet"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeFilename, embeddingsPath, _, err := embeddings.runtimeConfig(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if filepath.Dir(runtimeFilename) != ".router-runtime" {
+		t.Fatalf("unexpected private runtime filename %q", runtimeFilename)
+	}
+	embeddingValues := readRuntimeConfigValues(t, embeddingsPath)
+	for _, forbidden := range []string{"model_param", "sdmodel", "ttsmodel", "usecuda", "tensor_split", "maingpu"} {
+		if _, ok := embeddingValues[forbidden]; ok {
+			t.Fatalf("embedding config retained %s: %#v", forbidden, embeddingValues)
+		}
+	}
+	if string(embeddingValues["embeddingsmodel"]) != `"C:/models/embed.gguf"` || string(embeddingValues["usecpu"]) != "true" || string(embeddingValues["gpulayers"]) != "0" {
+		t.Fatalf("embedding config is not CPU-isolated %#v", embeddingValues)
+	}
+	expectPresent(t, embeddings.LaunchArguments(), "--usecpu")
+	expectAbsent(t, embeddings.LaunchArguments(), "--usecuda")
+	expectAbsent(t, embeddings.LaunchArguments(), "--gpulayers")
+	_, gpuPath, _, err := embeddings.runtimeConfig("gpu.kcpps")
+	if err != nil {
+		t.Fatal(err)
+	}
+	gpuValues := readRuntimeConfigValues(t, gpuPath)
+	if string(gpuValues["embeddingsgpu"]) != "true" || string(gpuValues["usecuda"]) != "true" || string(gpuValues["tensor_split"]) != "[1,2]" || string(gpuValues["maingpu"]) != "1" {
+		t.Fatalf("GPU embedding config lost placement %#v", gpuValues)
+	}
+	expectAbsent(t, embeddings.LaunchArguments(), "--usecpu")
+	expectPresent(t, embeddings.LaunchArguments(), "--usecuda")
+	if err := embeddings.Stop(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(embeddingsPath); !os.IsNotExist(err) {
+		t.Fatalf("generated config was not cleaned up: %v", err)
+	}
+}
+
+func readRuntimeConfigValues(t *testing.T, path string) map[string]json.RawMessage {
+	t.Helper()
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	values := make(map[string]json.RawMessage)
+	if err := json.Unmarshal(content, &values); err != nil {
+		t.Fatal(err)
+	}
+	return values
 }
 
 func TestStartStopsUnhealthyManagedProcessBeforeReplacement(t *testing.T) {

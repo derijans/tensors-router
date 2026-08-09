@@ -21,6 +21,10 @@ type RuntimeConfig struct {
 	SplitMode                 string         `json:"splitmode"`
 	TensorSplit               any            `json:"tensor_split"`
 	MainGPU                   int            `json:"maingpu"`
+	Device                    string         `json:"device"`
+	UseCUDA                   bool           `json:"usecuda"`
+	UseCUBLAS                 bool           `json:"usecublas"`
+	UseVulkan                 bool           `json:"usevulkan"`
 	UseCPU                    bool           `json:"usecpu"`
 	FlashAttention            *bool          `json:"flashattention"`
 	UseMMap                   bool           `json:"usemmap"`
@@ -107,6 +111,7 @@ type RuntimeConfig struct {
 	EmbeddingsModel           string         `json:"embeddingsmodel"`
 	EmbeddingsMaxCtx          int            `json:"embeddingsmaxctx"`
 	EmbeddingsGPU             bool           `json:"embeddingsgpu"`
+	RunEmbedSeparate          bool           `json:"run_embed_separate"`
 	MMProj                    any            `json:"mmproj"`
 	MMProjCPU                 bool           `json:"mmprojcpu"`
 	MMProjAuto                *bool          `json:"mmproj_auto"`
@@ -167,9 +172,10 @@ type ImageCapabilities struct {
 }
 
 type EmbeddingCapability struct {
-	Model  string `json:"model,omitempty"`
-	MaxCtx int    `json:"max_ctx,omitempty"`
-	GPU    bool   `json:"gpu,omitempty"`
+	Model    string `json:"model,omitempty"`
+	MaxCtx   int    `json:"max_ctx,omitempty"`
+	GPU      bool   `json:"gpu,omitempty"`
+	Separate bool   `json:"separate"`
 }
 
 type MultimodalCapability struct {
@@ -249,6 +255,9 @@ func (metadata RuntimeConfig) TextModelPath() string {
 	if strings.TrimSpace(metadata.TTSModel) != "" {
 		return strings.TrimSpace(metadata.TTSModel)
 	}
+	if metadata.RunEmbedSeparate {
+		return ""
+	}
 	return strings.TrimSpace(metadata.EmbeddingsModel)
 }
 
@@ -258,6 +267,9 @@ func (metadata RuntimeConfig) ExplicitTextModelPath() string {
 	}
 	if value := firstStringValue(metadata.Model); value != "" {
 		return value
+	}
+	if metadata.RunEmbedSeparate {
+		return ""
 	}
 	return strings.TrimSpace(metadata.EmbeddingsModel)
 }
@@ -309,9 +321,10 @@ func capabilitiesFromMetadata(metadata configMetadata, hasLLM bool, hasImage boo
 	}
 	if hasEmbeddings {
 		capabilities.Embeddings = &EmbeddingCapability{
-			Model:  strings.TrimSpace(metadata.EmbeddingsModel),
-			MaxCtx: metadata.EmbeddingsMaxCtx,
-			GPU:    metadata.EmbeddingsGPU,
+			Model:    strings.TrimSpace(metadata.EmbeddingsModel),
+			MaxCtx:   metadata.EmbeddingsMaxCtx,
+			GPU:      metadata.EmbeddingsGPU,
+			Separate: metadata.RunEmbedSeparate,
 		}
 	}
 	if hasMultimodal {

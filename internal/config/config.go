@@ -62,23 +62,25 @@ type MCPConfig struct {
 }
 
 type KoboldConfig struct {
-	BackendURL   string
-	BinaryPath   string
-	DataDir      string
-	Multiuser    int
-	ExtraArgs    []string
-	Quiet        bool
-	SkipLauncher bool
-	NoModel      bool
-	HideWindow   bool
+	BackendURL           string
+	EmbeddingsBackendURL string
+	BinaryPath           string
+	DataDir              string
+	Multiuser            int
+	ExtraArgs            []string
+	Quiet                bool
+	SkipLauncher         bool
+	NoModel              bool
+	HideWindow           bool
 }
 
 type NativeServerConfig struct {
-	BackendURL string
-	BinaryPath string
-	DataDir    string
-	ExtraArgs  []string
-	HideWindow bool
+	BackendURL           string
+	EmbeddingsBackendURL string
+	BinaryPath           string
+	DataDir              string
+	ExtraArgs            []string
+	HideWindow           bool
 }
 
 type LoggingConfig struct {
@@ -197,22 +199,24 @@ func Defaults() Config {
 			Mode: "kobold",
 		},
 		Kobold: KoboldConfig{
-			BackendURL:   "http://127.0.0.1:5001",
-			BinaryPath:   "./bin/kobold/koboldcpp",
-			DataDir:      "./data",
-			Multiuser:    1,
-			ExtraArgs:    []string{},
-			Quiet:        true,
-			SkipLauncher: true,
-			NoModel:      true,
-			HideWindow:   true,
+			BackendURL:           "http://127.0.0.1:5001",
+			EmbeddingsBackendURL: "http://127.0.0.1:5004",
+			BinaryPath:           "./bin/kobold/koboldcpp",
+			DataDir:              "./data",
+			Multiuser:            1,
+			ExtraArgs:            []string{},
+			Quiet:                true,
+			SkipLauncher:         true,
+			NoModel:              true,
+			HideWindow:           true,
 		},
 		Llama: NativeServerConfig{
-			BackendURL: "http://127.0.0.1:5002",
-			BinaryPath: "./bin/llama/llama-server",
-			DataDir:    "./data/llama",
-			ExtraArgs:  []string{},
-			HideWindow: true,
+			BackendURL:           "http://127.0.0.1:5002",
+			EmbeddingsBackendURL: "http://127.0.0.1:5005",
+			BinaryPath:           "./bin/llama/llama-server",
+			DataDir:              "./data/llama",
+			ExtraArgs:            []string{},
+			HideWindow:           true,
 		},
 		SDCPP: NativeServerConfig{
 			BackendURL: "http://127.0.0.1:7860",
@@ -357,6 +361,9 @@ func validate(cfg *Config) error {
 	if _, err := backendendpoint.ParseLoopback(cfg.Kobold.BackendURL); err != nil {
 		return fmt.Errorf("kobold.backend_url is invalid: %w", err)
 	}
+	if _, err := backendendpoint.ParseLoopback(cfg.Kobold.EmbeddingsBackendURL); err != nil {
+		return fmt.Errorf("kobold.embeddings_backend_url is invalid: %w", err)
+	}
 	if err := backendendpoint.RejectConflictingArgs(cfg.Kobold.ExtraArgs, "--host", "--port"); err != nil {
 		return fmt.Errorf("kobold.%w", err)
 	}
@@ -372,6 +379,9 @@ func validate(cfg *Config) error {
 	if cfg.Backend.Mode == "llama_sdcpp" {
 		if err := validateNativeServerConfig("llama", cfg.Llama); err != nil {
 			return err
+		}
+		if _, err := backendendpoint.ParseLoopback(cfg.Llama.EmbeddingsBackendURL); err != nil {
+			return fmt.Errorf("llama.embeddings_backend_url is invalid: %w", err)
 		}
 		if err := validateNativeServerConfig("sdcpp", cfg.SDCPP); err != nil {
 			return err
@@ -825,6 +835,9 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 		case "backend_url":
 			cfg.Kobold.BackendURL = value
 			return nil
+		case "embeddings_backend_url":
+			cfg.Kobold.EmbeddingsBackendURL = value
+			return nil
 		case "binary_path":
 			cfg.Kobold.BinaryPath = value
 			return nil
@@ -1127,6 +1140,12 @@ func setNativeServerScalar(server *NativeServerConfig, section string, key strin
 	switch key {
 	case "backend_url":
 		server.BackendURL = value
+		return nil
+	case "embeddings_backend_url":
+		if section != "llama" {
+			return fmt.Errorf("unknown key %s.%s", section, key)
+		}
+		server.EmbeddingsBackendURL = value
 		return nil
 	case "binary_path":
 		server.BinaryPath = value

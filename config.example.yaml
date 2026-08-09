@@ -32,6 +32,7 @@ mcp:
 
 kobold:
   backend_url: "http://127.0.0.1:5001"
+  embeddings_backend_url: "http://127.0.0.1:5004"
   binary_path: "./bin/kobold/koboldcpp"
   data_dir: "./data"
   multiuser: 1
@@ -43,6 +44,7 @@ kobold:
 
 llama:
   backend_url: "http://127.0.0.1:5002"
+  embeddings_backend_url: "http://127.0.0.1:5005"
   binary_path: "./bin/llama/llama-server"
   data_dir: "./data/llama"
   hide_window: true

@@ -105,8 +105,9 @@ func (service *Service) resolveTransportRoute(r *http.Request, selector string) 
 }
 
 func (service *Service) resolveTransportTextRoute(r *http.Request, publicID string) (transportRoute, error) {
+	readiness := modelReadiness(r.URL.Path)
 	if recipe, component, ok := service.recipeModelComponent(publicID, r.URL.Path); ok {
-		return service.transportRecipeRoute(recipe, component, publicID, component.ModelID, readinessText, textAnalyticsSection(r.URL.Path), true)
+		return service.transportRecipeRoute(recipe, component, publicID, component.ModelID, readiness, textAnalyticsSection(r.URL.Path), true)
 	}
 	if service.registry != nil && service.registryHasModelForOpenAIPath(publicID, r.URL.Path) {
 		model, route, release, ok := service.acquireRegistryModelRoute(r, publicID)
@@ -127,7 +128,7 @@ func (service *Service) resolveTransportTextRoute(r *http.Request, publicID stri
 			localID:        route.LocalID,
 			configFilename: route.Filename,
 			backendMode:    mode,
-			readiness:      readinessText,
+			readiness:      readiness,
 			section:        textAnalyticsSection(r.URL.Path),
 			remote:         route.Remote,
 			nodeURL:        route.NodeURL,
@@ -152,7 +153,7 @@ func (service *Service) resolveTransportTextRoute(r *http.Request, publicID stri
 		localID:        model.ID,
 		configFilename: model.Filename,
 		backendMode:    mode,
-		readiness:      readinessText,
+		readiness:      readiness,
 		section:        textAnalyticsSection(r.URL.Path),
 		rewriteModel:   true,
 		catalogModel:   model,

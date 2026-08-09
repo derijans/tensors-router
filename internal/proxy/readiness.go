@@ -13,6 +13,7 @@ type backendReadiness int
 
 const (
 	readinessText backendReadiness = iota
+	readinessEmbeddings
 	readinessImage
 	readinessSpeech
 	readinessTranscription
@@ -27,6 +28,8 @@ func (readiness backendReadiness) endpointForMode(backendMode string) string {
 	switch readiness {
 	case readinessImage:
 		return "/sdapi/v1/sd-models"
+	case readinessEmbeddings:
+		return "/v1/models"
 	case readinessTranscription:
 		if backendMode == BackendModeLlamaSDCPP {
 			return "/health"
@@ -98,6 +101,8 @@ func routeLaneForReadiness(readiness backendReadiness) string {
 	switch readiness {
 	case readinessImage:
 		return cluster.RouteLaneImage
+	case readinessEmbeddings:
+		return cluster.RouteLaneText
 	case readinessSpeech, readinessTranscription:
 		return cluster.RouteLaneVoice
 	case readinessMusic:
@@ -105,4 +110,11 @@ func routeLaneForReadiness(readiness backendReadiness) string {
 	default:
 		return cluster.RouteLaneText
 	}
+}
+
+func modelReadiness(path string) backendReadiness {
+	if isEmbeddingsPath(path) {
+		return readinessEmbeddings
+	}
+	return readinessText
 }

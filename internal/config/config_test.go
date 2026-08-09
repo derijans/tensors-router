@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
@@ -36,6 +37,7 @@ backend:
 
 kobold:
   backend_url: "http://127.0.0.1:6000"
+  embeddings_backend_url: "http://127.0.0.1:6004"
   binary_path: "./bin/koboldcpp"
   data_dir: "./state"
   multiuser: 2
@@ -47,6 +49,7 @@ kobold:
 
 llama:
   backend_url: "http://127.0.0.1:6002"
+  embeddings_backend_url: "http://127.0.0.1:6005"
   binary_path: "./bin/llama-server"
   data_dir: "./llama-state"
   hide_window: false
@@ -132,6 +135,9 @@ analytics:
 	if cfg.Kobold.Multiuser != 2 {
 		t.Fatalf("unexpected multiuser %d", cfg.Kobold.Multiuser)
 	}
+	if cfg.Kobold.EmbeddingsBackendURL != "http://127.0.0.1:6004" {
+		t.Fatalf("unexpected kobold embeddings URL %q", cfg.Kobold.EmbeddingsBackendURL)
+	}
 	if cfg.Models.StartupModel != "alpha" {
 		t.Fatalf("unexpected startup model %q", cfg.Models.StartupModel)
 	}
@@ -146,6 +152,9 @@ analytics:
 	}
 	if cfg.Llama.BackendURL != "http://127.0.0.1:6002" || cfg.Llama.BinaryPath != "./bin/llama-server" || cfg.Llama.DataDir != "./llama-state" || cfg.Llama.HideWindow {
 		t.Fatalf("unexpected llama config %#v", cfg.Llama)
+	}
+	if cfg.Llama.EmbeddingsBackendURL != "http://127.0.0.1:6005" {
+		t.Fatalf("unexpected llama embeddings URL %q", cfg.Llama.EmbeddingsBackendURL)
 	}
 	if !reflect.DeepEqual(cfg.Llama.ExtraArgs, []string{"--parallel", "2"}) {
 		t.Fatalf("unexpected llama extra args %#v", cfg.Llama.ExtraArgs)
@@ -431,6 +440,19 @@ func TestDefaultsIncludeSecureStreamingAndRetentionValues(t *testing.T) {
 	}
 	if !cfg.Downloader.Enabled || cfg.Downloader.BinaryLocation != "" {
 		t.Fatalf("unexpected downloader defaults %#v", cfg.Downloader)
+	}
+	if cfg.Kobold.EmbeddingsBackendURL != "http://127.0.0.1:5004" || cfg.Llama.EmbeddingsBackendURL != "http://127.0.0.1:5005" {
+		t.Fatalf("unexpected embeddings endpoint defaults kobold=%q llama=%q", cfg.Kobold.EmbeddingsBackendURL, cfg.Llama.EmbeddingsBackendURL)
+	}
+}
+
+func TestLoadRejectsNonLoopbackEmbeddingsBackend(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("kobold:\n  embeddings_backend_url: http://192.168.1.2:5004\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "kobold.embeddings_backend_url") {
+		t.Fatalf("expected loopback validation error, got %v", err)
 	}
 }
 

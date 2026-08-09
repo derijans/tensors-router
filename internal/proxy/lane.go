@@ -3,6 +3,8 @@ package proxy
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -38,6 +40,11 @@ func newActiveConfigState() *activeConfigState {
 }
 
 func (service *Service) acquireModelConfigForBackendMode(mode string, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (*backendRuntime, func(), bool, error) {
+	resolvedReadiness, err := service.readinessForConfig(configFilename, readiness)
+	if err != nil {
+		return nil, nil, false, err
+	}
+	readiness = resolvedReadiness
 	if err := service.requireMCPAdmin(ctx, configFilename); err != nil {
 		return nil, nil, false, err
 	}
@@ -55,7 +62,7 @@ func (service *Service) acquireModelConfigForBackendMode(mode string, ctx contex
 	if err := service.ensureBackendFamily(ctx, mode); err != nil {
 		return nil, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
 	}
-	if err := service.enforceUnloadPolicy(ctx, mode, configFilename); err != nil {
+	if err := service.enforceUnloadPolicy(ctx, mode, configFilename, readiness); err != nil {
 		return nil, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
 	}
 	release, loadedFresh, err := service.acquireModelConfig(runtime, ctx, modelID, configFilename, readiness, force)
@@ -83,7 +90,7 @@ func (service *Service) requireMCPAdmin(ctx context.Context, filename string) er
 }
 
 func (service *Service) requireActiveMCPAdmin(ctx context.Context) error {
-	for _, runtime := range []*backendRuntime{service.textRuntime, service.imageRuntime} {
+	for _, runtime := range []*backendRuntime{service.textRuntime, service.embeddingsRuntime, service.imageRuntime} {
 		if runtime == nil {
 			continue
 		}
@@ -92,6 +99,47 @@ func (service *Service) requireActiveMCPAdmin(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+func (service *Service) readinessForConfig(filename string, readiness backendReadiness) (backendReadiness, error) {
+	if readiness != readinessEmbeddings {
+		return readiness, nil
+	}
+	if filename == "" {
+		return readiness, nil
+	}
+	if filename != filepath.Base(filename) {
+		return readiness, fmt.Errorf("config filename %q is invalid", filename)
+	}
+	if service.catalog != nil {
+		models, err := service.catalog.List()
+		if err != nil {
+			return readiness, err
+		}
+		for _, model := range models {
+			if model.Filename != filename {
+				continue
+			}
+			if model.Capabilities.Embeddings != nil && model.Capabilities.Embeddings.Separate {
+				return readinessEmbeddings, nil
+			}
+			return readinessText, nil
+		}
+	}
+	if service.configDir == "" {
+		return readinessText, nil
+	}
+	metadata, err := catalog.LoadRuntimeConfig(filepath.Join(service.configDir, filename))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return readinessText, nil
+		}
+		return readiness, err
+	}
+	if !metadata.RunEmbedSeparate {
+		return readinessText, nil
+	}
+	return readinessEmbeddings, nil
 }
 
 func (service *Service) ensureModelConfigHash(filename string) error {

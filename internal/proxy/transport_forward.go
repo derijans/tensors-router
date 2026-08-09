@@ -68,7 +68,9 @@ func (service *Service) prepareTransportCompanionRuntime(ctx context.Context, pa
 	if imageID == "" {
 		imageID = route.clusterModel.ImageID
 	}
-	if route.readiness == readinessImage && (hasLLM || hasEmbeddings || hasMultimodal) {
+	separateEmbeddings := (model.Capabilities.Embeddings != nil && model.Capabilities.Embeddings.Separate) ||
+		(route.clusterModel.Capabilities.Embeddings != nil && route.clusterModel.Capabilities.Embeddings.Separate)
+	if route.readiness == readinessImage && (hasLLM || hasMultimodal || (hasEmbeddings && !separateEmbeddings)) {
 		return service.loadLocalRuntimeForRequest(ctx, route.backendMode, textID, route.configFilename, readinessText)
 	}
 	if route.readiness == readinessText && hasImage && !isEmbeddingsPath(path) {

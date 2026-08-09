@@ -15,6 +15,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -56,7 +57,12 @@ type Manager struct {
 	capture       *backenddiagnostic.Capture
 	captureHub    *loadcapture.Hub
 	forceNoModel  bool
+	role          string
+	roleArgs      []string
+	generated     map[string]struct{}
 }
+
+const embeddingsRole = "embeddings"
 
 type reloadResponse struct {
 	Success bool   `json:"success"`
@@ -64,6 +70,14 @@ type reloadResponse struct {
 }
 
 func NewManager(config ProcessConfig) (*Manager, error) {
+	return newManager(config, "")
+}
+
+func NewEmbeddingsManager(config ProcessConfig) (*Manager, error) {
+	return newManager(config, embeddingsRole)
+}
+
+func newManager(config ProcessConfig, role string) (*Manager, error) {
 	backendURL, err := backendendpoint.ParseLoopback(config.BackendURL)
 	if err != nil {
 		return nil, err
@@ -89,6 +103,8 @@ func NewManager(config ProcessConfig) (*Manager, error) {
 		},
 		capture:    backenddiagnostic.NewCapture(adminPassword),
 		captureHub: loadcapture.NewHub(),
+		role:       role,
+		generated:  make(map[string]struct{}),
 	}, nil
 }
 
@@ -111,7 +127,7 @@ func (manager *Manager) LaunchArguments() []string {
 		"--admindir", manager.config.ConfigDir,
 		"--multiuser", strconv.Itoa(manager.config.Multiuser),
 	}
-	if manager.config.NoModel || manager.forceNoModel {
+	if manager.config.NoModel || manager.forceNoModel || manager.role == embeddingsRole {
 		args = append(args, "--nomodel")
 	}
 	if manager.config.SkipLauncher {
@@ -120,7 +136,12 @@ func (manager *Manager) LaunchArguments() []string {
 	if manager.config.Quiet {
 		args = append(args, "--quiet")
 	}
-	args = append(args, launchExtraArgs(manager.config.ExtraArgs)...)
+	extraArgs := launchExtraArgs(manager.config.ExtraArgs)
+	if manager.role == embeddingsRole {
+		extraArgs = embeddingLaunchExtraArgs(extraArgs, len(manager.roleArgs) > 0)
+	}
+	args = append(args, extraArgs...)
+	args = append(args, manager.roleArgs...)
 	return args
 }
 
@@ -131,6 +152,34 @@ func launchExtraArgs(args []string) []string {
 			continue
 		}
 		filtered = append(filtered, arg)
+	}
+	return filtered
+}
+
+func embeddingLaunchExtraArgs(args []string, cpu bool) []string {
+	owned := map[string]bool{"--usecpu": true}
+	if cpu {
+		owned["--usecuda"] = true
+		owned["--usecublas"] = true
+		owned["--usevulkan"] = true
+		owned["--gpulayers"] = true
+		owned["--tensor_split"] = true
+		owned["--maingpu"] = true
+	}
+	filtered := make([]string, 0, len(args))
+	for index := 0; index < len(args); index++ {
+		argument := args[index]
+		key := argument
+		if separator := strings.IndexByte(key, '='); separator >= 0 {
+			key = key[:separator]
+		}
+		if !owned[key] {
+			filtered = append(filtered, argument)
+			continue
+		}
+		if argument == key && index+1 < len(args) && !strings.HasPrefix(args[index+1], "--") {
+			index++
+		}
 	}
 	return filtered
 }
@@ -160,7 +209,11 @@ func (manager *Manager) startLocked(ctx context.Context) error {
 	stdout := io.MultiWriter(manager.capture, manager.captureHub.Stdout())
 	stderr := io.MultiWriter(manager.capture, manager.captureHub.Stderr())
 	if manager.config.Logging {
-		logPath := filepath.Join(manager.config.DataDir, "koboldcpp.log")
+		logName := "koboldcpp.log"
+		if manager.role == embeddingsRole {
+			logName = "koboldcpp-embeddings.log"
+		}
+		logPath := filepath.Join(manager.config.DataDir, logName)
 		var err error
 		logFile, err = os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
 		if err != nil {
@@ -218,7 +271,12 @@ func (manager *Manager) Stop(ctx context.Context) error {
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 
-	return manager.stopLocked(ctx)
+	err := manager.stopLocked(ctx)
+	cleanupErr := manager.cleanupGeneratedLocked()
+	if err != nil {
+		return err
+	}
+	return cleanupErr
 }
 
 func (manager *Manager) stopLocked(ctx context.Context) error {
@@ -268,13 +326,34 @@ func (manager *Manager) Unload(ctx context.Context) error {
 	if err := manager.stopLocked(ctx); err != nil {
 		return err
 	}
+	if manager.role == embeddingsRole {
+		return manager.cleanupGeneratedLocked()
+	}
 	manager.forceNoModel = true
 	err := manager.startLocked(ctx)
 	manager.forceNoModel = false
-	return err
+	if err != nil {
+		return err
+	}
+	return manager.cleanupGeneratedLocked()
 }
 
 func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error {
+	runtimeFilename, generatedPath, _, err := manager.runtimeConfig(filename)
+	if err != nil {
+		return err
+	}
+	if manager.role == embeddingsRole {
+		manager.mu.Lock()
+		if manager.cmd == nil || manager.cmd.Process == nil {
+			if err := manager.startLocked(ctx); err != nil {
+				manager.mu.Unlock()
+				manager.removeGenerated(generatedPath)
+				return err
+			}
+		}
+		manager.mu.Unlock()
+	}
 	baseConfig := ""
 	if manager.config.MCP != nil {
 		result, err := manager.config.MCP.Reconcile(filename, mcp.BackendKobold)
@@ -286,7 +365,7 @@ func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error
 		}
 	}
 	body, err := json.Marshal(map[string]string{
-		"filename":       filename,
+		"filename":       runtimeFilename,
 		"baseconfig":     baseConfig,
 		"overrideconfig": "",
 	})
@@ -306,6 +385,7 @@ func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error
 
 	response, err := manager.client.Do(request)
 	if err != nil {
+		manager.removeGenerated(generatedPath)
 		return err
 	}
 	defer response.Body.Close()
@@ -315,14 +395,17 @@ func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error
 		return err
 	}
 	if response.StatusCode < 200 || response.StatusCode > 299 {
+		manager.removeGenerated(generatedPath)
 		return fmt.Errorf("admin reload failed with status %d", response.StatusCode)
 	}
 
 	var reload reloadResponse
 	if err := json.Unmarshal(responseBody, &reload); err != nil {
+		manager.removeGenerated(generatedPath)
 		return err
 	}
 	if !reload.Success {
+		manager.removeGenerated(generatedPath)
 		if reload.Error != "" {
 			return fmt.Errorf("admin reload failed: %s", reload.Error)
 		}
@@ -332,7 +415,11 @@ func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error
 	manager.mu.Lock()
 	exitDone := manager.exitDone
 	manager.mu.Unlock()
-	return manager.waitHealthy(ctx, 90*time.Second, exitDone)
+	if err := manager.waitHealthy(ctx, 90*time.Second, exitDone); err != nil {
+		manager.removeGenerated(generatedPath)
+		return err
+	}
+	return nil
 }
 
 func (manager *Manager) Healthy(ctx context.Context) bool {

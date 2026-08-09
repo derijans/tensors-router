@@ -51,6 +51,7 @@ type backendExitReporter interface {
 
 type BackendFamilyConfig struct {
 	TextBackend          Backend
+	EmbeddingsBackend    Backend
 	ImageBackend         Backend
 	TranscriptionBackend Backend
 	Start                func(context.Context) error
@@ -110,6 +111,7 @@ type ServiceConfig struct {
 type Service struct {
 	backend                   Backend
 	textRuntime               *backendRuntime
+	embeddingsRuntime         *backendRuntime
 	imageRuntime              *backendRuntime
 	transcriptionRuntime      *backendRuntime
 	backendMode               string
@@ -191,6 +193,7 @@ type backendRetryResult struct {
 type backendFamily struct {
 	mode                 string
 	textRuntime          *backendRuntime
+	embeddingsRuntime    *backendRuntime
 	imageRuntime         *backendRuntime
 	transcriptionRuntime *backendRuntime
 	start                func(context.Context) error
@@ -286,10 +289,12 @@ func NewService(config ServiceConfig) *Service {
 		}
 	}
 	textRuntime := (*backendRuntime)(nil)
+	embeddingsRuntime := (*backendRuntime)(nil)
 	imageRuntime := (*backendRuntime)(nil)
 	transcriptionRuntime := (*backendRuntime)(nil)
 	if defaultFamily != nil {
 		textRuntime = defaultFamily.textRuntime
+		embeddingsRuntime = defaultFamily.embeddingsRuntime
 		imageRuntime = defaultFamily.imageRuntime
 		transcriptionRuntime = defaultFamily.transcriptionRuntime
 	}
@@ -300,6 +305,7 @@ func NewService(config ServiceConfig) *Service {
 	service := &Service{
 		backend:              textBackend,
 		textRuntime:          textRuntime,
+		embeddingsRuntime:    embeddingsRuntime,
 		imageRuntime:         imageRuntime,
 		transcriptionRuntime: transcriptionRuntime,
 		backendMode:          backendMode,
@@ -384,6 +390,7 @@ func backendFamiliesFromConfig(config ServiceConfig, defaultMode string) map[str
 		}
 		configs[defaultMode] = BackendFamilyConfig{
 			TextBackend:          textBackend,
+			EmbeddingsBackend:    textBackend,
 			ImageBackend:         config.ImageBackend,
 			TranscriptionBackend: textBackend,
 		}
@@ -410,6 +417,10 @@ func newBackendFamily(mode string, config BackendFamilyConfig) *backendFamily {
 	}
 	sharedState := newActiveConfigState()
 	textRuntime := &backendRuntime{backend: textBackend, state: sharedState, mode: mode, name: mode + "-text"}
+	embeddingsRuntime := textRuntime
+	if config.EmbeddingsBackend != nil && config.EmbeddingsBackend != textBackend {
+		embeddingsRuntime = &backendRuntime{backend: config.EmbeddingsBackend, state: newActiveConfigState(), mode: mode, name: mode + "-embeddings"}
+	}
 	imageRuntime := textRuntime
 	transcriptionRuntime := textRuntime
 	if mode == BackendModeLlamaSDCPP && config.ImageBackend != nil {
@@ -421,6 +432,7 @@ func newBackendFamily(mode string, config BackendFamilyConfig) *backendFamily {
 	return &backendFamily{
 		mode:                 mode,
 		textRuntime:          textRuntime,
+		embeddingsRuntime:    embeddingsRuntime,
 		imageRuntime:         imageRuntime,
 		transcriptionRuntime: transcriptionRuntime,
 		start:                config.Start,
@@ -682,7 +694,7 @@ func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Reques
 				openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 				return
 			}
-			if modelBackendMode == BackendModeLlamaSDCPP && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
+			if modelBackendMode == BackendModeLlamaSDCPP && modelNeedsPrimaryTextRuntime(model) {
 				if err := service.loadLocalRuntimeForRequest(r.Context(), modelBackendMode, model.ID, model.Filename, readinessText); err != nil {
 					openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 					return
@@ -792,7 +804,7 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	if modelBackendMode == BackendModeLlamaSDCPP && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
+	if modelBackendMode == BackendModeLlamaSDCPP && modelNeedsPrimaryTextRuntime(model) {
 		if err := service.loadLocalRuntimeForRequest(r.Context(), modelBackendMode, model.ID, model.Filename, readinessText); err != nil {
 			openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 			return
@@ -1121,7 +1133,8 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 		}
 	}
 
-	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, backendModelID, readinessText, selectedModel.ChatTemplate, hasModel && backendModelID != modelID)
+	readiness := modelReadiness(r.URL.Path)
+	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, backendModelID, readiness, selectedModel.ChatTemplate, hasModel && backendModelID != modelID)
 	if transformErr != nil {
 		writeTransportError(w, transformErr)
 		return
@@ -1129,7 +1142,7 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 
 	started := time.Now()
 	analyticsEvent := service.newAnalyticsEvent(started, r, requestBody, backendModelID, textAnalyticsSection(r.URL.Path), selectedBackendMode)
-	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readinessText, selectedBackendMode)
+	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readiness, selectedBackendMode)
 	if err != nil {
 		if hasModel {
 			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
@@ -1697,6 +1710,9 @@ func uniqueBackendRuntimes(family *backendFamily) []*backendRuntime {
 	if family.imageRuntime != nil && family.imageRuntime != family.textRuntime {
 		runtimes = append(runtimes, family.imageRuntime)
 	}
+	if family.embeddingsRuntime != nil && family.embeddingsRuntime != family.textRuntime && family.embeddingsRuntime != family.imageRuntime {
+		runtimes = append(runtimes, family.embeddingsRuntime)
+	}
 	if family.transcriptionRuntime != nil && family.transcriptionRuntime != family.textRuntime && family.transcriptionRuntime != family.imageRuntime {
 		runtimes = append(runtimes, family.transcriptionRuntime)
 	}
@@ -1749,6 +1765,9 @@ func (service *Service) runtimeForBackendMode(mode string, readiness backendRead
 	}
 	if readiness == readinessImage {
 		return family.imageRuntime, nil
+	}
+	if readiness == readinessEmbeddings {
+		return family.embeddingsRuntime, nil
 	}
 	if readiness == readinessTranscription {
 		return family.transcriptionRuntime, nil
@@ -1810,6 +1829,9 @@ func (service *Service) runtimeForReadiness(readiness backendReadiness) *backend
 	}
 	if readiness == readinessImage {
 		return service.imageRuntime
+	}
+	if readiness == readinessEmbeddings {
+		return service.embeddingsRuntime
 	}
 	if readiness == readinessTranscription {
 		return service.transcriptionRuntime

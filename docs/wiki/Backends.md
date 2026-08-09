@@ -10,6 +10,8 @@ Valid values are `kobold` and `llama_sdcpp`.
 
 At router startup, the process starts in no-model mode when `kobold.no_model` is enabled. Model selection reloads the complete `.kcpps` file through the backend administration interface. Text, image, embedding, voice, and music requests share that process and its model gate.
 
+Configurations with `run_embed_separate: true` are the exception: embedding requests lazily start a second KoboldCpp process on `kobold.embeddings_backend_url`. The router writes private role-specific runtime configurations below the model configuration directory so the primary process never receives embedding fields and the embedding process receives no unrelated model components.
+
 A configuration switch waits for active requests using the current configuration to finish. Requests that use the same active configuration can run together.
 
 KoboldCpp must provide:
@@ -27,6 +29,8 @@ The router removes the backend's router-mode argument because model selection is
 - [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server` for text, embeddings, multimodal input, and compatible text-to-speech
 - [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) `sd-server` for image and video routes
 - [whisper.cpp](https://github.com/ggml-org/whisper.cpp) `whisper-server` for transcription and translation
+
+For `llama_sdcpp`, `run_embed_separate: true` sends embedding requests to an on-demand `llama-server` at `llama.embeddings_backend_url`. CPU configurations force `--device none` and zero GPU layers; GPU configurations fully offload the embedding model and inherit configured device placement.
 
 All processes start lazily and drain independently. Speech uses the llama runtime, while transcription uses the Whisper runtime. A `voice` unload drains both; `all` drains every runtime.
 

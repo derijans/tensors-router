@@ -218,6 +218,7 @@ func TestCapabilitiesIncludeImageEmbeddingsMultimodalAndContext(t *testing.T) {
 		"embeddingsmodel":"C:/models/embed.gguf",
 		"embeddingsmaxctx":2048,
 		"embeddingsgpu":true,
+		"run_embed_separate":true,
 		"mmproj":"C:/models/mmproj.gguf",
 		"visionmaxres":1024,
 		"visionmintokens":32,
@@ -250,7 +251,7 @@ func TestCapabilitiesIncludeImageEmbeddingsMultimodalAndContext(t *testing.T) {
 	if model.Capabilities.Image == nil || model.Capabilities.Image.Upscaler == "" || model.Capabilities.Image.VAE == "" {
 		t.Fatalf("missing image details %#v", model.Capabilities.Image)
 	}
-	if model.Capabilities.Embeddings == nil || model.Capabilities.Embeddings.MaxCtx != 2048 || !model.Capabilities.Embeddings.GPU {
+	if model.Capabilities.Embeddings == nil || model.Capabilities.Embeddings.MaxCtx != 2048 || !model.Capabilities.Embeddings.GPU || !model.Capabilities.Embeddings.Separate {
 		t.Fatalf("missing embedding details %#v", model.Capabilities.Embeddings)
 	}
 	if model.Capabilities.Multimodal == nil || model.Capabilities.Multimodal.VisionMaxRes != 1024 {

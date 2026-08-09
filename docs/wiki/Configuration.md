@@ -57,6 +57,7 @@ MCP server definitions remain embedded in the `.kcpps` source. When active, the 
 | Field | Type or options | Example or default | Description |
 | --- | --- | --- | --- |
 | `kobold.backend_url` | Loopback HTTP URL string | `http://127.0.0.1:5001` | Managed KoboldCpp endpoint. |
+| `kobold.embeddings_backend_url` | Loopback HTTP URL string | `http://127.0.0.1:5004` | On-demand managed KoboldCpp embeddings endpoint. |
 | `kobold.binary_path` | Path string | `./bin/kobold/koboldcpp` | KoboldCpp executable. |
 | `kobold.data_dir` | Path string | `./data` | Working and data directory for the process. |
 | `kobold.multiuser` | Integer, at least `1` | `1` | Value supplied to KoboldCpp multiuser handling. |
@@ -71,6 +72,7 @@ MCP server definitions remain embedded in the `.kcpps` source. When active, the 
 | Field | Type or options | Example or default | Description |
 | --- | --- | --- | --- |
 | `llama.backend_url` | Loopback HTTP URL string | `http://127.0.0.1:5002` | Managed `llama-server` endpoint. |
+| `llama.embeddings_backend_url` | Loopback HTTP URL string | `http://127.0.0.1:5005` | On-demand managed `llama-server` embeddings endpoint. |
 | `llama.binary_path` | Path string | `./bin/llama/llama-server` | `llama-server` executable. |
 | `llama.data_dir` | Path string | `./data/llama` | Working and data directory for the text process. |
 | `llama.hide_window` | Boolean | `true` | Hides the child process window on supported platforms. |

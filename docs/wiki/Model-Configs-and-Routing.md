@@ -17,6 +17,7 @@ The router parses the fields needed for discovery, capability classification, ba
 
 - Text configurations advertise an ID through `/v1/models`.
 - Embedding configurations are selected by requests to embedding endpoints.
+- `run_embed_separate` defaults to `false`. When `true`, embedding requests lazily start a dedicated managed backend while all other request types continue to use their existing runtimes.
 - Multimodal configurations use a text model with a projector.
 - Image-only configurations advertise an image ID through `/sdapi/v1/sd-models`.
 - Combined text and image configurations expose both capabilities.

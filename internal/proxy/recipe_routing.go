@@ -21,7 +21,8 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 	}
 	route := routeFromRecipeComponent(recipe, component, false, cluster.RouteLaneText)
 	profile := service.localChatTemplateProfile(component.ConfigFilename, component.NodeID != service.nodeID)
-	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, component.ModelID, readinessText, profile, true)
+	readiness := modelReadiness(r.URL.Path)
+	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, component.ModelID, readiness, profile, true)
 	if transformErr != nil {
 		writeTransportError(w, transformErr)
 		return true
@@ -43,7 +44,7 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 		started := time.Now()
 		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, component.ModelID, textAnalyticsSection(r.URL.Path), backendMode)
 		recordAnalytics = true
-		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readinessText, backendMode)
+		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readiness, backendMode)
 	}
 	if err != nil {
 		if recordAnalytics {

@@ -422,8 +422,16 @@ func createBackends(ctx context.Context, cfg config.Config, mcpReconciler *mcp.R
 	if err != nil {
 		return nil, nil, err
 	}
+	koboldEmbeddingsManager, err := kobold.NewEmbeddingsManager(koboldEmbeddingsProcessConfig(cfg))
+	if err != nil {
+		return nil, nil, err
+	}
 
 	llamaManager, err := native.NewLlamaManager(llamaProcessConfig(cfg, mcpReconciler))
+	if err != nil {
+		return nil, nil, err
+	}
+	llamaEmbeddingsManager, err := native.NewLlamaEmbeddingsManager(llamaEmbeddingsProcessConfig(cfg))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -444,23 +452,33 @@ func createBackends(ctx context.Context, cfg config.Config, mcpReconciler *mcp.R
 
 	families := map[string]proxy.BackendFamilyConfig{
 		proxy.BackendModeKobold: {
-			TextBackend:  koboldManager,
-			ImageBackend: koboldManager,
-			Start:        koboldManager.Start,
-			Stop:         koboldManager.Stop,
+			TextBackend:       koboldManager,
+			EmbeddingsBackend: koboldEmbeddingsManager,
+			ImageBackend:      koboldManager,
+			Start:             koboldManager.Start,
+			Stop:              stopKoboldManagers(koboldManager, koboldEmbeddingsManager),
 		},
 		proxy.BackendModeLlamaSDCPP: {
 			TextBackend:          llamaManager,
+			EmbeddingsBackend:    llamaEmbeddingsManager,
 			ImageBackend:         sdcppManager,
 			TranscriptionBackend: whisperCPPManager,
-			Stop:                 stopNativeManagers(llamaManager, sdcppManager, whisperCPPManager),
+			Stop:                 stopNativeManagers(llamaManager, llamaEmbeddingsManager, sdcppManager, whisperCPPManager),
 		},
 	}
 	shutdownBackends := []func(context.Context) error{
-		koboldManager.Stop,
-		stopNativeManagers(llamaManager, sdcppManager, whisperCPPManager),
+		stopKoboldManagers(koboldManager, koboldEmbeddingsManager),
+		stopNativeManagers(llamaManager, llamaEmbeddingsManager, sdcppManager, whisperCPPManager),
 	}
 	return families, shutdownBackends, nil
+}
+
+func koboldEmbeddingsProcessConfig(cfg config.Config) kobold.ProcessConfig {
+	processConfig := koboldProcessConfig(cfg)
+	processConfig.BackendURL = cfg.Kobold.EmbeddingsBackendURL
+	processConfig.DataDir = filepath.Join(cfg.Kobold.DataDir, "embeddings")
+	processConfig.MCP = nil
+	return processConfig
 }
 
 func koboldProcessConfig(cfg config.Config, reconciler ...*mcp.Reconciler) kobold.ProcessConfig {
@@ -492,6 +510,26 @@ func llamaProcessConfig(cfg config.Config, reconciler ...*mcp.Reconciler) native
 		HideWindow: cfg.Llama.HideWindow,
 		Logging:    cfg.Logging.BackendLogsToDisk,
 		MCP:        mcpReconciler,
+	}
+}
+
+func llamaEmbeddingsProcessConfig(cfg config.Config) native.ProcessConfig {
+	processConfig := llamaProcessConfig(cfg)
+	processConfig.BackendURL = cfg.Llama.EmbeddingsBackendURL
+	processConfig.DataDir = filepath.Join(cfg.Llama.DataDir, "embeddings")
+	processConfig.MCP = nil
+	return processConfig
+}
+
+func stopKoboldManagers(managers ...*kobold.Manager) func(context.Context) error {
+	return func(ctx context.Context) error {
+		var firstErr error
+		for _, manager := range managers {
+			if err := manager.Stop(ctx); err != nil && firstErr == nil {
+				firstErr = err
+			}
+		}
+		return firstErr
 	}
 }
 

@@ -511,7 +511,7 @@ func (service *Service) loadLocalModel(ctx context.Context, publicID string, loc
 	if err != nil {
 		return err
 	}
-	if modelBackendMode == BackendModeLlamaSDCPP && model.HasImage && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
+	if modelBackendMode == BackendModeLlamaSDCPP && model.HasImage && modelNeedsPrimaryTextRuntime(model) {
 		if err := service.loadLocalConfig(ctx, modelBackendMode, publicID, model.Filename, readinessText); err != nil {
 			return err
 		}

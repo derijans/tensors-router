@@ -3318,6 +3318,140 @@ func testClusterEmbeddingModel(id string, nodeID string, modelHash string, confi
 	return model
 }
 
+func TestSeparateEmbeddingRuntimeIsLazyAndIndependentlyUnloadable(t *testing.T) {
+	service, textBackend, embeddingsBackend := newSeparateEmbeddingTestService(t, false)
+
+	chat := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"separate","messages":[{"role":"user","content":"hello"}]}`))
+	chat.Header.Set("Content-Type", "application/json")
+	chatRecorder := httptest.NewRecorder()
+	service.ServeHTTP(chatRecorder, chat)
+	if chatRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected chat status=%d body=%s", chatRecorder.Code, chatRecorder.Body.String())
+	}
+	if textBackend.reloads.Load() != 1 || embeddingsBackend.reloads.Load() != 0 {
+		t.Fatalf("text request eagerly loaded embeddings text=%d embeddings=%d", textBackend.reloads.Load(), embeddingsBackend.reloads.Load())
+	}
+	for _, request := range []struct {
+		path string
+		body string
+	}{
+		{path: "/v1/images/generations", body: `{"model":"separate-image","prompt":"hello"}`},
+		{path: "/v1/audio/speech", body: `{"model":"separate","input":"hello","voice":"default"}`},
+		{path: "/api/extra/transcribe", body: `{"model":"separate"}`},
+	} {
+		httpRequest := httptest.NewRequest(http.MethodPost, request.path, strings.NewReader(request.body))
+		httpRequest.Header.Set("Content-Type", "application/json")
+		recorder := httptest.NewRecorder()
+		service.ServeHTTP(recorder, httpRequest)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("unexpected companion status path=%s status=%d body=%s", request.path, recorder.Code, recorder.Body.String())
+		}
+		if embeddingsBackend.reloads.Load() != 0 {
+			t.Fatalf("companion request eagerly loaded embeddings path=%s", request.path)
+		}
+	}
+
+	embed := httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(`{"model":"separate","input":"hello"}`))
+	embed.Header.Set("Content-Type", "application/json")
+	embedRecorder := httptest.NewRecorder()
+	service.ServeHTTP(embedRecorder, embed)
+	if embedRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected embedding status=%d body=%s", embedRecorder.Code, embedRecorder.Body.String())
+	}
+	if embeddingsBackend.reloads.Load() != 1 || textBackend.reloads.Load() != 1 {
+		t.Fatalf("embedding request used wrong runtime text=%d embeddings=%d", textBackend.reloads.Load(), embeddingsBackend.reloads.Load())
+	}
+
+	if err := service.unloadLocal(context.Background(), "embeddings"); err != nil {
+		t.Fatal(err)
+	}
+	if embeddingsBackend.unloads.Load() != 1 || textBackend.unloads.Load() != 0 {
+		t.Fatalf("embedding unload affected wrong runtime text=%d embeddings=%d", textBackend.unloads.Load(), embeddingsBackend.unloads.Load())
+	}
+}
+
+func TestEmbeddingRuntimeUnloadPolicyDistinguishesCPUAndGPU(t *testing.T) {
+	for _, test := range []struct {
+		name        string
+		gpu         bool
+		wantUnloads int32
+	}{
+		{name: "CPU coexists", gpu: false, wantUnloads: 0},
+		{name: "GPU follows policy", gpu: true, wantUnloads: 1},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			service, _, embeddingsBackend := newSeparateEmbeddingTestService(t, test.gpu)
+			embed := httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(`{"model":"separate","input":"hello"}`))
+			embed.Header.Set("Content-Type", "application/json")
+			embedRecorder := httptest.NewRecorder()
+			service.ServeHTTP(embedRecorder, embed)
+			if embedRecorder.Code != http.StatusOK {
+				t.Fatalf("unexpected embedding status=%d body=%s", embedRecorder.Code, embedRecorder.Body.String())
+			}
+
+			chat := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"other","messages":[{"role":"user","content":"hello"}]}`))
+			chat.Header.Set("Content-Type", "application/json")
+			chatRecorder := httptest.NewRecorder()
+			service.ServeHTTP(chatRecorder, chat)
+			if chatRecorder.Code != http.StatusOK {
+				t.Fatalf("unexpected chat status=%d body=%s", chatRecorder.Code, chatRecorder.Body.String())
+			}
+			if got := embeddingsBackend.unloads.Load(); got != test.wantUnloads {
+				t.Fatalf("unexpected embeddings unloads got=%d want=%d", got, test.wantUnloads)
+			}
+		})
+	}
+}
+
+func newSeparateEmbeddingTestService(t *testing.T, gpu bool) (*Service, *fakeBackend, *fakeBackend) {
+	t.Helper()
+	dir := t.TempDir()
+	separateConfig := fmt.Sprintf(`{
+		"model_param":"C:/models/text.gguf",
+		"sdmodel":"C:/models/image.safetensors",
+		"ttsmodel":"C:/models/tts.gguf",
+		"whispermodel":"C:/models/whisper.gguf",
+		"embeddingsmodel":"C:/models/embed.gguf",
+		"embeddingsgpu":%t,
+		"run_embed_separate":true
+	}`, gpu)
+	writeProxyTestConfig(t, dir, "separate", separateConfig)
+	writeProxyTestConfig(t, dir, "other", `{"model_param":"C:/models/other.gguf","router_unload_policy":"all"}`)
+
+	backendHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
+			_, _ = w.Write([]byte(`{"object":"list","data":[]}`))
+			return
+		}
+		if r.Method == http.MethodGet && r.URL.Path == "/api/extra/version" {
+			_, _ = w.Write([]byte(`{"tts":true,"transcribe":true}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"model":"backend","data":[]}`))
+	}
+	textServer := httptest.NewServer(http.HandlerFunc(backendHandler))
+	t.Cleanup(textServer.Close)
+	embeddingsServer := httptest.NewServer(http.HandlerFunc(backendHandler))
+	t.Cleanup(embeddingsServer.Close)
+	textBackend := &fakeBackend{url: mustParseURL(t, textServer.URL), healthy: true}
+	embeddingsBackend := &fakeBackend{url: mustParseURL(t, embeddingsServer.URL), healthy: true}
+	service := NewService(ServiceConfig{
+		BackendMode: BackendModeKobold,
+		BackendFamilies: map[string]BackendFamilyConfig{
+			BackendModeKobold: {
+				TextBackend:       textBackend,
+				EmbeddingsBackend: embeddingsBackend,
+				ImageBackend:      textBackend,
+			},
+		},
+		Catalog:   catalog.New(dir),
+		ConfigDir: dir,
+		Logger:    log.New(io.Discard, "", 0),
+	})
+	return service, textBackend, embeddingsBackend
+}
+
 func testClusterImageEmbeddingModel(id string, nodeID string, modelHash string, configHash string, source string, imageName string) cluster.Model {
 	model := testClusterEmbeddingModel(id, nodeID, modelHash, configHash, source)
 	model.HasImage = true

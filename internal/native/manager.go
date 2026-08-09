@@ -43,6 +43,7 @@ type Manager struct {
 	readinessPath   string
 	logName         string
 	argumentBuilder func(catalog.RuntimeConfig, string, string, string, string) ([]string, error)
+	extraArgsFilter func([]string) []string
 	client          *http.Client
 	mu              sync.Mutex
 	exitMu          sync.RWMutex
@@ -59,6 +60,15 @@ type Manager struct {
 
 func NewLlamaManager(config ProcessConfig) (*Manager, error) {
 	return newManager(config, "5002", "/v1/models", "llama-server.log", llamaArguments)
+}
+
+func NewLlamaEmbeddingsManager(config ProcessConfig) (*Manager, error) {
+	manager, err := newManager(config, "5005", "/v1/models", "llama-server-embeddings.log", llamaEmbeddingArguments)
+	if err != nil {
+		return nil, err
+	}
+	manager.extraArgsFilter = embeddingExtraArgs
+	return manager, nil
 }
 
 func NewSDCPPManager(config ProcessConfig) (*Manager, error) {
@@ -87,6 +97,7 @@ func newManager(config ProcessConfig, defaultPort string, readinessPath string, 
 		readinessPath:   readinessPath,
 		logName:         logName,
 		argumentBuilder: argumentBuilder,
+		extraArgsFilter: identityArgs,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -122,7 +133,7 @@ func (manager *Manager) LaunchArguments(filename string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	args = append(args, manager.config.ExtraArgs...)
+	args = append(args, manager.extraArgsFilter(manager.config.ExtraArgs)...)
 	return args, nil
 }
 
@@ -397,7 +408,7 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	if metadata.DraftDSpark {
 		args = append(args, "--draft-dspark")
 	}
-	if strings.TrimSpace(metadata.EmbeddingsModel) != "" {
+	if strings.TrimSpace(metadata.EmbeddingsModel) != "" && !metadata.RunEmbedSeparate {
 		args = append(args, "--embeddings")
 	}
 	appendStringArg(&args, "--cache-type-k", firstNonEmpty(metadata.CacheTypeK, metadata.QuantKV))
@@ -426,6 +437,67 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	appendOptionalBoolArg(&args, "--models-autoload", "--no-models-autoload", metadata.ModelsAutoload)
 	appendIntArg(&args, "--sse-ping-interval", metadata.SSEPingInterval)
 	return args, nil
+}
+
+func llamaEmbeddingArguments(metadata catalog.RuntimeConfig, modelID string, host string, port string, _ string) ([]string, error) {
+	modelPath := strings.TrimSpace(metadata.EmbeddingsModel)
+	if modelPath == "" {
+		return nil, fmt.Errorf("llama embeddings config has no embeddingsmodel")
+	}
+	if !metadata.RunEmbedSeparate {
+		return nil, fmt.Errorf("llama embeddings config does not enable run_embed_separate")
+	}
+	args := []string{
+		"--host", host,
+		"--port", port,
+		"--model", modelPath,
+		"--alias", modelID,
+		"--embeddings",
+	}
+	appendIntArg(&args, "--ctx-size", metadata.EmbeddingsMaxCtx)
+	appendIntArg(&args, "--threads", metadata.Threads)
+	appendIntArg(&args, "--threads-batch", metadata.BLASThreads)
+	appendIntArg(&args, "--batch-size", metadata.BatchSize)
+	appendIntArg(&args, "--ubatch-size", metadata.UBatchSize)
+	if metadata.EmbeddingsGPU {
+		args = append(args, "--n-gpu-layers", "-1")
+		appendStringArg(&args, "--device", metadata.Device)
+		appendStringArg(&args, "--split-mode", metadata.SplitMode)
+		appendStringArg(&args, "--tensor-split", metadata.TensorSplitValue())
+		appendIntArg(&args, "--main-gpu", nonNegative(metadata.MainGPU))
+		appendStringArg(&args, "--rpc", metadata.RPCTargets)
+	} else {
+		args = append(args, "--device", "none", "--n-gpu-layers", "0")
+	}
+	appendLoadMode(&args, metadata.LoadMode, metadata.UseMMap, metadata.UseMLock)
+	return args, nil
+}
+
+func identityArgs(args []string) []string {
+	return append([]string(nil), args...)
+}
+
+func embeddingExtraArgs(args []string) []string {
+	owned := map[string]bool{
+		"--host": true, "--port": true, "--model": true, "--alias": true,
+		"--embeddings": true, "--device": true, "--n-gpu-layers": true, "--ctx-size": true,
+	}
+	filtered := make([]string, 0, len(args))
+	for index := 0; index < len(args); index++ {
+		argument := args[index]
+		key := argument
+		if separator := strings.IndexByte(key, '='); separator >= 0 {
+			key = key[:separator]
+		}
+		if !owned[key] {
+			filtered = append(filtered, argument)
+			continue
+		}
+		if argument == key && key != "--embeddings" && index+1 < len(args) && !strings.HasPrefix(args[index+1], "--") {
+			index++
+		}
+	}
+	return filtered
 }
 
 func whisperCPPArguments(metadata catalog.RuntimeConfig, modelID string, host string, port string, mcpServersPath string) ([]string, error) {

@@ -30,7 +30,8 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 	}
 
 	profile := service.localChatTemplateProfile(route.Filename, route.Remote)
-	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, route.LocalID, readinessText, profile, true)
+	readiness := modelReadiness(r.URL.Path)
+	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, route.LocalID, readiness, profile, true)
 	if transformErr != nil {
 		writeTransportError(w, transformErr)
 		return
@@ -57,7 +58,7 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 		started := time.Now()
 		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, route.LocalID, textAnalyticsSection(r.URL.Path), routeBackendMode)
 		recordAnalytics = true
-		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readinessText, routeBackendMode)
+		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readiness, routeBackendMode)
 	}
 	if err != nil {
 		if recordAnalytics {
@@ -86,7 +87,7 @@ func (service *Service) acquireRegistryModelRoute(r *http.Request, publicID stri
 		if err != nil {
 			return cluster.Model{}, cluster.Route{}, func() {}, false
 		}
-		route, release, ok := service.registry.AcquireEmbedding(publicID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readinessText))
+		route, release, ok := service.registry.AcquireEmbedding(publicID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readinessEmbeddings))
 		return model, route, release, ok
 	}
 	model, ok := service.registry.Model(publicID)
@@ -144,7 +145,7 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 			return true
 		}
 		jobBackendMode = routeBackendMode
-		if routeBackendMode == BackendModeLlamaSDCPP && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
+		if routeBackendMode == BackendModeLlamaSDCPP && clusterModelNeedsPrimaryTextRuntime(model) {
 			if err := service.loadLocalRuntimeForRequest(r.Context(), routeBackendMode, route.PublicID, route.Filename, readinessText); err != nil {
 				release()
 				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
@@ -226,7 +227,7 @@ func (service *Service) handleRegistryImageOptions(w http.ResponseWriter, r *htt
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return true
 	}
-	if routeBackendMode == BackendModeLlamaSDCPP && (model.HasLLM || model.HasEmbeddings || model.HasMultimodal) {
+	if routeBackendMode == BackendModeLlamaSDCPP && clusterModelNeedsPrimaryTextRuntime(model) {
 		if err := service.loadLocalConfig(modelContext, routeBackendMode, route.PublicID, route.Filename, readinessText); err != nil {
 			release()
 			openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
@@ -518,6 +519,16 @@ func modelSupportsAudioLane(model catalog.Model, lane string) bool {
 
 func modelSupportsTextLane(model catalog.Model) bool {
 	return model.HasLLM || model.HasEmbeddings || model.HasMultimodal
+}
+
+func modelNeedsPrimaryTextRuntime(model catalog.Model) bool {
+	separateEmbeddings := model.Capabilities.Embeddings != nil && model.Capabilities.Embeddings.Separate
+	return model.HasLLM || model.HasMultimodal || (model.HasEmbeddings && !separateEmbeddings)
+}
+
+func clusterModelNeedsPrimaryTextRuntime(model cluster.Model) bool {
+	separateEmbeddings := model.Capabilities.Embeddings != nil && model.Capabilities.Embeddings.Separate
+	return model.HasLLM || model.HasMultimodal || (model.HasEmbeddings && !separateEmbeddings)
 }
 
 func registryModelSupportsOpenAIPath(model cluster.Model, path string) bool {

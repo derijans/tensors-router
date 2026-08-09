@@ -40,6 +40,34 @@ func TestValidateUnknownGPUCountWarnsWhenBackendKnownAndGPUCountUnknown(t *testi
 	}
 }
 
+func TestValidateSeparateEmbeddingRuntimeRequiresModel(t *testing.T) {
+	group := cookGroup{
+		nodeID: "node-a",
+		components: []cook.Component{{
+			Kind:    cook.KindEmbeddings,
+			Source:  cook.SourceConfig,
+			ModelID: "embed-model",
+		}},
+	}
+	fact := cookNodeFacts{
+		backendMode: "kobold",
+		models: []cluster.Model{{
+			LocalID: "embed-model",
+			Options: map[string]json.RawMessage{
+				"run_embed_separate": json.RawMessage("true"),
+			},
+		}},
+	}
+	issues := validateSeparateEmbeddingRuntime(group, fact, nil)
+	if len(issues) != 1 || issues[0].Code != "separate_embeddings_model_required" {
+		t.Fatalf("unexpected validation issues %#v", issues)
+	}
+	fact.models[0].Options["embeddingsmodel"] = json.RawMessage(`"embed.gguf"`)
+	if issues := validateSeparateEmbeddingRuntime(group, fact, nil); len(issues) != 0 {
+		t.Fatalf("valid separate embedding config was rejected %#v", issues)
+	}
+}
+
 func TestValidateUnknownGPUCountSkipsWhenBackendUnknown(t *testing.T) {
 	group := cookGroup{
 		components: []cook.Component{{

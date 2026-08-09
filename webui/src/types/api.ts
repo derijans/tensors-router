@@ -246,6 +246,7 @@ export interface EmbeddingCapability {
   model?: string;
   max_ctx?: number;
   gpu?: boolean;
+  separate: boolean;
 }
 
 export interface MultimodalCapability {
