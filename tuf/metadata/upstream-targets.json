@@ -2,12 +2,12 @@
 	"signatures": [
 		{
 			"keyid": "5a226ee87c683f7fb870630783d02dc82f5d46a047aaf9d54e22282771bdc4a2",
-			"sig": "b57929870c455d3c0b0a68d6c424a9187dcd15e05e8ff71f0f8ddd172955c0d9420fc1bbb9538c564f29e1c714f83418e658af9265d6588d7d414d0f30d3b209"
+			"sig": "7414c5c63e2c048a2e111a13ae8219fcd70b583e3d77e285e5594ad2fd7416c8338bc325648ae3d9e9ba1e82003332f490facdb393721cda6e02fdf8c2aa210e"
 		}
 	],
 	"signed": {
 		"_type": "targets",
-		"expires": "2026-09-09T16:32:57.00037401Z",
+		"expires": "2026-09-10T04:53:33.450613953Z",
 		"spec_version": "1.0.31",
 		"targets": {
 			"upstreams/koboldcpp/linux-amd64.json": {
@@ -59,6 +59,6 @@
 				"length": 513
 			}
 		},
-		"version": 8
+		"version": 9
 	}
 }
