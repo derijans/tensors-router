@@ -1,6 +1,7 @@
 .gocache/
 .go-build-cache/
 .tmp/
+.agents/
 
 dist/
 bin/

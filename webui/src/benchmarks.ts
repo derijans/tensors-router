@@ -203,7 +203,7 @@ function selectedModel(): Model | null {
 }
 
 function benchmarkModels(): Model[] {
-  return allNodeModels();
+  return allNodeModels().filter(model => !model.disabled);
 }
 
 function modelKey(model: Model | undefined): string {

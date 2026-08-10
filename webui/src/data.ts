@@ -152,7 +152,7 @@ export function usedPaths(selected: PaletteComponentPayload): string[] {
 }
 
 export function configPaletteEntries(): PaletteEntry[] {
-  return allNodeModels().flatMap(model => {
+  return allNodeModels().filter(model => !model.disabled).flatMap(model => {
     const entries: PaletteEntry[] = [];
     if (model.has_llm) entries.push(modelEntry("text", model));
     if (model.has_image) entries.push(modelEntry("image", model));

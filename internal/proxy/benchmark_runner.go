@@ -62,6 +62,13 @@ func (service *Service) runLocalBenchmark(ctx context.Context, request routerben
 	if !ok {
 		return routerbenchmark.Record{}, fmt.Errorf("model %q was not found", request.ModelID)
 	}
+	enabled, err := service.localModelEnabled(ctx, model.ID)
+	if err != nil {
+		return routerbenchmark.Record{}, err
+	}
+	if !enabled {
+		return routerbenchmark.Record{}, fmt.Errorf("model %q is disabled", request.ModelID)
+	}
 
 	runContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), benchmarkTimeout(request.TimeoutSeconds))
 	defer cancel()

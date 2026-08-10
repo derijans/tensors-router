@@ -327,6 +327,9 @@ func (service *Service) webUIsFromModels(models []cluster.Model) []WebUIEntry {
 func (service *Service) compatibleWebUIModels(definition webUIDefinition, models []cluster.Model) []WebUICompatibleModel {
 	compatible := make([]WebUICompatibleModel, 0, len(models))
 	for _, model := range models {
+		if model.Disabled {
+			continue
+		}
 		modelBackendMode, err := service.resolveBackendMode(model.BackendMode)
 		if err != nil || modelBackendMode != definition.backendMode {
 			continue

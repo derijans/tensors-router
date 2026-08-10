@@ -35,8 +35,17 @@ export const state: AppState = {
   inventory: null,
   router: null,
   models: {
+    activeSubtab: "models",
     configNodeIDs: [],
     fileNodeIDs: [],
+    modelSearch: "",
+    enabledFilter: "all",
+    backendFilter: "",
+    capabilityFilter: "",
+    fileSearch: "",
+    fileRoleFilter: "",
+    fileExtensionFilter: "",
+    fileHashFilter: "all",
     initialized: false
   },
   benchmark: {

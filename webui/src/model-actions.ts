@@ -1,6 +1,6 @@
 import { createModelAssetResolutionJob, getModelAssetResolutionJob, loadModelConfig } from "./api";
 import type { ModelAssetResolutionJob } from "./api";
-import { visibleModelsForResolution } from "./data";
+import { filterInventoryModels, inventoryModels } from "./model-inventory-data";
 import { elements } from "./elements";
 import { state } from "./state";
 import { escapeAttribute, escapeHTML } from "./utils";
@@ -53,7 +53,13 @@ function handoffUnresolvedModel(id: string): void {
 }
 
 export async function resolveFilteredModels(refreshInventory: () => Promise<void>): Promise<void> {
-  const models = visibleModelsForResolution(elements.filterInput.value.trim().toLowerCase(), state.models.configNodeIDs);
+  const models = filterInventoryModels(inventoryModels(state.inventory?.models ?? [], state.inventory?.nodes ?? []), {
+    query: state.models.modelSearch,
+    nodeIDs: state.models.configNodeIDs,
+    enabled: state.models.enabledFilter,
+    backend: state.models.backendFilter,
+    capability: state.models.capabilityFilter
+  });
   if (models.length === 0) {
     setModelActionStatus("No visible configs", false);
     return;

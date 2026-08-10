@@ -5,6 +5,8 @@ export type CookMode = "quick" | "constructor";
 
 export type PaletteName = "configs" | "files" | "options";
 
+export type ModelInventorySubtab = "models" | "files";
+
 export type SimpleCookMode = "edit" | "new" | "copy";
 
 export type SidebarValueType = "field" | "model";
@@ -103,8 +105,17 @@ export interface AppState {
   inventory: InventoryResponse | null;
   router: RouterProcessStatus | null;
   models: {
+    activeSubtab: ModelInventorySubtab;
     configNodeIDs: string[];
     fileNodeIDs: string[];
+    modelSearch: string;
+    enabledFilter: string;
+    backendFilter: string;
+    capabilityFilter: string;
+    fileSearch: string;
+    fileRoleFilter: string;
+    fileExtensionFilter: string;
+    fileHashFilter: string;
     initialized: boolean;
   };
   benchmark: {

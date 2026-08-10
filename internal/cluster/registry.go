@@ -134,6 +134,17 @@ func (registry *Registry) Models() []Model {
 	return cloneModels(registry.view)
 }
 
+func (registry *Registry) ConfigDisabled(nodeID string, filename string) bool {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+	for _, model := range registry.view {
+		if model.NodeID == nodeID && model.Filename == filename {
+			return model.Disabled
+		}
+	}
+	return false
+}
+
 func (registry *Registry) Revision() uint64 {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
@@ -205,7 +216,7 @@ func (registry *Registry) Model(publicID string) (Model, bool) {
 	defer registry.mu.Unlock()
 
 	for _, model := range registry.view {
-		if model.PublicID == publicID {
+		if !model.Disabled && model.PublicID == publicID {
 			return model, true
 		}
 	}
@@ -217,7 +228,7 @@ func (registry *Registry) EmbeddingModel(publicID string) (Model, bool) {
 	defer registry.mu.Unlock()
 
 	for _, model := range registry.view {
-		if registry.embeddingModelSelectableLocked(model, publicID) {
+		if !model.Disabled && registry.embeddingModelSelectableLocked(model, publicID) {
 			return model, true
 		}
 	}
@@ -229,7 +240,7 @@ func (registry *Registry) ImageModel(publicImageID string, activeConfigFilename 
 	defer registry.mu.Unlock()
 
 	for _, model := range registry.view {
-		if registry.imageModelSelectableLocked(model, activeConfigFilename) && model.PublicImageID == publicImageID {
+		if !model.Disabled && registry.imageModelSelectableLocked(model, activeConfigFilename) && model.PublicImageID == publicImageID {
 			return model, true
 		}
 	}
@@ -241,7 +252,7 @@ func (registry *Registry) VoiceModel(publicID string) (Model, bool) {
 	defer registry.mu.Unlock()
 
 	for _, model := range registry.view {
-		if model.PublicID == publicID && model.HasVoice {
+		if !model.Disabled && model.PublicID == publicID && model.HasVoice {
 			return model, true
 		}
 	}
@@ -253,7 +264,7 @@ func (registry *Registry) MusicModel(publicID string) (Model, bool) {
 	defer registry.mu.Unlock()
 
 	for _, model := range registry.view {
-		if model.PublicID == publicID && model.HasMusic {
+		if !model.Disabled && model.PublicID == publicID && model.HasMusic {
 			return model, true
 		}
 	}
@@ -303,7 +314,7 @@ func (registry *Registry) AcquireVoice(publicID string, localHealthy bool) (Rout
 func (registry *Registry) AcquireSpecificVoice(publicID string, nodeID string, filename string, localHealthy bool) (Route, func(), bool) {
 	registry.mu.Lock()
 	for _, model := range registry.view {
-		if model.PublicID != publicID || model.NodeID != nodeID || model.Filename != filename || !model.HasVoice || !model.Available {
+		if model.Disabled || model.PublicID != publicID || model.NodeID != nodeID || model.Filename != filename || !model.HasVoice || !model.Available {
 			continue
 		}
 		if model.NodeID == registry.localID && !localHealthy {
@@ -469,7 +480,7 @@ func (registry *Registry) nextWebUIRouteLocked(selectionKey string, routes []Rou
 func (registry *Registry) replicasLocked(publicID string) []Model {
 	replicas := make([]Model, 0)
 	for _, model := range registry.view {
-		if model.PublicID == publicID {
+		if !model.Disabled && model.PublicID == publicID {
 			replicas = append(replicas, model)
 		}
 	}
@@ -482,7 +493,7 @@ func (registry *Registry) replicasLocked(publicID string) []Model {
 func (registry *Registry) embeddingReplicasLocked(publicID string) []Model {
 	replicas := make([]Model, 0)
 	for _, model := range registry.view {
-		if registry.embeddingModelSelectableLocked(model, publicID) {
+		if !model.Disabled && registry.embeddingModelSelectableLocked(model, publicID) {
 			replicas = append(replicas, model)
 		}
 	}
@@ -495,7 +506,7 @@ func (registry *Registry) embeddingReplicasLocked(publicID string) []Model {
 func (registry *Registry) imageReplicasLocked(publicImageID string, activeConfigFilename string) []Model {
 	replicas := make([]Model, 0)
 	for _, model := range registry.view {
-		if model.PublicImageID == publicImageID && registry.imageModelSelectableLocked(model, activeConfigFilename) {
+		if !model.Disabled && model.PublicImageID == publicImageID && registry.imageModelSelectableLocked(model, activeConfigFilename) {
 			replicas = append(replicas, model)
 		}
 	}
@@ -508,7 +519,7 @@ func (registry *Registry) imageReplicasLocked(publicImageID string, activeConfig
 func (registry *Registry) voiceReplicasLocked(publicID string) []Model {
 	replicas := make([]Model, 0)
 	for _, model := range registry.view {
-		if model.PublicID == publicID && model.HasVoice {
+		if !model.Disabled && model.PublicID == publicID && model.HasVoice {
 			replicas = append(replicas, model)
 		}
 	}
@@ -521,7 +532,7 @@ func (registry *Registry) voiceReplicasLocked(publicID string) []Model {
 func (registry *Registry) musicReplicasLocked(publicID string) []Model {
 	replicas := make([]Model, 0)
 	for _, model := range registry.view {
-		if model.PublicID == publicID && model.HasMusic {
+		if !model.Disabled && model.PublicID == publicID && model.HasMusic {
 			replicas = append(replicas, model)
 		}
 	}

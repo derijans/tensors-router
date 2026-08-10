@@ -308,6 +308,13 @@ export interface Model {
   unresolved_fields?: number;
   asset_failure?: string;
   benchmark?: ModelBenchmark;
+  disabled?: boolean;
+}
+
+export interface ModelStateRequest {
+  node_id: string;
+  local_id: string;
+  enabled: boolean;
 }
 
 export interface FileRecord {

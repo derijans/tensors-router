@@ -140,61 +140,50 @@
       <section class="tab-panel" data-panel="models">
         <div class="panel-head">
           <div>
-            <h2>Models And Files</h2>
-            <p class="muted">configs, model files, and capabilities</p>
+            <h2>Model Inventory</h2>
+            <p class="muted">configs, model files, and capabilities across every node</p>
           </div>
-          <div class="models-panel-actions">
-            <input id="filterInput" type="search" placeholder="Filter models, files, nodes">
-            <label>
-              Config nodes
-              <select id="modelsNodeFilter" multiple size="4"><option value="*" selected>All Nodes</option></select>
-            </label>
-            <label>
-              File nodes
-              <select id="filesNodeFilter" multiple size="4"><option value="*" selected>All Nodes</option></select>
-            </label>
+        </div>
+        <div id="modelInventorySubtabs" class="inventory-subtabs" role="tablist" aria-label="Model inventory views">
+          <button type="button" class="active" role="tab" aria-selected="true" data-model-inventory-subtab="models">Models</button>
+          <button type="button" role="tab" aria-selected="false" data-model-inventory-subtab="files">Files</button>
+        </div>
+        <section class="inventory-subpanel active" role="tabpanel" data-model-inventory-panel="models">
+          <div class="inventory-filters">
+            <label>Search<input id="modelSearchInput" type="search" placeholder="Model, config, or node"></label>
+            <label>Nodes<select id="modelsNodeFilter" multiple size="4"><option value="*" selected>All Nodes</option></select></label>
+            <label>Enabled<select id="modelEnabledFilter"><option value="all">All states</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></label>
+            <label>Backend<select id="modelBackendFilter"><option value="">All backends</option></select></label>
+            <label>Capability<select id="modelCapabilityFilter"><option value="">All capabilities</option></select></label>
             <button id="resolveFilteredModelsButton" type="button" data-operation-group="models">Resolve filtered</button>
-            <div id="modelsActionStatus" class="action-status"></div>
           </div>
-        </div>
-        <div class="tables">
-          <div>
-            <h3>Configs</h3>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Node</th>
-                    <th>Backend</th>
-                    <th>Capabilities</th>
-                    <th>Options</th>
-                    <th>Benchmark</th>
-                    <th>Available</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody id="modelsTable"></tbody>
-              </table>
-            </div>
+          <div id="modelsActionStatus" class="action-status"></div>
+          <div id="modelsScanNotices" class="inventory-notices"></div>
+          <div id="modelsRowCount" class="inventory-row-count"></div>
+          <div class="table-wrap inventory-table-wrap">
+            <table class="inventory-table models-inventory-table">
+              <thead><tr><th>ID</th><th>Node</th><th>Enabled</th><th>Backend</th><th>Capabilities</th><th>Options</th><th>Benchmark</th><th>Available</th><th>Actions</th></tr></thead>
+              <tbody id="modelsTable"></tbody>
+            </table>
           </div>
-          <div>
-            <h3>Files</h3>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Name</th>
-                    <th>Node</th>
-                    <th>Role</th>
-                    <th>Size</th>
-                  </tr>
-                </thead>
-                <tbody id="filesTable"></tbody>
-              </table>
-            </div>
+        </section>
+        <section class="inventory-subpanel" role="tabpanel" data-model-inventory-panel="files">
+          <div class="inventory-filters">
+            <label>Search<input id="fileSearchInput" type="search" placeholder="Filename or path"></label>
+            <label>Nodes<select id="filesNodeFilter" multiple size="4"><option value="*" selected>All Nodes</option></select></label>
+            <label>Role<select id="fileRoleFilter"><option value="">All roles</option></select></label>
+            <label>Extension<select id="fileExtensionFilter"><option value="">All extensions</option></select></label>
+            <label>Hash<select id="fileHashFilter"><option value="all">All hash states</option><option value="hashed">Has hash</option><option value="unhashed">No hash</option></select></label>
           </div>
-        </div>
+          <div id="filesScanNotices" class="inventory-notices"></div>
+          <div id="filesRowCount" class="inventory-row-count"></div>
+          <div class="table-wrap inventory-table-wrap">
+            <table class="inventory-table files-inventory-table">
+              <thead><tr><th>Name</th><th>Node</th><th>Role</th><th>Extension</th><th>Size</th><th>SHA-256</th></tr></thead>
+              <tbody id="filesTable"></tbody>
+            </table>
+          </div>
+        </section>
       </section>
 
       <section class="tab-panel" data-panel="benchmarks">

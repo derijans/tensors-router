@@ -272,6 +272,15 @@ func (service *Service) localClusterModels() ([]cluster.Model, error) {
 		return nil, err
 	}
 	records := service.withBenchmarks(cluster.LocalModelsWithBackendMode(models, service.nodeID, service.nodeURL, service.localSource(), service.backendMode))
+	if service.modelStateStore != nil {
+		disabled, err := service.modelStateStore.DisabledIDs(context.Background())
+		if err != nil {
+			return nil, err
+		}
+		for index := range records {
+			_, records[index].Disabled = disabled[records[index].LocalID]
+		}
+	}
 	if service.assetIndex == nil {
 		return records, nil
 	}
@@ -322,11 +331,11 @@ func (service *Service) refreshLocalRegistry() error {
 func (service *Service) remoteInventoryURLs() []string {
 	values := append([]string{}, service.slaveURLs...)
 	if service.registry != nil {
-		for _, model := range service.registry.Models() {
-			if model.NodeID == service.nodeID || strings.TrimSpace(model.NodeURL) == "" {
+		for nodeID, nodeURL := range service.registry.NodeURLsByID() {
+			if nodeID == service.nodeID || strings.TrimSpace(nodeURL) == "" {
 				continue
 			}
-			values = append(values, model.NodeURL)
+			values = append(values, nodeURL)
 		}
 	}
 	return uniqueSortedStrings(values)

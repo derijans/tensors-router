@@ -90,12 +90,19 @@ type Model struct {
 	UnresolvedFields int                             `json:"unresolved_fields,omitempty"`
 	AssetFailure     string                          `json:"asset_failure,omitempty"`
 	Benchmark        *routerbenchmark.ModelBenchmark `json:"benchmark,omitempty"`
+	Disabled         bool                            `json:"disabled,omitempty"`
 }
 
 type Snapshot struct {
 	NodeID  string  `json:"node_id"`
 	NodeURL string  `json:"node_url"`
 	Models  []Model `json:"models"`
+}
+
+type ModelStateRequest struct {
+	NodeID  string `json:"node_id"`
+	LocalID string `json:"local_id"`
+	Enabled bool   `json:"enabled"`
 }
 
 type Route struct {
@@ -162,7 +169,7 @@ func PublicCatalogModels(models []Model) []catalog.Model {
 	result := make([]catalog.Model, 0, len(models))
 	seen := map[string]struct{}{}
 	for _, model := range models {
-		if !model.HasLLM {
+		if model.Disabled || !model.HasLLM {
 			continue
 		}
 		if _, ok := seen[model.PublicID]; ok {

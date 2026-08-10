@@ -9,7 +9,15 @@ function tagNameForID(id: string): string | undefined {
 }
 
 describe("models dashboard DOM contract", () => {
-  it.each(["modelsNodeFilter", "filesNodeFilter"])("renders #%s as a select", id => {
+  it.each(["modelsNodeFilter", "filesNodeFilter", "modelEnabledFilter", "modelBackendFilter", "modelCapabilityFilter", "fileRoleFilter", "fileExtensionFilter", "fileHashFilter"])("renders #%s as a select", id => {
     expect(tagNameForID(id)).toBe("select");
+  });
+
+  it("renders independent full-width Models and Files subpanels without inline styles", () => {
+    expect(page).toContain('data-model-inventory-subtab="models"');
+    expect(page).toContain('data-model-inventory-subtab="files"');
+    expect(page).toContain('data-model-inventory-panel="models"');
+    expect(page).toContain('data-model-inventory-panel="files"');
+    expect(page).not.toMatch(/\sstyle=/i);
   });
 });

@@ -19,6 +19,10 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 	if !ok {
 		return false
 	}
+	if !service.recipeComponentEnabled(component) {
+		openai.WriteError(w, http.StatusNotFound, "not_found", fmt.Sprintf("recipe %q uses a disabled model", publicID))
+		return true
+	}
 	route := routeFromRecipeComponent(recipe, component, false, cluster.RouteLaneText)
 	profile := service.localChatTemplateProfile(component.ConfigFilename, component.NodeID != service.nodeID)
 	readiness := modelReadiness(r.URL.Path)
@@ -66,6 +70,10 @@ func (service *Service) handleRecipeImageRequest(w http.ResponseWriter, r *http.
 	recipe, component, ok := service.recipeImageComponent(publicImageID)
 	if !ok {
 		return false
+	}
+	if !service.recipeComponentEnabled(component) {
+		openai.WriteError(w, http.StatusNotFound, "not_found", fmt.Sprintf("recipe %q uses a disabled model", publicImageID))
+		return true
 	}
 	route := routeFromRecipeComponent(recipe, component, false, cluster.RouteLaneImage)
 	request := rewriteImageRequest(r, publicImageID, component.ImageID)
@@ -163,6 +171,9 @@ func (service *Service) loadRecipe(ctx context.Context, publicID string) (bool, 
 }
 
 func (service *Service) loadRecipeComponent(ctx context.Context, recipe recipes.Recipe, component recipes.Component, readiness backendReadiness) error {
+	if !service.recipeComponentEnabled(component) {
+		return fmt.Errorf("recipe %q uses disabled config %q", recipe.ID, component.ConfigFilename)
+	}
 	modelID := component.ModelID
 	if readiness == readinessImage {
 		modelID = component.ImageID
@@ -211,6 +222,10 @@ func (service *Service) handleRecipeAudioRequest(w http.ResponseWriter, r *http.
 	recipe, component, ok := service.recipeAudioComponent(publicID, lane)
 	if !ok {
 		return false
+	}
+	if !service.recipeComponentEnabled(component) {
+		openai.WriteError(w, http.StatusNotFound, "not_found", fmt.Sprintf("recipe %q uses a disabled model", publicID))
+		return true
 	}
 	route := routeFromRecipeComponent(recipe, component, false, audioClusterLane(lane))
 	requestBody := body
@@ -326,6 +341,21 @@ func (service *Service) recipeComponentModel(component recipes.Component) (catal
 		}
 	}
 	return catalog.Model{}, false, nil
+}
+
+func (service *Service) recipeComponentEnabled(component recipes.Component) bool {
+	if service.registry != nil {
+		return !service.registry.ConfigDisabled(component.NodeID, component.ConfigFilename)
+	}
+	if component.NodeID != "" && component.NodeID != service.nodeID {
+		return false
+	}
+	model, ok, err := service.recipeComponentModel(component)
+	if err != nil || !ok {
+		return false
+	}
+	enabled, err := service.localModelEnabled(context.Background(), model.ID)
+	return err == nil && enabled
 }
 
 func audioClusterLane(lane string) string {

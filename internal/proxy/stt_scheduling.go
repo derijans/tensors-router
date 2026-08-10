@@ -126,7 +126,7 @@ func (service *Service) sttSchedulingModels() []cluster.Model {
 	}
 	result := make([]cluster.Model, 0, len(models))
 	for _, model := range models {
-		if model.Available && model.Capabilities.Voice != nil && strings.TrimSpace(model.Capabilities.Voice.WhisperModel) != "" {
+		if !model.Disabled && model.Available && model.Capabilities.Voice != nil && strings.TrimSpace(model.Capabilities.Voice.WhisperModel) != "" {
 			result = append(result, model)
 		}
 	}

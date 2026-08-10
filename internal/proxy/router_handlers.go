@@ -24,6 +24,8 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/inventory":
 		service.handleSiteInventory(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/models/state":
+		service.handleSiteModelState(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/download/capabilities":
 		service.handleSiteDownloadCapabilities(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/download/search":
@@ -103,6 +105,10 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/models":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeModels(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/models/state":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeModelState(w, r)
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/resolve":
 		if service.requireClusterToken(w, r) {
@@ -507,6 +513,13 @@ func (service *Service) loadLocalModel(ctx context.Context, publicID string, loc
 	}
 	if !ok {
 		return fmt.Errorf("model %q was not found", publicID)
+	}
+	enabled, err := service.localModelEnabled(ctx, model.ID)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return fmt.Errorf("model %q is disabled", publicID)
 	}
 	modelBackendMode, err := service.catalogModelBackendMode(model)
 	if err != nil {

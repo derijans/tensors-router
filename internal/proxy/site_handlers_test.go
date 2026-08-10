@@ -16,6 +16,7 @@ import (
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/hardware"
+	"tensors-router/internal/inventory"
 	"tensors-router/internal/modelassets"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/recipes"
@@ -235,6 +236,28 @@ func TestSiteInventoryScansModelFilesOnlyWhenRequested(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "model file inventory scan completed") {
 		t.Fatalf("full inventory completion was not logged: %s", logs.String())
+	}
+}
+
+func TestSiteInventoryIncludesFilesFromRegisteredNodeWithoutModels(t *testing.T) {
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/router/v1/node/site/inventory" || r.URL.Query().Get("include_files") != "true" {
+			t.Fatalf("unexpected inventory request %s", r.URL.String())
+		}
+		openai.WriteJSON(w, http.StatusOK, siteapi.NodeInventory{
+			NodeID: "files-only", NodeURL: "", Source: cluster.SourceSlave, Role: cluster.RoleSlave, Available: true,
+			Models: []cluster.Model{}, Files: []inventory.FileRecord{{NodeID: "files-only", Path: "D:/models/orphan.gguf", Basename: "orphan.gguf"}},
+		})
+	}))
+	defer remote.Close()
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master.invalid")
+	if err := registry.UpdateNode(cluster.Snapshot{NodeID: "files-only", NodeURL: remote.URL, Models: []cluster.Model{}}); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(ServiceConfig{Catalog: catalog.New(t.TempDir()), Registry: registry, ClusterRole: cluster.RoleMaster, NodeID: "master", NodeURL: "http://master.invalid", ClusterToken: "secret", Logger: log.New(io.Discard, "", 0)})
+	response := requestSiteInventory(t, service, "/router/v1/site/inventory?include_files=true")
+	if len(response.Nodes) != 2 || response.Nodes[1].NodeID != "files-only" || len(response.Nodes[1].Files) != 1 {
+		t.Fatalf("registered file-only node was not scanned %#v", response.Nodes)
 	}
 }
 

@@ -91,6 +91,12 @@ type InventoryResponse struct {
 	ObservedOptions []cook.OptionDefinition `json:"observed_options"`
 }
 
+type ModelStateRequest struct {
+	NodeID  string `json:"node_id"`
+	LocalID string `json:"local_id"`
+	Enabled bool   `json:"enabled"`
+}
+
 type CookRequest struct {
 	ID         string           `json:"id"`
 	Overwrite  bool             `json:"overwrite"`

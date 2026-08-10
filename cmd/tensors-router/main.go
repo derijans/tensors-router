@@ -27,6 +27,7 @@ import (
 	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/mcp"
 	"tensors-router/internal/modelassets"
+	"tensors-router/internal/modelstate"
 	"tensors-router/internal/native"
 	"tensors-router/internal/proxy"
 	"tensors-router/internal/recipes"
@@ -143,6 +144,15 @@ func runServe(args []string) error {
 	if err != nil {
 		return err
 	}
+	modelStateStore, err := modelstate.NewStore(cfg.Cluster.StoreDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if routerService == nil {
+			_ = modelStateStore.Close()
+		}
+	}()
 	analyticsStore, err = newAnalyticsStore(cfg, serveLogger)
 	if err != nil {
 		return err
@@ -161,7 +171,15 @@ func runServe(args []string) error {
 	if cfg.Cluster.Role == routercluster.RoleMaster {
 		localSource = routercluster.SourceMaster
 	}
-	if err := registry.UpdateLocal(withModelBenchmarks(routercluster.LocalModelsWithBackendMode(localModels, cfg.Cluster.NodeID, cfg.Cluster.PublicURL, localSource, cfg.Backend.Mode), benchmarkStore)); err != nil {
+	localClusterModels := withModelBenchmarks(routercluster.LocalModelsWithBackendMode(localModels, cfg.Cluster.NodeID, cfg.Cluster.PublicURL, localSource, cfg.Backend.Mode), benchmarkStore)
+	disabledModelIDs, err := modelStateStore.DisabledIDs(ctx)
+	if err != nil {
+		return err
+	}
+	for index := range localClusterModels {
+		_, localClusterModels[index].Disabled = disabledModelIDs[localClusterModels[index].LocalID]
+	}
+	if err := registry.UpdateLocal(localClusterModels); err != nil {
 		return err
 	}
 	clusterProbeClient := routercluster.NewClientWithTimeout(cfg.Cluster.Token, cfg.Cluster.ControlTimeout, clusterProbeTargets(cfg)...)
@@ -228,6 +246,7 @@ func runServe(args []string) error {
 		ConcurrentAssetTransfers:  cfg.Models.ConcurrentAssetTransfers,
 		RecipeStore:               recipeStore,
 		BenchmarkStore:            benchmarkStore,
+		ModelStateStore:           modelStateStore,
 		AnalyticsStore:            analyticsStore,
 		LoadCaptureStore:          loadCaptureStore,
 		LoadCaptureMaxOutputBytes: cfg.Analytics.LoadCaptureMaxOutputMB * 1024 * 1024,

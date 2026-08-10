@@ -482,7 +482,7 @@ func clusterImageModelObjects(models []cluster.Model, activeConfigFilename strin
 }
 
 func clusterImageModelVisible(model cluster.Model, activeConfigFilename string) bool {
-	if !model.HasImage || model.PublicImageID == "" {
+	if model.Disabled || !model.HasImage || model.PublicImageID == "" {
 		return false
 	}
 	if !model.HasLLM {

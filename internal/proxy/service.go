@@ -31,6 +31,7 @@ import (
 	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/mcp"
 	"tensors-router/internal/modelassets"
+	"tensors-router/internal/modelstate"
 	"tensors-router/internal/ollama"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/recipes"
@@ -92,6 +93,7 @@ type ServiceConfig struct {
 	AssetIndex                *modelassets.Index
 	RecipeStore               *recipes.Store
 	BenchmarkStore            *routerbenchmark.Store
+	ModelStateStore           *modelstate.Store
 	AnalyticsStore            *routeranalytics.Store
 	LoadCaptureStore          *loadcapture.Store
 	LoadCaptureMaxOutputBytes int64
@@ -143,6 +145,9 @@ type Service struct {
 	assetTransferTimeout      time.Duration
 	recipeStore               *recipes.Store
 	benchmarkStore            *routerbenchmark.Store
+	modelStateStore           *modelstate.Store
+	modelStateMu              sync.Mutex
+	pendingModelUnloads       map[string]context.CancelFunc
 	analyticsStore            *routeranalytics.Store
 	loadCaptureStore          *loadcapture.Store
 	loadCaptureMaxOutputBytes int64
@@ -333,6 +338,8 @@ func NewService(config ServiceConfig) *Service {
 		assetTransferTimeout:      modelOperationTimeout,
 		recipeStore:               config.RecipeStore,
 		benchmarkStore:            config.BenchmarkStore,
+		modelStateStore:           config.ModelStateStore,
+		pendingModelUnloads:       map[string]context.CancelFunc{},
 		analyticsStore:            config.AnalyticsStore,
 		loadCaptureStore:          config.LoadCaptureStore,
 		loadCaptureMaxOutputBytes: config.LoadCaptureMaxOutputBytes,
@@ -460,6 +467,13 @@ func (service *Service) PreloadModel(ctx context.Context, modelID string) error 
 	if !ok {
 		return fmt.Errorf("startup model %q was not found", modelID)
 	}
+	enabled, err := service.localModelEnabled(ctx, model.ID)
+	if err != nil {
+		return err
+	}
+	if !enabled {
+		return fmt.Errorf("startup model %q is disabled", modelID)
+	}
 	if !modelSupportsTextLane(model) {
 		return fmt.Errorf("startup model %q is not a text-lane model", modelID)
 	}
@@ -585,10 +599,20 @@ func (service *Service) Draining() bool {
 }
 
 func (service *Service) Close(ctx context.Context) error {
-	if service.vramSampler == nil {
-		return nil
+	service.modelStateMu.Lock()
+	for _, cancel := range service.pendingModelUnloads {
+		cancel()
 	}
-	return service.vramSampler.Close(ctx)
+	service.pendingModelUnloads = map[string]context.CancelFunc{}
+	service.modelStateMu.Unlock()
+	var err error
+	if service.vramSampler != nil {
+		err = service.vramSampler.Close(ctx)
+	}
+	if service.modelStateStore != nil {
+		err = errors.Join(err, service.modelStateStore.Close())
+	}
+	return err
 }
 
 func (service *Service) handleModels(w http.ResponseWriter, r *http.Request) {
@@ -619,12 +643,9 @@ func (service *Service) visibleCatalogModels(ctx context.Context, models []catal
 }
 
 func (service *Service) visibleClusterModels(ctx context.Context, models []cluster.Model) []cluster.Model {
-	if auth.PrincipalFromContext(ctx).Admin || service.mcpReconciler == nil || !service.mcpReconciler.Enabled() {
-		return models
-	}
 	visible := make([]cluster.Model, 0, len(models))
 	for _, model := range models {
-		if !model.MCPEnabled {
+		if !model.Disabled && (auth.PrincipalFromContext(ctx).Admin || service.mcpReconciler == nil || !service.mcpReconciler.Enabled() || !model.MCPEnabled) {
 			visible = append(visible, model)
 		}
 	}

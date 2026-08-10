@@ -1,8 +1,7 @@
 export function defaultNodeSelection(localNodeID: string, nodeIDs: string[]): string[] {
-  if (localNodeID && nodeIDs.includes(localNodeID)) {
-    return [localNodeID];
-  }
-  return nodeIDs.length > 0 ? [nodeIDs[0]!] : ["*"];
+  void localNodeID;
+  void nodeIDs;
+  return ["*"];
 }
 
 export function retainedNodeSelection(selected: string[], localNodeID: string, nodeIDs: string[]): string[] {

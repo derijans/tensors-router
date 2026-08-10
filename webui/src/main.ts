@@ -8,7 +8,8 @@ import {
   login,
   logout,
   restartRouter,
-  shutdownRouter
+  shutdownRouter,
+  updateModelState
 } from "./api";
 import {
   loadSelectedBenchmark,
@@ -116,12 +117,12 @@ import {
   renderRecipes,
   renderRouterStatus,
   renderTables,
-  updateConfigNodeFilter,
-  updateFileNodeFilter,
   showApp,
   showLogin
 } from "./render-dashboard";
+import { activateModelInventorySubtab, updateConfigNodeFilter, updateFileNodeFilter } from "./model-inventory";
 import type { CookMode, PaletteName } from "./types";
+import { persistModelEnabled } from "./model-state-action";
 
 async function bootstrap(): Promise<void> {
   await bootstrapApplication({
@@ -323,7 +324,44 @@ elements.downloadJobs.addEventListener("click", event => {
     runTask(() => changeDownloadJob(jobID, action), `download-${action}-${jobID}`, "download", `${action} download…`);
   }
 });
-elements.filterInput.addEventListener("input", renderTables);
+elements.modelInventorySubtabs.addEventListener("click", event => {
+  const subtab = elementTarget(event)?.dataset.modelInventorySubtab;
+  if (subtab === "models" || subtab === "files") {
+    activateModelInventorySubtab(subtab);
+  }
+});
+elements.modelSearchInput.addEventListener("input", () => {
+  state.models.modelSearch = elements.modelSearchInput.value;
+  renderTables();
+});
+elements.modelEnabledFilter.addEventListener("change", () => {
+  state.models.enabledFilter = elements.modelEnabledFilter.value;
+  renderTables();
+});
+elements.modelBackendFilter.addEventListener("change", () => {
+  state.models.backendFilter = elements.modelBackendFilter.value;
+  renderTables();
+});
+elements.modelCapabilityFilter.addEventListener("change", () => {
+  state.models.capabilityFilter = elements.modelCapabilityFilter.value;
+  renderTables();
+});
+elements.fileSearchInput.addEventListener("input", () => {
+  state.models.fileSearch = elements.fileSearchInput.value;
+  renderTables();
+});
+elements.fileRoleFilter.addEventListener("change", () => {
+  state.models.fileRoleFilter = elements.fileRoleFilter.value;
+  renderTables();
+});
+elements.fileExtensionFilter.addEventListener("change", () => {
+  state.models.fileExtensionFilter = elements.fileExtensionFilter.value;
+  renderTables();
+});
+elements.fileHashFilter.addEventListener("change", () => {
+  state.models.fileHashFilter = elements.fileHashFilter.value;
+  renderTables();
+});
 elements.modelsNodeFilter.addEventListener("change", () => updateConfigNodeFilter([...elements.modelsNodeFilter.selectedOptions].map(option => option.value)));
 elements.filesNodeFilter.addEventListener("change", () => updateFileNodeFilter([...elements.filesNodeFilter.selectedOptions].map(option => option.value)));
 elements.resolveFilteredModelsButton.addEventListener("click", () => runTask(() => resolveFilteredModels(refreshInventory), "resolve-filtered-models", "models", "Resolving visible configs…"));
@@ -338,6 +376,26 @@ elements.modelsTable.addEventListener("click", event => {
   if (modelID) {
     runTask(() => loadSelectedConfig(modelID, refreshInventory), `model-load-${modelID}`, "webui", "Loading model…");
   }
+});
+elements.modelsTable.addEventListener("change", event => {
+  const target = elementTarget(event);
+  if (!(target instanceof HTMLInputElement)) {
+    return;
+  }
+  const nodeID = target.dataset.modelEnabledNode;
+  const localID = target.dataset.modelEnabledId;
+  if (!nodeID || !localID) {
+    return;
+  }
+  const enabled = target.checked;
+  runTask(async () => {
+    await persistModelEnabled(
+      {node_id: nodeID, local_id: localID, enabled},
+      updateModelState,
+      () => refreshInventory(true),
+      () => { target.checked = !enabled; }
+    );
+  }, `model-state-${nodeID}-${localID}`, `model-state-${nodeID}-${localID}`, `${enabled ? "Enabling" : "Disabling"} ${localID}…`);
 });
 elements.filesTable.addEventListener("click", event => {
   const target = elementTarget(event);

@@ -16,6 +16,63 @@ func TestRegistryRetainsNodeURLWithoutModels(t *testing.T) {
 	}
 }
 
+func TestRegistryExcludesDisabledReplicasAndUsesEnabledFallback(t *testing.T) {
+	registry := NewRegistry(RoleMaster, "master", "http://master")
+	local := testModel("shared", "master", "hash", "config", SourceMaster)
+	local.HasEmbeddings = true
+	local.HasImage = true
+	local.ImageID = "shared-image"
+	local.PublicImageID = "shared-image"
+	local.HasVoice = true
+	local.HasMusic = true
+	local.BackendMode = BackendModeLlamaSDCPP
+	local.Disabled = true
+	if err := registry.UpdateLocal([]Model{local}); err != nil {
+		t.Fatal(err)
+	}
+	remote := testModel("shared", "slave-a", "hash", "config", SourceSlave)
+	remote.HasEmbeddings = true
+	remote.HasImage = true
+	remote.ImageID = "shared-image"
+	remote.PublicImageID = "shared-image"
+	remote.HasVoice = true
+	remote.HasMusic = true
+	remote.BackendMode = BackendModeLlamaSDCPP
+	if err := registry.UpdateNode(Snapshot{NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{remote}}); err != nil {
+		t.Fatal(err)
+	}
+	route, release, ok := registry.Acquire("shared", true)
+	if !ok || route.NodeID != "slave-a" || !route.Remote {
+		t.Fatalf("expected enabled remote fallback, route=%#v ok=%t", route, ok)
+	}
+	release()
+	if models := PublicCatalogModels(registry.Models()); len(models) != 1 || models[0].ID != "shared" {
+		t.Fatalf("enabled replica missing from public catalog %#v", models)
+	}
+	remote.Disabled = true
+	if err := registry.UpdateNode(Snapshot{NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{remote}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := registry.Acquire("shared", true); ok {
+		t.Fatal("disabled replicas remained routable")
+	}
+	if _, _, ok := registry.AcquireEmbedding("shared", true); ok {
+		t.Fatal("disabled embedding replicas remained routable")
+	}
+	if _, _, ok := registry.AcquireImage("shared-image", true, "*"); ok {
+		t.Fatal("disabled image replicas remained routable")
+	}
+	if _, _, ok := registry.AcquireVoice("shared", true); ok {
+		t.Fatal("disabled voice replicas remained routable")
+	}
+	if _, _, ok := registry.AcquireMusic("shared", true); ok {
+		t.Fatal("disabled music replicas remained routable")
+	}
+	if models := PublicCatalogModels(registry.Models()); len(models) != 0 {
+		t.Fatalf("disabled replicas remained public %#v", models)
+	}
+}
+
 func TestRegistryDedupeAndIndexesConflictingSlaveModel(t *testing.T) {
 	registry := NewRegistry(RoleMaster, "master", "http://master")
 	if err := registry.UpdateLocal([]Model{testModel("same", "master", "mhash", "chash", SourceMaster)}); err != nil {

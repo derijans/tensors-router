@@ -109,6 +109,12 @@ func (client *Client) Unload(ctx context.Context, nodeURL string, modelID string
 	return client.JSON(ctx, http.MethodPost, nodeURL, "/router/v1/node/unload", body, nil)
 }
 
+func (client *Client) SetModelEnabled(ctx context.Context, nodeURL string, request ModelStateRequest) (Snapshot, error) {
+	var snapshot Snapshot
+	err := client.JSON(ctx, http.MethodPost, nodeURL, "/router/v1/node/models/state", request, &snapshot)
+	return snapshot, err
+}
+
 func (client *Client) JSON(ctx context.Context, method string, baseURL string, path string, requestBody any, responseBody any) error {
 	target, err := client.joinedAllowedURL(baseURL, path)
 	if err != nil {
