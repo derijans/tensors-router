@@ -34,6 +34,15 @@ export const state: AppState = {
   csrf: "",
   inventory: null,
   router: null,
+  nodes: {
+    selectedNodeID: "",
+    snapshot: null,
+    loading: false,
+    error: "",
+    pollGeneration: 0,
+    pollTimer: null,
+    pendingUnload: ""
+  },
   models: {
     activeSubtab: "models",
     configNodeIDs: [],

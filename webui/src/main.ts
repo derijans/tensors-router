@@ -123,6 +123,7 @@ import {
 import { activateModelInventorySubtab, updateConfigNodeFilter, updateFileNodeFilter } from "./model-inventory";
 import type { CookMode, PaletteName } from "./types";
 import { persistModelEnabled } from "./model-state-action";
+import { handleNodesClick, setNodesTabActive, stopNodeStatePolling } from "./nodes-state";
 
 async function bootstrap(): Promise<void> {
   await bootstrapApplication({
@@ -164,6 +165,7 @@ function activateTab(name: string): void {
   state.activeTab = name;
   queryElements("[data-tab]", HTMLButtonElement).forEach(tab => tab.classList.toggle("active", tab.dataset.tab === name));
   queryElements("[data-panel]", HTMLElement).forEach(panel => panel.classList.toggle("active", panel.dataset.panel === name));
+  setNodesTabActive(name === "nodes");
 }
 
 function activateCookMode(name: string | undefined): void {
@@ -223,6 +225,7 @@ elements.logoutButton.addEventListener("click", () => runTask(async () => {
 }, "logout", "session", "Logging out…"));
 
 elements.refreshButton.addEventListener("click", () => runTask(refreshAll, "refresh-all", "refresh", "Refreshing data…"));
+elements.nodesGrid.addEventListener("click", handleNodesClick);
 elements.webuiFilterInput.addEventListener("input", () => updateWebUIFilter(elements.webuiFilterInput.value));
 elements.webuiGrid.addEventListener("click", event => {
   const target = elementTarget(event);
@@ -694,6 +697,7 @@ async function submitLogin(): Promise<void> {
 
 async function handleLogout(): Promise<void> {
   await logout();
+  stopNodeStatePolling();
   state.csrf = "";
   markSimpleCookClean();
   markConstructorClean();

@@ -108,6 +108,7 @@ type ServiceConfig struct {
 	TransportLimits           transportbody.Limits
 	MaxControlBodyBytes       int64
 	ConcurrentAssetTransfers  int
+	BackendBinaryPaths        map[string]string
 }
 
 type Service struct {
@@ -169,6 +170,8 @@ type Service struct {
 	draining                  atomic.Bool
 	autoSTTMu                 sync.Mutex
 	autoSTTNext               uint64
+	backendBinaryPaths        map[string]string
+	nextRuntimeLease          atomic.Uint64
 
 	backendRetryAttempts int
 	backendRetryDelay    time.Duration
@@ -355,6 +358,7 @@ func NewService(config ServiceConfig) *Service {
 		sdcppJobs:                 newSdcppJobStore(),
 		transportLimits:           config.TransportLimits.Normalized(),
 		maxControlBodyBytes:       maxControlBodyBytes,
+		backendBinaryPaths:        copyStringMap(config.BackendBinaryPaths),
 		client: &http.Client{
 			Timeout: 0,
 		},

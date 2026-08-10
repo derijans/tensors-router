@@ -1,4 +1,4 @@
-import type { AnalyticsQuery, AnalyticsResponse, LoadCaptureAttempt, LoadCaptureDetailResponse, LoadCaptureListResponse, LoadCaptureOutputChunk, LoadCaptureQuery, BenchmarkRecord, BenchmarkSection, BenchmarkType, CookComponent, DownloadCapabilitiesResponse, DownloadLibraryResponse, DownloadPlan, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, RouterProcessStatus, WebUICatalogResponse } from "./api";
+import type { AnalyticsQuery, AnalyticsResponse, LoadCaptureAttempt, LoadCaptureDetailResponse, LoadCaptureListResponse, LoadCaptureOutputChunk, LoadCaptureQuery, BenchmarkRecord, BenchmarkSection, BenchmarkType, CookComponent, DownloadCapabilitiesResponse, DownloadLibraryResponse, DownloadPlan, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, NodeState, RouterProcessStatus, WebUICatalogResponse } from "./api";
 import type { JsonValue, Options } from "./json";
 
 export type CookMode = "quick" | "constructor";
@@ -104,6 +104,15 @@ export interface AppState {
   csrf: string;
   inventory: InventoryResponse | null;
   router: RouterProcessStatus | null;
+  nodes: {
+    selectedNodeID: string;
+    snapshot: NodeState | null;
+    loading: boolean;
+    error: string;
+    pollGeneration: number;
+    pollTimer: number | null;
+    pendingUnload: string;
+  };
   models: {
     activeSubtab: ModelInventorySubtab;
     configNodeIDs: string[];

@@ -159,6 +159,10 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		server.handleRouterAction(w, r, "kill")
 	case r.URL.Path == "/api/inventory" && r.Method == http.MethodGet:
 		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/inventory")
+	case r.URL.Path == "/api/nodes/state" && r.Method == http.MethodGet:
+		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/nodes/state")
+	case r.URL.Path == "/api/nodes/unload" && r.Method == http.MethodPost:
+		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/nodes/unload")
 	case r.URL.Path == "/api/models/state" && r.Method == http.MethodPost:
 		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/models/state")
 	case r.URL.Path == "/api/download/capabilities" && r.Method == http.MethodGet:

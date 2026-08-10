@@ -5,8 +5,8 @@ import { renderConstructor } from "./constructor";
 import { renderBenchmarks } from "./benchmarks";
 import { renderSimpleCook } from "./simple-cook";
 import { renderModelInventory } from "./model-inventory";
+import { renderNodesPanel } from "./nodes-state";
 import {
-  chip,
   escapeAttribute,
   escapeHTML,
   statusItem
@@ -23,7 +23,7 @@ export function showApp(): void {
 }
 
 export function renderInventory(): void {
-  renderNodes();
+  renderNodesPanel();
   renderTables();
   renderBenchmarks();
   renderAnalytics();
@@ -66,25 +66,4 @@ export function renderRecipes(): void {
       <button type="button" data-delete-recipe="${escapeAttribute(recipe.id)}">Delete</button>
     </article>
   `).join("");
-}
-
-function renderNodes(): void {
-  const nodes = state.inventory?.nodes ?? [];
-  elements.nodeCount.textContent = `${nodes.length} nodes`;
-  elements.nodesGrid.innerHTML = nodes.map(node => {
-    const hardware = node.hardware;
-    return `
-      <article class="node-card">
-        <strong>${escapeHTML(node.node_id || node.node_url || "unknown")}</strong>
-        <div class="muted">${escapeHTML(node.node_url || "local")}</div>
-        <div class="node-meta">
-          ${chip(node.backend_mode || "unknown", "cyan")}
-          ${chip(node.available ? "available" : "down", node.available ? "lime" : "amber")}
-          ${chip(`${hardware.max_threads || "?"} threads`, "magenta")}
-          ${chip(`${hardware.gpu_backend || "unknown"} gpu`, "cyan")}
-        </div>
-        ${node.error ? `<div class="error-text">${escapeHTML(node.error)}</div>` : ""}
-      </article>
-    `;
-  }).join("");
 }

@@ -80,6 +80,33 @@ type NodeInventory struct {
 	Error       string                 `json:"error,omitempty"`
 }
 
+type NodeState struct {
+	NodeID         string             `json:"node_id"`
+	Backends       []NodeStateBackend `json:"backends"`
+	ActiveRequests []string           `json:"active_requests"`
+}
+
+type NodeStateBackend struct {
+	ID           string              `json:"id"`
+	DisplayName  string              `json:"display_name"`
+	Mode         string              `json:"mode"`
+	LoadedModels []NodeStateModelRow `json:"loaded_models"`
+}
+
+type NodeStateModelRow struct {
+	ModelID    string `json:"model_id"`
+	Lane       string `json:"lane"`
+	RuntimeID  string `json:"runtime_id"`
+	Generation uint64 `json:"generation"`
+}
+
+type NodeUnloadRequest struct {
+	NodeID             string `json:"node_id"`
+	BackendID          string `json:"backend_id"`
+	RuntimeID          string `json:"runtime_id"`
+	ExpectedGeneration uint64 `json:"expected_generation"`
+}
+
 type InventoryResponse struct {
 	Role            string                  `json:"role"`
 	NodeID          string                  `json:"node_id"`

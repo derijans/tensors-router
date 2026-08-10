@@ -13,6 +13,8 @@ import type {
   ErrorResponse,
   InventoryResponse,
   ModelStateRequest,
+  NodeState,
+  NodeUnloadRequest,
   LoadConfigRequest,
   RouterProcessStatus,
   SessionResponse,
@@ -84,6 +86,15 @@ export function forceKillRouter(): Promise<RouterProcessStatus> {
 export function getInventory(includeFiles = false): Promise<InventoryResponse> {
   const suffix = includeFiles ? "?include_files=true" : "";
   return api<InventoryResponse>(`/api/inventory${suffix}`);
+}
+
+export function getNodeState(nodeID: string, signal?: AbortSignal): Promise<NodeState> {
+  const path = `/api/nodes/state?${new URLSearchParams({node_id: nodeID})}`;
+  return api<NodeState>(path, signal ? {signal} : undefined);
+}
+
+export function unloadNodeRuntime(request: NodeUnloadRequest): Promise<{ok: boolean}> {
+  return api<{ok: boolean}>("/api/nodes/unload", {method: "POST", body: JSON.stringify(request)});
 }
 
 export function updateModelState(request: ModelStateRequest): Promise<unknown> {

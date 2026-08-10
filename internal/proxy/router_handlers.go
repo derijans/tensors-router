@@ -24,6 +24,10 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	switch {
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/inventory":
 		service.handleSiteInventory(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/nodes/state":
+		service.handleSiteNodeState(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/nodes/unload":
+		service.handleSiteNodeUnload(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/models/state":
 		service.handleSiteModelState(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/download/capabilities":
@@ -109,6 +113,14 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/models/state":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeModelState(w, r)
+		}
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/state":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeState(w)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/state/unload":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeStateUnload(w, r)
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/resolve":
 		if service.requireClusterToken(w, r) {

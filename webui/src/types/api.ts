@@ -343,6 +343,33 @@ export interface NodeInventory {
   error?: string;
 }
 
+export interface NodeStateModelRow {
+  model_id: string;
+  lane: string;
+  runtime_id: string;
+  generation: number;
+}
+
+export interface NodeStateBackend {
+  id: string;
+  display_name: string;
+  mode: string;
+  loaded_models: NodeStateModelRow[];
+}
+
+export interface NodeState {
+  node_id: string;
+  backends: NodeStateBackend[];
+  active_requests: string[];
+}
+
+export interface NodeUnloadRequest {
+  node_id: string;
+  backend_id: string;
+  runtime_id: string;
+  expected_generation: number;
+}
+
 export interface RecipeComponent {
   kind: LaneKind;
   node_id: string;

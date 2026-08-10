@@ -33,10 +33,13 @@ type activeConfigState struct {
 	vramBaselineMB      int64
 	vramTotalMB         int64
 	vramBaselineValid   bool
+	modelID             string
+	generation          uint64
+	leases              map[uint64]string
 }
 
 func newActiveConfigState() *activeConfigState {
-	return &activeConfigState{changed: make(chan struct{})}
+	return &activeConfigState{changed: make(chan struct{}), leases: map[uint64]string{}}
 }
 
 func (service *Service) acquireModelConfigForBackendMode(mode string, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (*backendRuntime, func(), bool, error) {
@@ -183,10 +186,17 @@ func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.
 				notifyActiveConfigLocked(state)
 			}
 			logicalConfigChanged := state.filename != configFilename
+			logicalModelChanged := state.modelID != modelID
 			state.filename = configFilename
+			state.modelID = modelID
+			if logicalConfigChanged || logicalModelChanged {
+				state.generation++
+			}
 			state.users++
+			leaseTag := service.nextRuntimeLease.Add(1)
+			state.leases[leaseTag] = modelID
 			physicalAttemptID := state.physicalAttemptID
-			release := releaseActiveConfigOnce(state)
+			release := releaseActiveConfigLeaseOnce(state, leaseTag)
 			state.mu.Unlock()
 			service.recordLoadReuse(physicalAttemptID)
 			if logicalConfigChanged {
@@ -226,6 +236,7 @@ func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.
 			state.mu.Lock()
 			state.switching = false
 			state.filename = ""
+			state.modelID = ""
 			state.physicalAttemptID = ""
 			clearPhysicalLoadProfileLocked(state)
 			clearVRAMLoadStateLocked(state)
@@ -246,6 +257,7 @@ func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.
 		state.switching = false
 		if err != nil {
 			state.filename = ""
+			state.modelID = ""
 			state.physicalAttemptID = ""
 			clearPhysicalLoadProfileLocked(state)
 			clearVRAMLoadStateLocked(state)
@@ -255,6 +267,8 @@ func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.
 			return nil, false, err
 		}
 		state.filename = configFilename
+		state.modelID = modelID
+		state.generation++
 		if capture != nil {
 			state.physicalAttemptID = capture.attempt.ID
 		} else {
@@ -263,7 +277,9 @@ func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.
 		applyPhysicalLoadProfileLocked(state, profile)
 		applyVRAMLoadStateLocked(state, vramLoad)
 		state.users++
-		release := releaseActiveConfigOnce(state)
+		leaseTag := service.nextRuntimeLease.Add(1)
+		state.leases[leaseTag] = modelID
+		release := releaseActiveConfigLeaseOnce(state, leaseTag)
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
 		service.recordVRAMLoad(modelID, configFilename, readiness, runtime.mode, vramLoad)
@@ -317,6 +333,8 @@ func (service *Service) unloadRuntime(ctx context.Context, runtime *backendRunti
 			continue
 		}
 
+		state.modelID = ""
+		state.generation++
 		state.switchWaiters--
 		state.switching = true
 		state.filename = ""
@@ -366,6 +384,8 @@ func lockRuntimeForBackendStop(ctx context.Context, runtime *backendRuntime) (fu
 			continue
 		}
 
+		state.modelID = ""
+		state.generation++
 		state.switchWaiters--
 		state.switching = true
 		state.filename = ""
@@ -393,10 +413,17 @@ func cancelConfigSwitchWaiter(state *activeConfigState) {
 }
 
 func releaseActiveConfigOnce(state *activeConfigState) func() {
+	return releaseActiveConfigLeaseOnce(state, 0)
+}
+
+func releaseActiveConfigLeaseOnce(state *activeConfigState, leaseTag uint64) func() {
 	var once sync.Once
 	return func() {
 		once.Do(func() {
 			state.mu.Lock()
+			if leaseTag != 0 {
+				delete(state.leases, leaseTag)
+			}
 			if state.users > 0 {
 				state.users--
 				if state.users == 0 {
