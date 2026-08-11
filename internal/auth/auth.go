@@ -157,6 +157,9 @@ func (policy *Policy) allowedRemote(remoteAddr string) bool {
 }
 
 func classifyRoute(path string) routeClass {
+	if path == "/router/mcp" {
+		return routeAdmin
+	}
 	if strings.HasPrefix(path, "/router/v1/node/") {
 		return routeCluster
 	}

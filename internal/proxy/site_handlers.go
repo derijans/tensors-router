@@ -271,7 +271,10 @@ func (service *Service) localClusterModels() ([]cluster.Model, error) {
 	if err != nil {
 		return nil, err
 	}
-	records := service.withBenchmarks(cluster.LocalModelsWithBackendMode(models, service.nodeID, service.nodeURL, service.localSource(), service.backendMode))
+	records := cluster.WithMCPAvailability(
+		service.withBenchmarks(cluster.LocalModelsWithBackendMode(models, service.nodeID, service.nodeURL, service.localSource(), service.backendMode)),
+		service.mcpGateway != nil,
+	)
 	if service.modelStateStore != nil {
 		disabled, err := service.modelStateStore.DisabledIDs(context.Background())
 		if err != nil {

@@ -354,6 +354,7 @@ func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error
 		}
 		manager.mu.Unlock()
 	}
+	configFilename := runtimeFilename
 	baseConfig := ""
 	if manager.config.MCP != nil {
 		result, err := manager.config.MCP.Reconcile(filename, mcp.BackendKobold)
@@ -361,11 +362,12 @@ func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error
 			return err
 		}
 		if result.Enabled {
-			baseConfig = filepath.ToSlash(filepath.Join(".router-mcp", filename))
+			configFilename = filepath.Join(".router-mcp", filename)
+			baseConfig = runtimeFilename
 		}
 	}
 	body, err := json.Marshal(map[string]string{
-		"filename":       runtimeFilename,
+		"filename":       configFilename,
 		"baseconfig":     baseConfig,
 		"overrideconfig": "",
 	})

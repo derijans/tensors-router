@@ -112,7 +112,6 @@ func (manager *Manager) URL() *url.URL {
 }
 
 func (manager *Manager) LaunchArguments(filename string) ([]string, error) {
-	filename = strings.TrimSpace(filename)
 	if filename != filepath.Base(filename) {
 		return nil, fmt.Errorf("config filename %q is invalid", filename)
 	}
@@ -372,7 +371,9 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 		"--model", modelPath,
 		"--alias", modelID,
 	}
-	appendStringArg(&args, "--mcp-servers-config", mcpServersPath)
+	if mcpServersPath != "" {
+		args = append(args, "--mcp-servers-config", mcpServersPath)
+	}
 	appendIntArg(&args, "--ctx-size", metadata.ContextSize)
 	appendIntArg(&args, "--threads", metadata.Threads)
 	appendIntArg(&args, "--threads-batch", metadata.BLASThreads)

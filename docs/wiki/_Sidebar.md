@@ -19,6 +19,7 @@
 ## Reference
 
 - [Backends](Backends)
+- [MCP](MCP)
 - [Whisper.cpp](Whisper.cpp)
 - [Model Configs and Routing](Model-Configs-and-Routing)
 - [KCPPS Sharing](KCPPS-Sharing)

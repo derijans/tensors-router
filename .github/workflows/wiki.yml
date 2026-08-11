@@ -38,6 +38,7 @@ jobs:
             Backends.md
             Backend-Release-Baselines.md
             Model-Configs-and-Routing.md
+            MCP.md
             API-Reference.md
             WebUI.md
             Backend-WebUI-Interfaces.md

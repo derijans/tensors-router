@@ -38,6 +38,9 @@ func controlRequestHasBody(r *http.Request) bool {
 	if r == nil || r.Body == nil {
 		return false
 	}
+	if r.URL.Path == "/router/mcp" {
+		return true
+	}
 	if !strings.HasPrefix(r.URL.Path, "/router/v1/") && !inferenceControlPath(r.URL.Path) {
 		return false
 	}

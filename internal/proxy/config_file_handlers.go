@@ -241,16 +241,16 @@ func (service *Service) deleteLocalConfigFile(request siteapi.ConfigFileRequest)
 	if err != nil {
 		return siteapi.ConfigFileResponse{}, err
 	}
+	if service.mcpReconciler != nil {
+		if err := service.mcpReconciler.Remove(filename); err != nil {
+			return siteapi.ConfigFileResponse{}, err
+		}
+	}
 	if err := os.Remove(target); err != nil {
 		if os.IsNotExist(err) {
 			return siteapi.ConfigFileResponse{}, fmt.Errorf("config %q was not found", filename)
 		}
 		return siteapi.ConfigFileResponse{}, err
-	}
-	if service.mcpReconciler != nil {
-		if err := service.mcpReconciler.Remove(filename); err != nil {
-			return siteapi.ConfigFileResponse{}, err
-		}
 	}
 	return siteapi.ConfigFileResponse{
 		NodeID:   service.nodeID,

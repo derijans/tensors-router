@@ -165,6 +165,19 @@ func LocalModelsWithBackendMode(models []catalog.Model, nodeID string, nodeURL s
 	return records
 }
 
+func WithMCPAvailability(models []Model, available bool) []Model {
+	if available {
+		return models
+	}
+	result := make([]Model, len(models))
+	copy(result, models)
+	for index := range result {
+		result[index].MCPEnabled = false
+		result[index].Capabilities.MCP = false
+	}
+	return result
+}
+
 func PublicCatalogModels(models []Model) []catalog.Model {
 	result := make([]catalog.Model, 0, len(models))
 	seen := map[string]struct{}{}

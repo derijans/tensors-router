@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -52,7 +53,7 @@ func NewReconciler(config Config) (*Reconciler, error) {
 	if err != nil {
 		return nil, err
 	}
-	directory := strings.TrimSpace(config.Directory)
+	directory := config.Directory
 	if directory == "" {
 		directory = "./mcp"
 	}
@@ -100,11 +101,11 @@ func (reconciler *Reconciler) Remove(filename string) error {
 	if err != nil {
 		return err
 	}
-	return reconciler.removeArtifacts(stem)
+	return reconciler.removeArtifacts(stem, filename)
 }
 
 func Validate(content []byte, fallbackBackend string) error {
-	_, _, err := decodeServers(content, fallbackBackend)
+	_, _, _, err := decodeServers(content, fallbackBackend)
 	return err
 }
 
@@ -114,20 +115,24 @@ func (reconciler *Reconciler) reconcileLocked(filename string, backend string) (
 		return Result{}, err
 	}
 	if !reconciler.enabled {
-		return Result{}, reconciler.removeArtifacts(stem)
+		return Result{}, reconciler.removeArtifacts(stem, filename)
 	}
 	content, err := os.ReadFile(target)
 	if err != nil {
 		return Result{}, err
 	}
-	servers, enabled, err := decodeServers(content, backend)
+	servers, enabled, effectiveBackend, err := decodeServers(content, backend)
 	if err != nil {
 		return Result{}, err
 	}
 	if !enabled {
-		return Result{}, reconciler.removeArtifacts(stem)
+		return Result{}, reconciler.removeArtifacts(stem, filename)
 	}
-	serversPath := filepath.Join(reconciler.directory, stem, "servers.json")
+	artifactDirectory, err := validatedArtifactDirectory(reconciler.directory, stem)
+	if err != nil {
+		return Result{}, err
+	}
+	serversPath := filepath.Join(artifactDirectory, "servers.json")
 	generated, err := generatedServers(servers)
 	if err != nil {
 		return Result{}, err
@@ -139,7 +144,7 @@ func (reconciler *Reconciler) reconcileLocked(filename string, backend string) (
 		return Result{}, err
 	}
 	result := Result{Enabled: true, ServersPath: serversPath}
-	if backend == BackendKobold {
+	if effectiveBackend == BackendKobold {
 		overlayPath := filepath.Join(reconciler.configDir, ".router-mcp", filename)
 		overlay, err := json.Marshal(map[string]string{"mcpfile": serversPath})
 		if err != nil {
@@ -152,31 +157,33 @@ func (reconciler *Reconciler) reconcileLocked(filename string, backend string) (
 			return Result{}, err
 		}
 		result.OverlayPath = overlayPath
+	} else {
+		if err := removeValidatedFile(filepath.Join(reconciler.configDir, ".router-mcp"), filename); err != nil {
+			return Result{}, err
+		}
 	}
 	return result, nil
 }
 
-func (reconciler *Reconciler) removeArtifacts(stem string) error {
+func (reconciler *Reconciler) removeArtifacts(stem string, filename string) error {
 	if err := removeValidatedDirectory(reconciler.directory, stem); err != nil {
 		return err
 	}
-	return removeValidatedFile(filepath.Join(reconciler.configDir, ".router-mcp"), stem+".kcpps")
+	return removeValidatedFile(filepath.Join(reconciler.configDir, ".router-mcp"), filename)
 }
 
 func (reconciler *Reconciler) configTarget(filename string) (string, string, error) {
-	filename = strings.TrimSpace(filename)
 	if filename == "" || filename != filepath.Base(filename) || !filepath.IsLocal(filename) || !strings.EqualFold(filepath.Ext(filename), ".kcpps") {
 		return "", "", fmt.Errorf("config filename is invalid")
 	}
 	stem := strings.TrimSuffix(filename, filepath.Ext(filename))
-	if stem == "" {
+	if stem == "" || stem == "." || stem == ".." || stem != filepath.Base(stem) || !filepath.IsLocal(stem) {
 		return "", "", fmt.Errorf("config filename is invalid")
 	}
 	return filepath.Join(reconciler.configDir, filename), stem, nil
 }
 
 func absoluteDirectory(value string) (string, error) {
-	value = strings.TrimSpace(value)
 	if value == "" {
 		return "", fmt.Errorf("directory is required")
 	}
@@ -188,19 +195,26 @@ func absoluteDirectory(value string) (string, error) {
 }
 
 func ensurePrivateDirectory(path string) error {
-	if err := os.MkdirAll(path, 0o700); err != nil {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			return err
+		}
+		info, err = os.Lstat(path)
+	}
+	if err != nil {
 		return err
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("MCP artifact path %q is not a private directory", path)
 	}
 	return os.Chmod(path, 0o700)
 }
 
 func removeValidatedDirectory(root string, name string) error {
-	if name == "" || name != filepath.Base(name) || !filepath.IsLocal(name) {
-		return fmt.Errorf("artifact directory is invalid")
-	}
-	target := filepath.Join(root, name)
-	if filepath.Dir(target) != filepath.Clean(root) {
-		return fmt.Errorf("artifact directory is invalid")
+	target, err := validatedArtifactDirectory(root, name)
+	if err != nil {
+		return err
 	}
 	info, err := os.Lstat(target)
 	if os.IsNotExist(err) {
@@ -215,12 +229,35 @@ func removeValidatedDirectory(root string, name string) error {
 	return os.RemoveAll(target)
 }
 
+func validatedArtifactDirectory(root string, name string) (string, error) {
+	if name == "" || name == "." || name == ".." || name != filepath.Base(name) || !filepath.IsLocal(name) {
+		return "", fmt.Errorf("artifact directory is invalid")
+	}
+	cleanRoot := filepath.Clean(root)
+	target := filepath.Join(cleanRoot, name)
+	if filepath.Dir(target) != cleanRoot {
+		return "", fmt.Errorf("artifact directory is invalid")
+	}
+	return target, nil
+}
+
 func removeValidatedFile(root string, name string) error {
 	if name == "" || name != filepath.Base(name) || !filepath.IsLocal(name) {
 		return fmt.Errorf("artifact filename is invalid")
 	}
-	target := filepath.Join(root, name)
-	if filepath.Dir(target) != filepath.Clean(root) {
+	cleanRoot := filepath.Clean(root)
+	rootInfo, err := os.Lstat(cleanRoot)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if rootInfo.Mode()&os.ModeSymlink != 0 || !rootInfo.IsDir() {
+		return fmt.Errorf("artifact root is unsafe")
+	}
+	target := filepath.Join(cleanRoot, name)
+	if filepath.Dir(target) != cleanRoot {
 		return fmt.Errorf("artifact filename is invalid")
 	}
 	info, err := os.Lstat(target)
@@ -236,23 +273,23 @@ func removeValidatedFile(root string, name string) error {
 	return os.Remove(target)
 }
 
-func decodeServers(content []byte, backend string) ([]server, bool, error) {
+func decodeServers(content []byte, backend string) ([]server, bool, string, error) {
 	value, err := decodeUniqueJSON(content)
 	if err != nil {
-		return nil, false, err
+		return nil, false, "", err
 	}
 	root, ok := value.(map[string]any)
 	if !ok {
-		return nil, false, fmt.Errorf("configuration must be a JSON object")
+		return nil, false, "", fmt.Errorf("configuration must be a JSON object")
 	}
 	if _, legacy := root["mcpfile"]; legacy {
-		return nil, false, fmt.Errorf("mcpfile is not supported; use mcp_servers")
+		return nil, false, "", fmt.Errorf("mcpfile is not supported; use mcp_servers")
 	}
 	if configuredBackend, exists := root["backend_mode"].(string); exists && configuredBackend != "" {
 		backend = configuredBackend
 	}
 	if backend != BackendKobold && backend != BackendLlama {
-		return nil, false, fmt.Errorf("backend mode is invalid")
+		return nil, false, "", fmt.Errorf("backend mode is invalid")
 	}
 	rawEnabled, hasEnabled := root["mcp_enabled"]
 	enabled := false
@@ -260,52 +297,51 @@ func decodeServers(content []byte, backend string) ([]server, bool, error) {
 		var ok bool
 		enabled, ok = rawEnabled.(bool)
 		if !ok {
-			return nil, false, fmt.Errorf("mcp_enabled must be a boolean")
+			return nil, false, "", fmt.Errorf("mcp_enabled must be a boolean")
 		}
 	}
 	rawServers, exists := root["mcp_servers"]
 	if !exists {
-		return nil, enabled, nil
+		return nil, enabled, backend, nil
 	}
 	array, ok := rawServers.([]any)
 	if !ok {
-		return nil, false, fmt.Errorf("mcp_servers must be an array")
+		return nil, false, "", fmt.Errorf("mcp_servers must be an array")
 	}
 	servers := make([]server, 0, len(array))
 	seen := make(map[string]struct{}, len(array))
 	for _, item := range array {
 		entry, ok := item.(map[string]any)
 		if !ok {
-			return nil, false, fmt.Errorf("mcp_servers entries must be objects")
+			return nil, false, "", fmt.Errorf("mcp_servers entries must be objects")
 		}
 		name, ok := entry["name"].(string)
-		name = strings.TrimSpace(name)
-		if !ok || name == "" {
-			return nil, false, fmt.Errorf("mcp server name is required")
+		if !ok || strings.TrimSpace(name) == "" {
+			return nil, false, "", fmt.Errorf("mcp server name is required")
 		}
 		if _, exists := seen[name]; exists {
-			return nil, false, fmt.Errorf("duplicate mcp server name %q", name)
+			return nil, false, "", fmt.Errorf("duplicate mcp server name %q", name)
 		}
 		definition, ok := entry["definition"].(map[string]any)
 		if !ok {
-			return nil, false, fmt.Errorf("mcp server %q definition must be an object", name)
+			return nil, false, "", fmt.Errorf("mcp server %q definition must be an object", name)
 		}
 		if err := validateDefinition(definition, backend); err != nil {
-			return nil, false, fmt.Errorf("mcp server %q: %w", name, err)
+			return nil, false, "", fmt.Errorf("mcp server %q: %w", name, err)
 		}
 		encoded, err := json.Marshal(definition)
 		if err != nil {
-			return nil, false, err
+			return nil, false, "", err
 		}
 		seen[name] = struct{}{}
 		servers = append(servers, server{Name: name, Definition: encoded})
 	}
-	return servers, enabled, nil
+	return servers, enabled, backend, nil
 }
 
 func validateDefinition(definition map[string]any, backend string) error {
 	command, hasCommand := definition["command"]
-	url, hasURL := definition["url"]
+	addressValue, hasURL := definition["url"]
 	if hasCommand == hasURL {
 		return fmt.Errorf("definition requires exactly one of command or url")
 	}
@@ -324,8 +360,12 @@ func validateDefinition(definition map[string]any, backend string) error {
 	if backend != BackendKobold {
 		return fmt.Errorf("HTTP(S) transport is not supported by this backend")
 	}
-	address, ok := url.(string)
-	if !ok || !(strings.HasPrefix(address, "http://") || strings.HasPrefix(address, "https://")) {
+	address, ok := addressValue.(string)
+	if !ok {
+		return fmt.Errorf("url must be an HTTP(S) URL")
+	}
+	parsed, err := url.Parse(address)
+	if err != nil || !parsed.IsAbs() || parsed.Host == "" || parsed.Fragment != "" || (!strings.EqualFold(parsed.Scheme, "http") && !strings.EqualFold(parsed.Scheme, "https")) {
 		return fmt.Errorf("url must be an HTTP(S) URL")
 	}
 	if headers, exists := definition["headers"]; exists && !stringMap(headers) {

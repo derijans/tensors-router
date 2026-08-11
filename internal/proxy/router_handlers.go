@@ -110,6 +110,10 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		if service.requireClusterToken(w, r) {
 			service.handleNodeModels(w, r)
 		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/mcp":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeMCP(w, r)
+		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/models/state":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeModelState(w, r)

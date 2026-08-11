@@ -223,6 +223,18 @@ func (registry *Registry) Model(publicID string) (Model, bool) {
 	return Model{}, false
 }
 
+func (registry *Registry) MCPModel(publicID string) (Model, bool) {
+	registry.mu.Lock()
+	defer registry.mu.Unlock()
+
+	for _, model := range registry.view {
+		if !model.Disabled && model.PublicID == publicID && model.MCPEnabled {
+			return model, true
+		}
+	}
+	return Model{}, false
+}
+
 func (registry *Registry) EmbeddingModel(publicID string) (Model, bool) {
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
@@ -274,6 +286,16 @@ func (registry *Registry) MusicModel(publicID string) (Model, bool) {
 func (registry *Registry) Acquire(publicID string, localHealthy bool) (Route, func(), bool) {
 	registry.mu.Lock()
 	route, ok := registry.selectRouteLocked(publicID, registry.replicasLocked(publicID), localHealthy, RouteLaneText)
+	if !ok {
+		registry.mu.Unlock()
+		return Route{}, func() {}, false
+	}
+	return registry.acquireRouteLocked(route)
+}
+
+func (registry *Registry) AcquireMCP(publicID string, localHealthy bool) (Route, func(), bool) {
+	registry.mu.Lock()
+	route, ok := registry.selectRouteLocked(publicID, registry.mcpReplicasLocked(publicID), localHealthy, RouteLaneText)
 	if !ok {
 		registry.mu.Unlock()
 		return Route{}, func() {}, false
@@ -485,6 +507,19 @@ func (registry *Registry) replicasLocked(publicID string) []Model {
 		}
 	}
 	sort.Slice(replicas, func(left, right int) bool {
+		return routeSortKey(replicas[left]) < routeSortKey(replicas[right])
+	})
+	return replicas
+}
+
+func (registry *Registry) mcpReplicasLocked(publicID string) []Model {
+	replicas := make([]Model, 0)
+	for _, model := range registry.view {
+		if !model.Disabled && model.PublicID == publicID && model.MCPEnabled {
+			replicas = append(replicas, model)
+		}
+	}
+	sort.Slice(replicas, func(left int, right int) bool {
 		return routeSortKey(replicas[left]) < routeSortKey(replicas[right])
 	})
 	return replicas

@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"tensors-router/internal/auth"
 	"tensors-router/internal/backenddiagnostic"
 	"tensors-router/internal/catalog"
 )
@@ -24,6 +23,7 @@ type activeConfigState struct {
 	mu                  sync.Mutex
 	changed             chan struct{}
 	filename            string
+	physicalFilename    string
 	physicalFingerprint string
 	physicalShareable   bool
 	physicalAttemptID   string
@@ -43,14 +43,24 @@ func newActiveConfigState() *activeConfigState {
 }
 
 func (service *Service) acquireModelConfigForBackendMode(mode string, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (*backendRuntime, func(), bool, error) {
+	return service.acquireModelConfigForBackendModeWithOptions(mode, ctx, modelID, configFilename, readiness, modelConfigAcquireOptions{forceReload: force})
+}
+
+func (service *Service) acquireExactModelConfigForBackendMode(mode string, ctx context.Context, modelID string, configFilename string, readiness backendReadiness) (*backendRuntime, func(), bool, error) {
+	return service.acquireModelConfigForBackendModeWithOptions(mode, ctx, modelID, configFilename, readiness, modelConfigAcquireOptions{exactPhysicalConfig: true})
+}
+
+type modelConfigAcquireOptions struct {
+	forceReload         bool
+	exactPhysicalConfig bool
+}
+
+func (service *Service) acquireModelConfigForBackendModeWithOptions(mode string, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, options modelConfigAcquireOptions) (*backendRuntime, func(), bool, error) {
 	resolvedReadiness, err := service.readinessForConfig(configFilename, readiness)
 	if err != nil {
 		return nil, nil, false, err
 	}
 	readiness = resolvedReadiness
-	if err := service.requireMCPAdmin(ctx, configFilename); err != nil {
-		return nil, nil, false, err
-	}
 	if err := service.ensureModelConfigHash(configFilename); err != nil {
 		return nil, nil, false, err
 	}
@@ -68,40 +78,12 @@ func (service *Service) acquireModelConfigForBackendMode(mode string, ctx contex
 	if err := service.enforceUnloadPolicy(ctx, mode, configFilename, readiness); err != nil {
 		return nil, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
 	}
-	release, loadedFresh, err := service.acquireModelConfig(runtime, ctx, modelID, configFilename, readiness, force)
+	release, loadedFresh, err := service.acquireModelConfigWithOptions(runtime, ctx, modelID, configFilename, readiness, options)
 	if err != nil {
 		return runtime, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
 	}
 	finishDiagnostic(true)
 	return runtime, release, loadedFresh, err
-}
-
-func (service *Service) requireMCPAdmin(ctx context.Context, filename string) error {
-	if service.mcpReconciler == nil || !service.mcpReconciler.Enabled() || service.catalog == nil {
-		return nil
-	}
-	models, err := service.catalog.List()
-	if err != nil {
-		return err
-	}
-	for _, model := range models {
-		if model.Filename == filename && model.MCPEnabled && !auth.PrincipalFromContext(ctx).Admin {
-			return fmt.Errorf("MCP-enabled models require an authenticated admin principal")
-		}
-	}
-	return nil
-}
-
-func (service *Service) requireActiveMCPAdmin(ctx context.Context) error {
-	for _, runtime := range []*backendRuntime{service.textRuntime, service.embeddingsRuntime, service.imageRuntime} {
-		if runtime == nil {
-			continue
-		}
-		if err := service.requireMCPAdmin(ctx, currentRuntimeConfigFilename(runtime)); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (service *Service) readinessForConfig(filename string, readiness backendReadiness) (backendReadiness, error) {
@@ -175,12 +157,16 @@ func (service *Service) ensureModelConfigHash(filename string) error {
 }
 
 func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (func(), bool, error) {
+	return service.acquireModelConfigWithOptions(runtime, ctx, modelID, configFilename, readiness, modelConfigAcquireOptions{forceReload: force})
+}
+
+func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, options modelConfigAcquireOptions) (func(), bool, error) {
 	waitingSwitch := false
 	state := runtime.state
 	profile := service.chatTemplateProfileForConfig(configFilename)
 	for {
 		state.mu.Lock()
-		if !force && activeConfigMatchesProfile(state, configFilename, profile) && !state.switching && (state.switchWaiters == 0 || waitingSwitch) {
+		if !options.forceReload && activeConfigMatchesAcquireOptions(state, configFilename, profile, options) && !state.switching && (state.switchWaiters == 0 || waitingSwitch) {
 			if waitingSwitch {
 				state.switchWaiters--
 				notifyActiveConfigLocked(state)
@@ -274,7 +260,7 @@ func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.
 		} else {
 			state.physicalAttemptID = ""
 		}
-		applyPhysicalLoadProfileLocked(state, profile)
+		applyPhysicalLoadProfileLocked(state, configFilename, profile)
 		applyVRAMLoadStateLocked(state, vramLoad)
 		state.users++
 		leaseTag := service.nextRuntimeLease.Add(1)
@@ -462,6 +448,13 @@ func activeConfigMatchesProfile(state *activeConfigState, filename string, profi
 	return state.physicalShareable && profile.HasConfiguredKwargs() && state.physicalFingerprint != "" && state.physicalFingerprint == profile.PhysicalLoadFingerprint()
 }
 
+func activeConfigMatchesAcquireOptions(state *activeConfigState, filename string, profile catalog.ChatTemplateProfile, options modelConfigAcquireOptions) bool {
+	if options.exactPhysicalConfig {
+		return state.physicalFilename == filename
+	}
+	return activeConfigMatchesProfile(state, filename, profile)
+}
+
 func activeRuntimeSupportsConfig(runtime *backendRuntime, filename string, profile catalog.ChatTemplateProfile) bool {
 	if runtime == nil {
 		return false
@@ -474,12 +467,14 @@ func activeRuntimeSupportsConfig(runtime *backendRuntime, filename string, profi
 	return activeConfigMatchesProfile(runtime.state, filename, profile)
 }
 
-func applyPhysicalLoadProfileLocked(state *activeConfigState, profile catalog.ChatTemplateProfile) {
+func applyPhysicalLoadProfileLocked(state *activeConfigState, filename string, profile catalog.ChatTemplateProfile) {
+	state.physicalFilename = filename
 	state.physicalFingerprint = profile.PhysicalLoadFingerprint()
 	state.physicalShareable = profile.Valid() && profile.HasConfiguredKwargs() && state.physicalFingerprint != ""
 }
 
 func clearPhysicalLoadProfileLocked(state *activeConfigState) {
+	state.physicalFilename = ""
 	state.physicalFingerprint = ""
 	state.physicalAttemptID = ""
 	state.physicalShareable = false

@@ -21,7 +21,6 @@ import (
 	"time"
 
 	routeranalytics "tensors-router/internal/analytics"
-	"tensors-router/internal/auth"
 	"tensors-router/internal/backendmode"
 	routerbenchmark "tensors-router/internal/benchmark"
 	"tensors-router/internal/catalog"
@@ -89,6 +88,7 @@ type ServiceConfig struct {
 	SlaveURLs                 []string
 	ConfigDir                 string
 	MCPReconciler             *mcp.Reconciler
+	MCPGateway                *mcp.Gateway
 	FileRoots                 []string
 	AssetIndex                *modelassets.Index
 	RecipeStore               *recipes.Store
@@ -134,6 +134,7 @@ type Service struct {
 	slaveURLs                 []string
 	configDir                 string
 	mcpReconciler             *mcp.Reconciler
+	mcpGateway                *mcp.Gateway
 	fileRoots                 []string
 	assetIndex                *modelassets.Index
 	assetConfigLocks          sync.Map
@@ -333,6 +334,7 @@ func NewService(config ServiceConfig) *Service {
 		slaveURLs:                 append([]string{}, config.SlaveURLs...),
 		configDir:                 strings.TrimSpace(config.ConfigDir),
 		mcpReconciler:             config.MCPReconciler,
+		mcpGateway:                config.MCPGateway,
 		fileRoots:                 append([]string{}, config.FileRoots...),
 		assetIndex:                config.AssetIndex,
 		assetTransferSlots:        make(chan struct{}, concurrentAssetTransfers),
@@ -525,6 +527,10 @@ func (service *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	if service.limitControlRequestBody(w, r) {
 		return
 	}
+	if r.URL.Path == "/router/mcp" && service.mcpGateway != nil {
+		service.handlePublicMCP(w, r)
+		return
+	}
 	if strings.HasPrefix(r.URL.Path, "/router/v1/") {
 		service.handleRouterEndpoint(w, r)
 		return
@@ -546,7 +552,7 @@ func (service *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
-		service.handleModels(w, r)
+		service.handleModels(w)
 		return
 	}
 
@@ -569,13 +575,6 @@ func (service *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		openai.WriteJSON(w, http.StatusOK, map[string]any{})
 		return
 	}
-	if isVoicePath(r.URL.Path) || isMusicPath(r.URL.Path) || isImagePath(r.URL.Path) || isTextPath(r.URL.Path) {
-		if err := service.requireActiveMCPAdmin(r.Context()); err != nil {
-			openai.WriteError(w, http.StatusForbidden, "forbidden", err.Error())
-			return
-		}
-	}
-
 	if isVoicePath(r.URL.Path) || isMusicPath(r.URL.Path) {
 		service.handleAudioRequest(w, r)
 		return
@@ -619,9 +618,9 @@ func (service *Service) Close(ctx context.Context) error {
 	return err
 }
 
-func (service *Service) handleModels(w http.ResponseWriter, r *http.Request) {
+func (service *Service) handleModels(w http.ResponseWriter) {
 	if service.registry != nil {
-		openai.WriteJSON(w, http.StatusOK, openai.ModelsResponseFromCatalog(cluster.PublicCatalogModels(service.visibleClusterModels(r.Context(), service.registry.Models()))))
+		openai.WriteJSON(w, http.StatusOK, openai.ModelsResponseFromCatalog(cluster.PublicCatalogModels(service.registry.Models())))
 		return
 	}
 
@@ -630,30 +629,7 @@ func (service *Service) handleModels(w http.ResponseWriter, r *http.Request) {
 		openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
 		return
 	}
-	openai.WriteJSON(w, http.StatusOK, openai.ModelsResponseFromCatalog(service.visibleCatalogModels(r.Context(), models)))
-}
-
-func (service *Service) visibleCatalogModels(ctx context.Context, models []catalog.Model) []catalog.Model {
-	if auth.PrincipalFromContext(ctx).Admin || service.mcpReconciler == nil || !service.mcpReconciler.Enabled() {
-		return models
-	}
-	visible := make([]catalog.Model, 0, len(models))
-	for _, model := range models {
-		if !model.MCPEnabled {
-			visible = append(visible, model)
-		}
-	}
-	return visible
-}
-
-func (service *Service) visibleClusterModels(ctx context.Context, models []cluster.Model) []cluster.Model {
-	visible := make([]cluster.Model, 0, len(models))
-	for _, model := range models {
-		if !model.Disabled && (auth.PrincipalFromContext(ctx).Admin || service.mcpReconciler == nil || !service.mcpReconciler.Enabled() || !model.MCPEnabled) {
-			visible = append(visible, model)
-		}
-	}
-	return visible
+	openai.WriteJSON(w, http.StatusOK, openai.ModelsResponseFromCatalog(models))
 }
 
 func (service *Service) handleImageModels(w http.ResponseWriter) {
@@ -1509,6 +1485,9 @@ func coreResponseHasEmptyText(body []byte) bool {
 
 	foundOutput := false
 	for _, choice := range parsed.Choices {
+		if choiceHasToolOutput(choice) {
+			return false
+		}
 		output, ok := choiceOutputText(choice)
 		if !ok {
 			continue
@@ -1519,6 +1498,40 @@ func coreResponseHasEmptyText(body []byte) bool {
 		}
 	}
 	return foundOutput
+}
+
+func choiceHasToolOutput(choice json.RawMessage) bool {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(choice, &fields); err != nil {
+		return false
+	}
+	for _, key := range []string{"message", "delta"} {
+		message, ok := fields[key]
+		if ok && messageHasToolOutput(message) {
+			return true
+		}
+	}
+	return false
+}
+
+func messageHasToolOutput(message json.RawMessage) bool {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(message, &fields); err != nil {
+		return false
+	}
+	if rawCalls, ok := fields["tool_calls"]; ok {
+		var calls []json.RawMessage
+		if json.Unmarshal(rawCalls, &calls) == nil && len(calls) > 0 {
+			return true
+		}
+	}
+	if rawCall, ok := fields["function_call"]; ok {
+		var call map[string]json.RawMessage
+		if json.Unmarshal(rawCall, &call) == nil && len(call) > 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func choiceOutputText(choice json.RawMessage) (string, bool) {

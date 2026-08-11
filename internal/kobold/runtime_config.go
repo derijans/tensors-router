@@ -13,7 +13,6 @@ import (
 )
 
 func (manager *Manager) runtimeConfig(filename string) (string, string, catalog.RuntimeConfig, error) {
-	filename = strings.TrimSpace(filename)
 	if filename == "" || filename != filepath.Base(filename) {
 		return "", "", catalog.RuntimeConfig{}, fmt.Errorf("config filename %q is invalid", filename)
 	}
@@ -109,7 +108,7 @@ func (manager *Manager) runtimeConfig(filename string) (string, string, catalog.
 	manager.mu.Lock()
 	manager.generated[runtimePath] = struct{}{}
 	manager.mu.Unlock()
-	return filepath.ToSlash(filepath.Join(".router-runtime", runtimeName)), runtimePath, metadata, nil
+	return filepath.Join(".router-runtime", runtimeName), runtimePath, metadata, nil
 }
 
 func embeddingRuntimeValues(source map[string]json.RawMessage, gpu bool) map[string]json.RawMessage {

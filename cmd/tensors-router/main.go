@@ -103,6 +103,14 @@ func runServe(args []string) error {
 	if err := mcpReconciler.ReconcileAll(cfg.Backend.Mode); err != nil {
 		return err
 	}
+	var mcpGateway *mcp.Gateway
+	if cfg.MCP.Enabled {
+		mcpGateway = mcp.NewGateway(mcp.GatewayConfig{
+			MaxRequestBodyBytes:  cfg.Limits.MaxControlBodyMB * transportbody.MiB,
+			MaxResponseBodyBytes: cfg.Limits.MaxControlBodyMB * transportbody.MiB,
+		})
+	}
+
 	catalogStarted := time.Now()
 	startupLogger.Printf("model config discovery started directory=%q", cfg.Models.ConfigDir)
 	modelCatalog, err := catalog.NewWithStore(cfg.Models.ConfigDir, cfg.Cluster.StoreDir)
@@ -171,7 +179,10 @@ func runServe(args []string) error {
 	if cfg.Cluster.Role == routercluster.RoleMaster {
 		localSource = routercluster.SourceMaster
 	}
-	localClusterModels := withModelBenchmarks(routercluster.LocalModelsWithBackendMode(localModels, cfg.Cluster.NodeID, cfg.Cluster.PublicURL, localSource, cfg.Backend.Mode), benchmarkStore)
+	localClusterModels := routercluster.WithMCPAvailability(
+		withModelBenchmarks(routercluster.LocalModelsWithBackendMode(localModels, cfg.Cluster.NodeID, cfg.Cluster.PublicURL, localSource, cfg.Backend.Mode), benchmarkStore),
+		cfg.MCP.Enabled,
+	)
 	disabledModelIDs, err := modelStateStore.DisabledIDs(ctx)
 	if err != nil {
 		return err
@@ -241,6 +252,7 @@ func runServe(args []string) error {
 		SlaveURLs:                cfg.Cluster.SlaveURLs,
 		ConfigDir:                cfg.Models.ConfigDir,
 		MCPReconciler:            mcpReconciler,
+		MCPGateway:               mcpGateway,
 		FileRoots:                cfg.Models.FileRoots,
 		AssetIndex:               assetIndex,
 		ConcurrentAssetTransfers: cfg.Models.ConcurrentAssetTransfers,

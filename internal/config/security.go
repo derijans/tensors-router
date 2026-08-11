@@ -80,6 +80,9 @@ func validateSecurity(cfg *Config) error {
 	if err := validateCredentialList("auth.admin_keys", cfg.Auth.AdminKeys); err != nil {
 		return err
 	}
+	if cfg.MCP.Enabled && !hasCredential(cfg.Auth.AdminKeys) {
+		return fmt.Errorf("auth.admin_keys is required when MCP is enabled")
+	}
 	if err := validateCredential("cluster.token", cfg.Cluster.Token, cfg.Cluster.Role != "standalone"); err != nil {
 		return err
 	}

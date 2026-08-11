@@ -54,10 +54,6 @@ func (service *Service) handleOllamaRequest(w http.ResponseWriter, r *http.Reque
 		ollamaVersion := buildinfo.Current().Version
 		writeOllamaJSON(w, http.StatusOK, map[string]string{"version": ollamaVersion})
 	default:
-		if err := service.requireActiveMCPAdmin(r.Context()); err != nil {
-			ollama.WriteError(w, http.StatusForbidden, err.Error())
-			return
-		}
 		service.handleModelRequest(w, r, true)
 	}
 }
@@ -82,13 +78,13 @@ func (service *Service) handleOllamaPS(w http.ResponseWriter, r *http.Request) {
 
 func (service *Service) ollamaVisibleModels(ctx context.Context) ([]cluster.Model, error) {
 	if service.registry != nil {
-		return service.visibleClusterModels(ctx, service.modelsWithRuntimeState(ctx, service.registry.Models())), nil
+		return service.modelsWithRuntimeState(ctx, service.registry.Models()), nil
 	}
 	models, err := service.catalog.ListLLM()
 	if err != nil {
 		return nil, err
 	}
-	localModels := cluster.LocalModelsWithBackendMode(service.visibleCatalogModels(ctx, models), service.nodeID, service.nodeURL, service.localSource(), service.backendMode)
+	localModels := cluster.LocalModelsWithBackendMode(models, service.nodeID, service.nodeURL, service.localSource(), service.backendMode)
 	return service.modelsWithRuntimeState(ctx, localModels), nil
 }
 
