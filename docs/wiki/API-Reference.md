@@ -1,6 +1,6 @@
 # API Reference
 
-The router selects a `.kcpps` configuration and forwards recognized inference requests to its backend. An endpoint is usable only when the selected backend binary implements it and the selected configuration contains the required model components. Route recognition by the router does not add an API that is missing from KoboldCpp, llama.cpp, or stable-diffusion.cpp.
+The router selects a `.kcpps` configuration and forwards recognized inference requests to its backend. An endpoint is usable only when the selected backend binary implements it and the selected configuration contains the required model components. Route recognition by the router does not add an API that is missing from KoboldCpp, llama.cpp, stable-diffusion.cpp, whisper.cpp, or vLLM.
 
 Requests and responses retain streaming behavior. Server-sent event responses remain event streams.
 
@@ -16,7 +16,7 @@ Cluster node IDs are not exposed through `/v1/models`. Image-only and combined c
 
 ## Text APIs
 
-The router recognizes all paths at `/v1` and `/v1/...` as text-side API paths unless a more specific image or voice classifier applies. Common backend APIs in this namespace include:
+For KoboldCpp and split native backends, the router recognizes paths at `/v1` and `/v1/...` as text-side API paths unless a more specific image or voice classifier applies. vLLM routes use a strict method and path allowlist. Common backend APIs in this namespace include:
 
 - `POST /v1/chat/completions`
 - `POST /v1/completions`
@@ -46,6 +46,14 @@ Ollama compatibility uses the official methods:
 Method mismatches return `405` with `Allow`. Ollama failures use `{"error":"message"}`. Generate and chat streams are NDJSON; each successful record exposes the router-visible model ID, while error-only records pass through unchanged. `/api/tags` is synthesized from deduplicated router-visible text models, and `/api/ps` contains only loaded models on healthy nodes. Backend-local model IDs are not exposed by either response.
 
 The model-aware compatibility paths use the request model. Non-image KoboldCpp paths outside these groups are not proxied.
+
+## vLLM serving APIs
+
+The `vllm` backend allowlists stable online-serving operations for OpenAI Completions, Chat, Chat Batch, Responses, Embeddings, Transcriptions, Translations, Realtime transcription, Anthropic Messages and token counting, Cohere Embed and Rerank, Classification, Score, Pooling, Generative Scoring, SageMaker invocation, tokenize, and detokenize. Request and response bodies, multipart fields, streaming, and extra upstream parameters pass through subject to router limits and model-name rewriting.
+
+`GET`, `DELETE`, and cancel operations below `/v1/responses/{id}` follow the node and runtime that created the response. `/v1/realtime` holds its model lease for the complete WebSocket connection, including cluster forwarding.
+
+Operational vLLM paths are separate and administrator-authenticated below `/router/v1/vllm/...`. Only health, version, load, metrics, tokenizer information, and configured dynamic LoRA or Elastic Expert Parallelism operations are reachable. Unknown operations and development, profiler, RPC, weight-transfer, sleep, offline, gRPC, Ray, native multi-node, and disaggregated surfaces are not proxied.
 
 Example:
 
@@ -137,6 +145,7 @@ Standalone and master routers expose administration routes in these groups:
 - `/router/v1/models`
 - `/router/v1/benchmarks` and `/router/v1/benchmarks/run`
 - `/router/v1/site/inventory`
+- `/router/v1/site/nodes/backends/init` and `/router/v1/site/nodes/backends/init/cancel`
 - `/router/v1/site/download/...`
 - `/router/v1/site/webuis/...`
 - `/router/v1/site/analytics`

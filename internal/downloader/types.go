@@ -119,6 +119,7 @@ type DownloadPlan struct {
 	TotalBytes    int64         `json:"total_bytes"`
 	Destination   string        `json:"destination"`
 	UnsafeWarning bool          `json:"unsafe_warning"`
+	Snapshot      bool          `json:"snapshot,omitempty"`
 }
 
 type JobState string
@@ -142,6 +143,8 @@ type DownloadJob struct {
 	TotalBytes     int64     `json:"total_bytes"`
 	CompletedBytes int64     `json:"completed_bytes"`
 	Error          string    `json:"error,omitempty"`
+	Snapshot       bool      `json:"snapshot,omitempty"`
+	TreeSHA256     string    `json:"tree_sha256,omitempty"`
 	CreatedAt      time.Time `json:"created_at"`
 	UpdatedAt      time.Time `json:"updated_at"`
 	Files          []JobFile `json:"files,omitempty"`

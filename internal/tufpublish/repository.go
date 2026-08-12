@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -47,11 +48,20 @@ func Publish(repository, output string, targetBodies map[string][]byte, secrets 
 	if root.Signed.IsExpired(now) {
 		return fmt.Errorf("root metadata is expired")
 	}
-	upstreamIDs, err := delegatedKeyIDs(top, "upstream-targets")
+	upstreamRole, err := delegatedRole(top, "upstream-targets")
 	if err != nil {
 		return err
 	}
-	upstreamSigner, err := authorizedSigner(secrets.Upstream, upstreamIDs)
+	for targetPath := range targetBodies {
+		allowed, err := upstreamRole.IsDelegatedPath(targetPath)
+		if err != nil {
+			return fmt.Errorf("validate delegated target path %q: %w", targetPath, err)
+		}
+		if !allowed {
+			return fmt.Errorf("trusted targets do not delegate %q to upstream-targets", targetPath)
+		}
+	}
+	upstreamSigner, err := authorizedSigner(secrets.Upstream, upstreamRole.KeyIDs)
 	if err != nil {
 		return fmt.Errorf("upstream-targets key: %w", err)
 	}
@@ -201,11 +211,77 @@ func Verify(repository string, expectedTargets []string) error {
 	return nil
 }
 
-func delegatedKeyIDs(targets *tufmetadata.Metadata[tufmetadata.TargetsType], name string) ([]string, error) {
+func LoadExistingTargets(repository string, prefix string) (map[string][]byte, error) {
+	if prefix == "" || strings.HasPrefix(prefix, "/") || strings.Contains(prefix, "..") {
+		return nil, fmt.Errorf("existing target prefix is invalid")
+	}
+	delegated, err := tufmetadata.Targets().FromFile(filepath.Join(repository, "metadata", "upstream-targets.json"))
+	if err != nil {
+		return nil, err
+	}
+	candidates := make([]string, 0)
+	for targetPath := range delegated.Signed.Targets {
+		if strings.HasPrefix(targetPath, prefix) {
+			candidates = append(candidates, targetPath)
+		}
+	}
+	if len(candidates) == 0 {
+		return map[string][]byte{}, nil
+	}
+	root, err := os.ReadFile(filepath.Join(repository, "metadata", "root.json"))
+	if err != nil {
+		return nil, err
+	}
+	configuration, err := tufconfig.New("https://verification.invalid/metadata", root)
+	if err != nil {
+		return nil, err
+	}
+	local, err := os.MkdirTemp("", "tuf-existing-targets-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(local)
+	configuration.LocalMetadataDir = filepath.Join(local, "metadata")
+	configuration.LocalTargetsDir = filepath.Join(local, "targets")
+	configuration.RemoteTargetsURL = "https://verification.invalid/targets"
+	configuration.Fetcher = directoryFetcher{root: repository}
+	client, err := updater.New(configuration)
+	if err != nil {
+		return nil, err
+	}
+	if err := client.Refresh(); err != nil {
+		return nil, fmt.Errorf("refresh existing publication: %w", err)
+	}
+	sort.Strings(candidates)
+	bodies := make(map[string][]byte, len(candidates))
+	for _, targetPath := range candidates {
+		info, err := client.GetTargetInfo(targetPath)
+		if err != nil {
+			return nil, err
+		}
+		destination := filepath.Join(local, "downloads", url.PathEscape(targetPath))
+		if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+			return nil, err
+		}
+		path, _, err := client.DownloadTarget(info, destination, "")
+		if err != nil {
+			return nil, err
+		}
+		body, err := os.ReadFile(path)
+		if err != nil {
+			return nil, err
+		}
+		bodies[targetPath] = body
+	}
+	return bodies, nil
+}
+
+func delegatedRole(targets *tufmetadata.Metadata[tufmetadata.TargetsType], name string) (*tufmetadata.DelegatedRole, error) {
 	if targets.Signed.Delegations != nil {
-		for _, role := range targets.Signed.Delegations.Roles {
+		for index := range targets.Signed.Delegations.Roles {
+			role := &targets.Signed.Delegations.Roles[index]
 			if role.Name == name && role.Threshold == 1 {
-				return role.KeyIDs, nil
+				return role, nil
 			}
 		}
 	}

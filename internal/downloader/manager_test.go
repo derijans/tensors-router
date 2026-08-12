@@ -10,6 +10,44 @@ import (
 	"time"
 )
 
+func TestSnapshotPromotionResumesOnlyMatchingImmutableFiles(t *testing.T) {
+	root := t.TempDir()
+	manager := &Manager{config: Config{Storage: StorageConfig{Root: root}, Scanning: ScanningConfig{WriteHashSidecars: true}}}
+	job := DownloadJob{ID: "resume", Repository: "owner/model", Commit: "commit", Snapshot: true}
+	file := JobFile{Path: "config.json", Size: 4}
+	destination, err := snapshotDestinationPath(root, job.Repository, job.Commit, file.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destination, []byte("same"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	staged := filepath.Join(t.TempDir(), "config.json")
+	if err := os.WriteFile(staged, []byte("same"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	digest, _, err := SHA256File(staged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.promote(job, file, staged, digest); err != nil {
+		t.Fatalf("matching immutable file could not resume: %v", err)
+	}
+	if _, err := os.Stat(destination + ".sha256"); !os.IsNotExist(err) {
+		t.Fatalf("snapshot gained a hash sidecar: %v", err)
+	}
+	if err := os.WriteFile(staged, []byte("evil"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	differentDigest, _, err := SHA256File(staged)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.promote(job, file, staged, differentDigest); err == nil {
+		t.Fatal("immutable snapshot file was overwritten")
+	}
+}
+
 func TestManagerCloseCancelsAndJoinsRunningJobs(t *testing.T) {
 	requestStarted := make(chan struct{})
 	requestCancelled := make(chan struct{})

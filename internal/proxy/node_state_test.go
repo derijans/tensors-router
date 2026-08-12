@@ -15,6 +15,7 @@ import (
 
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/siteapi"
+	"tensors-router/internal/vllm"
 )
 
 func TestLocalNodeStateDetectsRegularBinariesAndRedactsPaths(t *testing.T) {
@@ -43,7 +44,7 @@ func TestLocalNodeStateDetectsRegularBinariesAndRedactsPaths(t *testing.T) {
 	state.mu.Unlock()
 
 	snapshot := service.localNodeState()
-	if len(snapshot.Backends) != 1 || snapshot.Backends[0].ID != backendIDKoboldCPP {
+	if len(snapshot.Backends) != 2 || snapshot.Backends[0].ID != backendIDKoboldCPP || snapshot.Backends[1].LifecycleState != vllm.LifecycleCompanionMissing {
 		t.Fatalf("unexpected detected backends %#v", snapshot.Backends)
 	}
 	rows := snapshot.Backends[0].LoadedModels
@@ -145,7 +146,7 @@ func TestNodeStateClusterAuthenticationAndRemoteRouting(t *testing.T) {
 	if err := json.NewDecoder(stateRecorder.Body).Decode(&snapshot); err != nil {
 		t.Fatal(err)
 	}
-	if snapshot.NodeID != "worker" || len(snapshot.Backends) != 1 || snapshot.Backends[0].LoadedModels[0].ModelID != "remote-model" {
+	if snapshot.NodeID != "worker" || len(snapshot.Backends) != 2 || snapshot.Backends[0].LoadedModels[0].ModelID != "remote-model" {
 		t.Fatalf("unexpected remote snapshot %#v", snapshot)
 	}
 
@@ -165,6 +166,77 @@ func TestNodeStateClusterAuthenticationAndRemoteRouting(t *testing.T) {
 	master.ServeHTTP(missingRecorder, httptest.NewRequest(http.MethodGet, "/router/v1/site/nodes/state?node_id=missing", nil))
 	if missingRecorder.Code != http.StatusNotFound {
 		t.Fatalf("unknown node status %d", missingRecorder.Code)
+	}
+}
+
+type fakeVLLMService struct {
+	state         vllm.State
+	job           vllm.InitializationJob
+	starts        int
+	cancellations int
+}
+
+func (service *fakeVLLMService) State(context.Context) vllm.State { return service.state }
+func (service *fakeVLLMService) StartInitialization(_ context.Context, request vllm.InitRequest) (vllm.InitializationJob, error) {
+	service.starts++
+	service.job.SelectedProfile = request.Profile
+	return service.job, nil
+}
+func (service *fakeVLLMService) CancelInitialization(context.Context) (vllm.InitializationJob, error) {
+	service.cancellations++
+	service.job.State = vllm.JobCancelled
+	return service.job, nil
+}
+func (*fakeVLLMService) Load(context.Context, vllm.RuntimeLoadRequest) (vllm.RuntimeStatus, error) {
+	return vllm.RuntimeStatus{}, nil
+}
+func (*fakeVLLMService) Restart(context.Context, vllm.RuntimeKind) (vllm.RuntimeStatus, error) {
+	return vllm.RuntimeStatus{}, nil
+}
+func (*fakeVLLMService) Unload(context.Context, vllm.RuntimeKind) error { return nil }
+func (*fakeVLLMService) Runtime(context.Context, vllm.RuntimeKind) (vllm.RuntimeStatus, error) {
+	return vllm.RuntimeStatus{}, nil
+}
+func (*fakeVLLMService) Close() error { return nil }
+
+func TestBackendInitializationRoutesForwardToRemoteNode(t *testing.T) {
+	node, _ := newTestService(t, http.NotFoundHandler())
+	node.nodeID = "worker"
+	node.clusterRole = cluster.RoleSlave
+	node.clusterToken = "secret"
+	runtimeService := &fakeVLLMService{
+		state: vllm.State{LifecycleState: vllm.LifecycleNeedsInit},
+		job:   vllm.InitializationJob{JobID: "job-1", BackendID: vllm.BackendID, State: vllm.JobRunning},
+	}
+	node.vllm = runtimeService
+	nodeServer := httptest.NewServer(node)
+	t.Cleanup(nodeServer.Close)
+
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "")
+	if err := registry.UpdateNode(cluster.Snapshot{NodeID: "worker", NodeURL: nodeServer.URL}); err != nil {
+		t.Fatal(err)
+	}
+	master, _ := newTestServiceWithRegistry(t, registry, http.NotFoundHandler(), "secret")
+	master.nodeID = "master"
+	master.clusterRole = cluster.RoleMaster
+
+	content := []byte(`{"node_id":"worker","backend_id":"vllm","profile":"cuda-12.9"}`)
+	startRecorder := httptest.NewRecorder()
+	master.ServeHTTP(startRecorder, httptest.NewRequest(http.MethodPost, "/router/v1/site/nodes/backends/init", bytes.NewReader(content)))
+	if startRecorder.Code != http.StatusAccepted || runtimeService.starts != 1 || runtimeService.job.SelectedProfile != "cuda-12.9" {
+		t.Fatalf("start status=%d starts=%d job=%#v body=%s", startRecorder.Code, runtimeService.starts, runtimeService.job, startRecorder.Body.String())
+	}
+
+	cancelRecorder := httptest.NewRecorder()
+	master.ServeHTTP(cancelRecorder, httptest.NewRequest(http.MethodPost, "/router/v1/site/nodes/backends/init/cancel", bytes.NewReader(content)))
+	if cancelRecorder.Code != http.StatusOK || runtimeService.cancellations != 1 {
+		t.Fatalf("cancel status=%d cancellations=%d body=%s", cancelRecorder.Code, runtimeService.cancellations, cancelRecorder.Body.String())
+	}
+
+	unauthorized := httptest.NewRecorder()
+	node.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodPost, "/router/v1/node/backends/init", bytes.NewReader(content)))
+	if unauthorized.Code != http.StatusUnauthorized {
+		t.Fatalf("unprotected node initialization status %d", unauthorized.Code)
 	}
 }
 

@@ -40,15 +40,17 @@ func TestFilterOptionsForVoiceMusicKinds(t *testing.T) {
 }
 
 func TestBackendModeOptionAllowsOnlyKnownModes(t *testing.T) {
-	mode, ok, err := BackendModeOption(Options{"backend_mode": rawJSON(t, "llama_sdcpp")})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !ok || mode != "llama_sdcpp" {
-		t.Fatalf("unexpected backend mode result mode=%q ok=%t", mode, ok)
+	for _, expected := range []string{"llama_sdcpp", "vllm"} {
+		mode, ok, err := BackendModeOption(Options{"backend_mode": rawJSON(t, expected)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !ok || mode != expected {
+			t.Fatalf("unexpected backend mode result mode=%q ok=%t", mode, ok)
+		}
 	}
 
-	_, _, err = BackendModeOption(Options{"backend_mode": rawJSON(t, "native")})
+	_, _, err := BackendModeOption(Options{"backend_mode": rawJSON(t, "native")})
 	if err == nil {
 		t.Fatalf("expected invalid backend mode error")
 	}
@@ -83,6 +85,13 @@ func TestOptionCatalogIncludesUnloadPolicy(t *testing.T) {
 		if !containsString(definition.Choices, value) {
 			t.Fatalf("missing unload policy choice %q: %#v", value, definition.Choices)
 		}
+	}
+}
+
+func TestOptionCatalogIncludesVLLMRuntimeSection(t *testing.T) {
+	definition, ok := OptionDefinitionForKey("vllm")
+	if !ok || definition.ValueType != ValueJSON || len(definition.Backends) != 1 || definition.Backends[0] != "vllm" {
+		t.Fatalf("unexpected vLLM option definition %#v", definition)
 	}
 }
 

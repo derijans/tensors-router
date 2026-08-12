@@ -5,11 +5,13 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"tensors-router/internal/backendendpoint"
+	"tensors-router/internal/backendmode"
 )
 
 type Config struct {
@@ -22,6 +24,7 @@ type Config struct {
 	Llama      NativeServerConfig
 	SDCPP      NativeServerConfig
 	WhisperCPP NativeServerConfig
+	VLLM       VLLMConfig
 	Logging    LoggingConfig
 	Updates    UpdatesConfig
 	Downloader DownloaderConfig
@@ -118,6 +121,19 @@ type UpdatesConfig struct {
 type DownloaderConfig struct {
 	Enabled        bool
 	BinaryLocation string
+}
+
+type VLLMConfig struct {
+	BinaryLocation     string
+	DataDir            string
+	Profile            string
+	ManifestPath       string
+	TUFRepositoryURL   string
+	TUFRootPath        string
+	DynamicLoRAEnabled bool
+	EEPEnabled         bool
+	TrustRemoteCode    bool
+	ExternalTools      bool
 }
 
 type BackendUpdateSource struct {
@@ -231,6 +247,12 @@ func Defaults() Config {
 			DataDir:    "./data/whispercpp",
 			ExtraArgs:  []string{},
 			HideWindow: true,
+		},
+		VLLM: VLLMConfig{
+			DataDir:          "./data/vllm",
+			Profile:          "auto",
+			ManifestPath:     "runtimes/vllm/" + runtime.GOOS + "-" + runtime.GOARCH + ".json",
+			TUFRepositoryURL: "https://derijans.github.io/tensors-router/tuf/metadata",
 		},
 		Logging: LoggingConfig{
 			Mode:              LoggingModeNormal,
@@ -353,10 +375,20 @@ func validate(cfg *Config) error {
 	if cfg.Models.ConcurrentAssetTransfers < 1 {
 		return fmt.Errorf("models.concurrent_asset_transfers must be at least 1")
 	}
-	switch cfg.Backend.Mode {
-	case "kobold", "llama_sdcpp":
-	default:
-		return fmt.Errorf("backend.mode must be kobold or llama_sdcpp")
+	if !backendmode.Valid(cfg.Backend.Mode) {
+		return fmt.Errorf("backend.mode must be kobold, llama_sdcpp, or vllm")
+	}
+	if strings.TrimSpace(cfg.VLLM.DataDir) == "" {
+		return fmt.Errorf("vllm.data_dir is required")
+	}
+	if !validVLLMProfile(cfg.VLLM.Profile) {
+		return fmt.Errorf("vllm.profile must be auto or a safe profile identifier")
+	}
+	if strings.TrimSpace(cfg.VLLM.ManifestPath) == "" {
+		return fmt.Errorf("vllm.manifest_path is required")
+	}
+	if err := validateTUFRepositoryURL(cfg.VLLM.TUFRepositoryURL); err != nil {
+		return fmt.Errorf("vllm.tuf_repository_url is invalid: %w", err)
 	}
 	if _, err := backendendpoint.ParseLoopback(cfg.Kobold.BackendURL); err != nil {
 		return fmt.Errorf("kobold.backend_url is invalid: %w", err)
@@ -492,6 +524,23 @@ func validate(cfg *Config) error {
 		}
 	}
 	return nil
+}
+
+func validVLLMProfile(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" || value == "auto" {
+		return value == "auto"
+	}
+	if len(value) > 128 {
+		return false
+	}
+	for _, character := range value {
+		if character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '.' || character == '_' || character == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func validateNativeServerConfig(section string, server NativeServerConfig) error {
@@ -886,6 +935,55 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 		return setNativeServerScalar(&cfg.SDCPP, section, key, value)
 	case "whispercpp":
 		return setNativeServerScalar(&cfg.WhisperCPP, section, key, value)
+	case "vllm":
+		switch key {
+		case "binary_location":
+			cfg.VLLM.BinaryLocation = value
+			return nil
+		case "data_dir":
+			cfg.VLLM.DataDir = value
+			return nil
+		case "profile":
+			cfg.VLLM.Profile = value
+			return nil
+		case "manifest_path":
+			cfg.VLLM.ManifestPath = value
+			return nil
+		case "tuf_repository_url":
+			cfg.VLLM.TUFRepositoryURL = value
+			return nil
+		case "tuf_root_path":
+			cfg.VLLM.TUFRootPath = value
+			return nil
+		case "dynamic_lora_enabled":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return err
+			}
+			cfg.VLLM.DynamicLoRAEnabled = parsed
+			return nil
+		case "eep_enabled":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return err
+			}
+			cfg.VLLM.EEPEnabled = parsed
+			return nil
+		case "trust_remote_code":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return err
+			}
+			cfg.VLLM.TrustRemoteCode = parsed
+			return nil
+		case "external_tools":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return err
+			}
+			cfg.VLLM.ExternalTools = parsed
+			return nil
+		}
 	case "logging":
 		switch key {
 		case "mode":

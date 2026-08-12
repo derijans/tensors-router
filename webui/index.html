@@ -326,7 +326,7 @@
           <label>Nodes<select id="loadCaptureNodeSelect" multiple size="4"></select></label>
           <label>Status<select id="loadCaptureStatusSelect"><option value="">All</option><option value="loading">Loading</option><option value="succeeded">Succeeded</option><option value="failed">Failed</option><option value="interrupted">Interrupted</option><option value="reused">Reused</option></select></label>
           <label>Kind<select id="loadCaptureKindSelect"><option value="">All</option><option value="physical">Physical</option><option value="reuse">Reuse</option></select></label>
-          <label>Backend<input id="loadCaptureBackendInput" type="search" placeholder="kobold or llama_sdcpp"></label>
+          <label>Backend<input id="loadCaptureBackendInput" type="search" placeholder="kobold, llama_sdcpp, or vllm"></label>
           <label>From<input id="loadCaptureFromInput" type="datetime-local"></label>
           <label>To<input id="loadCaptureToInput" type="datetime-local"></label>
         </div>
@@ -420,6 +420,7 @@
               <select id="advancedBackendSelect">
                 <option value="kobold">Kobold</option>
                 <option value="llama_sdcpp">llama/sd.cpp</option>
+                <option value="vllm">vLLM</option>
               </select>
             </label>
             <label>

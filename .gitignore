@@ -29,6 +29,8 @@ GEMINI.md
 
 /tensors-router
 /tensors-router-*
+/tensor-router-vllm
+/internal/vllm/assets/uv
 *.exe
 *.test
 *.out

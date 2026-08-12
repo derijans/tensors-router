@@ -43,7 +43,7 @@ func (store *Store) initialize() error {
 		"PRAGMA foreign_keys=ON",
 		`CREATE TABLE IF NOT EXISTS artifacts (path TEXT PRIMARY KEY, sha256 TEXT NOT NULL, size INTEGER NOT NULL, modified_unix_nano INTEGER NOT NULL, repository TEXT NOT NULL, repository_path TEXT NOT NULL, revision TEXT NOT NULL, verification_source TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS repositories (repository TEXT PRIMARY KEY, revision TEXT NOT NULL, local_root TEXT NOT NULL, updated_at TEXT NOT NULL)`,
-		`CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, repository TEXT NOT NULL, revision TEXT NOT NULL, resolved_commit TEXT NOT NULL, state TEXT NOT NULL, total_bytes INTEGER NOT NULL, completed_bytes INTEGER NOT NULL, error TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
+		`CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, repository TEXT NOT NULL, revision TEXT NOT NULL, resolved_commit TEXT NOT NULL, state TEXT NOT NULL, total_bytes INTEGER NOT NULL, completed_bytes INTEGER NOT NULL, error TEXT NOT NULL, snapshot INTEGER NOT NULL DEFAULT 0, tree_sha256 TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS job_files (job_id TEXT NOT NULL, path TEXT NOT NULL, reason TEXT NOT NULL, expected_sha256 TEXT NOT NULL, size INTEGER NOT NULL, completed_bytes INTEGER NOT NULL, state TEXT NOT NULL, error TEXT NOT NULL, PRIMARY KEY(job_id, path), FOREIGN KEY(job_id) REFERENCES jobs(id) ON DELETE CASCADE)`,
 		`CREATE TABLE IF NOT EXISTS scan_runs (id INTEGER PRIMARY KEY AUTOINCREMENT, generation INTEGER NOT NULL, state TEXT NOT NULL, completed_bytes INTEGER NOT NULL, error TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 	}
@@ -52,7 +52,40 @@ func (store *Store) initialize() error {
 			return err
 		}
 	}
-	return store.migrateJobCommitColumn()
+	if err := store.migrateJobCommitColumn(); err != nil {
+		return err
+	}
+	if err := store.ensureJobColumn("snapshot", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	return store.ensureJobColumn("tree_sha256", "TEXT NOT NULL DEFAULT ''")
+}
+
+func (store *Store) ensureJobColumn(name string, definition string) error {
+	rows, err := store.db.Query(`PRAGMA table_info(jobs)`)
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var sequence int
+		var columnName, columnType string
+		var required, primaryKey int
+		var defaultValue any
+		if err := rows.Scan(&sequence, &columnName, &columnType, &required, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		found = found || columnName == name
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if found {
+		return nil
+	}
+	_, err = store.db.Exec(`ALTER TABLE jobs ADD COLUMN ` + name + ` ` + definition)
+	return err
 }
 
 func (store *Store) migrateJobCommitColumn() error {
@@ -139,7 +172,7 @@ func (store *Store) DeleteArtifact(path string) error {
 }
 
 func (store *Store) SaveJob(job DownloadJob) error {
-	if job.ID == "" || job.Repository == "" || job.Commit == "" || !validJobState(job.State) || job.TotalBytes < 0 || job.CompletedBytes < 0 {
+	if job.ID == "" || job.Repository == "" || job.Commit == "" || !validJobState(job.State) || job.TotalBytes < 0 || job.CompletedBytes < 0 || job.TreeSHA256 != "" && !validSHA256(job.TreeSHA256) {
 		return fmt.Errorf("download job is invalid")
 	}
 	now := time.Now().UTC()
@@ -152,7 +185,7 @@ func (store *Store) SaveJob(job DownloadJob) error {
 		return err
 	}
 	defer transaction.Rollback()
-	if _, err := transaction.Exec(`INSERT INTO jobs(id, repository, revision, resolved_commit, state, total_bytes, completed_bytes, error, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET state=excluded.state, total_bytes=excluded.total_bytes, completed_bytes=excluded.completed_bytes, error=excluded.error, updated_at=excluded.updated_at`, job.ID, job.Repository, job.Revision, job.Commit, job.State, job.TotalBytes, job.CompletedBytes, job.Error, job.CreatedAt.Format(time.RFC3339Nano), job.UpdatedAt.Format(time.RFC3339Nano)); err != nil {
+	if _, err := transaction.Exec(`INSERT INTO jobs(id, repository, revision, resolved_commit, state, total_bytes, completed_bytes, error, snapshot, tree_sha256, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET state=excluded.state, total_bytes=excluded.total_bytes, completed_bytes=excluded.completed_bytes, error=excluded.error, snapshot=excluded.snapshot, tree_sha256=excluded.tree_sha256, updated_at=excluded.updated_at`, job.ID, job.Repository, job.Revision, job.Commit, job.State, job.TotalBytes, job.CompletedBytes, job.Error, job.Snapshot, job.TreeSHA256, job.CreatedAt.Format(time.RFC3339Nano), job.UpdatedAt.Format(time.RFC3339Nano)); err != nil {
 		return err
 	}
 	if _, err := transaction.Exec(`DELETE FROM job_files WHERE job_id = ?`, job.ID); err != nil {
@@ -167,10 +200,10 @@ func (store *Store) SaveJob(job DownloadJob) error {
 }
 
 func (store *Store) Job(id string) (DownloadJob, bool, error) {
-	row := store.db.QueryRow(`SELECT id, repository, revision, resolved_commit, state, total_bytes, completed_bytes, error, created_at, updated_at FROM jobs WHERE id = ?`, id)
+	row := store.db.QueryRow(`SELECT id, repository, revision, resolved_commit, state, total_bytes, completed_bytes, error, snapshot, tree_sha256, created_at, updated_at FROM jobs WHERE id = ?`, id)
 	var job DownloadJob
 	var created, updated string
-	err := row.Scan(&job.ID, &job.Repository, &job.Revision, &job.Commit, &job.State, &job.TotalBytes, &job.CompletedBytes, &job.Error, &created, &updated)
+	err := row.Scan(&job.ID, &job.Repository, &job.Revision, &job.Commit, &job.State, &job.TotalBytes, &job.CompletedBytes, &job.Error, &job.Snapshot, &job.TreeSHA256, &created, &updated)
 	if err == sql.ErrNoRows {
 		return DownloadJob{}, false, nil
 	}

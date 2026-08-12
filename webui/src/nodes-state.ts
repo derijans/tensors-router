@@ -1,8 +1,8 @@
-import { getNodeState, unloadNodeRuntime } from "./api";
+import { cancelNodeBackendInitialization, getNodeState, initializeNodeBackend, unloadNodeRuntime } from "./api";
 import { closestElement } from "./dom";
 import { elements } from "./elements";
 import { state } from "./state";
-import type { NodeInventory } from "./types";
+import type { BackendInitializationJob, BackendInitializationRequest, NodeInventory, NodeStateBackend } from "./types";
 import { escapeAttribute, escapeHTML } from "./utils";
 import { renderNodeCard, renderNodeStateSnapshot } from "./node-state-view";
 
@@ -19,6 +19,16 @@ export function renderNodesPanel(): void {
 }
 
 export function handleNodesClick(event: Event): void {
+  const initializeButton = closestElement(event.target, "[data-node-backend-init]", HTMLButtonElement);
+  if (initializeButton) {
+    void initializeSelectedBackend(initializeButton.dataset.backendId || "", initializeButton.dataset.profile);
+    return;
+  }
+  const cancelInitializationButton = closestElement(event.target, "[data-node-backend-init-cancel]", HTMLButtonElement);
+  if (cancelInitializationButton) {
+    void cancelSelectedBackendInitialization(cancelInitializationButton.dataset.backendId || "");
+    return;
+  }
   const unloadButton = closestElement(event.target, "[data-node-unload]", HTMLButtonElement);
   if (unloadButton) {
     const generation = Number(unloadButton.dataset.generation);
@@ -51,6 +61,7 @@ export function selectNode(nodeID: string): void {
   state.nodes.loading = true;
   state.nodes.error = "";
   state.nodes.pendingUnload = "";
+  state.nodes.pendingBackendAction = "";
   renderNodesPanel();
   if (state.activeTab === "nodes") {
     void pollSelectedNode(state.nodes.pollGeneration);
@@ -78,6 +89,7 @@ export function collapseNodeState(): void {
   state.nodes.loading = false;
   state.nodes.error = "";
   state.nodes.pendingUnload = "";
+  state.nodes.pendingBackendAction = "";
   renderNodesPanel();
 }
 
@@ -92,10 +104,15 @@ export function reconcileNodeStateSelection(nodes: NodeInventory[]): void {
   state.nodes.loading = false;
   state.nodes.error = "";
   state.nodes.pendingUnload = "";
+  state.nodes.pendingBackendAction = "";
 }
 
 export function nodeUnloadKey(backendID: string, runtimeID: string): string {
   return `${backendID}\u0000${runtimeID}`;
+}
+
+export function nodeBackendActionKey(action: "init" | "cancel", backendID: string): string {
+  return `${action}\u0000${backendID}`;
 }
 
 export async function pollSelectedNode(generation: number, clearErrorOnSuccess = true): Promise<void> {
@@ -174,6 +191,96 @@ export async function unloadSelectedRuntime(backendID: string, runtimeID: string
   }
 }
 
+export async function initializeSelectedBackend(backendID: string, profile?: string): Promise<void> {
+  await runBackendInitializationAction("init", backendID, profile);
+}
+
+export async function cancelSelectedBackendInitialization(backendID: string): Promise<void> {
+  await runBackendInitializationAction("cancel", backendID);
+}
+
+async function runBackendInitializationAction(action: "init" | "cancel", backendID: string, profile?: string): Promise<void> {
+  if (!backendID || state.nodes.pendingBackendAction) {
+    return;
+  }
+  const nodeID = state.nodes.selectedNodeID;
+  if (!nodeID) {
+    return;
+  }
+  invalidatePolling();
+  const pollGeneration = state.nodes.pollGeneration;
+  const pendingAction = nodeBackendActionKey(action, backendID);
+  state.nodes.pendingBackendAction = pendingAction;
+  state.nodes.error = "";
+  renderSelectedStatePanel();
+  let succeeded = false;
+  try {
+    const request: BackendInitializationRequest = {node_id: nodeID, backend_id: backendID};
+    if (profile) {
+      request.profile = profile;
+    }
+    const job = action === "init"
+      ? await initializeNodeBackend(request)
+      : await cancelNodeBackendInitialization(request);
+    succeeded = true;
+    applyBackendInitializationJob(nodeID, job);
+  } catch (error) {
+    if (pollingCurrent(pollGeneration, nodeID)) {
+      state.nodes.error = errorMessage(error);
+    }
+  } finally {
+    if (state.nodes.selectedNodeID === nodeID && state.nodes.pendingBackendAction === pendingAction) {
+      state.nodes.pendingBackendAction = "";
+      if (state.activeTab === "nodes") {
+        renderSelectedStatePanel();
+      }
+    }
+    if (pollingCurrent(pollGeneration, nodeID)) {
+      await pollSelectedNode(pollGeneration, succeeded);
+    }
+  }
+}
+
+function applyBackendInitializationJob(nodeID: string, job: BackendInitializationJob): void {
+  if (state.nodes.snapshot?.node_id !== nodeID) {
+    return;
+  }
+  const backend = state.nodes.snapshot.backends.find(candidate => candidate.id === job.backend_id);
+  if (!backend) {
+    return;
+  }
+  backend.lifecycle_state = lifecycleStateForJob(backend, job);
+  backend.initialization_job_id = job.job_id;
+  backend.initialization_bytes = job.completed_bytes;
+  backend.initialization_total_bytes = job.total_bytes;
+  backend.retryable = Boolean(job.retryable);
+  assignOptionalBackendValue(backend, "initialization_phase", job.phase);
+  assignOptionalBackendValue(backend, "error", job.error);
+  assignOptionalBackendValue(backend, "selected_profile", job.selected_profile);
+  assignOptionalBackendValue(backend, "detected_profile", job.detected_profile);
+}
+
+function lifecycleStateForJob(backend: NodeStateBackend, job: BackendInitializationJob): NodeStateBackend["lifecycle_state"] {
+  if (job.state === "completed") {
+    return "ready";
+  }
+  if (job.state === "failed") {
+    return "failed";
+  }
+  if (job.state === "cancelled") {
+    return backend.runtime_version ? "ready" : "needs_init";
+  }
+  return "initializing";
+}
+
+function assignOptionalBackendValue(backend: NodeStateBackend, key: "initialization_phase" | "error" | "selected_profile" | "detected_profile", value: string | undefined): void {
+  if (value) {
+    backend[key] = value;
+    return;
+  }
+  delete backend[key];
+}
+
 function resetPolling(nodeID: string): void {
   invalidatePolling();
   state.nodes.selectedNodeID = nodeID;
@@ -212,7 +319,7 @@ function nodeStatePanel(): string {
       </div>
       ${state.nodes.loading && !state.nodes.snapshot ? `<p class="muted node-state-message">Loading runtime state...</p>` : ""}
       ${state.nodes.error ? `<div class="error-text node-state-message" role="alert">${escapeHTML(state.nodes.error)}</div>` : ""}
-      ${state.nodes.snapshot ? renderNodeStateSnapshot(state.nodes.snapshot, state.nodes.pendingUnload) : ""}
+      ${state.nodes.snapshot ? renderNodeStateSnapshot(state.nodes.snapshot, state.nodes.pendingUnload, state.nodes.pendingBackendAction) : ""}
     </section>
   `;
 }

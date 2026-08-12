@@ -1,8 +1,8 @@
 # Backends
 
-The router supports two backend families. `backend.mode` selects the default. A `.kcpps` file can set `backend_mode` to select a different family for that model.
+The router supports three backend families. `backend.mode` selects the default. A `.kcpps` file can set `backend_mode` to select a different family for that model.
 
-Valid values are `kobold` and `llama_sdcpp`.
+Valid values are `kobold`, `llama_sdcpp`, and `vllm`.
 
 ## KoboldCpp
 
@@ -36,9 +36,15 @@ All processes start lazily and drain independently. Speech uses the llama runtim
 
 The selected binaries must expose the endpoints requested by clients. `sd-server` does not implement the ComfyUI queue and history endpoints recognized by the router.
 
+## vLLM companion backend
+
+`vllm` mode uses three lazy runtimes for generation, pooling, and speech. A separate resident `tensor-router-vllm` companion manages signed runtime initialization, isolated Python environments, vLLM processes, health, logs, restart, and unload. Python and vLLM never enter the router executable or Go dependency graph.
+
+Initialization occurs only after an explicit administrator action. Model loading remains offline and cannot install packages or download snapshots. See [vLLM](vLLM) for supported platforms, profiles, `.kcpps` fields, endpoint boundaries, and release gates.
+
 ## `.kcpps` mapping
 
-The router reads the same `.kcpps` files in both backend families.
+The router reads `.kcpps` files for every backend family.
 
 For KoboldCpp, it passes the complete configuration to the administration endpoint.
 

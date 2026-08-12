@@ -1,0 +1,55 @@
+ARG GO_VERSION=1.26.5
+ARG NODE_VERSION=24-alpine
+
+FROM ghcr.io/astral-sh/uv@sha256:606e70c71c852d03f611b1e56a195d08648507018a7057fab82c4974c4eae105 AS uv-bootstrap
+
+FROM node:${NODE_VERSION} AS web-assets
+WORKDIR /source
+COPY webui/package.json webui/package-lock.json ./webui/
+RUN npm --prefix webui ci
+COPY webui ./webui
+COPY internal/webui/assets ./internal/webui/assets
+RUN npm --prefix webui run build
+
+FROM golang:${GO_VERSION}-bookworm AS go-builder
+WORKDIR /source
+COPY go.mod go.sum ./
+RUN go mod download
+COPY . .
+COPY --from=web-assets /source/internal/webui/assets ./internal/webui/assets
+COPY --from=uv-bootstrap /uv ./internal/vllm/assets/uv
+ARG VERSION=dev
+ARG COMMIT=unknown
+ARG BUILD_DATE=unknown
+RUN CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-s -w -X tensors-router/internal/buildinfo.Version=${VERSION} -X tensors-router/internal/buildinfo.Commit=${COMMIT} -X tensors-router/internal/buildinfo.Date=${BUILD_DATE}" -o /output/tensors-router ./cmd/tensors-router
+RUN CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-s -w -X tensors-router/internal/buildinfo.Version=${VERSION} -X tensors-router/internal/buildinfo.Commit=${COMMIT} -X tensors-router/internal/buildinfo.Date=${BUILD_DATE}" -o /output/tensor-router-webui ./cmd/tensor-router-webui
+RUN CGO_ENABLED=0 go build -buildvcs=false -trimpath -ldflags "-s -w -X tensors-router/internal/buildinfo.Version=${VERSION} -X tensors-router/internal/buildinfo.Commit=${COMMIT} -X tensors-router/internal/buildinfo.Date=${BUILD_DATE}" -o /output/tensor-router-downloader ./cmd/tensor-router-downloader
+RUN /source/internal/vllm/assets/uv --version | awk '$1 == "uv" && $2 == "0.12.0" { found=1 } END { exit !found }'
+RUN CGO_ENABLED=0 go build -tags vllm_embedded_uv -buildvcs=false -trimpath -ldflags "-s -w -X tensors-router/internal/buildinfo.Version=${VERSION} -X tensors-router/internal/buildinfo.Commit=${COMMIT} -X tensors-router/internal/buildinfo.Date=${BUILD_DATE}" -o /output/tensor-router-vllm ./cmd/tensor-router-vllm
+RUN /output/tensor-router-vllm bootstrap-info | grep -E '^uv sha256:[0-9a-f]{64}$'
+
+FROM debian:bookworm-slim AS runtime
+RUN apt-get update && apt-get install --yes --no-install-recommends ca-certificates libgomp1 tzdata && rm -rf /var/lib/apt/lists/*
+RUN getent group video >/dev/null || groupadd --system video
+RUN getent group render >/dev/null || groupadd --system render
+RUN groupadd --gid 10001 tensors && useradd --no-create-home --uid 10001 --gid tensors tensors && install -d -o tensors -g tensors /config /models /data /data/vllm
+WORKDIR /data
+STOPSIGNAL SIGTERM
+VOLUME ["/data/vllm", "/models"]
+
+FROM runtime AS vllm-node
+COPY --from=go-builder /output/tensors-router /usr/local/bin/tensors-router
+COPY --from=go-builder /output/tensor-router-downloader /usr/local/bin/tensor-router-downloader
+COPY --from=go-builder /output/tensor-router-vllm /usr/local/bin/tensor-router-vllm
+USER tensors
+EXPOSE 8080
+ENTRYPOINT ["tensors-router", "serve", "--config", "/config/config.yaml"]
+
+FROM runtime AS vllm-webui
+COPY --from=go-builder /output/tensors-router /usr/local/bin/tensors-router
+COPY --from=go-builder /output/tensor-router-webui /usr/local/bin/tensor-router-webui
+COPY --from=go-builder /output/tensor-router-downloader /usr/local/bin/tensor-router-downloader
+COPY --from=go-builder /output/tensor-router-vllm /usr/local/bin/tensor-router-vllm
+USER tensors
+EXPOSE 8080 8443 8444
+ENTRYPOINT ["tensor-router-webui", "--config", "/config/webui.yaml"]

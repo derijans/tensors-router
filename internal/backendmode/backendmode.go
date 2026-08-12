@@ -9,6 +9,7 @@ const (
 	Key        = "backend_mode"
 	Kobold     = "kobold"
 	LlamaSDCPP = "llama_sdcpp"
+	VLLM       = "vllm"
 )
 
 func Normalize(value string) string {
@@ -17,7 +18,7 @@ func Normalize(value string) string {
 
 func Valid(value string) bool {
 	switch Normalize(value) {
-	case Kobold, LlamaSDCPP:
+	case Kobold, LlamaSDCPP, VLLM:
 		return true
 	default:
 		return false
@@ -32,5 +33,5 @@ func Resolve(value string, fallback string) (string, error) {
 	if Valid(value) {
 		return value, nil
 	}
-	return "", fmt.Errorf("%s must be %s or %s", Key, Kobold, LlamaSDCPP)
+	return "", fmt.Errorf("%s must be %s, %s, or %s", Key, Kobold, LlamaSDCPP, VLLM)
 }

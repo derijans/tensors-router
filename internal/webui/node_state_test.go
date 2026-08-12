@@ -11,6 +11,8 @@ import (
 func TestServerProxiesNodeStateAndUnloadRoutes(t *testing.T) {
 	seenState := false
 	seenUnload := false
+	seenInit := false
+	seenCancel := false
 	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer router-secret" {
 			http.Error(w, "missing token", http.StatusUnauthorized)
@@ -24,6 +26,13 @@ func TestServerProxiesNodeStateAndUnloadRoutes(t *testing.T) {
 			content, _ := io.ReadAll(r.Body)
 			seenUnload = strings.Contains(string(content), `"runtime_id":"kobold-text"`)
 			writeWebJSON(w, http.StatusOK, map[string]bool{"ok": true})
+		case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/nodes/backends/init":
+			content, _ := io.ReadAll(r.Body)
+			seenInit = strings.Contains(string(content), `"backend_id":"vllm"`)
+			writeWebJSON(w, http.StatusAccepted, map[string]any{"job_id": "job-1", "backend_id": "vllm", "state": "running"})
+		case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/nodes/backends/init/cancel":
+			seenCancel = true
+			writeWebJSON(w, http.StatusOK, map[string]any{"job_id": "job-1", "backend_id": "vllm", "state": "cancelled"})
 		default:
 			http.NotFound(w, r)
 		}
@@ -49,5 +58,19 @@ func TestServerProxiesNodeStateAndUnloadRoutes(t *testing.T) {
 	server.ServeHTTP(unloadRecorder, unloadRequest)
 	if unloadRecorder.Code != http.StatusOK || !seenUnload {
 		t.Fatalf("unload proxy status=%d seen=%t body=%s", unloadRecorder.Code, seenUnload, unloadRecorder.Body.String())
+	}
+
+	for _, requestPath := range []string{"/api/nodes/backends/init", "/api/nodes/backends/init/cancel"} {
+		request := httptest.NewRequest(http.MethodPost, requestPath, strings.NewReader(`{"node_id":"node-a","backend_id":"vllm"}`))
+		request.AddCookie(cookie)
+		request.Header.Set("X-CSRF-Token", csrf)
+		recorder := httptest.NewRecorder()
+		server.ServeHTTP(recorder, request)
+		if recorder.Code < 200 || recorder.Code >= 300 {
+			t.Fatalf("%s status=%d body=%s", requestPath, recorder.Code, recorder.Body.String())
+		}
+	}
+	if !seenInit || !seenCancel {
+		t.Fatalf("init proxy=%t cancel proxy=%t", seenInit, seenCancel)
 	}
 }

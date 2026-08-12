@@ -129,8 +129,8 @@ func (manager *Manager) CreateJob(ctx context.Context, request CreateJobRequest)
 	if mode == "" {
 		mode = "smart"
 	}
-	if mode != "smart" && mode != "explicit" {
-		return DownloadJob{}, fmt.Errorf("download mode must be smart or explicit")
+	if mode != "smart" && mode != "explicit" && mode != "snapshot" {
+		return DownloadJob{}, fmt.Errorf("download mode must be smart, explicit, or snapshot")
 	}
 	plan, err := manager.Plan(ctx, PlanRequest{Repository: request.Repository, Revision: request.Revision, Files: request.Files, Mode: mode, Token: request.Token})
 	if err != nil {
@@ -149,7 +149,7 @@ func (manager *Manager) CreatePlannedJob(plan DownloadPlan, operationToken strin
 	if err := manager.ensureReplacementAllowed(plan, confirmReplace); err != nil {
 		return DownloadJob{}, err
 	}
-	job := DownloadJob{ID: randomJobID(), Repository: plan.Repository, Revision: plan.Revision, Commit: plan.Commit, State: JobQueued, TotalBytes: plan.TotalBytes, Files: make([]JobFile, 0, len(plan.Files))}
+	job := DownloadJob{ID: randomJobID(), Repository: plan.Repository, Revision: plan.Revision, Commit: plan.Commit, State: JobQueued, TotalBytes: plan.TotalBytes, Snapshot: plan.Snapshot, Files: make([]JobFile, 0, len(plan.Files))}
 	for _, file := range plan.Files {
 		job.Files = append(job.Files, JobFile{Path: file.Path, Reason: file.Reason, ExpectedSHA256: file.LFSHash, Size: file.Size, State: string(JobQueued)})
 	}
@@ -513,17 +513,50 @@ func (manager *Manager) transfer(ctx context.Context, job DownloadJob) error {
 		}
 		manager.publish(current)
 	}
+	if job.Snapshot {
+		treeDigest, err := computeDownloadedSnapshotDigest(manager.config.Storage.Root, job.Repository, job.Commit, job.Files)
+		if err != nil {
+			return err
+		}
+		current, found, err := manager.store.Job(job.ID)
+		if err != nil || !found {
+			return fmt.Errorf("download job disappeared")
+		}
+		current.TreeSHA256 = treeDigest
+		if err := manager.store.SaveJob(current); err != nil {
+			return err
+		}
+	}
 	completed = true
 	return nil
 }
 
 func (manager *Manager) promote(job DownloadJob, file JobFile, stagedPath string, hash string) error {
-	destination, err := DestinationPath(manager.config.Storage.Root, job.Repository, file.Path)
+	destination, err := downloadDestinationPath(manager.config.Storage.Root, job.Repository, job.Commit, job.Snapshot, file.Path)
 	if err != nil {
 		return err
 	}
 	if err := ensureDirectory(filepath.Dir(destination)); err != nil {
 		return err
+	}
+	if job.Snapshot {
+		info, statErr := os.Lstat(destination)
+		if statErr == nil {
+			if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+				return fmt.Errorf("immutable snapshot destination is not a regular file")
+			}
+			existingHash, existingSize, hashErr := SHA256File(destination)
+			if hashErr != nil {
+				return hashErr
+			}
+			if existingHash != hash || existingSize != file.Size {
+				return fmt.Errorf("immutable snapshot destination already exists with different content")
+			}
+			return nil
+		}
+		if !os.IsNotExist(statErr) {
+			return statErr
+		}
 	}
 	temporary, err := preparePromotionFile(job.ID, stagedPath, destination, hash)
 	if err != nil {
@@ -564,7 +597,7 @@ func (manager *Manager) promote(job DownloadJob, file JobFile, stagedPath string
 	if err := manager.recordArtifact(record); err != nil {
 		return err
 	}
-	if manager.config.Scanning.WriteHashSidecars {
+	if manager.config.Scanning.WriteHashSidecars && !job.Snapshot {
 		return WriteHashSidecar(destination, hash)
 	}
 	return nil
@@ -663,7 +696,7 @@ func secureStagingPath(staging string, repositoryPath string) (string, error) {
 
 func (manager *Manager) ensureReplacementAllowed(plan DownloadPlan, confirmed bool) error {
 	for _, file := range plan.Files {
-		destination, err := DestinationPath(manager.config.Storage.Root, plan.Repository, file.Path)
+		destination, err := downloadDestinationPath(manager.config.Storage.Root, plan.Repository, plan.Commit, plan.Snapshot, file.Path)
 		if err != nil {
 			return err
 		}
@@ -674,7 +707,9 @@ func (manager *Manager) ensureReplacementAllowed(plan DownloadPlan, confirmed bo
 		if found && record.Revision == plan.Commit {
 			continue
 		}
-		if _, err := os.Lstat(destination); err == nil && !confirmed {
+		if _, err := os.Lstat(destination); err == nil && plan.Snapshot {
+			return fmt.Errorf("immutable snapshot destination already exists")
+		} else if err == nil && !confirmed {
 			return fmt.Errorf("repository revision replacement requires explicit confirmation")
 		} else if err != nil && !os.IsNotExist(err) {
 			return err

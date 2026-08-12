@@ -1882,6 +1882,15 @@ td {
   gap: 12px;
 }
 
+.node-backend-chips,
+.node-backend-actions,
+.node-backend-runtime {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .node-state-header h3,
 .node-backend-heading h4,
 .node-active-requests h4 {
@@ -1907,6 +1916,22 @@ td {
 .node-loaded-models {
   display: grid;
   gap: 8px;
+}
+
+.node-backend-lifecycle {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+}
+
+.node-backend-progress {
+  width: min(100%, 360px);
+  accent-color: var(--violet);
+}
+
+.node-backend-init-action {
+  background: transparent;
+  line-height: 1;
 }
 
 .node-loaded-model {

@@ -118,6 +118,80 @@ func TestCatalogParsesOptionalBackendMode(t *testing.T) {
 	}
 }
 
+func TestCatalogParsesVLLMSnapshotAndServedNames(t *testing.T) {
+	dir := t.TempDir()
+	writeCatalogFile(t, dir, "embed.kcpps", `{
+		"backend_mode":"vllm",
+		"vllm":{
+			"snapshot":{"repository":"org/model","revision":"commit","path":"snapshot","tree_digest":"sha256:abc"},
+			"runner":"pooling",
+			"task":"embedding",
+			"served_names":["public-embed","public-embed","  "],
+			"static_adapters":[{"name":"adapter-one","path":"adapters/one","tree_digest":"sha256:def"}],
+			"settings":{"dtype":"float16","max_model_length":4096},
+			"serve_args":["--enable-chunked-prefill"]
+		}
+	}`)
+
+	models, err := New(dir).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 1 || models[0].BackendMode != "vllm" || models[0].HasLLM || !models[0].HasEmbeddings {
+		t.Fatalf("unexpected vLLM catalog model: %#v", models)
+	}
+	if models[0].VLLMTask != "embedding" || len(models[0].ServedNames) != 2 || models[0].ServedNames[0] != "public-embed" || models[0].ServedNames[1] != "adapter-one" {
+		t.Fatalf("vLLM identity was not normalized: %#v", models[0])
+	}
+	alias, ok, err := New(dir).Resolve("public-embed")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || alias.ID != "embed" || alias.Filename != "embed.kcpps" {
+		t.Fatalf("served name did not resolve to immutable config: %#v", alias)
+	}
+	adapter, ok, err := New(dir).Resolve("adapter-one")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok || adapter.ID != "embed" || adapter.Filename != "embed.kcpps" {
+		t.Fatalf("static adapter did not resolve to immutable config: %#v", adapter)
+	}
+	runtimeConfig, err := LoadRuntimeConfig(filepath.Join(dir, "embed.kcpps"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtimeConfig.VLLM.Snapshot.Repository != "org/model" || runtimeConfig.VLLM.Settings.MaxModelLength != 4096 || len(runtimeConfig.VLLM.ServeArgs) != 1 {
+		t.Fatalf("vLLM runtime configuration was not preserved: %#v", runtimeConfig.VLLM)
+	}
+}
+
+func TestCatalogUsesVLLMRunnerWhenTaskIsOmitted(t *testing.T) {
+	dir := t.TempDir()
+	writeCatalogFile(t, dir, "generation.kcpps", `{"backend_mode":"vllm","vllm":{"runner":"generate"}}`)
+	writeCatalogFile(t, dir, "pooling.kcpps", `{"backend_mode":"vllm","vllm":{"runner":"pooling"}}`)
+
+	models, err := New(dir).List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(models) != 2 || !models[0].HasLLM || models[0].VLLMTask != "generate" || !models[1].HasEmbeddings || models[1].VLLMTask != "pooling" {
+		t.Fatalf("vLLM runner capabilities were not inferred %#v", models)
+	}
+}
+
+func TestCatalogRejectsAmbiguousVLLMServedName(t *testing.T) {
+	dir := t.TempDir()
+	writeCatalogFile(t, dir, "first.kcpps", `{"backend_mode":"vllm","vllm":{"task":"generate","served_names":["shared"]}}`)
+	writeCatalogFile(t, dir, "second.kcpps", `{"backend_mode":"vllm","vllm":{"task":"generate","served_names":["shared"]}}`)
+
+	if model, ok, err := New(dir).Resolve("shared"); err != nil {
+		t.Fatal(err)
+	} else if ok {
+		t.Fatalf("ambiguous served name resolved to %#v", model)
+	}
+}
+
 func TestRuntimeConfigParsesRouterUnloadPolicy(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "strict.kcpps")

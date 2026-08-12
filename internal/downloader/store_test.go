@@ -3,6 +3,7 @@ package downloader
 import (
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -21,6 +22,8 @@ func TestStoreSavesAndLoadsJob(t *testing.T) {
 		State:          JobQueued,
 		TotalBytes:     128,
 		CompletedBytes: 0,
+		Snapshot:       true,
+		TreeSHA256:     strings.Repeat("a", 64),
 		Files: []JobFile{{
 			Path:           "model.gguf",
 			Reason:         "requested",
@@ -37,7 +40,7 @@ func TestStoreSavesAndLoadsJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !found || got.Commit != want.Commit || len(got.Files) != 1 || got.Files[0].Path != want.Files[0].Path {
+	if !found || got.Commit != want.Commit || !got.Snapshot || got.TreeSHA256 != want.TreeSHA256 || len(got.Files) != 1 || got.Files[0].Path != want.Files[0].Path {
 		t.Fatalf("unexpected stored job %#v", got)
 	}
 }

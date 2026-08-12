@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { renderNodeCard, renderNodeStateSnapshot } from "../node-state-view";
-import type { NodeInventory, NodeState } from "../types";
+import type { BackendLifecycleState, NodeInventory, NodeState, NodeStateBackend } from "../types";
 
 function snapshot(): NodeState {
   return {
@@ -10,12 +10,14 @@ function snapshot(): NodeState {
         id: "sd-server",
         display_name: "stable-diffusion.cpp",
         mode: "llama_sdcpp",
+        lifecycle_state: "ready",
         loaded_models: []
       },
       {
         id: "koboldcpp",
         display_name: "Kobold <unsafe>",
         mode: "kobold",
+        lifecycle_state: "ready",
         loaded_models: [
           {model_id: "model <one>", lane: "text", runtime_id: "kobold-text", generation: 7},
           {model_id: "model two", lane: "embeddings", runtime_id: "kobold-embeddings", generation: 8}
@@ -53,7 +55,84 @@ describe("node state view", () => {
     expect(buttons[1]).not.toContain("disabled");
     expect(buttons[0]).toContain('data-generation="7"');
   });
+
+  it("renders the exact initialization action for needs-init and retryable failures", () => {
+    const needsInitialization = renderVLLMBackend("needs_init", {selected_profile: "auto"});
+    const retryableFailure = renderVLLMBackend("failed", {error: "import <failed>", retryable: true});
+    const terminalFailure = renderVLLMBackend("failed", {error: "unsupported build", retryable: false});
+
+    expect(needsInitialization).toContain('data-node-backend-init');
+    expect(needsInitialization).toContain('data-profile="auto"');
+    expect(needsInitialization).toContain(">backend needs init</button>");
+    expect(retryableFailure).toContain(">backend needs init</button>");
+    expect(retryableFailure).toContain("import &lt;failed&gt;");
+    expect(terminalFailure).not.toContain("backend needs init");
+  });
+
+  it("renders initialization progress, disables start, and permits cancellation", () => {
+    const html = renderVLLMBackend("initializing", {
+      selected_profile: "cuda",
+      detected_profile: "nvidia-h100",
+      initialization_phase: "smoke <test>",
+      initialization_bytes: 1024,
+      initialization_total_bytes: 2048
+    });
+
+    expect(html).toContain("smoke &lt;test&gt;");
+    expect(html).toContain('value="1024" max="2048"');
+    expect(html).toContain("1.0 KB / 2.0 KB (50%)");
+    expect(html).toMatch(/<button[^>]*disabled>backend needs init<\/button>/);
+    expect(html).toContain("data-node-backend-init-cancel");
+  });
+
+  it("disables initialization and cancellation controls while each action is pending", () => {
+    const needsInitialization: NodeState = {
+      node_id: "node-a",
+      backends: [{id: "vllm", display_name: "vLLM", mode: "vllm", lifecycle_state: "needs_init", loaded_models: []}],
+      active_requests: []
+    };
+    const initializing: NodeState = {
+      node_id: "node-a",
+      backends: [{id: "vllm", display_name: "vLLM", mode: "vllm", lifecycle_state: "initializing", loaded_models: []}],
+      active_requests: []
+    };
+
+    const pendingStart = renderNodeStateSnapshot(needsInitialization, "", "init\u0000vllm");
+    const pendingCancel = renderNodeStateSnapshot(initializing, "", "cancel\u0000vllm");
+
+    expect(pendingStart).toMatch(/<button[^>]*disabled>backend needs init<\/button>/);
+    expect(pendingCancel).toContain('data-node-backend-init-cancel data-backend-id="vllm" disabled>Cancelling...</button>');
+  });
+
+  it("renders ready identity and suppresses init for unsupported or missing companions", () => {
+    const ready = renderVLLMBackend("ready", {runtime_version: "0.10.2", selected_profile: "rocm"});
+    const unsupported = renderVLLMBackend("unsupported", {error: "Requires Linux <host>"});
+    const missing = renderVLLMBackend("companion_missing");
+
+    expect(ready).toContain("Version: 0.10.2");
+    expect(ready).toContain("Profile: rocm");
+    expect(ready).toContain("No loaded models.");
+    expect(unsupported).toContain("Requires Linux &lt;host&gt;");
+    expect(unsupported).not.toContain("data-node-backend-init");
+    expect(missing).toContain("vLLM companion is missing.");
+    expect(missing).not.toContain("data-node-backend-init");
+  });
 });
+
+function renderVLLMBackend(lifecycleState: BackendLifecycleState, values: Partial<NodeStateBackend> = {}): string {
+  return renderNodeStateSnapshot({
+    node_id: "node-a",
+    backends: [{
+      id: "vllm",
+      display_name: "vLLM",
+      mode: "vllm",
+      lifecycle_state: lifecycleState,
+      loaded_models: [],
+      ...values
+    }],
+    active_requests: []
+  }, "");
+}
   it("renders node selection as a keyboard-clickable button", () => {
     const node: NodeInventory = {
       node_id: "node <one>",

@@ -9,8 +9,9 @@ The main executables are:
 - `tensors-router` for routing and backend process management
 - `tensor-router-webui` for the optional management interface
 - `tensor-router-downloader` for model downloads used by the management interface
+- `tensor-router-vllm` for isolated vLLM runtime installation and process management on Linux amd64, Linux arm64, and macOS arm64
 
-Keep the router and downloader companion executables in the same directory when `downloader.binary_location` should be discovered automatically. The WebUI obtains downloader availability from the router.
+Keep companion executables in the same directory as the router when automatic discovery is required. The WebUI obtains companion availability from the router. Native Windows archives do not include `tensor-router-vllm`; use a Linux deployment in WSL 2 for vLLM on a Windows host.
 
 ## Build from source
 
@@ -18,6 +19,7 @@ Requirements:
 
 - Go matching the version used by the build workflow
 - Node.js and npm for the WebUI bundle
+- `uv` 0.12.0 when building the vLLM companion, so the platform-matched executable can be embedded
 
 Build on the current platform:
 
@@ -29,6 +31,12 @@ cd ..
 go build -o tensors-router ./cmd/tensors-router
 go build -o tensor-router-webui ./cmd/tensor-router-webui
 go build -o tensor-router-downloader ./cmd/tensor-router-downloader
+```
+
+On Linux amd64, Linux arm64, or macOS arm64, also build the vLLM companion:
+
+```sh
+go build -o tensor-router-vllm ./cmd/tensor-router-vllm
 ```
 
 Build Linux binaries with the Makefile:
@@ -44,6 +52,12 @@ Build Windows binaries:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\scripts\build-windows.ps1
+```
+
+Build the full macOS arm64 suite on Apple Silicon:
+
+```sh
+bash scripts/build-macos.sh
 ```
 
 Generated cross-platform binaries are written to `dist`.

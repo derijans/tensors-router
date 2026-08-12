@@ -33,6 +33,7 @@ import (
 	"tensors-router/internal/recipes"
 	"tensors-router/internal/transportbody"
 	routerupdate "tensors-router/internal/update"
+	"tensors-router/internal/vllm"
 )
 
 func main() {
@@ -133,6 +134,8 @@ func runServe(args []string) error {
 	var analyticsStore *routeranalytics.Store
 	var loadCaptureStore *loadcapture.Store
 	var downloaderManager downloader.Service
+	var vllmManager vllm.Service
+	var vllmUnavailableReason string
 	var routerService *proxy.Service
 	var shutdownBackends []func(context.Context) error
 	runtimeCleaned := false
@@ -141,7 +144,7 @@ func runServe(args []string) error {
 			return nil
 		}
 		runtimeCleaned = true
-		return errors.Join(closeRouterRuntime(routerService, modelCatalog, analyticsStore, shutdownBackends, serveLogger), loadCaptureStore.Close(), closeDownloader(downloaderManager))
+		return errors.Join(closeRouterRuntime(routerService, modelCatalog, analyticsStore, shutdownBackends, serveLogger), loadCaptureStore.Close(), closeDownloader(downloaderManager), closeVLLM(vllmManager))
 	}
 	defer func() {
 		if err := cleanupRuntime(); err != nil {
@@ -196,6 +199,10 @@ func runServe(args []string) error {
 	clusterProbeClient := routercluster.NewClientWithTimeout(cfg.Cluster.Token, cfg.Cluster.ControlTimeout, clusterProbeTargets(cfg)...)
 	clusterClient := routercluster.NewClientWithTimeout(cfg.Cluster.Token, cfg.Cluster.ControlTimeout, clusterRoutingTargets(cfg)...)
 	downloaderManager, downloaderCapability := optionalDownloader(*configPath, cfg.Downloader, startupLogger)
+	vllmManager, vllmUnavailableReason = optionalVLLMCompanion(*configPath, cfg.VLLM, startupLogger)
+	if vllmUnavailableReason != "" {
+		startupLogger.Printf("vLLM companion unavailable reason=%q", vllmUnavailableReason)
+	}
 	if downloaderManager != nil {
 		downloaderManager.SetArtifactHandler(func(artifact downloader.ArtifactRecord) error {
 			return indexDownloadedArtifact(assetIndex, artifact)
@@ -224,6 +231,9 @@ func runServe(args []string) error {
 	backendFamilies, backendShutdowns, err := createBackends(ctx, cfg, mcpReconciler)
 	if err != nil {
 		return err
+	}
+	for mode, family := range vllmBackendFamilies(vllmManager, cfg.Models.ConfigDir) {
+		backendFamilies[mode] = family
 	}
 	shutdownBackends = backendShutdowns
 
@@ -261,6 +271,7 @@ func runServe(args []string) error {
 			"llama-server":   cfg.Llama.BinaryPath,
 			"sd-server":      cfg.SDCPP.BinaryPath,
 			"whisper-server": cfg.WhisperCPP.BinaryPath,
+			"vllm":           vllmBinaryPathForState(*configPath, cfg.VLLM.BinaryLocation),
 		},
 		RecipeStore:               recipeStore,
 		BenchmarkStore:            benchmarkStore,
@@ -272,6 +283,10 @@ func runServe(args []string) error {
 		VRAMSampleInterval:        cfg.Analytics.VRAMSampleInterval,
 		Downloader:                downloaderManager,
 		DownloaderCapability:      downloaderCapability,
+		VLLM:                      vllmManager,
+		VLLMUnavailableReason:     vllmUnavailableReason,
+		VLLMDynamicLoRAEnabled:    cfg.VLLM.DynamicLoRAEnabled,
+		VLLMEEPEnabled:            cfg.VLLM.EEPEnabled,
 		Logger:                    serveLogger,
 		Shutdown:                  routerShutdownFunc(cfg, shutdownRequested),
 		TransportLimits: transportbody.Limits{
@@ -481,7 +496,7 @@ func createBackends(ctx context.Context, cfg config.Config, mcpReconciler *mcp.R
 		return nil, nil, err
 	}
 
-	if cfg.Backend.Mode != proxy.BackendModeLlamaSDCPP {
+	if cfg.Backend.Mode == proxy.BackendModeKobold {
 		if err := koboldManager.Start(ctx); err != nil {
 			return nil, nil, err
 		}

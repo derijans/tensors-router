@@ -64,11 +64,14 @@ func BuildPlan(details RepositoryDetails, requested []string, mode string, stora
 	}
 	sort.Slice(planned, func(left int, right int) bool { return planned[left].Path < planned[right].Path })
 	destination, err := RepositoryDirectory(storageRoot, details.Repository)
+	if mode == "snapshot" {
+		destination, err = SnapshotDirectory(storageRoot, details.Repository, details.Commit)
+	}
 	if err != nil {
 		return DownloadPlan{}, err
 	}
 	gated := details.Gated != "" && details.Gated != "false"
-	return DownloadPlan{Repository: details.Repository, Revision: details.Revision, Commit: details.Commit, Files: planned, TotalBytes: total, Destination: destination, UnsafeWarning: gated || unsafe || (details.Security != "" && details.Security != "safe")}, nil
+	return DownloadPlan{Repository: details.Repository, Revision: details.Revision, Commit: details.Commit, Files: planned, TotalBytes: total, Destination: destination, UnsafeWarning: gated || unsafe || (details.Security != "" && details.Security != "safe"), Snapshot: mode == "snapshot"}, nil
 }
 
 func addSmartDependencies(repositoryFiles []File, planned map[string]PlannedFile, selected map[string]bool) {

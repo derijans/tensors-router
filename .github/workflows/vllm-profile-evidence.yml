@@ -1,0 +1,135 @@
+name: Validate vLLM runtime profiles
+
+on:
+  workflow_dispatch:
+    inputs:
+      manifest_bundle:
+        description: Relative path containing reviewed manifests in this commit
+        required: true
+        type: string
+      runner_run_ids:
+        description: Comma-separated successful vLLM profile runner run IDs for this commit
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  validate:
+    name: Validate hardware runner evidence
+    runs-on: ubuntu-latest
+    environment: vllm-profile-publication
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Resolve manifest bundle
+        id: bundle
+        env:
+          REQUESTED_BUNDLE: ${{ inputs.manifest_bundle }}
+        shell: bash
+        run: |
+          [[ "$REQUESTED_BUNDLE" =~ ^tuf/profile-evidence/[A-Za-z0-9._/-]+$ ]]
+          [[ "$REQUESTED_BUNDLE" != *".."* ]]
+          BUNDLE_PATH="$(realpath -e "$REQUESTED_BUNDLE")"
+          case "$BUNDLE_PATH" in
+            "$GITHUB_WORKSPACE"/tuf/profile-evidence/*) ;;
+            *) echo "manifest bundle escaped tuf/profile-evidence" >&2; exit 1 ;;
+          esac
+          for platform in linux-amd64 linux-arm64 darwin-arm64; do
+            test -f "$BUNDLE_PATH/manifests/$platform.json"
+          done
+          echo "path=$BUNDLE_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Authenticate runner receipts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_IDS: ${{ inputs.runner_run_ids }}
+        shell: bash
+        run: |
+          mkdir -p .tmp/vllm-receipts
+          mapfile -t run_ids < <(tr ',' '\n' <<<"$RUN_IDS" | sed '/^[[:space:]]*$/d' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+          test "${#run_ids[@]}" -gt 0
+          for run_id in "${run_ids[@]}"; do
+            [[ "$run_id" =~ ^[1-9][0-9]*$ ]]
+            run_path=".tmp/vllm-run-$run_id.json"
+            gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id" > "$run_path"
+            jq -e \
+              --arg repository "$GITHUB_REPOSITORY" \
+              --arg commit "$GITHUB_SHA" \
+              '.conclusion == "success" and .event == "workflow_dispatch" and .path == ".github/workflows/vllm-profile-runner.yml" and .head_sha == $commit and .head_repository.full_name == $repository' \
+              "$run_path" >/dev/null
+            receipt_dir=".tmp/vllm-receipts/$run_id"
+            gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name vllm-profile-result --dir "$receipt_dir"
+            receipt="$receipt_dir/result.json"
+            test -f "$receipt"
+            expected_url="$(jq -r '.html_url' "$run_path")"
+            receipt_manifest="$(jq -r '.manifest_sha256' "$receipt")"
+            receipt_platform="$(jq -r '.operating_system + "-" + .architecture' "$receipt")"
+            bundled_manifest="${{ steps.bundle.outputs.path }}/manifests/$receipt_platform.json"
+            test -f "$bundled_manifest"
+            jq -e --arg url "$expected_url" '.run_url == $url and (.runner | length) > 0' "$receipt" >/dev/null
+            test "$receipt_manifest" = "$(sha256sum "$bundled_manifest" | awk '{print $1}')"
+            runner_name="$(jq -r '.runner' "$receipt")"
+            operating_system="$(jq -r '.operating_system' "$receipt")"
+            architecture="$(jq -r '.architecture' "$receipt")"
+            device="$(jq -r '.device' "$receipt")"
+            jobs_path=".tmp/vllm-jobs-$run_id.json"
+            gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?filter=all&per_page=100" --slurp | jq '{jobs: map(.jobs[]) }' > "$jobs_path"
+            jq -e \
+              --arg runner "$runner_name" \
+              --arg os "vllm-$operating_system" \
+              --arg arch "vllm-$architecture" \
+              --arg device "vllm-$device" \
+              '[.jobs[] | select(.name == "Validate vLLM profile" and .conclusion == "success" and .runner_name == $runner and (.labels | index("self-hosted")) and (.labels | index($os)) and (.labels | index($arch)) and (.labels | index($device)))] | length == 1' \
+              "$jobs_path" >/dev/null
+          done
+          jq -s '.' .tmp/vllm-receipts/*/result.json > .tmp/vllm-profile-results.json
+
+      - name: Build authenticated evidence bundle
+        env:
+          BUNDLE_PATH: ${{ steps.bundle.outputs.path }}
+        shell: bash
+        run: |
+          output=.tmp/vllm-runtime-profile-evidence
+          mkdir -p "$output/manifests"
+          cp "$BUNDLE_PATH"/manifests/*.json "$output/manifests/"
+          jq -n \
+            --arg commit "$GITHUB_SHA" \
+            --arg generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{schema: 1, source_commit: $commit, generated_at: $generated, manifests: []}' > "$output/evidence.json"
+          for platform in linux-amd64 linux-arm64 darwin-arm64; do
+            operating_system="${platform%-*}"
+            architecture="${platform##*-}"
+            manifest="$output/manifests/$platform.json"
+            sha256="$(sha256sum "$manifest" | awk '{print $1}')"
+            jq \
+              --arg platform "$platform" \
+              --arg path "$platform.json" \
+              --arg sha256 "$sha256" \
+              --arg operating_system "$operating_system" \
+              --arg architecture "$architecture" \
+              --slurpfile results .tmp/vllm-profile-results.json \
+              '.manifests += [{platform: $platform, path: $path, sha256: $sha256, profile_results: ($results[0] | map(select(.operating_system == $operating_system and .architecture == $architecture)))}]' \
+              "$output/evidence.json" > "$output/evidence.next.json"
+            mv "$output/evidence.next.json" "$output/evidence.json"
+          done
+
+      - name: Validate evidence and release matrix
+        run: go test ./internal/tufpublish && go run ./cmd/tensor-router-tuf-evidence-validator -evidence .tmp/vllm-runtime-profile-evidence -source-commit "$GITHUB_SHA"
+
+      - name: Upload validated evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: vllm-runtime-profile-evidence
+          path: .tmp/vllm-runtime-profile-evidence
+          if-no-files-found: error
+          retention-days: 14

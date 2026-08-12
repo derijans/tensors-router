@@ -112,6 +112,7 @@ export interface AppState {
     pollGeneration: number;
     pollTimer: number | null;
     pendingUnload: string;
+    pendingBackendAction: string;
   };
   models: {
     activeSubtab: ModelInventorySubtab;

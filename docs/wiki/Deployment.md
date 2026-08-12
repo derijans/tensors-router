@@ -2,9 +2,9 @@
 
 ## Release binaries
 
-[GitHub Releases](https://github.com/derijans/tensors-router/releases) contain router, WebUI, and downloader binaries for the published operating systems and architectures. Archives and individual binaries include checksum files.
+[GitHub Releases](https://github.com/derijans/tensors-router/releases) contain router, WebUI, and downloader binaries for the published operating systems and architectures. Linux amd64, Linux arm64, and macOS arm64 archives also contain `tensor-router-vllm`. Archives and individual binaries include checksum files.
 
-Keep the three companion binaries together when automatic discovery is required.
+Keep companion binaries beside `tensors-router` when automatic discovery is required. Windows and Linux armv7 archives remain three-executable suites because upstream vLLM is not supported there. On Windows, use the Linux archive inside WSL 2 rather than treating the companion as a native Windows executable.
 
 ## Native process layout
 
@@ -49,8 +49,10 @@ The repository publishes separate images:
 
 - `ghcr.io/derijans/tensors-router/tensors-router-node:{tag}`
 - `ghcr.io/derijans/tensors-router/tensors-router-webui:{tag}`
+- `ghcr.io/derijans/tensors-router/tensors-router-vllm-node:{tag}`
+- `ghcr.io/derijans/tensors-router/tensors-router-vllm-webui:{tag}`
 
-The node image contains the router and downloader. The WebUI image also contains the WebUI and can run a managed router. Both images run as UID and GID `10001`.
+The standard node and WebUI images remain Alpine-based and contain no Python. vLLM variants use a glibc runtime and add `tensor-router-vllm`; Python and vLLM are still installed only after an explicit administrator initialization action. All images run as UID and GID `10001`.
 
 ## Docker storage layout
 
@@ -72,6 +74,8 @@ Set two absolute host paths:
 | `backends` | `/backends` | Read-write |
 
 Each stack creates a named `/data` volume. It contains downloader state and SQLite data, analytics, WebUI certificates and state, cluster registry, recipes, benchmarks, and model asset indexes. Back up this volume separately from the host folders.
+
+The vLLM Compose overlay adds a separate persistent volume at `/data/vllm` for initialization jobs and content-addressed environments. Model snapshots remain on the independently mounted `/models` path. It defaults shared memory to `4gb`; set `TENSORS_ROUTER_VLLM_SHM_SIZE` when a validated profile needs a different limit. Back up `/data/vllm`; initialization cancellation and failed staging preserve the previously promoted environment.
 
 Prepare a WebUI host layout before deployment:
 
@@ -115,6 +119,22 @@ Add AMD access:
 ```sh
 docker compose -f deploy/compose.base.yaml -f deploy/compose.amd.yaml --profile webui up -d router-webui
 ```
+
+Run a glibc vLLM node:
+
+```sh
+docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml --profile node up -d router-node
+```
+
+Add accelerator access to the vLLM deployment with exactly one applicable overlay:
+
+```sh
+docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml -f deploy/compose.nvidia.yaml --profile node up -d router-node
+docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml -f deploy/compose.amd.yaml --profile node up -d router-node
+docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml -f deploy/compose.intel.yaml --profile node up -d router-node
+```
+
+These overlays expose devices only. Install compatible host drivers and vendor runtime prerequisites before initialization. They do not install drivers, vendor SDKs, kernel modules, compilers, container engines, or privileged OS packages. Plugin hardware may need vendor-specific devices, groups, security policies, and a signed profile validated on the matching vendor runner; follow that plugin vendor's deployment documentation.
 
 The supplied configurations use `secure`. The bootstrap helper creates separate 256-bit inference, router-admin, cluster, and WebUI-admin credentials below `secrets/`, with a `0700` directory and `0600` files. Compose mounts them through `/run/secrets`; it never places credential values in the stack environment.
 
@@ -162,6 +182,8 @@ Build both targets:
 ```sh
 podman build --target node -t localhost/tensors-router-node -f Containerfile .
 podman build --target webui -t localhost/tensors-router-webui -f Containerfile .
+podman build --target vllm-node -t localhost/tensors-router-vllm-node -f Containerfile.vllm .
+podman build --target vllm-webui -t localhost/tensors-router-vllm-webui -f Containerfile.vllm .
 ```
 
 Use the same paths, mounts, named `/data` volume, and device configuration as the Compose definitions. The published Compose files are the canonical mount contract.
