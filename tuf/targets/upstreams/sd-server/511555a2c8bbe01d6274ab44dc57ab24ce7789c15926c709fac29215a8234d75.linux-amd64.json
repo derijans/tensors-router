@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "368835299",
+      "tag": "master-817-bcc7e29",
+      "published_at": "2026-08-11T20:23:24Z",
+      "payloads": [
+        {
+          "name": "sd-master-bcc7e29-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-817-bcc7e29/sd-master-bcc7e29-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 32788377,
+          "sha256": "f9904035234a6e7ac0055bde1f5f81ddd0a765047593c13873adbd4f57716661"
+        }
+      ]
+    }
+  ]
+}
