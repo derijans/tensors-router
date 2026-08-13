@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "369450414",
+      "tag": "master-820-de298c2",
+      "published_at": "2026-08-12T18:33:16Z",
+      "payloads": [
+        {
+          "name": "sd-master-de298c2-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-820-de298c2/sd-master-de298c2-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 32895115,
+          "sha256": "7ecc39e2485ec871d127d004d2bac4c2640eea7d0235cb6b131a8006322e0ce3"
+        }
+      ]
+    }
+  ]
+}

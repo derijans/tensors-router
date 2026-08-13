@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "369450414",
+      "tag": "master-820-de298c2",
+      "published_at": "2026-08-12T18:33:16Z",
+      "payloads": [
+        {
+          "name": "sd-master-de298c2-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-820-de298c2/sd-master-de298c2-bin-win-cpu-x64.zip",
+          "length": 24051364,
+          "sha256": "54bc213932846c6dbe2119dc6ff71f06112d79700423224b1280729590a68187"
+        }
+      ]
+    }
+  ]
+}
