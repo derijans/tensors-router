@@ -41,7 +41,8 @@ export const state: AppState = {
     error: "",
     pollGeneration: 0,
     pollTimer: null,
-    pendingUnload: ""
+    pendingUnload: "",
+    pendingBackendAction: ""
   },
   models: {
     activeSubtab: "models",

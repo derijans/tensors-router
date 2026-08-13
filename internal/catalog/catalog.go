@@ -54,6 +54,8 @@ type Model struct {
 	UnresolvedFields int
 	AssetFailure     string
 	ChatTemplate     ChatTemplateProfile `json:"-"`
+	ServedNames      []string
+	VLLMTask         string
 }
 
 func New(dir string) *Catalog {
@@ -342,6 +344,9 @@ func (catalog *Catalog) withMetadata(model Model, includeModelHash bool) Model {
 		model.Size = regularFileSize(metadata.TextModelPath())
 	}
 	model.BackendMode = strings.TrimSpace(metadata.BackendMode)
+	if model.BackendMode == "vllm" {
+		applyVLLMMetadata(&model, metadata)
+	}
 	model.MCPEnabled = metadata.MCPEnabled
 	if model.HasImage {
 		model.ImageModelPath = metadata.ImageModelPath()
@@ -359,6 +364,52 @@ func (catalog *Catalog) withMetadata(model Model, includeModelHash bool) Model {
 		model.ModelHash = ModelReferenceHash(content, nil)
 	}
 	return model
+}
+
+func applyVLLMMetadata(model *Model, metadata configMetadata) {
+	model.HasLLM = false
+	model.HasEmbeddings = false
+	model.HasMultimodal = false
+	model.HasVoice = false
+	model.VLLMTask = strings.ToLower(strings.TrimSpace(metadata.VLLM.Task))
+	if model.VLLMTask == "" || model.VLLMTask == "auto" {
+		model.VLLMTask = strings.ToLower(strings.TrimSpace(metadata.VLLM.Runner))
+	}
+	if model.VLLMTask == "" || model.VLLMTask == "auto" {
+		model.VLLMTask = "generate"
+	}
+	servedNames := append([]string{}, metadata.VLLM.ServedNames...)
+	for _, adapter := range metadata.VLLM.StaticAdapters {
+		servedNames = append(servedNames, adapter.Name)
+	}
+	model.ServedNames = normalizedServedNames(servedNames)
+	switch model.VLLMTask {
+	case "generate", "generation", "text", "chat", "multimodal", "generative_scoring":
+		model.HasLLM = true
+		model.HasMultimodal = model.VLLMTask == "multimodal"
+	case "embed", "embedding", "embeddings", "classify", "classification", "score", "scoring", "reward", "rerank", "pooling":
+		model.HasEmbeddings = true
+	case "speech", "transcription", "translation", "realtime":
+		model.HasVoice = true
+	}
+	model.Size = 0
+}
+
+func normalizedServedNames(values []string) []string {
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		result = append(result, value)
+	}
+	return result
 }
 
 func regularFileSize(path string) int64 {
@@ -406,6 +457,21 @@ func newCatalogSnapshot(models []Model, loadErr error) *catalogSnapshot {
 	for _, model := range cloned {
 		snapshot.byID[model.ID] = model
 	}
+	aliasOwners := map[string]int{}
+	for _, model := range cloned {
+		for _, servedName := range model.ServedNames {
+			aliasOwners[servedName]++
+		}
+	}
+	for _, model := range cloned {
+		for _, servedName := range model.ServedNames {
+			if aliasOwners[servedName] == 1 {
+				if _, exists := snapshot.byID[servedName]; !exists {
+					snapshot.byID[servedName] = model
+				}
+			}
+		}
+	}
 	return snapshot
 }
 
@@ -427,6 +493,7 @@ func cloneModel(model Model) Model {
 	}
 	cloned.Capabilities = cloneCapabilities(model.Capabilities)
 	cloned.ChatTemplate = model.ChatTemplate.clone()
+	cloned.ServedNames = append([]string{}, model.ServedNames...)
 	return cloned
 }
 

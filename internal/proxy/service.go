@@ -35,6 +35,7 @@ import (
 	"tensors-router/internal/openai"
 	"tensors-router/internal/recipes"
 	"tensors-router/internal/transportbody"
+	"tensors-router/internal/vllm"
 )
 
 type Backend interface {
@@ -47,6 +48,10 @@ type Backend interface {
 
 type backendExitReporter interface {
 	BackendExitError() error
+}
+
+type backendHTTPClientProvider interface {
+	HTTPClient() *http.Client
 }
 
 type BackendFamilyConfig struct {
@@ -109,6 +114,10 @@ type ServiceConfig struct {
 	MaxControlBodyBytes       int64
 	ConcurrentAssetTransfers  int
 	BackendBinaryPaths        map[string]string
+	VLLM                      vllm.Service
+	VLLMUnavailableReason     string
+	VLLMDynamicLoRAEnabled    bool
+	VLLMEEPEnabled            bool
 }
 
 type Service struct {
@@ -165,6 +174,7 @@ type Service struct {
 	shutdown                  func()
 	benchmarkMu               sync.Mutex
 	sdcppJobs                 *sdcppJobStore
+	vllmResponses             *vllmResponseStore
 	transportLimits           transportbody.Limits
 	transportBudget           *transportbody.Budget
 	maxControlBodyBytes       int64
@@ -172,6 +182,10 @@ type Service struct {
 	autoSTTMu                 sync.Mutex
 	autoSTTNext               uint64
 	backendBinaryPaths        map[string]string
+	vllm                      vllm.Service
+	vllmUnavailableReason     string
+	vllmDynamicLoRAEnabled    bool
+	vllmEEPEnabled            bool
 	nextRuntimeLease          atomic.Uint64
 
 	backendRetryAttempts int
@@ -189,6 +203,7 @@ const (
 	assetLookupTimeout           = 30 * time.Second
 	BackendModeKobold            = backendmode.Kobold
 	BackendModeLlamaSDCPP        = backendmode.LlamaSDCPP
+	BackendModeVLLM              = backendmode.VLLM
 )
 
 type backendRetryResult struct {
@@ -358,9 +373,14 @@ func NewService(config ServiceConfig) *Service {
 		logger:                    logger,
 		shutdown:                  config.Shutdown,
 		sdcppJobs:                 newSdcppJobStore(),
+		vllmResponses:             newVLLMResponseStore(),
 		transportLimits:           config.TransportLimits.Normalized(),
 		maxControlBodyBytes:       maxControlBodyBytes,
 		backendBinaryPaths:        copyStringMap(config.BackendBinaryPaths),
+		vllm:                      config.VLLM,
+		vllmUnavailableReason:     strings.TrimSpace(config.VLLMUnavailableReason),
+		vllmDynamicLoRAEnabled:    config.VLLMDynamicLoRAEnabled,
+		vllmEEPEnabled:            config.VLLMEEPEnabled,
 		client: &http.Client{
 			Timeout: 0,
 		},
@@ -439,8 +459,12 @@ func newBackendFamily(mode string, config BackendFamilyConfig) *backendFamily {
 	if mode == BackendModeLlamaSDCPP && config.ImageBackend != nil {
 		imageRuntime = &backendRuntime{backend: imageBackend, state: newActiveConfigState(), mode: mode, name: mode + "-image"}
 	}
-	if mode == BackendModeLlamaSDCPP && config.TranscriptionBackend != nil {
-		transcriptionRuntime = &backendRuntime{backend: config.TranscriptionBackend, state: newActiveConfigState(), mode: mode, name: mode + "-transcription"}
+	if config.TranscriptionBackend != nil && config.TranscriptionBackend != textBackend {
+		name := mode + "-speech"
+		if mode == BackendModeLlamaSDCPP {
+			name = mode + "-transcription"
+		}
+		transcriptionRuntime = &backendRuntime{backend: config.TranscriptionBackend, state: newActiveConfigState(), mode: mode, name: name}
 	}
 	return &backendFamily{
 		mode:                 mode,
@@ -510,6 +534,14 @@ func (service *Service) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (service *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.URL.Path == "/v1/realtime" {
+		service.handleVLLMRealtime(w, r)
+		return
+	}
+	if _, _, responseOperation := vllmResponseOperation(r.URL.Path); responseOperation {
+		service.handleVLLMResponseOperation(w, r)
+		return
+	}
 	if rejectOllamaMethod(w, r) {
 		return
 	}
@@ -602,6 +634,7 @@ func (service *Service) Draining() bool {
 }
 
 func (service *Service) Close(ctx context.Context) error {
+	service.vllmResponses.close()
 	service.modelStateMu.Lock()
 	for _, cancel := range service.pendingModelUnloads {
 		cancel()
@@ -624,12 +657,19 @@ func (service *Service) handleModels(w http.ResponseWriter) {
 		return
 	}
 
-	models, err := service.catalog.ListLLM()
+	models, err := service.catalog.List()
 	if err != nil {
 		openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
 		return
 	}
-	openai.WriteJSON(w, http.StatusOK, openai.ModelsResponseFromCatalog(models))
+	visible := make([]catalog.Model, 0, len(models))
+	for _, model := range models {
+		mode, modeErr := service.catalogModelBackendMode(model)
+		if model.HasLLM || modeErr == nil && mode == BackendModeVLLM && (model.HasEmbeddings || model.HasVoice) {
+			visible = append(visible, model)
+		}
+	}
+	openai.WriteJSON(w, http.StatusOK, openai.ModelsResponseFromCatalog(visible))
 }
 
 func (service *Service) handleImageModels(w http.ResponseWriter) {
@@ -816,8 +856,9 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 	analyticsEvent := service.newAnalyticsEvent(started, r, body, model.ImageID, routeranalytics.SectionImage, modelBackendMode)
 	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, model.ImageID, model.Filename, hasModel, readinessImage, modelBackendMode)
 	if err != nil {
-		service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		status, _, _ := backendFailureResponse(err)
+		service.recordAnalyticsFailure(analyticsEvent, status, workFinalizer)
+		writeBackendFailure(w, err)
 		return
 	}
 
@@ -904,6 +945,9 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 			}
 			configFilename = model.Filename
 			backendModelID = model.ID
+			if selectedBackendMode == BackendModeVLLM {
+				backendModelID = vllmRequestModelID(modelID, model.ID, model.ServedNames)
+			}
 			selectedModel = model
 		}
 	}
@@ -912,6 +956,10 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 			openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", "audio route is not supported by the selected split backend config")
 			return
 		}
+	}
+	if selectedBackendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
+		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		return
 	}
 
 	requestBody := body
@@ -934,10 +982,11 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 	}
 	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readiness, selectedBackendMode)
 	if err != nil {
+		status, _, _ := backendFailureResponse(err)
 		if analyticsModelID != "" {
-			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
+			service.recordAnalyticsFailure(analyticsEvent, status, workFinalizer)
 		}
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		writeBackendFailure(w, err)
 		return
 	}
 	if analyticsModelID != "" {
@@ -1077,6 +1126,14 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
+	if !hasModel && selectorlessVLLMPath(r.URL.Path) {
+		modelID, err = service.selectSelectorlessVLLMModel(r.URL.Path)
+		if err != nil {
+			writeTransportRouteError(w, err)
+			return
+		}
+		hasModel = true
+	}
 	if requireModel && !hasModel {
 		service.logger.Printf("model missing path=%s remote=%s", r.URL.Path, r.RemoteAddr)
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "model is required")
@@ -1125,6 +1182,13 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 			return
 		}
+		if selectedBackendMode == BackendModeVLLM {
+			backendModelID = vllmRequestModelID(modelID, model.ID, model.ServedNames)
+		}
+	}
+	if selectedBackendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
+		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		return
 	}
 
 	if hasModel && selectedBackendMode == BackendModeLlamaSDCPP && selectedModel.HasImage && !isEmbeddingsPath(r.URL.Path) {
@@ -1135,6 +1199,9 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 	}
 
 	readiness := modelReadiness(r.URL.Path)
+	if selectedBackendMode == BackendModeVLLM {
+		readiness = vllmReadinessForTask(r.URL.Path, selectedModel.VLLMTask)
+	}
 	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, backendModelID, readiness, selectedModel.ChatTemplate, hasModel && backendModelID != modelID)
 	if transformErr != nil {
 		writeTransportError(w, transformErr)
@@ -1145,11 +1212,19 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 	analyticsEvent := service.newAnalyticsEvent(started, r, requestBody, backendModelID, textAnalyticsSection(r.URL.Path), selectedBackendMode)
 	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readiness, selectedBackendMode)
 	if err != nil {
+		status, _, _ := backendFailureResponse(err)
 		if hasModel {
-			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
+			service.recordAnalyticsFailure(analyticsEvent, status, workFinalizer)
 		}
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		writeBackendFailure(w, err)
 		return
+	}
+	if selectedBackendMode == BackendModeVLLM && r.URL.Path == "/v1/responses" {
+		response = service.responseWithVLLMTracking(response, vllmResponseTarget{
+			publicID:       modelID,
+			localID:        backendModelID,
+			configFilename: configFilename,
+		})
 	}
 	if hasModel {
 		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
@@ -1965,7 +2040,7 @@ func backendEndpointReady(readiness backendReadiness, backendMode string, status
 	if readiness == readinessImage {
 		return backendImageEndpointReady(body)
 	}
-	if readiness == readinessTranscription && backendMode == BackendModeLlamaSDCPP {
+	if backendMode == BackendModeVLLM || readiness == readinessTranscription && backendMode == BackendModeLlamaSDCPP {
 		return true
 	}
 	if capability := readiness.capability(); capability != "" {
@@ -2068,7 +2143,7 @@ func (service *Service) probeBackendEndpoint(runtime *backendRuntime, ctx contex
 		return 0, "", err
 	}
 
-	response, err := service.client.Do(request)
+	response, err := service.backendHTTPClient(runtime.backend).Do(request)
 	if err != nil {
 		return 0, "", err
 	}
@@ -2095,11 +2170,20 @@ func (service *Service) forward(runtime *backendRuntime, ctx context.Context, or
 	request.Header.Del("X-Tensors-Whisper-Response-Format")
 	request.Host = target.Host
 
-	response, err := service.client.Do(request)
+	response, err := service.backendHTTPClient(runtime.backend).Do(request)
 	if err != nil || responseFormat == "" {
 		return response, err
 	}
 	return adaptWhisperResponse(response, responseFormat)
+}
+
+func (service *Service) backendHTTPClient(backend Backend) *http.Client {
+	if provider, ok := backend.(backendHTTPClientProvider); ok {
+		if client := provider.HTTPClient(); client != nil {
+			return client
+		}
+	}
+	return service.client
 }
 
 func modelFromRequest(body []byte, r *http.Request) (string, bool, error) {
@@ -2580,12 +2664,12 @@ func isCorePath(path string) bool {
 }
 
 func isEmbeddingsPath(path string) bool {
-	return path == "/v1/embeddings" || path == "/api/embed" || path == "/api/extra/embeddings"
+	return path == "/api/embed" || path == "/api/extra/embeddings" || isVLLMPoolingPath(path)
 }
 
 func isVoicePath(path string) bool {
 	switch path {
-	case "/v1/audio/speech", "/v1/audio/transcriptions", "/v1/audio/translations", "/v1/audio/voices", "/audio/voices", "/api/extra/tts", "/api/extra/transcribe":
+	case "/v1/audio/speech", "/v1/audio/transcriptions", "/v1/audio/translations", "/v1/realtime", "/v1/audio/voices", "/audio/voices", "/api/extra/tts", "/api/extra/transcribe":
 		return true
 	default:
 		return false
@@ -2614,6 +2698,9 @@ func isOpenAIPath(path string) bool {
 }
 
 func isTextPath(path string) bool {
+	if isVLLMTextServingPath(path) {
+		return true
+	}
 	if isOpenAIPath(path) {
 		return true
 	}
@@ -2637,6 +2724,10 @@ func isTextPath(path string) bool {
 }
 
 func textPathRequiresModel(path string) bool {
+	if isVLLMTextServingPath(path) {
+		_, _, responseOperation := vllmResponseOperation(path)
+		return !responseOperation && !selectorlessVLLMPath(path)
+	}
 	if isCorePath(path) {
 		return true
 	}

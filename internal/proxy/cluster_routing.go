@@ -11,6 +11,7 @@ import (
 	"time"
 
 	routeranalytics "tensors-router/internal/analytics"
+	"tensors-router/internal/backendmode"
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
@@ -20,6 +21,15 @@ import (
 func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string) {
 	model, route, release, ok := service.acquireRegistryModelRoute(r, publicID)
 	defer release()
+	modelBackendMode, backendModeErr := service.clusterModelBackendMode(model)
+	if backendModeErr != nil {
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", backendModeErr.Error())
+		return
+	}
+	if modelBackendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
+		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		return
+	}
 	if !registryModelSupportsOpenAIPath(model, r.URL.Path) {
 		openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", publicID))
 		return
@@ -28,10 +38,17 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("model %q has no available replicas", publicID))
 		return
 	}
+	backendModelID := route.LocalID
+	if modelBackendMode == BackendModeVLLM {
+		backendModelID = vllmRequestModelID(publicID, route.LocalID, model.ServedNames)
+	}
 
 	profile := service.localChatTemplateProfile(route.Filename, route.Remote)
 	readiness := modelReadiness(r.URL.Path)
-	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, route.LocalID, readiness, profile, true)
+	if modelBackendMode == BackendModeVLLM {
+		readiness = vllmReadinessForTask(r.URL.Path, model.VLLMTask)
+	}
+	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, backendModelID, readiness, profile, true)
 	if transformErr != nil {
 		writeTransportError(w, transformErr)
 		return
@@ -51,21 +68,35 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 		}
 		if routeBackendMode == BackendModeLlamaSDCPP && model.HasImage && !isEmbeddingsPath(r.URL.Path) {
 			if err := service.loadLocalRuntimeForRequest(r.Context(), routeBackendMode, route.PublicImageID, route.Filename, readinessImage); err != nil {
-				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+				writeBackendFailure(w, err)
 				return
 			}
 		}
 		started := time.Now()
-		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, route.LocalID, textAnalyticsSection(r.URL.Path), routeBackendMode)
+		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, backendModelID, textAnalyticsSection(r.URL.Path), routeBackendMode)
 		recordAnalytics = true
-		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readiness, routeBackendMode)
+		forwardModelID := route.PublicID
+		if routeBackendMode == BackendModeVLLM {
+			forwardModelID = backendModelID
+		}
+		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, forwardModelID, route.Filename, true, readiness, routeBackendMode)
 	}
 	if err != nil {
+		status, _, _ := backendFailureResponse(err)
 		if recordAnalytics {
-			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
+			service.recordAnalyticsFailure(analyticsEvent, status, workFinalizer)
 		}
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		writeBackendFailure(w, err)
 		return
+	}
+	if modelBackendMode == BackendModeVLLM && r.URL.Path == "/v1/responses" {
+		response = service.responseWithVLLMTracking(response, vllmResponseTarget{
+			publicID:       publicID,
+			localID:        backendModelID,
+			configFilename: route.Filename,
+			remote:         route.Remote,
+			nodeURL:        route.NodeURL,
+		})
 	}
 	response = responseWithRelease(response, release)
 	if recordAnalytics {
@@ -98,7 +129,11 @@ func (service *Service) acquireRegistryModelRoute(r *http.Request, publicID stri
 	if err != nil {
 		return cluster.Model{}, cluster.Route{}, func() {}, false
 	}
-	route, release, ok := service.registry.Acquire(publicID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readinessText))
+	readiness := readinessText
+	if modelBackendMode == BackendModeVLLM {
+		readiness = vllmReadinessForTask(r.URL.Path, model.VLLMTask)
+	}
+	route, release, ok := service.registry.Acquire(publicID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readiness))
 	return model, route, release, ok
 }
 
@@ -261,6 +296,10 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
+	if modelBackendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
+		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		return
+	}
 	readiness := audioReadiness(r.URL.Path, lane, modelBackendMode)
 	var route cluster.Route
 	var release func()
@@ -274,9 +313,13 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 		return
 	}
 
+	backendModelID := route.LocalID
+	if modelBackendMode == BackendModeVLLM {
+		backendModelID = vllmRequestModelID(publicID, route.LocalID, model.ServedNames)
+	}
 	requestBody := body
 	if requestBodyLooksJSON(body, r) {
-		requestBody = rewriteRequestModel(body, route.LocalID)
+		requestBody = rewriteRequestModel(body, backendModelID)
 	}
 	var response *http.Response
 	var analyticsEvent routeranalytics.Event
@@ -299,10 +342,14 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 			}
 		}
 		started := time.Now()
-		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, route.LocalID, audioAnalyticsSection(lane), routeBackendMode)
+		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, backendModelID, audioAnalyticsSection(lane), routeBackendMode)
 		recordAnalytics = true
 		readiness = audioReadiness(r.URL.Path, lane, routeBackendMode)
-		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, route.PublicID, route.Filename, true, readiness, routeBackendMode)
+		forwardModelID := route.PublicID
+		if routeBackendMode == BackendModeVLLM {
+			forwardModelID = backendModelID
+		}
+		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, forwardModelID, route.Filename, true, readiness, routeBackendMode)
 	}
 	if err != nil {
 		release()
@@ -498,6 +545,9 @@ func clusterImageModelVisible(model cluster.Model, activeConfigFilename string) 
 }
 
 func modelSupportsOpenAIPath(model catalog.Model, path string) bool {
+	if backendmode.Normalize(model.BackendMode) == BackendModeVLLM {
+		return vllmTaskSupportsPath(model.VLLMTask, path)
+	}
 	if isEmbeddingsPath(path) {
 		if path == "/api/embed" {
 			return model.HasEmbeddings
@@ -532,6 +582,9 @@ func clusterModelNeedsPrimaryTextRuntime(model cluster.Model) bool {
 }
 
 func registryModelSupportsOpenAIPath(model cluster.Model, path string) bool {
+	if backendmode.Normalize(model.BackendMode) == BackendModeVLLM {
+		return vllmTaskSupportsPath(model.VLLMTask, path)
+	}
 	if isEmbeddingsPath(path) {
 		if path == "/api/embed" {
 			return model.HasEmbeddings

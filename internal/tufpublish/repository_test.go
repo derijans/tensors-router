@@ -45,6 +45,16 @@ func TestAuthorizedSignerRejectsMissingAndUntrustedKeys(t *testing.T) {
 	}
 }
 
+func TestReadBoundedFileRejectsOversizedInput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "metadata.json")
+	if err := os.WriteFile(path, []byte("12345"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readBoundedFile(path, 4); err == nil {
+		t.Fatal("oversized metadata was accepted")
+	}
+}
+
 func TestPublishIncrementsDelegatedSnapshotAndTimestampVersions(t *testing.T) {
 	repository, secrets := generatedPublicationRepository(t)
 	first := filepath.Join(t.TempDir(), "first")
@@ -59,6 +69,34 @@ func TestPublishIncrementsDelegatedSnapshotAndTimestampVersions(t *testing.T) {
 	assertVersionIncrease(t, first, second, "upstream-targets")
 	assertVersionIncrease(t, first, second, "snapshot")
 	assertVersionIncrease(t, first, second, "timestamp")
+}
+
+func TestPublishAuthorizesAndRetrievesVLLMRuntimeManifest(t *testing.T) {
+	repository, secrets := generatedPublicationRepository(t)
+	output := filepath.Join(t.TempDir(), "published")
+	targetPath := "runtimes/vllm/linux-amd64.json"
+	targets := map[string][]byte{targetPath: []byte(`{"schema_version":1}`)}
+	if err := Publish(repository, output, targets, secrets, time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	if err := Verify(output, []string{targetPath}); err != nil {
+		t.Fatal(err)
+	}
+	existing, err := LoadExistingTargets(output, "runtimes/vllm/")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(existing[targetPath]) != string(targets[targetPath]) {
+		t.Fatal("verified runtime manifest was not recovered for the next publication")
+	}
+}
+
+func TestPublishRejectsTargetOutsideDelegation(t *testing.T) {
+	repository, secrets := generatedPublicationRepository(t)
+	err := Publish(repository, filepath.Join(t.TempDir(), "published"), map[string][]byte{"untrusted/payload.json": []byte(`{}`)}, secrets, time.Now().UTC())
+	if err == nil {
+		t.Fatal("expected undelegated target rejection")
+	}
 }
 
 type publicationKeys struct {
@@ -101,7 +139,7 @@ func generatedPublicationRepository(t *testing.T) (string, SigningSecrets) {
 		t.Fatal(err)
 	}
 	top := tufmetadata.Targets(time.Now().UTC().AddDate(1, 0, 0))
-	top.Signed.Delegations = &tufmetadata.Delegations{Keys: map[string]*tufmetadata.Key{upstreamID: upstreamKey}, Roles: []tufmetadata.DelegatedRole{{Name: "upstream-targets", KeyIDs: []string{upstreamID}, Threshold: 1, Terminating: true, Paths: []string{"upstreams/*/*"}}}}
+	top.Signed.Delegations = &tufmetadata.Delegations{Keys: map[string]*tufmetadata.Key{upstreamID: upstreamKey}, Roles: []tufmetadata.DelegatedRole{{Name: "upstream-targets", KeyIDs: []string{upstreamID}, Threshold: 1, Terminating: true, Paths: []string{"upstreams/*/*", "runtimes/vllm/*"}}}}
 	signPublicationTest(t, top, keys.targets)
 	delegated := tufmetadata.Targets(time.Now().UTC().Add(time.Hour))
 	signPublicationTest(t, delegated, keys.upstream)

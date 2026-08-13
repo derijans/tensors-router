@@ -29,6 +29,36 @@ func DestinationPath(root string, repository string, repositoryPath string) (str
 	return secureJoin(directory, parts...)
 }
 
+func SnapshotDirectory(root string, repository string, commit string) (string, error) {
+	owner, name, err := splitRepository(repository)
+	if err != nil {
+		return "", err
+	}
+	if !safeRepositoryPart(commit) {
+		return "", fmt.Errorf("snapshot commit is invalid")
+	}
+	return secureJoin(root, ".snapshots", owner, name, commit)
+}
+
+func snapshotDestinationPath(root string, repository string, commit string, repositoryPath string) (string, error) {
+	directory, err := SnapshotDirectory(root, repository, commit)
+	if err != nil {
+		return "", err
+	}
+	parts, err := safeRepositoryPath(repositoryPath)
+	if err != nil {
+		return "", err
+	}
+	return secureJoin(directory, parts...)
+}
+
+func downloadDestinationPath(root string, repository string, commit string, snapshot bool, repositoryPath string) (string, error) {
+	if snapshot {
+		return snapshotDestinationPath(root, repository, commit, repositoryPath)
+	}
+	return DestinationPath(root, repository, repositoryPath)
+}
+
 func ValidateRepository(repository string) error {
 	_, _, err := splitRepository(repository)
 	return err

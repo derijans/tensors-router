@@ -17,7 +17,9 @@ That catalog is the source of truth for field names, input types, backend owners
 
 ### `backend_mode`
 
-Selects `kobold` or `llama_sdcpp` for the generated configuration. When omitted, the node's configured backend family is used.
+Selects `kobold`, `llama_sdcpp`, or `vllm` for the generated configuration. When omitted, the node's configured backend family is used.
+
+vLLM configurations use the typed nested `vllm` section documented in [vLLM](vLLM). Snapshot identity, runner, task, served names, static adapters, common settings, and ordered `serve_args` remain grouped so router-owned flags cannot be confused with upstream serving choices.
 
 ### `router_unload_policy`
 

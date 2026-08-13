@@ -66,7 +66,8 @@ func (service *Service) handleStreamingRequest(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		route.release()
 		if event.ModelID != "" {
-			service.recordAnalyticsFailure(event, http.StatusBadGateway, finalizer)
+			status, _, _ := backendFailureResponse(err)
+			service.recordAnalyticsFailure(event, status, finalizer)
 		}
 		writeTransportForwardError(w, err)
 		return
@@ -76,6 +77,15 @@ func (service *Service) handleStreamingRequest(w http.ResponseWriter, r *http.Re
 			publicImageID:  route.publicID,
 			configFilename: route.configFilename,
 			backendMode:    route.backendMode,
+			remote:         route.remote,
+			nodeURL:        route.nodeURL,
+		})
+	}
+	if route.backendMode == BackendModeVLLM && request.URL.Path == "/v1/responses" {
+		response = service.responseWithVLLMTracking(response, vllmResponseTarget{
+			publicID:       route.publicID,
+			localID:        route.localID,
+			configFilename: route.configFilename,
 			remote:         route.remote,
 			nodeURL:        route.nodeURL,
 		})
@@ -91,17 +101,41 @@ func (service *Service) handleStreamingRequest(w http.ResponseWriter, r *http.Re
 
 func (service *Service) resolveTransportRoute(r *http.Request, selector string) (transportRoute, error) {
 	selector = strings.TrimSpace(selector)
+	automaticallySelected := false
+	if selector == "" && selectorlessVLLMPath(r.URL.Path) {
+		var err error
+		selector, err = service.selectSelectorlessVLLMModel(r.URL.Path)
+		if err != nil {
+			return transportRoute{}, err
+		}
+		automaticallySelected = true
+	}
 	if selector == "" {
 		return transportRoute{}, transportRouteError{http.StatusBadRequest, "streaming_model_selector_required", transportbody.ErrSelectorRequired.Error()}
 	}
+	var route transportRoute
+	var err error
 	switch {
 	case isVoicePath(r.URL.Path) || isMusicPath(r.URL.Path):
-		return service.resolveTransportAudioRoute(r, selector)
+		route, err = service.resolveTransportAudioRoute(r, selector)
 	case isImagePath(r.URL.Path):
-		return service.resolveTransportImageRoute(r, selector)
+		route, err = service.resolveTransportImageRoute(r, selector)
 	default:
-		return service.resolveTransportTextRoute(r, selector)
+		route, err = service.resolveTransportTextRoute(r, selector)
 	}
+	if err != nil {
+		return transportRoute{}, err
+	}
+	if route.backendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
+		if route.release != nil {
+			route.release()
+		}
+		return transportRoute{}, transportRouteError{http.StatusNotFound, "not_found", "endpoint not found"}
+	}
+	if automaticallySelected {
+		route.rewriteModel = false
+	}
+	return route, nil
 }
 
 func (service *Service) resolveTransportTextRoute(r *http.Request, publicID string) (transportRoute, error) {
@@ -123,9 +157,20 @@ func (service *Service) resolveTransportTextRoute(r *http.Request, publicID stri
 			release()
 			return transportRoute{}, err
 		}
+		if mode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
+			release()
+			return transportRoute{}, transportRouteError{http.StatusNotFound, "not_found", "endpoint not found"}
+		}
+		if mode == BackendModeVLLM {
+			readiness = vllmReadinessForTask(r.URL.Path, model.VLLMTask)
+		}
+		localID := route.LocalID
+		if mode == BackendModeVLLM {
+			localID = vllmRequestModelID(publicID, route.LocalID, model.ServedNames)
+		}
 		return transportRoute{
 			publicID:       publicID,
-			localID:        route.LocalID,
+			localID:        localID,
 			configFilename: route.Filename,
 			backendMode:    mode,
 			readiness:      readiness,
@@ -148,9 +193,19 @@ func (service *Service) resolveTransportTextRoute(r *http.Request, publicID stri
 	if err != nil {
 		return transportRoute{}, err
 	}
+	if mode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
+		return transportRoute{}, transportRouteError{http.StatusNotFound, "not_found", "endpoint not found"}
+	}
+	if mode == BackendModeVLLM {
+		readiness = vllmReadinessForTask(r.URL.Path, model.VLLMTask)
+	}
+	localID := model.ID
+	if mode == BackendModeVLLM {
+		localID = vllmRequestModelID(publicID, model.ID, model.ServedNames)
+	}
 	return transportRoute{
 		publicID:       publicID,
-		localID:        model.ID,
+		localID:        localID,
 		configFilename: model.Filename,
 		backendMode:    mode,
 		readiness:      readiness,
@@ -243,9 +298,13 @@ func (service *Service) resolveTransportAudioRoute(r *http.Request, publicID str
 			release()
 			return transportRoute{}, err
 		}
+		localID := route.LocalID
+		if mode == BackendModeVLLM {
+			localID = vllmRequestModelID(publicID, route.LocalID, model.ServedNames)
+		}
 		return transportRoute{
 			publicID:       publicID,
-			localID:        route.LocalID,
+			localID:        localID,
 			configFilename: route.Filename,
 			backendMode:    mode,
 			readiness:      audioReadiness(r.URL.Path, lane, mode),
@@ -267,9 +326,13 @@ func (service *Service) resolveTransportAudioRoute(r *http.Request, publicID str
 	if err != nil {
 		return transportRoute{}, err
 	}
+	localID := model.ID
+	if mode == BackendModeVLLM {
+		localID = vllmRequestModelID(publicID, model.ID, model.ServedNames)
+	}
 	return transportRoute{
 		publicID:       publicID,
-		localID:        model.ID,
+		localID:        localID,
 		configFilename: model.Filename,
 		backendMode:    mode,
 		readiness:      audioReadiness(r.URL.Path, lane, mode),

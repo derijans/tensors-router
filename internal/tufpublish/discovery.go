@@ -9,13 +9,17 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"path"
 	"strings"
 	"time"
+
+	"tensors-router/internal/vllm"
 )
 
 type Config struct {
-	Sources []Source `json:"sources"`
+	Sources          []Source          `json:"sources"`
+	RuntimeManifests map[string]string `json:"runtime_manifests,omitempty"`
 }
 
 type Source struct {
@@ -102,8 +106,38 @@ func Discover(ctx context.Context, client *http.Client, config Config) (map[stri
 		}
 		targets[targetPath] = body
 	}
+	if len(config.RuntimeManifests) > 0 {
+		manifests := make(map[string]vllm.Manifest, len(config.RuntimeManifests))
+		bodies := make(map[string][]byte, len(config.RuntimeManifests))
+		for platform, manifestPath := range config.RuntimeManifests {
+			if _, required := requiredVLLMPlatforms[platform]; !required {
+				return nil, fmt.Errorf("unsupported vLLM runtime manifest platform %q", platform)
+			}
+			body, err := os.ReadFile(manifestPath)
+			if err != nil {
+				return nil, err
+			}
+			if len(body) == 0 || len(body) > 4<<20 {
+				return nil, fmt.Errorf("vLLM runtime manifest %s size is invalid", platform)
+			}
+			manifest, err := vllm.ParseManifest(body)
+			if err != nil {
+				return nil, fmt.Errorf("vLLM runtime manifest %s: %w", platform, err)
+			}
+			manifests[platform] = manifest
+			bodies[platform] = body
+		}
+		if err := vllm.ValidateReleaseProfileMatrix(manifests); err != nil {
+			return nil, err
+		}
+		for platform, body := range bodies {
+			targets[path.Join("runtimes", "vllm", platform+".json")] = body
+		}
+	}
 	return targets, nil
 }
+
+var requiredVLLMPlatforms = map[string]struct{}{"linux-amd64": {}, "linux-arm64": {}, "darwin-arm64": {}}
 
 func discoverAsset(ctx context.Context, client *http.Client, source Source) (release, asset, error) {
 	parts, err := githubRepositoryParts(source.Repository)

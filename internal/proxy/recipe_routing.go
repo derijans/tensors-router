@@ -45,17 +45,34 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", modeErr.Error())
 			return true
 		}
+		if backendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
+			openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+			return true
+		}
 		started := time.Now()
 		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, component.ModelID, textAnalyticsSection(r.URL.Path), backendMode)
 		recordAnalytics = true
 		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readiness, backendMode)
 	}
 	if err != nil {
+		status, _, _ := backendFailureResponse(err)
 		if recordAnalytics {
-			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
+			service.recordAnalyticsFailure(analyticsEvent, status, workFinalizer)
 		}
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		writeBackendFailure(w, err)
 		return true
+	}
+	if r.URL.Path == "/v1/responses" {
+		backendMode, modeErr := service.recipeComponentBackendMode(component)
+		if modeErr == nil && backendMode == BackendModeVLLM {
+			response = service.responseWithVLLMTracking(response, vllmResponseTarget{
+				publicID:       publicID,
+				localID:        component.ModelID,
+				configFilename: component.ConfigFilename,
+				remote:         route.Remote,
+				nodeURL:        route.NodeURL,
+			})
+		}
 	}
 	if recordAnalytics {
 		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
@@ -91,6 +108,10 @@ func (service *Service) handleRecipeImageRequest(w http.ResponseWriter, r *http.
 		backendMode, modeErr := service.recipeComponentBackendMode(component)
 		if modeErr != nil {
 			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", modeErr.Error())
+			return true
+		}
+		if backendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
+			openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
 			return true
 		}
 		jobBackendMode = backendMode
@@ -244,6 +265,10 @@ func (service *Service) handleRecipeAudioRequest(w http.ResponseWriter, r *http.
 		backendMode, modeErr := service.recipeComponentBackendMode(component)
 		if modeErr != nil {
 			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", modeErr.Error())
+			return true
+		}
+		if backendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
+			openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
 			return true
 		}
 		if backendMode == BackendModeLlamaSDCPP {

@@ -96,6 +96,8 @@ func TestPolicySeparatesInferenceAdminAndClusterCredentials(t *testing.T) {
 		{"/router/v1/load", "inference", http.StatusUnauthorized},
 		{"/router/v1/models", "admin", http.StatusNoContent},
 		{"/router/v1/models", "inference", http.StatusUnauthorized},
+		{"/router/v1/vllm/health", "admin", http.StatusNoContent},
+		{"/router/v1/vllm/health", "inference", http.StatusUnauthorized},
 		{"/router/v1/node/models", "cluster", http.StatusNoContent},
 		{"/router/v1/node/models", "admin", http.StatusUnauthorized},
 		{"/v1/models", "cluster", http.StatusUnauthorized},
@@ -110,6 +112,82 @@ func TestPolicySeparatesInferenceAdminAndClusterCredentials(t *testing.T) {
 		})).ServeHTTP(recorder, request)
 		if recorder.Code != testCase.status {
 			t.Fatalf("path %s token %s: got %d want %d", testCase.path, testCase.token, recorder.Code, testCase.status)
+		}
+	}
+}
+
+func TestVLLMServingSurfaceRequiresInferenceCredentials(t *testing.T) {
+	policy, err := NewPolicy(PolicyConfig{
+		AllowedCIDRs:  []string{"127.0.0.0/8"},
+		Profile:       ProfileSecure,
+		InferenceKeys: []string{"inference"},
+		AdminKeys:     []string{"admin"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{
+		"/v1/completions", "/v1/chat/completions", "/v1/chat/completions/batch", "/v1/responses", "/v1/responses/input_tokens",
+		"/v1/responses/response-id", "/v1/responses/response-id/cancel", "/v1/embeddings", "/v1/audio/transcriptions",
+		"/v1/audio/translations", "/v1/realtime", "/v1/messages", "/v1/messages/count_tokens", "/v2/embed", "/rerank",
+		"/v1/rerank", "/v2/rerank", "/classify", "/score", "/v1/score", "/pooling", "/generative_scoring", "/invocations",
+		"/tokenize", "/detokenize",
+	}
+	for _, path := range paths {
+		for _, token := range []string{"", "admin", "inference"} {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, path, nil)
+			request.RemoteAddr = "127.0.0.1:1234"
+			if token != "" {
+				request.Header.Set("Authorization", "Bearer "+token)
+			}
+			policy.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})).ServeHTTP(recorder, request)
+			want := http.StatusUnauthorized
+			if token == "inference" {
+				want = http.StatusNoContent
+			}
+			if recorder.Code != want {
+				t.Fatalf("path %s token %q: got %d want %d", path, token, recorder.Code, want)
+			}
+		}
+	}
+}
+
+func TestVLLMOperationalSurfaceRequiresAdminCredentials(t *testing.T) {
+	policy, err := NewPolicy(PolicyConfig{
+		AllowedCIDRs:  []string{"127.0.0.0/8"},
+		Profile:       ProfileSecure,
+		InferenceKeys: []string{"inference"},
+		AdminKeys:     []string{"admin"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := []string{
+		"/router/v1/vllm/health", "/router/v1/vllm/version", "/router/v1/vllm/load", "/router/v1/vllm/metrics",
+		"/router/v1/vllm/tokenizer-info", "/router/v1/vllm/lora/load", "/router/v1/vllm/lora/unload",
+		"/router/v1/vllm/eep/scale", "/router/v1/vllm/eep/status",
+	}
+	for _, path := range paths {
+		for _, token := range []string{"", "inference", "admin"} {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, path, nil)
+			request.RemoteAddr = "127.0.0.1:1234"
+			if token != "" {
+				request.Header.Set("Authorization", "Bearer "+token)
+			}
+			policy.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			})).ServeHTTP(recorder, request)
+			want := http.StatusUnauthorized
+			if token == "admin" {
+				want = http.StatusNoContent
+			}
+			if recorder.Code != want {
+				t.Fatalf("path %s token %q: got %d want %d", path, token, recorder.Code, want)
+			}
 		}
 	}
 }

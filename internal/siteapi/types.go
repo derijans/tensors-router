@@ -7,6 +7,7 @@ import (
 	"tensors-router/internal/hardware"
 	"tensors-router/internal/inventory"
 	"tensors-router/internal/recipes"
+	"tensors-router/internal/vllm"
 )
 
 type ModelAssetConfigRequest struct {
@@ -87,10 +88,20 @@ type NodeState struct {
 }
 
 type NodeStateBackend struct {
-	ID           string              `json:"id"`
-	DisplayName  string              `json:"display_name"`
-	Mode         string              `json:"mode"`
-	LoadedModels []NodeStateModelRow `json:"loaded_models"`
+	ID                       string              `json:"id"`
+	DisplayName              string              `json:"display_name"`
+	Mode                     string              `json:"mode"`
+	LifecycleState           string              `json:"lifecycle_state,omitempty"`
+	SelectedProfile          string              `json:"selected_profile,omitempty"`
+	DetectedProfile          string              `json:"detected_profile,omitempty"`
+	RuntimeVersion           string              `json:"runtime_version,omitempty"`
+	InitializationJobID      string              `json:"initialization_job_id,omitempty"`
+	InitializationPhase      string              `json:"initialization_phase,omitempty"`
+	InitializationBytes      int64               `json:"initialization_bytes,omitempty"`
+	InitializationTotalBytes int64               `json:"initialization_total_bytes,omitempty"`
+	Error                    string              `json:"error,omitempty"`
+	Retryable                bool                `json:"retryable,omitempty"`
+	LoadedModels             []NodeStateModelRow `json:"loaded_models"`
 }
 
 type NodeStateModelRow struct {
@@ -106,6 +117,14 @@ type NodeUnloadRequest struct {
 	RuntimeID          string `json:"runtime_id"`
 	ExpectedGeneration uint64 `json:"expected_generation"`
 }
+
+type BackendInitializationRequest struct {
+	NodeID    string `json:"node_id"`
+	BackendID string `json:"backend_id"`
+	Profile   string `json:"profile,omitempty"`
+}
+
+type BackendInitializationJob = vllm.InitializationJob
 
 type InventoryResponse struct {
 	Role            string                  `json:"role"`

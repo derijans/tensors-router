@@ -13,6 +13,8 @@ import type {
   ErrorResponse,
   InventoryResponse,
   ModelStateRequest,
+  BackendInitializationJob,
+  BackendInitializationRequest,
   NodeState,
   NodeUnloadRequest,
   LoadConfigRequest,
@@ -95,6 +97,14 @@ export function getNodeState(nodeID: string, signal?: AbortSignal): Promise<Node
 
 export function unloadNodeRuntime(request: NodeUnloadRequest): Promise<{ok: boolean}> {
   return api<{ok: boolean}>("/api/nodes/unload", {method: "POST", body: JSON.stringify(request)});
+}
+
+export function initializeNodeBackend(request: BackendInitializationRequest): Promise<BackendInitializationJob> {
+  return api<BackendInitializationJob>("/api/nodes/backends/init", {method: "POST", body: JSON.stringify(request)});
+}
+
+export function cancelNodeBackendInitialization(request: BackendInitializationRequest): Promise<BackendInitializationJob> {
+  return api<BackendInitializationJob>("/api/nodes/backends/init/cancel", {method: "POST", body: JSON.stringify(request)});
 }
 
 export function updateModelState(request: ModelStateRequest): Promise<unknown> {

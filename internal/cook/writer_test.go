@@ -193,6 +193,30 @@ func TestWriterPreservesAndOverridesBackendMode(t *testing.T) {
 	}
 }
 
+func TestWriterValidatesVLLMAsSingleRuntimeConfig(t *testing.T) {
+	dir := packageTempDir(t)
+	content := `{
+		"backend_mode":"vllm",
+		"vllm":{"snapshot":{"path":"snapshot","tree_digest":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},"runner":"generate"}
+	}`
+	if err := os.WriteFile(filepath.Join(dir, "vllm.kcpps"), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writer := Writer{ConfigDir: dir, Catalog: catalog.New(dir), NodeID: "node-a"}
+	component := Component{Kind: KindText, Source: SourceConfig, ModelID: "vllm"}
+	body, _, err := writer.composedConfig([]Component{component}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body["backend_mode"]) != `"vllm"` || len(body["vllm"]) == 0 {
+		t.Fatalf("vLLM config was not preserved: %#v", body)
+	}
+	_, _, err = writer.composedConfig([]Component{component, {Kind: KindVoice, Source: SourceConfig, ModelID: "vllm"}}, nil)
+	if err == nil {
+		t.Fatal("expected multi-component vLLM config rejection")
+	}
+}
+
 func TestWriterComposesVoiceMusicRawFilesWithOptionKeys(t *testing.T) {
 	dir := packageTempDir(t)
 	root := packageTempDir(t)

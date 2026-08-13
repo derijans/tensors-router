@@ -41,7 +41,7 @@ The parsers reject unknown sections and fields. Relative paths are resolved from
 
 | Field | Type or options | Example or default | Description |
 | --- | --- | --- | --- |
-| `backend.mode` | String enum: `kobold`, `llama_sdcpp` | `kobold` | Default backend family. A `.kcpps` `backend_mode` can override it per model. |
+| `backend.mode` | String enum: `kobold`, `llama_sdcpp`, `vllm` | `kobold` | Default backend family. A `.kcpps` `backend_mode` can override it per model. |
 
 ## MCP artifacts
 
@@ -97,6 +97,23 @@ MCP server definitions remain embedded in the `.kcpps` source. When active, the 
 | `whispercpp.data_dir` | Path string | `./data/whispercpp` | Working directory and location of `whisper-server.log`. |
 | `whispercpp.hide_window` | Boolean | `true` | Hides the child process window on supported platforms. |
 | `whispercpp.extra_args` | List of strings | `[]` | Additional arguments. Router-owned bind, public path, inference path, conversion, and temporary-directory flags are rejected. |
+
+### vLLM companion
+
+| Field | Type or options | Example or default | Description |
+| --- | --- | --- | --- |
+| `vllm.binary_location` | Empty or executable path | Empty | Companion executable. Empty searches beside the router executable on supported platforms. |
+| `vllm.data_dir` | Path string | `./data/vllm` | Persistent jobs, content-addressed environments, staging, bounded logs, and private runtime sockets. |
+| `vllm.profile` | `auto` or signed profile ID | `auto` | Runtime profile requested by explicit initialization. |
+| `vllm.manifest_path` | TUF target path | platform-specific | Signed runtime-manifest target inside the configured TUF repository. |
+| `vllm.tuf_repository_url` | HTTPS URL ending in `/metadata` | Built-in project metadata repository | Metadata endpoint authorizing runtime manifests and their exact artifacts. |
+| `vllm.tuf_root_path` | Empty or file path | Empty | Optional trusted root override. Empty uses the root embedded in the companion. |
+| `vllm.dynamic_lora_enabled` | Boolean | `false` | Separately enables administrator-only dynamic LoRA operations. |
+| `vllm.eep_enabled` | Boolean | `false` | Separately enables administrator-only Elastic Expert Parallelism operations. |
+| `vllm.trust_remote_code` | Boolean | `false` | Allows a model configuration to opt into remote repository code. Model-level consent is also required. |
+| `vllm.external_tools` | Boolean | `false` | Allows a model configuration to opt into external tool servers. Model-level configuration is also required. |
+
+Runtime installation occurs only after an authenticated initialization request. Router startup and model loading never initialize, download, or install a vLLM environment. See [vLLM](vLLM) for model configuration and security boundaries.
 
 ### Logging
 

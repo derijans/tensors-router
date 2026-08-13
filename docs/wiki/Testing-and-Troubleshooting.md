@@ -18,6 +18,16 @@ npm run check
 
 The WebUI check runs the package audit, lint, tests, and production build.
 
+Release CI also runs race tests, `govulncheck`, container manifest checks, and vulnerability scans for every Alpine and glibc image on amd64 and arm64. Archive upload and multi-architecture image publication depend on those scan jobs. A signed vLLM hardware profile has additional platform-gated checks: exact dependency installation, import and serving smoke tests, Python dependency audit, runtime vulnerability scan, and an OCI container scan where applicable on the matching platform or vendor runner. A failed, stale, partial, or unavailable hardware gate prevents profile publication.
+
+## vLLM initialization fails
+
+Inspect the selected node's backend lifecycle and initialization job. `companion_missing` means the supported archive's `tensor-router-vllm` executable is not beside the router or at `vllm.binary_location`. `unsupported` means the host platform has no companion release. `failed` includes a sanitized prerequisite or verification failure and permits retry when appropriate.
+
+An accelerator detected without its required host driver, SDK, device permission, compiler, container engine, or privileged OS package does not fall back to CPU. Satisfy the reported prerequisite and retry initialization. The companion never installs host prerequisites. On Windows, run the Linux suite in WSL 2; native Windows is unsupported.
+
+Initialization is never automatic. Start it from the selected Nodes panel or the administrator API. Model load remains offline and returns `backend_not_initialized` until a profile is ready.
+
 ## Local KoboldCpp smoke test on Windows
 
 Requirements:

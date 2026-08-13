@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 
+	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 )
 
@@ -49,7 +50,7 @@ func (service *Service) localRuntimeStatus() NodeRuntimeStatus {
 	}
 	if models, listErr := service.catalog.List(); listErr == nil {
 		for _, model := range models {
-			if model.Filename == status.ActiveSTTConfigFilename && model.Capabilities.Voice != nil && strings.TrimSpace(model.Capabilities.Voice.WhisperModel) != "" {
+			if model.Filename == status.ActiveSTTConfigFilename && catalogModelSupportsSTT(model) {
 				status.ActiveSTTModelID = model.ID
 				break
 			}
@@ -126,11 +127,28 @@ func (service *Service) sttSchedulingModels() []cluster.Model {
 	}
 	result := make([]cluster.Model, 0, len(models))
 	for _, model := range models {
-		if !model.Disabled && model.Available && model.Capabilities.Voice != nil && strings.TrimSpace(model.Capabilities.Voice.WhisperModel) != "" {
+		if !model.Disabled && model.Available && clusterModelSupportsSTT(model) {
 			result = append(result, model)
 		}
 	}
 	return result
+}
+
+func catalogModelSupportsSTT(model catalog.Model) bool {
+	return model.Capabilities.Voice != nil && strings.TrimSpace(model.Capabilities.Voice.WhisperModel) != "" || isVLLMSpeechTask(model.VLLMTask)
+}
+
+func clusterModelSupportsSTT(model cluster.Model) bool {
+	return model.Capabilities.Voice != nil && strings.TrimSpace(model.Capabilities.Voice.WhisperModel) != "" || isVLLMSpeechTask(model.VLLMTask)
+}
+
+func isVLLMSpeechTask(task string) bool {
+	switch strings.ToLower(strings.TrimSpace(task)) {
+	case "speech", "transcription", "translation", "realtime":
+		return true
+	default:
+		return false
+	}
 }
 
 func (service *Service) remoteRuntimeStatuses(ctx context.Context) map[string]NodeRuntimeStatus {

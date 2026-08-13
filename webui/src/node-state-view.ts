@@ -1,7 +1,7 @@
 import type { NodeInventory, NodeState, NodeStateBackend, NodeStateModelRow } from "./types";
-import { chip, escapeAttribute, escapeHTML } from "./utils";
+import { chip, escapeAttribute, escapeHTML, formatBytes } from "./utils";
 
-const backendOrder = ["koboldcpp", "llama-server", "sd-server", "whisper-server"];
+const backendOrder = ["koboldcpp", "llama-server", "vllm", "sd-server", "whisper-server"];
 
 export function renderNodeCard(node: NodeInventory, selected: boolean): string {
   const hardware = node.hardware;
@@ -21,11 +21,11 @@ export function renderNodeCard(node: NodeInventory, selected: boolean): string {
   `;
 }
 
-export function renderNodeStateSnapshot(snapshot: NodeState, pendingUnload: string): string {
+export function renderNodeStateSnapshot(snapshot: NodeState, pendingUnload: string, pendingBackendAction = ""): string {
   const backends = [...(snapshot.backends || [])].sort((left, right) => backendRank(left.id) - backendRank(right.id));
   return `
     <div class="node-state-backends">
-      ${backends.length > 0 ? backends.map(backend => renderBackend(backend, pendingUnload)).join("") : `<p class="muted node-state-empty">No backend binaries detected.</p>`}
+      ${backends.length > 0 ? backends.map(backend => renderBackend(backend, pendingUnload, pendingBackendAction)).join("") : `<p class="muted node-state-empty">No backend binaries detected.</p>`}
     </div>
     <section class="node-active-requests" aria-label="Active requests">
       <h4>Active requests</h4>
@@ -34,16 +34,104 @@ export function renderNodeStateSnapshot(snapshot: NodeState, pendingUnload: stri
   `;
 }
 
-function renderBackend(backend: NodeStateBackend, pendingUnload: string): string {
+function renderBackend(backend: NodeStateBackend, pendingUnload: string, pendingBackendAction: string): string {
+  const initializationPending = pendingBackendAction === backendActionKey("init", backend.id);
+  const cancellationPending = pendingBackendAction === backendActionKey("cancel", backend.id);
+  const lifecycleState = initializationPending ? "initializing" : backend.lifecycle_state || "ready";
   return `
     <article class="node-state-backend">
       <div class="node-backend-heading">
         <h4>${escapeHTML(backend.display_name)}</h4>
-        ${chip(backend.mode, "cyan")}
+        <div class="node-backend-chips">
+          ${chip(backend.mode, "cyan")}
+          ${chip(lifecycleState, lifecycleColor(lifecycleState))}
+        </div>
       </div>
-      ${backend.loaded_models.length > 0 ? `<div class="node-loaded-models">${backend.loaded_models.map(model => renderLoadedModel(backend.id, model, pendingUnload)).join("")}</div>` : `<p class="muted node-state-empty">No loaded models.</p>`}
+      ${lifecycleState === "ready" ? renderReadyBackend(backend, pendingUnload) : renderBackendLifecycle(backend, lifecycleState, cancellationPending)}
     </article>
   `;
+}
+
+function renderReadyBackend(backend: NodeStateBackend, pendingUnload: string): string {
+  return `
+    ${renderRuntimeIdentity(backend)}
+    ${backend.loaded_models.length > 0 ? `<div class="node-loaded-models">${backend.loaded_models.map(model => renderLoadedModel(backend.id, model, pendingUnload)).join("")}</div>` : `<p class="muted node-state-empty">No loaded models.</p>`}
+  `;
+}
+
+function renderBackendLifecycle(backend: NodeStateBackend, lifecycleState: string, cancellationPending: boolean): string {
+  if (lifecycleState === "initializing") {
+    return `
+      ${renderRuntimeIdentity(backend)}
+      <div class="node-backend-lifecycle">
+        <strong>${escapeHTML(backend.initialization_phase || "Initializing")}</strong>
+        ${renderInitializationProgress(backend)}
+        <div class="node-backend-actions">
+          <button class="chip amber node-backend-init-action" type="button" disabled>backend needs init</button>
+          <button type="button" data-node-backend-init-cancel data-backend-id="${escapeAttribute(backend.id)}"${cancellationPending ? " disabled" : ""}>${cancellationPending ? "Cancelling..." : "Cancel"}</button>
+        </div>
+      </div>
+    `;
+  }
+  const reason = backend.error || lifecycleReason(lifecycleState);
+  const initializationAction = lifecycleState === "needs_init" || (lifecycleState === "failed" && backend.retryable);
+  return `
+    ${renderRuntimeIdentity(backend)}
+    <div class="node-backend-lifecycle">
+      ${reason ? `<p class="${lifecycleState === "failed" ? "error-text" : "muted"} node-state-message">${escapeHTML(reason)}</p>` : ""}
+      ${initializationAction ? `<button class="chip amber node-backend-init-action" type="button" data-node-backend-init data-backend-id="${escapeAttribute(backend.id)}"${backend.selected_profile ? ` data-profile="${escapeAttribute(backend.selected_profile)}"` : ""}>backend needs init</button>` : ""}
+    </div>
+  `;
+}
+
+function renderRuntimeIdentity(backend: NodeStateBackend): string {
+  const rows = [
+    backend.runtime_version ? `Version: ${backend.runtime_version}` : "",
+    backend.selected_profile ? `Profile: ${backend.selected_profile}` : "",
+    backend.detected_profile && backend.detected_profile !== backend.selected_profile ? `Detected: ${backend.detected_profile}` : ""
+  ].filter(Boolean);
+  return rows.length > 0 ? `<div class="muted node-backend-runtime">${rows.map(value => `<span>${escapeHTML(value)}</span>`).join("")}</div>` : "";
+}
+
+function renderInitializationProgress(backend: NodeStateBackend): string {
+  const completedBytes = positiveBytes(backend.initialization_bytes);
+  const totalBytes = positiveBytes(backend.initialization_total_bytes);
+  if (totalBytes === 0) {
+    const label = completedBytes > 0 ? `${formatBytes(completedBytes)} completed` : "Waiting for progress";
+    return `<progress class="node-backend-progress" aria-label="Initialization progress"></progress><span class="muted">${escapeHTML(label)}</span>`;
+  }
+  const boundedCompleted = Math.min(completedBytes, totalBytes);
+  const percent = Math.floor((boundedCompleted / totalBytes) * 100);
+  const label = `${formatBytes(completedBytes)} / ${formatBytes(totalBytes)} (${percent}%)`;
+  return `<progress class="node-backend-progress" aria-label="Initialization progress" value="${boundedCompleted}" max="${totalBytes}"></progress><span class="muted">${escapeHTML(label)}</span>`;
+}
+
+function positiveBytes(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.floor(value) : 0;
+}
+
+function lifecycleReason(lifecycleState: string): string {
+  if (lifecycleState === "companion_missing") {
+    return "vLLM companion is missing.";
+  }
+  if (lifecycleState === "unsupported") {
+    return "vLLM is unsupported on this platform.";
+  }
+  return "";
+}
+
+function lifecycleColor(lifecycleState: string): string {
+  if (lifecycleState === "ready") {
+    return "lime";
+  }
+  if (lifecycleState === "failed" || lifecycleState === "unsupported" || lifecycleState === "companion_missing") {
+    return "amber";
+  }
+  return "violet";
+}
+
+function backendActionKey(action: string, backendID: string): string {
+  return `${action}\u0000${backendID}`;
 }
 
 function renderLoadedModel(backendID: string, model: NodeStateModelRow, pendingUnload: string): string {

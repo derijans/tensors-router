@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"tensors-router/internal/catalog"
 )
@@ -32,14 +33,44 @@ type ErrorDetail struct {
 }
 
 func ModelsResponseFromCatalog(models []catalog.Model) ModelsResponse {
-	data := make([]ModelObject, 0, len(models))
+	primaryIDs := make(map[string]struct{}, len(models))
+	servedNameOwners := make(map[string]int)
 	for _, model := range models {
-		data = append(data, ModelObject{
+		primaryIDs[model.ID] = struct{}{}
+		seen := make(map[string]struct{}, len(model.ServedNames))
+		for _, servedName := range model.ServedNames {
+			servedName = strings.TrimSpace(servedName)
+			if servedName == "" || servedName == model.ID {
+				continue
+			}
+			if _, duplicate := seen[servedName]; duplicate {
+				continue
+			}
+			seen[servedName] = struct{}{}
+			servedNameOwners[servedName]++
+		}
+	}
+	data := make([]ModelObject, 0, len(models)+len(servedNameOwners))
+	for _, model := range models {
+		primary := ModelObject{
 			ID:      model.ID,
 			Object:  "model",
 			Created: model.Created,
 			OwnedBy: "koboldcpp",
-		})
+		}
+		data = append(data, primary)
+		for _, servedName := range model.ServedNames {
+			servedName = strings.TrimSpace(servedName)
+			if servedName == "" || servedName == model.ID || servedNameOwners[servedName] != 1 {
+				continue
+			}
+			if _, conflicts := primaryIDs[servedName]; conflicts {
+				continue
+			}
+			alias := primary
+			alias.ID = servedName
+			data = append(data, alias)
+		}
 	}
 	return ModelsResponse{
 		Object: "list",

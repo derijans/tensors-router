@@ -22,12 +22,18 @@ type modelControlRequest struct {
 
 func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Request) {
 	switch {
+	case strings.HasPrefix(r.URL.Path, "/router/v1/vllm/"):
+		service.handleVLLMAdmin(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/inventory":
 		service.handleSiteInventory(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/nodes/state":
 		service.handleSiteNodeState(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/nodes/unload":
 		service.handleSiteNodeUnload(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/nodes/backends/init":
+		service.handleSiteBackendInitialization(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/nodes/backends/init/cancel":
+		service.handleSiteBackendInitializationCancel(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/models/state":
 		service.handleSiteModelState(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/download/capabilities":
@@ -125,6 +131,14 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/state/unload":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeStateUnload(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/backends/init":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeBackendInitialization(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/backends/init/cancel":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeBackendInitializationCancel(w, r)
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/resolve":
 		if service.requireClusterToken(w, r) {
@@ -486,7 +500,8 @@ func (service *Service) loadPublicModel(ctx context.Context, publicID string) er
 		if err != nil {
 			return err
 		}
-		route, release, ok := service.registry.Acquire(publicID, service.localBackendAvailableForRoute(ctx, modelBackendMode, readinessText))
+		readiness := modelControlReadiness(modelBackendMode, model.HasEmbeddings, model.HasVoice, model.VLLMTask)
+		route, release, ok := service.acquireRegistryModelControlRoute(ctx, publicID, modelBackendMode, readiness)
 		if !ok {
 			return fmt.Errorf("model %q was not found", publicID)
 		}
@@ -510,7 +525,8 @@ func (service *Service) unloadPublicModel(ctx context.Context, publicID string, 
 		if err != nil {
 			return err
 		}
-		route, release, ok := service.registry.Acquire(publicID, service.localBackendAvailableForRoute(ctx, modelBackendMode, readinessText))
+		readiness := modelControlReadiness(modelBackendMode, model.HasEmbeddings, model.HasVoice, model.VLLMTask)
+		route, release, ok := service.acquireRegistryModelControlRoute(ctx, publicID, modelBackendMode, readiness)
 		if !ok {
 			return fmt.Errorf("model %q was not found", publicID)
 		}
@@ -550,6 +566,9 @@ func (service *Service) loadLocalModel(ctx context.Context, publicID string, loc
 }
 
 func modelLoadReadinesses(mode string, model catalog.Model) []backendReadiness {
+	if mode == BackendModeVLLM {
+		return []backendReadiness{modelControlReadiness(mode, model.HasEmbeddings, model.HasVoice, model.VLLMTask)}
+	}
 	separateEmbeddings := model.Capabilities.Embeddings != nil && model.Capabilities.Embeddings.Separate
 	if mode != BackendModeLlamaSDCPP {
 		if !separateEmbeddings {
@@ -576,6 +595,31 @@ func modelLoadReadinesses(mode string, model catalog.Model) []backendReadiness {
 		return []backendReadiness{readinessText}
 	}
 	return readinesses
+}
+
+func modelControlReadiness(mode string, hasEmbeddings bool, hasVoice bool, task string) backendReadiness {
+	if mode != BackendModeVLLM {
+		return readinessText
+	}
+	if hasVoice || isVLLMSpeechTask(task) {
+		return readinessTranscription
+	}
+	if hasEmbeddings {
+		return readinessEmbeddings
+	}
+	return readinessText
+}
+
+func (service *Service) acquireRegistryModelControlRoute(ctx context.Context, publicID string, mode string, readiness backendReadiness) (cluster.Route, func(), bool) {
+	healthy := service.localBackendAvailableForRoute(ctx, mode, readiness)
+	switch readiness {
+	case readinessEmbeddings:
+		return service.registry.AcquireEmbedding(publicID, healthy)
+	case readinessTranscription:
+		return service.registry.AcquireVoice(publicID, healthy)
+	default:
+		return service.registry.Acquire(publicID, healthy)
+	}
 }
 
 func (service *Service) loadLocalConfig(ctx context.Context, mode string, publicID string, filename string, readiness backendReadiness) error {

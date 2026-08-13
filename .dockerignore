@@ -10,6 +10,8 @@ node_modules
 router-store
 tensor-router-webui
 tensor-router-webui.exe
+tensor-router-vllm
+tensor-router-vllm.exe
 tensors-router
 tensors-router.exe
 webui/node_modules

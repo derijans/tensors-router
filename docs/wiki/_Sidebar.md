@@ -21,6 +21,7 @@
 - [Backends](Backends)
 - [MCP](MCP)
 - [Whisper.cpp](Whisper.cpp)
+- [vLLM](vLLM)
 - [Model Configs and Routing](Model-Configs-and-Routing)
 - [KCPPS Sharing](KCPPS-Sharing)
 - [API Reference](API-Reference)

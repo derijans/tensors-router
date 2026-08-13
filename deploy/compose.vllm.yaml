@@ -1,0 +1,40 @@
+services:
+  router-node:
+    image: "${TENSORS_ROUTER_VLLM_NODE_IMAGE:-ghcr.io/derijans/tensors-router/tensors-router-vllm-node:latest}"
+    build:
+      context: ..
+      dockerfile: Containerfile.vllm
+      target: vllm-node
+    shm_size: "${TENSORS_ROUTER_VLLM_SHM_SIZE:-4gb}"
+    environment:
+      HF_DATASETS_OFFLINE: "1"
+      HF_HOME: "/data/vllm/huggingface"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      VLLM_NO_USAGE_STATS: "1"
+    volumes:
+      - "vllm-node-data:/data/vllm"
+      - "vllm-node-models:/models"
+
+  router-webui:
+    image: "${TENSORS_ROUTER_VLLM_WEBUI_IMAGE:-ghcr.io/derijans/tensors-router/tensors-router-vllm-webui:latest}"
+    build:
+      context: ..
+      dockerfile: Containerfile.vllm
+      target: vllm-webui
+    shm_size: "${TENSORS_ROUTER_VLLM_SHM_SIZE:-4gb}"
+    environment:
+      HF_DATASETS_OFFLINE: "1"
+      HF_HOME: "/data/vllm/huggingface"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      VLLM_NO_USAGE_STATS: "1"
+    volumes:
+      - "vllm-webui-data:/data/vllm"
+      - "vllm-webui-models:/models"
+
+volumes:
+  vllm-node-data:
+  vllm-node-models:
+  vllm-webui-data:
+  vllm-webui-models:

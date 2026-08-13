@@ -47,11 +47,13 @@ const (
 	SourceWhisperCPPServer      = "https://github.com/ggml-org/whisper.cpp/blob/master/examples/server/README.md"
 	SourceStableDiffusionCPP    = "https://github.com/leejet/stable-diffusion.cpp/blob/master/examples/server/README.md"
 	SourceStableDiffusionCLICPP = "https://github.com/leejet/stable-diffusion.cpp/blob/master/examples/cli/README.md"
+	SourceVLLMOnlineServing     = "https://docs.vllm.ai/en/latest/serving/online_serving/"
 )
 
 var optionCatalog = enrichOptionCatalog([]OptionDefinition{
-	option(backendmode.Key, "Backend", LaneRuntime, ValueString, "", false, backendmode.Kobold, backendmode.LlamaSDCPP),
-	option(unloadpolicy.Key, "Unload Policy", LaneRuntime, ValueString, "", false, backendmode.Kobold, backendmode.LlamaSDCPP),
+	option(backendmode.Key, "Backend", LaneRuntime, ValueString, "", false, backendmode.Kobold, backendmode.LlamaSDCPP, backendmode.VLLM),
+	option(unloadpolicy.Key, "Unload Policy", LaneRuntime, ValueString, "", false, backendmode.Kobold, backendmode.LlamaSDCPP, backendmode.VLLM),
+	option("vllm", "vLLM Runtime", LaneRuntime, ValueJSON, "", false, backendmode.VLLM),
 	option("baseconfig", "Base Config", LaneRuntime, ValueString, "", false, "kobold"),
 	option("config", "Config", LaneRuntime, ValueString, "", false, "kobold", "llama_sdcpp"),
 	option("host", "Host", LaneRuntime, ValueString, "--host", false, "kobold", "llama_sdcpp"),
@@ -503,7 +505,8 @@ func enrichOptionCatalog(values []OptionDefinition) []OptionDefinition {
 }
 
 var optionMetadataByKey = map[string]optionMetadata{
-	"backend_mode":               meta(values(backendmode.Kobold, backendmode.LlamaSDCPP), "", "", "", ""),
+	"backend_mode":               meta(values(backendmode.Kobold, backendmode.LlamaSDCPP, backendmode.VLLM), "", "", "", ""),
+	"vllm":                       meta(nil, "", "", SourceVLLMOnlineServing, SectionRuntime),
 	"router_unload_policy":       meta(unloadpolicy.Values(), "", unloadpolicy.None, "", ""),
 	"baseconfig":                 meta(nil, "config", "", SourceKoboldCPP, ""),
 	"config":                     meta(nil, "config", "", SourceLlamaCPPServer, ""),
@@ -733,6 +736,8 @@ func defaultSource(backends []string) string {
 			return SourceKoboldCPP
 		case "llama_sdcpp":
 			return SourceLlamaCPPServer
+		case "vllm":
+			return SourceVLLMOnlineServing
 		}
 	}
 	return ""

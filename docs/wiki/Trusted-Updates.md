@@ -18,6 +18,41 @@ The shipped publication policy currently covers Windows amd64 and Linux amd64 CP
 
 Trusted metadata is refreshed in a staging directory. It becomes current only after all signatures, versions, expirations, target hashes, target lengths, the installed executable, and executable permissions have passed verification. Failed refreshes are discarded without replacing the current cache.
 
+vLLM runtime manifests use the same TUF trust model but are consumed only by `tensor-router-vllm` after an explicit administrator initialization action. A signed profile pins the Python, vLLM, plugin, wheel, source, or OCI artifacts with exact URLs, sizes, hashes, installation methods, supported platforms and devices, and prerequisites. The publication pipeline rejects nightlies, unresolved `latest` versions, and profiles that have not passed installation, import, serving, Python dependency audit, and runtime vulnerability gates on matching hardware or an approved vendor runner. Runtime profile staging never changes the current promoted environment until all verification and smoke tests succeed.
+
+The `upstream-targets` delegation authorizes only `upstreams/*/*` and `runtimes/vllm/*`. Existing repositories created before vLLM support require an offline-authorized top-level targets rotation that adds `runtimes/vllm/*`; the online publication key cannot widen its own delegation. Publication rejects every target outside those paths and verifies clean-cache retrieval before timestamp metadata is written.
+
+### One-time vLLM delegation rotation
+
+Perform this rotation on a reviewed operator workstation using a fresh checkout of the exact public repository. The rotation command never reads, creates, or prints private keys.
+
+1. Choose a new targets expiration later than the current expiration and no more than one year from preparation. Generate the public signing request:
+
+   ```text
+   go run ./cmd/tensor-router-tuf-targets-rotation prepare -repository <current-repository> -output <empty-request-directory> -expires <RFC3339>
+   ```
+
+2. Move `rotation-request.json`, `targets.payload.json`, and `targets.unsigned.json` to the offline targets-key custodians. Verify the source version and SHA-256, candidate version and expiration, canonical payload SHA-256, authorized key IDs, required signature count, and the sole added path `runtimes/vllm/*`. Sign the exact bytes of `targets.payload.json` with standards-conforming TUF tooling and place the distinct signatures in `targets.unsigned.json`. Do not move private keys onto the online workstation.
+3. Return only the completed signed metadata. Install it into a new staging repository:
+
+   ```text
+   go run ./cmd/tensor-router-tuf-targets-rotation install -repository <current-repository> -signed-targets <offline-signed-targets.json> -output <empty-staging-repository>
+   ```
+
+   Installation re-verifies the current repository, requires the trusted targets threshold to be at least two, verifies distinct authorized signatures through the current root, requires an exact version increment, requires a later bounded expiration, and rejects every payload change except adding `runtimes/vllm/*` to `upstream-targets`. It writes both versioned and unversioned targets metadata. Existing snapshot and timestamp files remain byte-for-byte unchanged.
+4. Never publish the staging repository directly because its old snapshot intentionally does not describe the rotated targets yet. In the existing protected publication environment, run:
+
+   ```text
+   go run ./cmd/tensor-router-tuf-publisher -repository <staging-repository> -output <empty-publication-directory> -config tuf/upstreams.json
+   ```
+
+   The publisher consumes only the separately held environment-protected online keys. It signs a new delegated role, snapshot, and timestamp, writes timestamp last, and performs clean-cache verification. Publish only its verified output atomically.
+5. Verify refresh from both an existing client cache and a clean cache before providing any runtime evidence. The first `runtimes/vllm/*` target still requires a successful protected hardware or approved vendor-runner evidence bundle; delegation rotation does not waive that gate.
+
+Runtime profiles are not sourced from `tuf/upstreams.json`. Approved hardware or vendor-runner receipts enter reviewed bundles below `tuf/profile-evidence`; see its README for the handoff contract. Dispatch `Validate vLLM runtime profiles` for that bundle, then dispatch trusted publication with the successful validation run ID. Publication verifies that the run used `.github/workflows/vllm-profile-evidence.yml` in this repository, succeeded on the exact publication commit, and uploaded an artifact named `vllm-runtime-profile-evidence` containing `evidence.json` plus `manifests/linux-amd64.json`, `manifests/linux-arm64.json`, and `manifests/darwin-arm64.json`. The evidence format is defined by [`tuf/runtime-profile-evidence.schema.json`](https://github.com/derijans/tensors-router/blob/main/tuf/runtime-profile-evidence.schema.json).
+
+Evidence expires after 14 days. Every profile operating-system, architecture, and device combination must identify its hardware or vendor runner and successful installation, import, serving, Python dependency audit, and runtime vulnerability scan. OCI profiles also require a successful container scan; non-OCI profiles may mark that check `not_applicable`. Scheduled publication without new evidence preserves currently trusted runtime manifests rather than deleting or replacing them.
+
 ## Publication roles
 
 Maintain root keys offline with a threshold greater than one. Root metadata authorizes top-level targets, snapshot, and timestamp. Top-level targets metadata authorizes the online delegated upstream-targets role. The online publication identity may update only upstream target manifests; it must not hold enough root keys to rotate or recover the repository.

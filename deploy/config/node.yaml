@@ -54,6 +54,17 @@ whispercpp:
   hide_window: true
   extra_args: []
 
+vllm:
+  binary_location: "/usr/local/bin/tensor-router-vllm"
+  data_dir: "/data/vllm"
+  profile: "auto"
+  tuf_repository_url: "https://derijans.github.io/tensors-router/tuf/metadata"
+  tuf_root_path: ""
+  dynamic_lora_enabled: false
+  eep_enabled: false
+  trust_remote_code: false
+  external_tools: false
+
 logging:
   mode: "startup_only"
   backend_logs_to_disk: true

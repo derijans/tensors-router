@@ -106,7 +106,7 @@ func (service *Service) forwardTransportLocal(runtime *backendRuntime, ctx conte
 		target.Path = joinPath(target.Path, original.URL.Path)
 	}
 	target.RawQuery = original.URL.RawQuery
-	response, err := service.doTransportAttempts(ctx, request, target, body, false)
+	response, err := service.doTransportAttempts(ctx, request, target, body, runtime.backend, false)
 	if err != nil || responseFormat == "" {
 		return response, err
 	}
@@ -124,11 +124,11 @@ func (service *Service) forwardTransportRemote(ctx context.Context, original *ht
 	}
 	target.Path = joinPath(target.Path, "/router/v1/node/inference"+original.URL.Path)
 	target.RawQuery = original.URL.RawQuery
-	return service.doTransportAttempts(ctx, original, target, body, true)
+	return service.doTransportAttempts(ctx, original, target, body, nil, true)
 }
 
-func (service *Service) doTransportAttempts(ctx context.Context, original *http.Request, target *url.URL, body transportbody.Body, clusterRequest bool) (*http.Response, error) {
-	response, consumed, err := service.doTransportAttempt(ctx, original, target, body, clusterRequest)
+func (service *Service) doTransportAttempts(ctx context.Context, original *http.Request, target *url.URL, body transportbody.Body, backend Backend, clusterRequest bool) (*http.Response, error) {
+	response, consumed, err := service.doTransportAttempt(ctx, original, target, body, backend, clusterRequest)
 	if !transportAttemptFailed(response, err) {
 		return response, nil
 	}
@@ -145,7 +145,7 @@ func (service *Service) doTransportAttempts(ctx context.Context, original *http.
 	if !body.CanRetry() {
 		return nil, cause
 	}
-	response, consumed, err = service.doTransportAttempt(ctx, original, target, body, clusterRequest)
+	response, consumed, err = service.doTransportAttempt(ctx, original, target, body, backend, clusterRequest)
 	if !transportAttemptFailed(response, err) {
 		return response, nil
 	}
@@ -157,7 +157,7 @@ func (service *Service) doTransportAttempts(ctx context.Context, original *http.
 	return nil, cause
 }
 
-func (service *Service) doTransportAttempt(ctx context.Context, original *http.Request, target *url.URL, body transportbody.Body, clusterRequest bool) (*http.Response, int64, error) {
+func (service *Service) doTransportAttempt(ctx context.Context, original *http.Request, target *url.URL, body transportbody.Body, backend Backend, clusterRequest bool) (*http.Response, int64, error) {
 	attempt, err := body.OpenAttempt()
 	if err != nil {
 		return nil, 0, err
@@ -177,7 +177,7 @@ func (service *Service) doTransportAttempt(ctx context.Context, original *http.R
 		request.ContentLength = size
 	}
 	request.Host = target.Host
-	client := *service.client
+	client := *service.backendHTTPClient(backend)
 	client.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
 	}
@@ -252,7 +252,7 @@ func writeTransportForwardError(w http.ResponseWriter, err error) {
 	case errors.As(err, &nonReplayable):
 		openai.WriteError(w, http.StatusBadGateway, "non_replayable_transport_error", err.Error())
 	default:
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		writeBackendFailure(w, err)
 	}
 }
 

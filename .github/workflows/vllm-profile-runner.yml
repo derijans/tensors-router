@@ -1,0 +1,186 @@
+name: Run vLLM hardware profile gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      runner_labels:
+        description: JSON array of approved self-hosted runner labels
+        required: true
+        type: string
+      manifest_path:
+        description: Reviewed manifest path under tuf/profile-evidence
+        required: true
+        type: string
+      profile_id:
+        description: Exact signed profile ID
+        required: true
+        type: string
+      operating_system:
+        description: linux or darwin
+        required: true
+        type: choice
+        options: [linux, darwin]
+      architecture:
+        description: amd64 or arm64
+        required: true
+        type: choice
+        options: [amd64, arm64]
+      device:
+        description: Profile device
+        required: true
+        type: choice
+        options: [cpu, cuda, rocm, xpu, metal]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate vLLM profile
+    runs-on: ${{ fromJSON(inputs.runner_labels) }}
+    environment: vllm-profile-validation
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Verify protected runner labels
+        env:
+          LABELS: ${{ inputs.runner_labels }}
+          EXPECTED_OS: ${{ inputs.operating_system }}
+          EXPECTED_ARCHITECTURE: ${{ inputs.architecture }}
+          EXPECTED_DEVICE: ${{ inputs.device }}
+        shell: bash
+        run: |
+          jq -e \
+            --arg os "vllm-$EXPECTED_OS" \
+            --arg architecture "vllm-$EXPECTED_ARCHITECTURE" \
+            --arg device "vllm-$EXPECTED_DEVICE" \
+            'type == "array" and index("self-hosted") and index($os) and index($architecture) and index($device)' \
+            <<<"$LABELS" >/dev/null
+
+      - name: Resolve reviewed manifest
+        id: manifest
+        env:
+          REQUESTED_MANIFEST: ${{ inputs.manifest_path }}
+        shell: bash
+        run: |
+          [[ "$REQUESTED_MANIFEST" =~ ^tuf/profile-evidence/[A-Za-z0-9._/-]+/manifests/(linux-amd64|linux-arm64|darwin-arm64)\.json$ ]]
+          [[ "$REQUESTED_MANIFEST" != *".."* ]]
+          MANIFEST_PATH="$(realpath -e "$REQUESTED_MANIFEST")"
+          case "$MANIFEST_PATH" in
+            "$GITHUB_WORKSPACE"/tuf/profile-evidence/*/manifests/*.json) ;;
+            *) echo "manifest escaped tuf/profile-evidence" >&2; exit 1 ;;
+          esac
+          echo "path=$MANIFEST_PATH" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up pinned uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: 0.12.0
+          enable-cache: false
+
+      - name: Build companion with embedded bootstrap
+        shell: bash
+        run: |
+          test "$(uv --version | awk '{print $2}')" = "0.12.0"
+          mkdir -p internal/vllm/assets .tmp/vllm-profile
+          cp -L "$(command -v uv)" internal/vllm/assets/uv
+          go test -tags vllm_embedded_uv ./internal/vllm ./cmd/tensor-router-vllm
+          go build -tags vllm_embedded_uv -buildvcs=false -trimpath -o .tmp/tensor-router-vllm ./cmd/tensor-router-vllm
+
+      - name: Install, import, and serve smoke test
+        env:
+          MANIFEST_PATH: ${{ steps.manifest.outputs.path }}
+          PROFILE_ID: ${{ inputs.profile_id }}
+          EXPECTED_OS: ${{ inputs.operating_system }}
+          EXPECTED_ARCHITECTURE: ${{ inputs.architecture }}
+          EXPECTED_DEVICE: ${{ inputs.device }}
+        shell: bash
+        run: |
+          .tmp/tensor-router-vllm profile-check \
+            --data-dir .tmp/vllm-profile \
+            --manifest "$MANIFEST_PATH" \
+            --profile "$PROFILE_ID" \
+            --expected-os "$EXPECTED_OS" \
+            --expected-architecture "$EXPECTED_ARCHITECTURE" \
+            --expected-device "$EXPECTED_DEVICE" \
+            > .tmp/vllm-profile-check.json
+          jq -e --arg profile "$PROFILE_ID" '.profile == $profile and (.runtime_version | length) > 0' .tmp/vllm-profile-check.json >/dev/null
+          test "$(jq -r '.manifest_sha256' .tmp/vllm-profile-check.json)" = "$(sha256sum "$MANIFEST_PATH" | awk '{print $1}')"
+
+      - name: Audit Python dependencies
+        env:
+          MANIFEST_PATH: ${{ steps.manifest.outputs.path }}
+          PROFILE_ID: ${{ inputs.profile_id }}
+        shell: bash
+        run: |
+          install_method="$(jq -r --arg profile "$PROFILE_ID" '.profiles[] | select(.id == $profile) | .install_method' "$MANIFEST_PATH")"
+          if [[ "$install_method" == "oci" ]]; then
+            image="$(jq -r --arg profile "$PROFILE_ID" '.profiles[] | select(.id == $profile) | .oci_image' "$MANIFEST_PATH")"
+            if command -v docker >/dev/null 2>&1; then
+              container_engine=docker
+            else
+              container_engine=podman
+            fi
+            "$container_engine" run --rm --entrypoint python "$image" -I -c 'import importlib.metadata as metadata; print("\n".join(sorted("{}=={}".format(distribution.metadata["Name"], distribution.version) for distribution in metadata.distributions() if distribution.metadata["Name"])))' > .tmp/vllm-requirements.txt
+          else
+            environment_python="$(find .tmp/vllm-profile/environments -type f \( -path '*/bin/python' -o -path '*/Scripts/python.exe' \) -print -quit)"
+            test -n "$environment_python"
+            uv pip freeze --python "$environment_python" > .tmp/vllm-requirements.txt
+          fi
+          uvx --from pip-audit==2.10.1 pip-audit --no-deps --requirement .tmp/vllm-requirements.txt
+
+      - name: Scan installed runtime
+        shell: bash
+        run: |
+          test "$(trivy --version | awk 'NR == 1 {print $2}')" = "0.70.0"
+          trivy fs --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL .tmp/vllm-profile/environments
+
+      - name: Scan OCI runtime
+        env:
+          MANIFEST_PATH: ${{ steps.manifest.outputs.path }}
+          PROFILE_ID: ${{ inputs.profile_id }}
+        shell: bash
+        run: |
+          install_method="$(jq -r --arg profile "$PROFILE_ID" '.profiles[] | select(.id == $profile) | .install_method' "$MANIFEST_PATH")"
+          if [[ "$install_method" == "oci" ]]; then
+            image="$(jq -r --arg profile "$PROFILE_ID" '.profiles[] | select(.id == $profile) | .oci_image' "$MANIFEST_PATH")"
+            trivy image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "$image"
+          fi
+
+      - name: Emit authenticated receipt
+        env:
+          PROFILE_ID: ${{ inputs.profile_id }}
+          EXPECTED_OS: ${{ inputs.operating_system }}
+          EXPECTED_ARCHITECTURE: ${{ inputs.architecture }}
+          EXPECTED_DEVICE: ${{ inputs.device }}
+        shell: bash
+        run: |
+          install_method="$(jq -r --arg profile "$PROFILE_ID" '.profiles[] | select(.id == $profile) | .install_method' '${{ steps.manifest.outputs.path }}')"
+          container_scan=not_applicable
+          [[ "$install_method" != "oci" ]] || container_scan=passed
+          jq -n \
+            --arg profile_id "$PROFILE_ID" \
+            --arg operating_system "$EXPECTED_OS" \
+            --arg architecture "$EXPECTED_ARCHITECTURE" \
+            --arg device "$EXPECTED_DEVICE" \
+            --arg runner "$RUNNER_NAME" \
+            --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --arg manifest_sha256 "$(jq -r '.manifest_sha256' .tmp/vllm-profile-check.json)" \
+            --arg container_scan "$container_scan" \
+            '{profile_id: $profile_id, operating_system: $operating_system, architecture: $architecture, device: $device, runner: $runner, run_url: $run_url, manifest_sha256: $manifest_sha256, installation: "passed", import: "passed", serve: "passed", python_dependency_audit: "passed", runtime_vulnerability_scan: "passed", container_vulnerability_scan: $container_scan}' \
+            > result.json
+
+      - name: Upload profile receipt
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: vllm-profile-result
+          path: result.json
+          if-no-files-found: error
+          retention-days: 14

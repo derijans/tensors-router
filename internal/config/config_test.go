@@ -573,3 +573,26 @@ func TestValidateAcceptsBuiltInTrustedRepositoryUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestLoadVLLMConfiguration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := "backend:\n  mode: vllm\nvllm:\n  binary_location: ./tensor-router-vllm\n  data_dir: ./data/vllm\n  profile: cuda-12.9\n  manifest_path: ./profiles.json\n  tuf_repository_url: https://updates.example.test/metadata\n  tuf_root_path: ./root.json\n  dynamic_lora_enabled: true\n  eep_enabled: true\n  trust_remote_code: true\n  external_tools: true\n"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Backend.Mode != "vllm" || cfg.VLLM.Profile != "cuda-12.9" || !cfg.VLLM.DynamicLoRAEnabled || !cfg.VLLM.EEPEnabled || !cfg.VLLM.TrustRemoteCode || !cfg.VLLM.ExternalTools {
+		t.Fatalf("unexpected vLLM configuration %#v", cfg.VLLM)
+	}
+}
+
+func TestValidateRejectsUnsafeVLLMProfile(t *testing.T) {
+	cfg := Defaults()
+	cfg.VLLM.Profile = "../../escape"
+	if err := validate(&cfg); err == nil {
+		t.Fatal("expected unsafe vLLM profile rejection")
+	}
+}

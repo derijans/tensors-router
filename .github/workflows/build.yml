@@ -8,12 +8,14 @@ on:
     types: ["published"]
 
 permissions:
+  actions: read
   contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
   GO_VERSION: "1.26.5"
   NODE_VERSION: "24"
+  UV_VERSION: "0.12.0"
 
 jobs:
   test:
@@ -48,34 +50,38 @@ jobs:
         run: go test ./...
 
       - name: Test concurrent state
-        run: go test -race ./internal/recipes ./internal/benchmark ./internal/catalog ./internal/proxy
+        run: go test -race ./internal/recipes ./internal/benchmark ./internal/catalog ./internal/proxy ./internal/vllm
 
       - name: Check Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
 
   build:
     name: Build ${{ matrix.target.name }}
-    runs-on: ubuntu-latest
     needs: test
     strategy:
       fail-fast: false
       matrix:
         target:
           - name: linux-amd64
+            runner: ubuntu-latest
             goos: linux
             goarch: amd64
             binary: tensors-router-linux-amd64
             webui_binary: tensor-router-webui-linux-amd64
             downloader_binary: tensor-router-downloader-linux-amd64
+            vllm_binary: tensor-router-vllm-linux-amd64
             archive: tensors-router-linux-amd64.tar.gz
           - name: linux-arm64
+            runner: ubuntu-24.04-arm
             goos: linux
             goarch: arm64
             binary: tensors-router-linux-arm64
             webui_binary: tensor-router-webui-linux-arm64
             downloader_binary: tensor-router-downloader-linux-arm64
+            vllm_binary: tensor-router-vllm-linux-arm64
             archive: tensors-router-linux-arm64.tar.gz
           - name: linux-armv7
+            runner: ubuntu-latest
             goos: linux
             goarch: arm
             goarm: "7"
@@ -84,6 +90,7 @@ jobs:
             downloader_binary: tensor-router-downloader-linux-armv7
             archive: tensors-router-linux-armv7.tar.gz
           - name: windows-amd64
+            runner: ubuntu-latest
             goos: windows
             goarch: amd64
             binary: tensors-router-windows-amd64.exe
@@ -91,15 +98,44 @@ jobs:
             downloader_binary: tensor-router-downloader-windows-amd64.exe
             archive: tensors-router-windows-amd64.zip
           - name: windows-arm64
+            runner: ubuntu-latest
             goos: windows
             goarch: arm64
             binary: tensors-router-windows-arm64.exe
             webui_binary: tensor-router-webui-windows-arm64.exe
             downloader_binary: tensor-router-downloader-windows-arm64.exe
             archive: tensors-router-windows-arm64.zip
+          - name: macos-arm64
+            runner: macos-15
+            goos: darwin
+            goarch: arm64
+            binary: tensors-router-darwin-arm64
+            webui_binary: tensor-router-webui-darwin-arm64
+            downloader_binary: tensor-router-downloader-darwin-arm64
+            vllm_binary: tensor-router-vllm-darwin-arm64
+            archive: tensors-router-darwin-arm64.tar.gz
+    runs-on: ${{ matrix.target.runner }}
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Verify vLLM native runner
+        if: matrix.target.name == 'linux-amd64' || matrix.target.name == 'linux-arm64' || matrix.target.name == 'macos-arm64'
+        env:
+          EXPECTED_OS: ${{ matrix.target.goos }}
+          EXPECTED_ARCH: ${{ matrix.target.goarch }}
+        run: |
+          case "$(uname -s)" in
+            Linux) HOST_OS=linux ;;
+            Darwin) HOST_OS=darwin ;;
+            *) HOST_OS=unsupported ;;
+          esac
+          case "$(uname -m)" in
+            x86_64) HOST_ARCH=amd64 ;;
+            arm64|aarch64) HOST_ARCH=arm64 ;;
+            *) HOST_ARCH=unsupported ;;
+          esac
+          test "$HOST_OS/$HOST_ARCH" = "$EXPECTED_OS/$EXPECTED_ARCH"
 
       - name: Set up Go
         uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
@@ -114,6 +150,20 @@ jobs:
           cache: npm
           cache-dependency-path: webui/package-lock.json
 
+      - name: Set up pinned uv bootstrap
+        if: matrix.target.name == 'linux-amd64' || matrix.target.name == 'linux-arm64' || matrix.target.name == 'macos-arm64'
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: false
+
+      - name: Stage embedded uv bootstrap
+        if: matrix.target.name == 'linux-amd64' || matrix.target.name == 'linux-arm64' || matrix.target.name == 'macos-arm64'
+        run: |
+          test "$(uv --version | awk '{print $2}')" = "$UV_VERSION"
+          mkdir -p internal/vllm/assets
+          cp -L "$(command -v uv)" internal/vllm/assets/uv
+
       - name: Install WebUI dependencies
         working-directory: webui
         run: npm ci
@@ -121,6 +171,10 @@ jobs:
       - name: Build WebUI assets
         working-directory: webui
         run: npm run build
+
+      - name: Test native vLLM companion
+        if: matrix.target.name == 'linux-amd64' || matrix.target.name == 'linux-arm64' || matrix.target.name == 'macos-arm64'
+        run: go test -tags vllm_embedded_uv ./internal/vllm ./cmd/tensor-router-vllm
 
       - name: Build executables
         env:
@@ -131,6 +185,7 @@ jobs:
           OUTPUT: dist/${{ matrix.target.binary }}
           WEBUI_OUTPUT: dist/${{ matrix.target.webui_binary }}
           DOWNLOADER_OUTPUT: dist/${{ matrix.target.downloader_binary }}
+          VLLM_OUTPUT: dist/${{ matrix.target.vllm_binary }}
           VERSION: ${{ github.event.release.tag_name || github.sha }}
         run: |
           mkdir -p dist
@@ -144,6 +199,10 @@ jobs:
           if [ -n "${{ matrix.target.downloader_binary }}" ]; then
             go build -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "$DOWNLOADER_OUTPUT" ./cmd/tensor-router-downloader
           fi
+          if [ -n "${{ matrix.target.vllm_binary }}" ]; then
+            go build -tags vllm_embedded_uv -buildvcs=false -trimpath -ldflags "$LDFLAGS" -o "$VLLM_OUTPUT" ./cmd/tensor-router-vllm
+            "$VLLM_OUTPUT" bootstrap-info | grep -Eq '^uv sha256:[0-9a-f]{64}$'
+          fi
 
       - name: Package executables
         env:
@@ -151,11 +210,15 @@ jobs:
           BINARY: ${{ matrix.target.binary }}
           WEBUI_BINARY: ${{ matrix.target.webui_binary }}
           DOWNLOADER_BINARY: ${{ matrix.target.downloader_binary }}
+          VLLM_BINARY: ${{ matrix.target.vllm_binary }}
           ARCHIVE: ${{ matrix.target.archive }}
         run: |
           FILES=("$BINARY" "$WEBUI_BINARY")
           if [ -n "$DOWNLOADER_BINARY" ]; then
             FILES+=("$DOWNLOADER_BINARY")
+          fi
+          if [ -n "$VLLM_BINARY" ]; then
+            FILES+=("$VLLM_BINARY")
           fi
           chmod +x "${FILES[@]/#/dist/}"
           if [ "$GOOS" = "windows" ]; then
@@ -163,12 +226,40 @@ jobs:
           else
             (cd dist && tar -czf "$ARCHIVE" "${FILES[@]}")
           fi
-          sha256sum "dist/$BINARY" > "dist/$BINARY.sha256"
-          sha256sum "dist/$WEBUI_BINARY" > "dist/$WEBUI_BINARY.sha256"
+          checksum() {
+            if command -v sha256sum >/dev/null 2>&1; then
+              sha256sum "$1"
+            else
+              shasum -a 256 "$1"
+            fi
+          }
+          checksum "dist/$BINARY" > "dist/$BINARY.sha256"
+          checksum "dist/$WEBUI_BINARY" > "dist/$WEBUI_BINARY.sha256"
           if [ -n "$DOWNLOADER_BINARY" ]; then
-            sha256sum "dist/$DOWNLOADER_BINARY" > "dist/$DOWNLOADER_BINARY.sha256"
+            checksum "dist/$DOWNLOADER_BINARY" > "dist/$DOWNLOADER_BINARY.sha256"
           fi
-          sha256sum "dist/$ARCHIVE" > "dist/$ARCHIVE.sha256"
+          if [ -n "$VLLM_BINARY" ]; then
+            checksum "dist/$VLLM_BINARY" > "dist/$VLLM_BINARY.sha256"
+          fi
+          checksum "dist/$ARCHIVE" > "dist/$ARCHIVE.sha256"
+
+      - name: Verify archive executable boundary
+        env:
+          GOOS: ${{ matrix.target.goos }}
+          VLLM_BINARY: ${{ matrix.target.vllm_binary }}
+          ARCHIVE: ${{ matrix.target.archive }}
+        run: |
+          if [ "$GOOS" = "windows" ]; then
+            CONTENTS="$(cd dist && unzip -Z1 "$ARCHIVE")"
+          else
+            CONTENTS="$(cd dist && tar -tzf "$ARCHIVE")"
+          fi
+          if [ -n "$VLLM_BINARY" ]; then
+            grep -Fxq "$VLLM_BINARY" <<<"$CONTENTS"
+          elif grep -Eq '(^|/)tensor-router-vllm([.-]|$)' <<<"$CONTENTS"; then
+            echo "unsupported archive contains tensor-router-vllm" >&2
+            exit 1
+          fi
 
       - name: Upload artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -207,6 +298,10 @@ jobs:
           docker compose -f deploy/compose.base.yaml --profile webui config >/dev/null
           docker compose -f deploy/compose.base.yaml -f deploy/compose.nvidia.yaml --profile webui config >/dev/null
           docker compose -f deploy/compose.base.yaml -f deploy/compose.amd.yaml --profile webui config >/dev/null
+          docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml --profile node config >/dev/null
+          docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml -f deploy/compose.nvidia.yaml --profile webui config >/dev/null
+          docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml -f deploy/compose.amd.yaml --profile webui config >/dev/null
+          docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml -f deploy/compose.intel.yaml --profile webui config >/dev/null
 
       - name: Set up Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
@@ -239,6 +334,34 @@ jobs:
             VERSION=${{ github.sha }}
             COMMIT=${{ github.sha }}
 
+      - name: Build vLLM node image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        with:
+          context: .
+          file: Containerfile.vllm
+          target: vllm-node
+          load: true
+          push: false
+          tags: local/tensors-router-vllm-node:ci
+          build-args: |
+            GO_VERSION=${{ env.GO_VERSION }}
+            VERSION=${{ github.sha }}
+            COMMIT=${{ github.sha }}
+
+      - name: Build vLLM WebUI image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        with:
+          context: .
+          file: Containerfile.vllm
+          target: vllm-webui
+          load: true
+          push: false
+          tags: local/tensors-router-vllm-webui:ci
+          build-args: |
+            GO_VERSION=${{ env.GO_VERSION }}
+            VERSION=${{ github.sha }}
+            COMMIT=${{ github.sha }}
+
       - name: Verify image boundaries
         run: |
           docker image inspect local/tensors-router-node:ci --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp"]'
@@ -247,12 +370,113 @@ jobs:
           docker image inspect local/tensors-router-webui:ci --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensor-router-webui", "--config", "/config/webui.yaml"]'
           test "$(docker run --rm --entrypoint /bin/sh local/tensors-router-node:ci -c 'test ! -e /usr/local/bin/tensor-router-webui && echo isolated')" = "isolated"
           test "$(docker run --rm --entrypoint /bin/sh local/tensors-router-node:ci -c 'test -x /usr/local/bin/tensor-router-downloader && echo downloader')" = "downloader"
+          test "$(docker run --rm --entrypoint /bin/sh local/tensors-router-node:ci -c 'command -v python >/dev/null 2>&1 || echo python-free')" = "python-free"
+          test "$(docker run --rm --entrypoint /bin/sh local/tensors-router-node:ci -c 'test ! -e /usr/local/bin/tensor-router-vllm && echo vllm-isolated')" = "vllm-isolated"
+          docker image inspect local/tensors-router-vllm-node:ci --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp"]'
+          docker image inspect local/tensors-router-vllm-webui:ci --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp", "8443/tcp", "8444/tcp"]'
+          docker image inspect local/tensors-router-vllm-node:ci --format '{{json .Config.Volumes}}' | jq -e 'keys == ["/data/vllm", "/models"]'
+          docker image inspect local/tensors-router-vllm-webui:ci --format '{{json .Config.Volumes}}' | jq -e 'keys == ["/data/vllm", "/models"]'
+          test "$(docker run --rm --entrypoint /bin/sh local/tensors-router-vllm-node:ci -c 'test -x /usr/local/bin/tensor-router-vllm && test -d /data/vllm && test -d /models && ldd --version 2>&1 | grep -q GLIBC && echo vllm-ready')" = "vllm-ready"
+
+  container-scan:
+    name: Scan ${{ matrix.image.name }} ${{ matrix.arch }}
+    runs-on: ubuntu-latest
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - name: node
+            file: Containerfile
+            target: node
+          - name: webui
+            file: Containerfile
+            target: webui
+          - name: vllm-node
+            file: Containerfile.vllm
+            target: vllm-node
+          - name: vllm-webui
+            file: Containerfile.vllm
+            target: vllm-webui
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3
+        with:
+          platforms: arm64
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+
+      - name: Build scan candidate
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        with:
+          context: .
+          file: ${{ matrix.image.file }}
+          target: ${{ matrix.image.target }}
+          platforms: linux/${{ matrix.arch }}
+          load: true
+          push: false
+          tags: local/tensors-router-${{ matrix.image.name }}:scan-${{ matrix.arch }}
+          build-args: |
+            GO_VERSION=${{ env.GO_VERSION }}
+            VERSION=${{ github.sha }}
+            COMMIT=${{ github.sha }}
+
+      - name: Scan image
+        env:
+          IMAGE: local/tensors-router-${{ matrix.image.name }}:scan-${{ matrix.arch }}
+        run: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436 image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "$IMAGE"
+
+  vllm-release-gate:
+    name: Verify vLLM profile evidence
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    needs: test
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Set up Go
+        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Resolve validated evidence run
+        id: evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/vllm-profile-evidence.yml/runs" -f head_sha="$GITHUB_SHA" -f status=success -f event=workflow_dispatch -f per_page=100 > .tmp-vllm-evidence-runs.json
+          run_id="$(jq -r --arg repository "$GITHUB_REPOSITORY" '[.workflow_runs[] | select(.head_repository.full_name == $repository and .path == ".github/workflows/vllm-profile-evidence.yml")][0].id // empty' .tmp-vllm-evidence-runs.json)"
+          test -n "$run_id"
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+
+      - name: Download validated evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: vllm-runtime-profile-evidence
+          path: .tmp/vllm-runtime-profile-evidence
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ steps.evidence.outputs.run_id }}
+
+      - name: Revalidate release evidence
+        run: go run ./cmd/tensor-router-tuf-evidence-validator -evidence .tmp/vllm-runtime-profile-evidence -source-commit "$GITHUB_SHA"
 
   release:
     name: Publish release assets
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
-    needs: [build, containers]
+    needs: [build, containers, container-scan, vllm-release-gate]
     permissions:
       contents: write
     steps:
@@ -280,7 +504,7 @@ jobs:
   publish-containers:
     name: Publish container images
     if: github.event_name == 'release'
-    needs: [build, containers]
+    needs: [build, containers, container-scan, vllm-release-gate]
     permissions:
       contents: read
       packages: write

@@ -1,7 +1,10 @@
 package proxy
 
 import (
+	"bytes"
+	"encoding/binary"
 	"fmt"
+	"mime/multipart"
 	"strings"
 	"time"
 
@@ -108,6 +111,46 @@ func imageBenchmarkBody(modelID string) string {
 
 func voiceBenchmarkBody(modelID string) string {
 	return fmt.Sprintf(`{"model":%q,"input":"benchmark","voice":"alloy","response_format":"wav"}`, modelID)
+}
+
+func transcriptionBenchmarkBody(modelID string) (string, string, error) {
+	var content bytes.Buffer
+	writer := multipart.NewWriter(&content)
+	if err := writer.WriteField("model", modelID); err != nil {
+		return "", "", err
+	}
+	audio, err := writer.CreateFormFile("file", "benchmark.wav")
+	if err != nil {
+		return "", "", err
+	}
+	if _, err := audio.Write(benchmarkSilenceWAV()); err != nil {
+		return "", "", err
+	}
+	if err := writer.Close(); err != nil {
+		return "", "", err
+	}
+	return writer.FormDataContentType(), content.String(), nil
+}
+
+func benchmarkSilenceWAV() []byte {
+	const sampleRate = 16000
+	const sampleCount = sampleRate / 10
+	const headerSize = 44
+	content := make([]byte, headerSize+sampleCount*2)
+	copy(content[0:4], "RIFF")
+	binary.LittleEndian.PutUint32(content[4:8], uint32(len(content)-8))
+	copy(content[8:12], "WAVE")
+	copy(content[12:16], "fmt ")
+	binary.LittleEndian.PutUint32(content[16:20], 16)
+	binary.LittleEndian.PutUint16(content[20:22], 1)
+	binary.LittleEndian.PutUint16(content[22:24], 1)
+	binary.LittleEndian.PutUint32(content[24:28], sampleRate)
+	binary.LittleEndian.PutUint32(content[28:32], sampleRate*2)
+	binary.LittleEndian.PutUint16(content[32:34], 2)
+	binary.LittleEndian.PutUint16(content[34:36], 16)
+	copy(content[36:40], "data")
+	binary.LittleEndian.PutUint32(content[40:44], sampleCount*2)
+	return content
 }
 
 func musicBenchmarkBody(modelID string) string {

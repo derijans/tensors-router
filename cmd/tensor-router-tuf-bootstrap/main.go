@@ -109,7 +109,7 @@ func writeInitialRepository(keyDirectory string, root *tufmetadata.Metadata[tufm
 	targets := tufmetadata.Targets(time.Now().UTC().AddDate(0, 6, 0))
 	targets.Signed.Delegations = &tufmetadata.Delegations{
 		Keys:  map[string]*tufmetadata.Key{delegatedKeyID: delegatedKey.public},
-		Roles: []tufmetadata.DelegatedRole{{Name: "upstream-targets", KeyIDs: []string{delegatedKeyID}, Threshold: 1, Terminating: true, Paths: []string{"upstreams/*/*"}}},
+		Roles: []tufmetadata.DelegatedRole{{Name: "upstream-targets", KeyIDs: []string{delegatedKeyID}, Threshold: 1, Terminating: true, Paths: []string{"upstreams/*/*", "runtimes/vllm/*"}}},
 	}
 	for _, key := range keys["targets"] {
 		if err := signMetadata(targets, key.private); err != nil {

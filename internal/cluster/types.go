@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"tensors-router/internal/backendmode"
 	routerbenchmark "tensors-router/internal/benchmark"
@@ -52,6 +53,7 @@ const (
 const (
 	BackendModeKobold     = backendmode.Kobold
 	BackendModeLlamaSDCPP = backendmode.LlamaSDCPP
+	BackendModeVLLM       = backendmode.VLLM
 )
 
 const (
@@ -91,6 +93,8 @@ type Model struct {
 	AssetFailure     string                          `json:"asset_failure,omitempty"`
 	Benchmark        *routerbenchmark.ModelBenchmark `json:"benchmark,omitempty"`
 	Disabled         bool                            `json:"disabled,omitempty"`
+	ServedNames      []string                        `json:"served_names,omitempty"`
+	VLLMTask         string                          `json:"vllm_task,omitempty"`
 }
 
 type Snapshot struct {
@@ -127,13 +131,30 @@ func LocalModelsWithBackendMode(models []catalog.Model, nodeID string, nodeURL s
 	if err != nil {
 		fallbackMode = BackendModeKobold
 	}
+	primaryIDs := make(map[string]struct{}, len(models))
+	servedNameOwners := make(map[string]int)
+	for _, model := range models {
+		primaryIDs[model.ID] = struct{}{}
+		seen := make(map[string]struct{}, len(model.ServedNames))
+		for _, servedName := range model.ServedNames {
+			servedName = strings.TrimSpace(servedName)
+			if servedName == "" || servedName == model.ID {
+				continue
+			}
+			if _, duplicate := seen[servedName]; duplicate {
+				continue
+			}
+			seen[servedName] = struct{}{}
+			servedNameOwners[servedName]++
+		}
+	}
 	records := make([]Model, 0, len(models))
 	for _, model := range models {
 		modelBackendMode := backendmode.Normalize(model.BackendMode)
 		if modelBackendMode == "" {
 			modelBackendMode = fallbackMode
 		}
-		records = append(records, Model{
+		record := Model{
 			PublicID:         model.ID,
 			LocalID:          model.ID,
 			ImageID:          model.ImageID,
@@ -160,7 +181,23 @@ func LocalModelsWithBackendMode(models []catalog.Model, nodeID string, nodeURL s
 			AssetState:       model.AssetState,
 			UnresolvedFields: model.UnresolvedFields,
 			AssetFailure:     model.AssetFailure,
-		})
+			ServedNames:      append([]string{}, model.ServedNames...),
+			VLLMTask:         model.VLLMTask,
+		}
+		records = append(records, record)
+		for _, servedName := range model.ServedNames {
+			servedName = strings.TrimSpace(servedName)
+			if servedName == "" || servedName == model.ID || servedNameOwners[servedName] != 1 {
+				continue
+			}
+			if _, conflicts := primaryIDs[servedName]; conflicts {
+				continue
+			}
+			alias := record
+			alias.PublicID = servedName
+			alias.ServedNames = append([]string{}, record.ServedNames...)
+			records = append(records, alias)
+		}
 	}
 	return records
 }
@@ -182,7 +219,8 @@ func PublicCatalogModels(models []Model) []catalog.Model {
 	result := make([]catalog.Model, 0, len(models))
 	seen := map[string]struct{}{}
 	for _, model := range models {
-		if model.Disabled || !model.HasLLM {
+		mode := backendmode.Normalize(model.BackendMode)
+		if model.Disabled || !model.HasLLM && (mode != backendmode.VLLM || !model.HasEmbeddings && !model.HasVoice) {
 			continue
 		}
 		if _, ok := seen[model.PublicID]; ok {
@@ -190,12 +228,17 @@ func PublicCatalogModels(models []Model) []catalog.Model {
 		}
 		seen[model.PublicID] = struct{}{}
 		result = append(result, catalog.Model{
-			ID:           model.PublicID,
-			Created:      model.Created,
-			HasLLM:       model.HasLLM,
-			ModelHash:    model.ModelHash,
-			ConfigHash:   model.ConfigHash,
-			Capabilities: model.Capabilities,
+			ID:            model.PublicID,
+			Created:       model.Created,
+			HasLLM:        model.HasLLM,
+			HasEmbeddings: model.HasEmbeddings,
+			HasVoice:      model.HasVoice,
+			ModelHash:     model.ModelHash,
+			ConfigHash:    model.ConfigHash,
+			BackendMode:   mode,
+			Capabilities:  model.Capabilities,
+			ServedNames:   append([]string{}, model.ServedNames...),
+			VLLMTask:      model.VLLMTask,
 		})
 	}
 	return result

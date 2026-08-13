@@ -350,10 +350,22 @@ export interface NodeStateModelRow {
   generation: number;
 }
 
+export type BackendLifecycleState = "companion_missing" | "unsupported" | "needs_init" | "initializing" | "ready" | "failed";
+
 export interface NodeStateBackend {
   id: string;
   display_name: string;
   mode: string;
+  lifecycle_state: BackendLifecycleState;
+  selected_profile?: string;
+  detected_profile?: string;
+  runtime_version?: string;
+  initialization_job_id?: string;
+  initialization_phase?: string;
+  initialization_bytes?: number;
+  initialization_total_bytes?: number;
+  error?: string;
+  retryable?: boolean;
   loaded_models: NodeStateModelRow[];
 }
 
@@ -368,6 +380,29 @@ export interface NodeUnloadRequest {
   backend_id: string;
   runtime_id: string;
   expected_generation: number;
+}
+
+export interface BackendInitializationRequest {
+  node_id: string;
+  backend_id: string;
+  profile?: string;
+}
+
+export type BackendInitializationJobState = "queued" | "running" | "completed" | "failed" | "cancelled";
+
+export interface BackendInitializationJob {
+  job_id: string;
+  backend_id: string;
+  state: BackendInitializationJobState;
+  selected_profile?: string;
+  detected_profile?: string;
+  phase?: string;
+  completed_bytes: number;
+  total_bytes: number;
+  error?: string;
+  retryable?: boolean;
+  created_at?: string;
+  updated_at?: string;
 }
 
 export interface RecipeComponent {

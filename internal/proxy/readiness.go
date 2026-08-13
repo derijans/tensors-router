@@ -25,6 +25,9 @@ func (readiness backendReadiness) endpoint() string {
 }
 
 func (readiness backendReadiness) endpointForMode(backendMode string) string {
+	if backendMode == BackendModeVLLM {
+		return "/health"
+	}
 	switch readiness {
 	case readinessImage:
 		return "/sdapi/v1/sd-models"
@@ -57,7 +60,7 @@ func (readiness backendReadiness) capability() string {
 
 func audioReadiness(path string, lane string, backendMode string) backendReadiness {
 	if backendMode != BackendModeKobold {
-		if path == "/v1/audio/transcriptions" || path == "/v1/audio/translations" || path == "/api/extra/transcribe" {
+		if path == "/v1/audio/transcriptions" || path == "/v1/audio/translations" || path == "/v1/realtime" || path == "/api/extra/transcribe" {
 			return readinessTranscription
 		}
 		return readinessText
@@ -66,7 +69,7 @@ func audioReadiness(path string, lane string, backendMode string) backendReadine
 		return readinessMusic
 	}
 	switch path {
-	case "/v1/audio/transcriptions", "/v1/audio/translations", "/api/extra/transcribe":
+	case "/v1/audio/transcriptions", "/v1/audio/translations", "/v1/realtime", "/api/extra/transcribe":
 		return readinessTranscription
 	default:
 		return readinessSpeech
@@ -74,6 +77,9 @@ func audioReadiness(path string, lane string, backendMode string) backendReadine
 }
 
 func readinessForVoiceModel(model catalog.Model, backendMode string) backendReadiness {
+	if backendMode == BackendModeVLLM && isVLLMSpeechTask(model.VLLMTask) {
+		return readinessTranscription
+	}
 	voice := model.Capabilities.Voice
 	if voice != nil && strings.TrimSpace(voice.TTSModel) == "" && strings.TrimSpace(voice.WAVTokenizer) == "" && strings.TrimSpace(voice.Directory) == "" && strings.TrimSpace(voice.TalkerModel) == "" && strings.TrimSpace(voice.Code2WAVModel) == "" && strings.TrimSpace(voice.WhisperModel) != "" {
 		return readinessTranscription

@@ -8,7 +8,9 @@ import (
 	"sort"
 	"strings"
 
+	"tensors-router/internal/backendmode"
 	"tensors-router/internal/catalog"
+	"tensors-router/internal/vllm"
 )
 
 type ModelCatalog interface {
@@ -243,8 +245,32 @@ func (writer Writer) composedConfig(components []Component, options Options) (ma
 		setJSONBool(body, "nomodel", true)
 	}
 	applyOptions(body, options)
+	if err := validateComposedVLLMConfig(body, components); err != nil {
+		return nil, "", err
+	}
 	imagePath = rawJSONString(body["sdmodel"])
 	return body, imagePath, nil
+}
+
+func validateComposedVLLMConfig(body map[string]json.RawMessage, components []Component) error {
+	mode := rawJSONString(body[backendmode.Key])
+	if mode != backendmode.VLLM {
+		return nil
+	}
+	if len(components) != 1 {
+		return fmt.Errorf("vllm configs require exactly one model component")
+	}
+	switch components[0].Kind {
+	case KindText, KindEmbeddings, KindVoice:
+	default:
+		return fmt.Errorf("vllm does not support %s constructor components", components[0].Kind)
+	}
+	content, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	_, err = vllm.ParseModelConfig(content)
+	return err
 }
 
 func (writer Writer) configBody(component Component) (map[string]json.RawMessage, error) {

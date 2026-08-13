@@ -3,7 +3,13 @@ on:
   schedule:
     - cron: "17 3 * * *"
   workflow_dispatch:
+    inputs:
+      vllm_evidence_run_id:
+        description: Successful approved hardware-profile validation run to publish; empty preserves current vLLM manifests
+        required: false
+        type: string
 permissions:
+  actions: read
   contents: write
 jobs:
   publish:
@@ -18,12 +24,45 @@ jobs:
       - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
         with:
           go-version-file: go.mod
+      - name: Authorize vLLM profile evidence run
+        if: inputs.vllm_evidence_run_id != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVIDENCE_RUN_ID: ${{ inputs.vllm_evidence_run_id }}
+          EXPECTED_COMMIT: ${{ github.sha }}
+        shell: bash
+        run: |
+          [[ "$EVIDENCE_RUN_ID" =~ ^[1-9][0-9]*$ ]]
+          mkdir -p .tmp
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$EVIDENCE_RUN_ID" > .tmp/vllm-evidence-run.json
+          jq -e \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg commit "$EXPECTED_COMMIT" \
+            '.conclusion == "success" and .event == "workflow_dispatch" and .path == ".github/workflows/vllm-profile-evidence.yml" and .head_sha == $commit and .head_repository.full_name == $repository' \
+            .tmp/vllm-evidence-run.json >/dev/null
+      - name: Download vLLM profile evidence
+        if: inputs.vllm_evidence_run_id != ''
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: vllm-runtime-profile-evidence
+          path: .tmp/vllm-runtime-profile-evidence
+          github-token: ${{ github.token }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.vllm_evidence_run_id }}
       - name: Build signed publication
         env:
           TUF_UPSTREAM_TARGETS_KEY: ${{ secrets.TUF_UPSTREAM_TARGETS_KEY }}
           TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_KEY }}
           TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_KEY }}
-        run: go run ./cmd/tensor-router-tuf-publisher -repository published/tuf -output .tmp/tuf-publication
+          VLLM_EVIDENCE_RUN_ID: ${{ inputs.vllm_evidence_run_id }}
+          SOURCE_COMMIT: ${{ github.sha }}
+        shell: bash
+        run: |
+          arguments=(-repository published/tuf -output .tmp/tuf-publication)
+          if [[ -n "$VLLM_EVIDENCE_RUN_ID" ]]; then
+            arguments+=(-runtime-evidence .tmp/vllm-runtime-profile-evidence -source-commit "$SOURCE_COMMIT")
+          fi
+          go run ./cmd/tensor-router-tuf-publisher "${arguments[@]}"
       - name: Replace publication
         shell: bash
         run: |
