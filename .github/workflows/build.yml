@@ -431,52 +431,11 @@ jobs:
           IMAGE: local/tensors-router-${{ matrix.image.name }}:scan-${{ matrix.arch }}
         run: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436 image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "$IMAGE"
 
-  vllm-release-gate:
-    name: Verify vLLM profile evidence
-    if: github.event_name == 'release'
-    runs-on: ubuntu-latest
-    needs: test
-    permissions:
-      actions: read
-      contents: read
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-
-      - name: Set up Go
-        uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Resolve validated evidence run
-        id: evidence
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          gh api --method GET "repos/$GITHUB_REPOSITORY/actions/workflows/vllm-profile-evidence.yml/runs" -f head_sha="$GITHUB_SHA" -f status=success -f event=workflow_dispatch -f per_page=100 > .tmp-vllm-evidence-runs.json
-          run_id="$(jq -r --arg repository "$GITHUB_REPOSITORY" '[.workflow_runs[] | select(.head_repository.full_name == $repository and .path == ".github/workflows/vllm-profile-evidence.yml")][0].id // empty' .tmp-vllm-evidence-runs.json)"
-          test -n "$run_id"
-          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
-
-      - name: Download validated evidence
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: vllm-runtime-profile-evidence
-          path: .tmp/vllm-runtime-profile-evidence
-          github-token: ${{ github.token }}
-          repository: ${{ github.repository }}
-          run-id: ${{ steps.evidence.outputs.run_id }}
-
-      - name: Revalidate release evidence
-        run: go run ./cmd/tensor-router-tuf-evidence-validator -evidence .tmp/vllm-runtime-profile-evidence -source-commit "$GITHUB_SHA"
-
   release:
     name: Publish release assets
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
-    needs: [build, containers, container-scan, vllm-release-gate]
+    needs: [build, containers, container-scan]
     permissions:
       contents: write
     steps:
@@ -504,7 +463,7 @@ jobs:
   publish-containers:
     name: Publish container images
     if: github.event_name == 'release'
-    needs: [build, containers, container-scan, vllm-release-gate]
+    needs: [build, containers, container-scan]
     permissions:
       contents: read
       packages: write

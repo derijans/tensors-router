@@ -20,6 +20,8 @@ Trusted metadata is refreshed in a staging directory. It becomes current only af
 
 vLLM runtime manifests use the same TUF trust model but are consumed only by `tensor-router-vllm` after an explicit administrator initialization action. A signed profile pins the Python, vLLM, plugin, wheel, source, or OCI artifacts with exact URLs, sizes, hashes, installation methods, supported platforms and devices, and prerequisites. The publication pipeline rejects nightlies, unresolved `latest` versions, and profiles that have not passed installation, import, serving, Python dependency audit, and runtime vulnerability gates on matching hardware or an approved vendor runner. Runtime profile staging never changes the current promoted environment until all verification and smoke tests succeed.
 
+Router releases build and scan the vLLM companion and container variants without publishing runtime profiles. Hardware-profile evidence gates only a trusted-metadata publication that supplies new runtime manifests; it is not an application-release prerequisite. This keeps hardware authorization attached to the operation that changes the signed runtime trust set while allowing the companion to ship before any profile is authorized.
+
 The `upstream-targets` delegation authorizes only `upstreams/*/*` and `runtimes/vllm/*`. Existing repositories created before vLLM support require an offline-authorized top-level targets rotation that adds `runtimes/vllm/*`; the online publication key cannot widen its own delegation. Publication rejects every target outside those paths and verifies clean-cache retrieval before timestamp metadata is written.
 
 ### One-time vLLM delegation rotation
