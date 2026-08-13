@@ -40,7 +40,7 @@ Perform this rotation on a reviewed operator workstation using a fresh checkout 
    ```
 
    Installation re-verifies the current repository, requires the trusted targets threshold to be at least two, verifies distinct authorized signatures through the current root, requires an exact version increment, requires a later bounded expiration, and rejects every payload change except adding `runtimes/vllm/*` to `upstream-targets`. It writes both versioned and unversioned targets metadata. Existing snapshot and timestamp files remain byte-for-byte unchanged.
-4. Never publish the staging repository directly because its old snapshot intentionally does not describe the rotated targets yet. In the existing protected publication environment, run:
+4. Store the completed public envelope at `tuf/rotations/2.targets.json`. The protected publication workflow detects it only when it is the exact next targets version, repeats the installation checks in isolated staging, and rejects a same-version payload mismatch. Never publish the staging repository directly because its old snapshot intentionally does not describe the rotated targets yet. In the existing protected publication environment, run:
 
    ```text
    go run ./cmd/tensor-router-tuf-publisher -repository <staging-repository> -output <empty-publication-directory> -config tuf/upstreams.json
