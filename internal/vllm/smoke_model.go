@@ -63,6 +63,11 @@ func extractAuthorizedArchive(ctx context.Context, archivePath string, destinati
 		return err
 	}
 	defer archive.Close()
+	destinationRoot, err := os.OpenRoot(destination)
+	if err != nil {
+		return err
+	}
+	defer destinationRoot.Close()
 	var source io.Reader = archive
 	if artifact.ArchiveFormat == "tar.gz" {
 		compressed, err := gzip.NewReader(archive)
@@ -99,33 +104,18 @@ func extractAuthorizedArchive(ctx context.Context, archivePath string, destinati
 		if files > maximumSmokeModelFiles {
 			return fmt.Errorf("%s archive contains too many entries", artifactKind)
 		}
-		target := filepath.Join(destination, filepath.FromSlash(normalized))
-		if err := requirePathWithin(destination, target); err != nil {
-			return err
-		}
 		switch header.Typeflag {
 		case tar.TypeDir:
-			if err := ensurePrivateDirectory(target); err != nil {
+			if err := createArchiveDirectory(destinationRoot, normalized); err != nil {
 				return err
 			}
 		case tar.TypeReg, tar.TypeRegA:
 			if header.Size < 0 || header.Size > artifact.UnpackedSize-unpacked {
 				return fmt.Errorf("%s archive exceeds authorized unpacked size", artifactKind)
 			}
-			if err := ensurePrivateDirectory(filepath.Dir(target)); err != nil {
-				return err
-			}
-			file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+			written, err := writeArchiveRegularFile(ctx, destinationRoot, normalized, reader, header.Size)
 			if err != nil {
 				return err
-			}
-			written, copyError := copyContext(ctx, file, io.LimitReader(reader, header.Size+1))
-			closeError := file.Close()
-			if copyError != nil {
-				return copyError
-			}
-			if closeError != nil {
-				return closeError
 			}
 			if written != header.Size {
 				return fmt.Errorf("%s archive entry %q has invalid size", artifactKind, normalized)
@@ -139,6 +129,59 @@ func extractAuthorizedArchive(ctx context.Context, archivePath string, destinati
 		return fmt.Errorf("%s archive unpacked size %d does not match authorized size %d", artifactKind, unpacked, artifact.UnpackedSize)
 	}
 	return nil
+}
+
+func writeArchiveRegularFile(ctx context.Context, root *os.Root, portablePath string, source io.Reader, size int64) (int64, error) {
+	if err := createArchiveDirectory(root, pathDirectory(portablePath)); err != nil {
+		return 0, err
+	}
+	file, err := root.OpenFile(filepath.FromSlash(portablePath), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return 0, err
+	}
+	written, copyError := copyContext(ctx, file, io.LimitReader(source, size+1))
+	closeError := file.Close()
+	if copyError != nil {
+		return 0, copyError
+	}
+	if closeError != nil {
+		return 0, closeError
+	}
+	return written, nil
+}
+
+func createArchiveDirectory(root *os.Root, portablePath string) error {
+	if portablePath == "." {
+		return nil
+	}
+	nativePath := filepath.FromSlash(portablePath)
+	if err := root.MkdirAll(nativePath, 0o700); err != nil {
+		return err
+	}
+	current := ""
+	for _, component := range strings.Split(portablePath, "/") {
+		if current == "" {
+			current = component
+		} else {
+			current += string(filepath.Separator) + component
+		}
+		info, err := root.Lstat(current)
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("archive directory %q is unsafe", portablePath)
+		}
+	}
+	return nil
+}
+
+func pathDirectory(portablePath string) string {
+	index := strings.LastIndexByte(portablePath, '/')
+	if index < 0 {
+		return "."
+	}
+	return portablePath[:index]
 }
 
 func normalizePortableArchivePath(value string) (string, error) {

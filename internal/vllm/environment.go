@@ -7,10 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"time"
 )
 
 func profileArtifactBytes(profile Profile) (int64, error) {
@@ -51,29 +54,70 @@ func sanitizeError(err error) error {
 	return errors.New(redactSensitive(strings.TrimSpace(err.Error())))
 }
 
-type SystemDetector struct{}
+type SystemDetector struct {
+	operatingSystem     string
+	architecture        string
+	deviceExists        func(string) bool
+	intelGPUDetected    func() bool
+	prerequisiteCommand func(context.Context, string, ...string) bool
+}
 
-func (SystemDetector) Detect(context.Context) (Detection, error) {
-	detection := Detection{OS: runtime.GOOS, Architecture: runtime.GOARCH, Devices: []string{"cpu"}, Prerequisites: map[string]bool{}}
-	if runtime.GOOS == "darwin" && runtime.GOARCH == "arm64" {
+func (detector SystemDetector) Detect(ctx context.Context) (Detection, error) {
+	operatingSystem := detector.operatingSystem
+	if operatingSystem == "" {
+		operatingSystem = runtime.GOOS
+	}
+	architecture := detector.architecture
+	if architecture == "" {
+		architecture = runtime.GOARCH
+	}
+	deviceExists := detector.deviceExists
+	if deviceExists == nil {
+		deviceExists = regularOrDeviceExists
+	}
+	intelDetected := detector.intelGPUDetected
+	if intelDetected == nil {
+		intelDetected = intelGPUDetected
+	}
+	commandSucceeds := detector.prerequisiteCommand
+	if commandSucceeds == nil {
+		commandSucceeds = prerequisiteCommandSucceeds
+	}
+
+	detection := Detection{OS: operatingSystem, Architecture: architecture, Devices: []string{"cpu"}, Prerequisites: map[string]bool{}}
+	if operatingSystem == "darwin" && architecture == "arm64" {
 		detection.Devices = append([]string{"metal"}, detection.Devices...)
 		detection.Prerequisites["metal"] = true
 	}
-	if regularOrDeviceExists("/dev/nvidiactl") {
+	if deviceExists("/dev/nvidiactl") {
 		detection.Devices = append([]string{"cuda"}, detection.Devices...)
-		detection.Prerequisites["nvidia_driver"] = executableExists("nvidia-smi")
+		detection.Prerequisites["nvidia_driver"] = commandSucceeds(ctx, "nvidia-smi", "-L")
 	}
-	if regularOrDeviceExists("/dev/kfd") {
+	if deviceExists("/dev/kfd") {
 		detection.Devices = append([]string{"rocm"}, detection.Devices...)
-		detection.Prerequisites["rocm_driver"] = true
+		detection.Prerequisites["rocm_driver"] = commandSucceeds(ctx, "rocminfo") || commandSucceeds(ctx, "amd-smi", "list") || commandSucceeds(ctx, "rocm-smi", "--showid")
 	}
-	if intelGPUDetected() {
+	if intelDetected() {
 		detection.Devices = append([]string{"xpu"}, detection.Devices...)
-		detection.Prerequisites["intel_gpu"] = true
+		detection.Prerequisites["intel_gpu"] = commandSucceeds(ctx, "xpu-smi", "discovery") || commandSucceeds(ctx, "sycl-ls")
 	}
 	detection.Prerequisites["container_engine"] = executableExists("docker") || executableExists("podman")
 	detection.Prerequisites["compiler"] = executableExists("cc") || executableExists("clang") || executableExists("gcc")
 	return detection, nil
+}
+
+func prerequisiteCommandSucceeds(ctx context.Context, name string, arguments ...string) bool {
+	path, err := findExecutable(name)
+	if err != nil {
+		return false
+	}
+	commandContext, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	command := exec.CommandContext(commandContext, path, arguments...)
+	command.Stdin = nil
+	command.Stdout = io.Discard
+	command.Stderr = io.Discard
+	return command.Run() == nil
 }
 
 func intelGPUDetected() bool {

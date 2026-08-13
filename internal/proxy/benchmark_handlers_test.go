@@ -1,12 +1,15 @@
 package proxy
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -91,6 +94,81 @@ func TestBenchmarkRecordsLoadTimeAndTokensPerSecond(t *testing.T) {
 	startMetric, ok := benchmarkMetricForTest(*record.Latest, routerbenchmark.MetricTotalStartMS)
 	if !ok || startMetric.DurationMS < runtimeMetric.DurationMS {
 		t.Fatalf("missing total start metric %#v", record.Latest.Metrics)
+	}
+}
+
+func TestVLLMGenerationBenchmarkSkipsEmbeddingEndpoint(t *testing.T) {
+	service := &Service{}
+	model := catalog.Model{ID: "generation", BackendMode: BackendModeVLLM, HasLLM: true}
+	metrics := service.benchmarkMetrics(context.Background(), routerbenchmark.RunRequest{Iterations: 1}, model, routerbenchmark.SectionEmbed)
+	if len(metrics) != 1 || metrics[0].Status != routerbenchmark.StatusSkipped || !strings.Contains(metrics[0].Error, "no embedding lane") {
+		t.Fatalf("vLLM generation model received embedding benchmark: %#v", metrics)
+	}
+}
+
+func TestVLLMSpeechBenchmarkUsesMultipartTranscription(t *testing.T) {
+	var requestedPath string
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		requestedPath = r.URL.Path
+		if r.URL.Path != "/v1/audio/transcriptions" {
+			http.Error(w, "unexpected speech endpoint", http.StatusNotFound)
+			return
+		}
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if r.FormValue("model") != "speech" {
+			http.Error(w, "missing model", http.StatusBadRequest)
+			return
+		}
+		file, _, err := r.FormFile("file")
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		defer file.Close()
+		audio, err := io.ReadAll(file)
+		if err != nil || len(audio) < 44 || string(audio[:4]) != "RIFF" || string(audio[8:12]) != "WAVE" {
+			http.Error(w, "invalid WAV", http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"text":""}`))
+	}))
+	defer backendServer.Close()
+
+	backendURL, err := url.Parse(backendServer.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "speech.kcpps"), []byte(`{"backend_mode":"vllm","vllm":{"task":"transcription"}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	backend := &fakeBackend{url: backendURL, healthy: true}
+	modelCatalog := catalog.New(configDir)
+	model, ok, err := modelCatalog.Resolve("speech")
+	if err != nil || !ok {
+		t.Fatalf("resolve vLLM speech model ok=%t error=%v", ok, err)
+	}
+	service := NewService(ServiceConfig{
+		BackendMode: BackendModeVLLM,
+		BackendFamilies: map[string]BackendFamilyConfig{
+			BackendModeVLLM: {TextBackend: backend, EmbeddingsBackend: backend, TranscriptionBackend: backend},
+		},
+		Catalog:   modelCatalog,
+		ConfigDir: configDir,
+		Logger:    log.New(io.Discard, "", 0),
+	})
+	service.backendRetryAttempts = 1
+	metrics := service.benchmarkMetrics(context.Background(), routerbenchmark.RunRequest{Iterations: 1}, model, routerbenchmark.SectionVoice)
+	if requestedPath != "/v1/audio/transcriptions" || len(metrics) != 1 || metrics[0].Status != routerbenchmark.StatusSuccess {
+		t.Fatalf("vLLM speech benchmark path=%q metrics=%#v", requestedPath, metrics)
 	}
 }
 

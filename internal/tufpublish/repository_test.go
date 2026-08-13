@@ -45,6 +45,16 @@ func TestAuthorizedSignerRejectsMissingAndUntrustedKeys(t *testing.T) {
 	}
 }
 
+func TestReadBoundedFileRejectsOversizedInput(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "metadata.json")
+	if err := os.WriteFile(path, []byte("12345"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readBoundedFile(path, 4); err == nil {
+		t.Fatal("oversized metadata was accepted")
+	}
+}
+
 func TestPublishIncrementsDelegatedSnapshotAndTimestampVersions(t *testing.T) {
 	repository, secrets := generatedPublicationRepository(t)
 	first := filepath.Join(t.TempDir(), "first")

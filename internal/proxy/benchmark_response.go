@@ -11,11 +11,15 @@ import (
 const benchmarkPreviewLimit = 2048
 
 func (service *Service) performBenchmarkRequest(ctx context.Context, path string, body string) (int, string, error) {
+	return service.performBenchmarkRequestWithContentType(ctx, path, body, "application/json")
+}
+
+func (service *Service) performBenchmarkRequestWithContentType(ctx context.Context, path string, body string, contentType string) (int, string, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, path, strings.NewReader(body))
 	if err != nil {
 		return 0, "", err
 	}
-	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Content-Type", contentType)
 	request.Header.Set("Accept", "application/json")
 	recorder := newBenchmarkResponseWriter()
 	service.ServeHTTP(recorder, request)

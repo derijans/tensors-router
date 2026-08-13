@@ -87,6 +87,14 @@ func TestManifestRejectsAmbiguousInstallationArtifactsAndMalformedVersions(t *te
 	}
 }
 
+func TestManifestRejectsPrerequisitesWithoutTrustedDetectionSemantics(t *testing.T) {
+	manifest := testManifest()
+	manifest.Profiles[0].Prerequisites = append(manifest.Profiles[0].Prerequisites, Prerequisite{ID: "vendor_claim", Description: "vendor claim from manifest"})
+	if err := ValidateManifest(manifest); err == nil || !strings.Contains(err.Error(), `unsupported prerequisite "vendor_claim"`) {
+		t.Fatalf("unknown prerequisite was accepted: %v", err)
+	}
+}
+
 func TestAutoProfileDoesNotHideBrokenAcceleratorWithCPUFallback(t *testing.T) {
 	manifest := testManifest()
 	manifest.Profiles = append(manifest.Profiles, Profile{

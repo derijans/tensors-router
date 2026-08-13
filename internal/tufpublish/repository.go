@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -23,25 +24,53 @@ import (
 
 type SigningSecrets struct{ Upstream, Snapshot, Timestamp string }
 
+const (
+	maxTrustedRootBytes       = 1 << 20
+	maxTimestampMetadataBytes = 1 << 20
+	maxSnapshotMetadataBytes  = 4 << 20
+	maxTargetsMetadataBytes   = 16 << 20
+	maxVerificationFileBytes  = 32 << 20
+)
+
 func Publish(repository, output string, targetBodies map[string][]byte, secrets SigningSecrets, now time.Time) error {
 	metadataDir := filepath.Join(repository, "metadata")
-	root, err := tufmetadata.Root().FromFile(filepath.Join(metadataDir, "root.json"))
+	rootBytes, err := readBoundedFile(filepath.Join(metadataDir, "root.json"), maxTrustedRootBytes)
 	if err != nil {
 		return err
 	}
-	top, err := tufmetadata.Targets().FromFile(filepath.Join(metadataDir, "targets.json"))
+	root, err := tufmetadata.Root().FromBytes(rootBytes)
 	if err != nil {
 		return err
 	}
-	oldDelegated, err := tufmetadata.Targets().FromFile(filepath.Join(metadataDir, "upstream-targets.json"))
+	topBytes, err := readBoundedFile(filepath.Join(metadataDir, "targets.json"), maxTargetsMetadataBytes)
 	if err != nil {
 		return err
 	}
-	oldSnapshot, err := tufmetadata.Snapshot().FromFile(filepath.Join(metadataDir, "snapshot.json"))
+	top, err := tufmetadata.Targets().FromBytes(topBytes)
 	if err != nil {
 		return err
 	}
-	oldTimestamp, err := tufmetadata.Timestamp().FromFile(filepath.Join(metadataDir, "timestamp.json"))
+	oldDelegatedBytes, err := readBoundedFile(filepath.Join(metadataDir, "upstream-targets.json"), maxTargetsMetadataBytes)
+	if err != nil {
+		return err
+	}
+	oldDelegated, err := tufmetadata.Targets().FromBytes(oldDelegatedBytes)
+	if err != nil {
+		return err
+	}
+	oldSnapshotBytes, err := readBoundedFile(filepath.Join(metadataDir, "snapshot.json"), maxSnapshotMetadataBytes)
+	if err != nil {
+		return err
+	}
+	oldSnapshot, err := tufmetadata.Snapshot().FromBytes(oldSnapshotBytes)
+	if err != nil {
+		return err
+	}
+	oldTimestampBytes, err := readBoundedFile(filepath.Join(metadataDir, "timestamp.json"), maxTimestampMetadataBytes)
+	if err != nil {
+		return err
+	}
+	oldTimestamp, err := tufmetadata.Timestamp().FromBytes(oldTimestampBytes)
 	if err != nil {
 		return err
 	}
@@ -86,10 +115,6 @@ func Publish(repository, output string, targetBodies map[string][]byte, secrets 
 		return err
 	}
 	delegatedBytes, err := delegated.ToBytes(true)
-	if err != nil {
-		return err
-	}
-	topBytes, err := os.ReadFile(filepath.Join(metadataDir, "targets.json"))
 	if err != nil {
 		return err
 	}
@@ -157,21 +182,22 @@ func (fetcher directoryFetcher) DownloadFile(rawURL string, maxLength int64, _ t
 	if relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return nil, fmt.Errorf("unsafe verification path")
 	}
-	content, err := os.ReadFile(filepath.Join(fetcher.root, relative))
+	maximum := int64(maxLength)
+	if maximum > maxVerificationFileBytes {
+		maximum = maxVerificationFileBytes
+	}
+	content, err := readBoundedFile(filepath.Join(fetcher.root, relative), maximum)
 	if os.IsNotExist(err) {
 		return nil, &tufmetadata.ErrDownloadHTTP{StatusCode: 404, URL: rawURL}
 	}
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(content)) > maxLength {
-		return nil, fmt.Errorf("verification file exceeds trusted length")
-	}
 	return content, nil
 }
 
 func Verify(repository string, expectedTargets []string) error {
-	root, err := os.ReadFile(filepath.Join(repository, "metadata", "root.json"))
+	root, err := readBoundedFile(filepath.Join(repository, "metadata", "root.json"), maxTrustedRootBytes)
 	if err != nil {
 		return err
 	}
@@ -215,7 +241,11 @@ func LoadExistingTargets(repository string, prefix string) (map[string][]byte, e
 	if prefix == "" || strings.HasPrefix(prefix, "/") || strings.Contains(prefix, "..") {
 		return nil, fmt.Errorf("existing target prefix is invalid")
 	}
-	delegated, err := tufmetadata.Targets().FromFile(filepath.Join(repository, "metadata", "upstream-targets.json"))
+	delegatedBytes, err := readBoundedFile(filepath.Join(repository, "metadata", "upstream-targets.json"), maxTargetsMetadataBytes)
+	if err != nil {
+		return nil, err
+	}
+	delegated, err := tufmetadata.Targets().FromBytes(delegatedBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -228,7 +258,7 @@ func LoadExistingTargets(repository string, prefix string) (map[string][]byte, e
 	if len(candidates) == 0 {
 		return map[string][]byte{}, nil
 	}
-	root, err := os.ReadFile(filepath.Join(repository, "metadata", "root.json"))
+	root, err := readBoundedFile(filepath.Join(repository, "metadata", "root.json"), maxTrustedRootBytes)
 	if err != nil {
 		return nil, err
 	}
@@ -336,7 +366,7 @@ func preparePublicationOutput(repository, output string) error {
 		if entry.IsDir() || strings.Contains(name, "upstream-targets") || strings.Contains(name, "snapshot") || name == "timestamp.json" {
 			continue
 		}
-		body, err := os.ReadFile(filepath.Join(repository, "metadata", name))
+		body, err := readBoundedFile(filepath.Join(repository, "metadata", name), maxTargetsMetadataBytes)
 		if err != nil {
 			return err
 		}
@@ -345,4 +375,23 @@ func preparePublicationOutput(repository, output string) error {
 		}
 	}
 	return nil
+}
+
+func readBoundedFile(path string, maximum int64) ([]byte, error) {
+	if maximum < 1 {
+		return nil, fmt.Errorf("invalid maximum file length")
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+	body, err := io.ReadAll(io.LimitReader(file, maximum+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > maximum {
+		return nil, fmt.Errorf("file %s exceeds maximum length", path)
+	}
+	return body, nil
 }

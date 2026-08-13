@@ -127,7 +127,7 @@ func (service *Service) benchmarkMetrics(ctx context.Context, request routerbenc
 		}
 		return service.textBenchmarkMetrics(ctx, "/v1/chat/completions", textBenchmarkBody(model.ID), request.Iterations)
 	case routerbenchmark.SectionEmbed:
-		if !model.HasEmbeddings && !model.HasLLM {
+		if !model.HasEmbeddings && (model.BackendMode == BackendModeVLLM || !model.HasLLM) {
 			return []routerbenchmark.Metric{skippedMetric(section, "model has no embedding lane")}
 		}
 		return service.requestBenchmarkMetrics(ctx, "/v1/embeddings", embeddingsBenchmarkBody(model.ID), request.Iterations)
@@ -139,6 +139,13 @@ func (service *Service) benchmarkMetrics(ctx context.Context, request routerbenc
 	case routerbenchmark.SectionVoice:
 		if !model.HasVoice {
 			return []routerbenchmark.Metric{skippedMetric(section, "model has no voice lane")}
+		}
+		if model.BackendMode == BackendModeVLLM {
+			contentType, body, err := transcriptionBenchmarkBody(model.ID)
+			if err != nil {
+				return []routerbenchmark.Metric{failedMetric(section, err.Error(), 0)}
+			}
+			return service.requestBenchmarkMetricsWithContentType(ctx, "/v1/audio/transcriptions", body, contentType, request.Iterations)
 		}
 		return service.requestBenchmarkMetrics(ctx, "/v1/audio/speech", voiceBenchmarkBody(model.ID), request.Iterations)
 	case routerbenchmark.SectionMusic:
@@ -162,10 +169,14 @@ func (service *Service) runtimeBenchmarkMetric(ctx context.Context, model catalo
 }
 
 func (service *Service) requestBenchmarkMetrics(ctx context.Context, path string, body string, iterations int) []routerbenchmark.Metric {
+	return service.requestBenchmarkMetricsWithContentType(ctx, path, body, "application/json", iterations)
+}
+
+func (service *Service) requestBenchmarkMetricsWithContentType(ctx context.Context, path string, body string, contentType string, iterations int) []routerbenchmark.Metric {
 	var total time.Duration
 	for index := 0; index < iterations; index++ {
 		started := time.Now()
-		status, preview, err := service.performBenchmarkRequest(ctx, path, body)
+		status, preview, err := service.performBenchmarkRequestWithContentType(ctx, path, body, contentType)
 		duration := time.Since(started)
 		total += duration
 		if err != nil {

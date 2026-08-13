@@ -130,6 +130,9 @@ func validateProfile(profile Profile) error {
 		if !safeIdentifier(prerequisite.ID) || strings.TrimSpace(prerequisite.Description) == "" {
 			return fmt.Errorf("invalid prerequisite %q", prerequisite.ID)
 		}
+		if !supportedPrerequisite(prerequisite.ID) {
+			return fmt.Errorf("unsupported prerequisite %q", prerequisite.ID)
+		}
 		if _, exists := prerequisites[prerequisite.ID]; exists {
 			return fmt.Errorf("duplicate prerequisite %q", prerequisite.ID)
 		}

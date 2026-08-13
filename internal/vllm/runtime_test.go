@@ -45,7 +45,7 @@ func TestBuildServeArgumentsOwnsSecurityBoundary(t *testing.T) {
 			t.Fatalf("expected forbidden argument rejection for %#v", forbidden)
 		}
 	}
-	for _, forbidden := range []string{"--config=unsafe.yaml", "--tool_server=https://unsafe.test", "--tool-parser-plugin=bad.module", "--reasoning_parser_plugin=bad.module", "--logits-processors=bad.module", "--worker-cls=bad.module", "--worker-extension-cls=bad.module", "--hf-overrides=bad.module", "--hf-token=secret", "--hf-t=secret", "--hf-config-path=/other/config", "--model-class-overrides=bad.module", "--model-impl=bad.module", "--tokenizer=remote/repository", "--generation-config=/other/config", "--chat-template=/other/template", "--download-dir=/other/path", "--revision=untrusted", "--headless", "--tokens-only", "--master-addr=remote", "--ssl_keyfile=secret.pem", "--enable-server-load-tracking"} {
+	for _, forbidden := range []string{"--config=unsafe.yaml", "--tool_server=https://unsafe.test", "--tool-parser-plugin=bad.module", "--reasoning_parser_plugin=bad.module", "--logits-processors=bad.module", "--worker-cls=bad.module", "--worker-extension-cls=bad.module", "--hf-overrides=bad.module", "--hf-token=secret", "--hf-t=secret", "--hf-config-path=/other/config", "--model-class-overrides=bad.module", "--model-impl=bad.module", "--tokenizer=remote/repository", "--generation-config=/other/config", "--chat-template=/other/template", "--download-dir=/other/path", "--revision=untrusted", "--headless", "--tokens-only", "--master-addr=remote", "--ssl_keyfile=secret.pem", "--enable-server-load-tracking", "--enable-tokenizer-info-endpoint"} {
 		configuration.ServeArgs = []string{forbidden}
 		if _, err := BuildServeArguments(configuration, "/private/vllm.sock"); err == nil {
 			t.Fatalf("expected forbidden argument rejection for %q", forbidden)
@@ -111,6 +111,9 @@ func TestBuildServeArgumentsPreservesAllAliasesAndStaticAdapters(t *testing.T) {
 	}
 	if strings.Count(joined, "--enable-server-load-tracking") != 1 {
 		t.Fatalf("router-owned load tracking was not enabled exactly once: %s", joined)
+	}
+	if strings.Count(joined, "--enable-tokenizer-info-endpoint") != 1 {
+		t.Fatalf("router-owned tokenizer information was not enabled exactly once: %s", joined)
 	}
 }
 

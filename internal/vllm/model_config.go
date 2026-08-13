@@ -161,7 +161,7 @@ func BuildServeArguments(configuration VLLMModelConfig, socketPath string, dynam
 	if settings.EnableChunkedPrefill != nil {
 		arguments = append(arguments, "--enable-chunked-prefill="+fmt.Sprint(*settings.EnableChunkedPrefill))
 	}
-	arguments = append(arguments, "--enable-server-load-tracking")
+	arguments = append(arguments, "--enable-server-load-tracking", "--enable-tokenizer-info-endpoint")
 	return append(arguments, configuration.ServeArgs...), nil
 }
 
@@ -185,7 +185,7 @@ func validExternalToolServer(value string) bool {
 func ValidateServeArguments(arguments []string) error {
 	forbidden := []string{
 		"--host", "--port", "--uds", "--api-key", "--middleware", "--root-path", "--config", "--dev", "--ray", "--distributed-executor-backend",
-		"--data-parallel-address", "--data-parallel-rpc-port", "--enable-server-load-tracking", "--enable-sleep-mode",
+		"--data-parallel-address", "--data-parallel-rpc-port", "--enable-server-load-tracking", "--enable-tokenizer-info-endpoint", "--enable-sleep-mode",
 		"--enable-prompt-embeds", "--load-format-runai-streamer", "--grpc", "--rpc", "--kv-transfer", "--kv-events",
 		"--enable-lora", "--lora-modules", "--trust-remote-code", "--enable-auto-tool-choice", "--tool-call-parser",
 		"--tool-server", "--tool-parser-plugin", "--reasoning-parser-plugin", "--chat-template-content-format", "--allowed-local-media-path", "--allowed-media-domains", "--io-processor-plugin",

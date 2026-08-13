@@ -10,3 +10,11 @@
 8. Run focused tests, full Go tests, race tests, WebUI checks, audits, vulnerability scans available locally, and security boundary review.
 
 Implementation remains split by responsibility to avoid megafiles and overlapping edits.
+
+## Remainder
+
+9. Fix GitHub CodeQL Zip Slip finding in signed smoke-model extraction with filesystem-enforced destination containment and adversarial archive tests.
+10. Add an offline targets-delegation rotation ceremony for existing TUF repositories. Produce a canonical unsigned payload, require the configured offline threshold signatures, verify the completed metadata, and never expose signing keys to CI or the online publisher.
+11. Bind hardware profile receipts to exact manifest digests and protected runner identity. Publish only profiles whose installation, import, serving, Python audit, and runtime/container scans passed on matching hardware.
+12. Reconcile every original acceptance item against tests and release workflows. Separate code-complete items from external signing and hardware evidence required before profile publication.
+13. Re-run CodeQL-equivalent security tests, full Go/race/WebUI/audit gates, push the fixes, and update PR #8.
