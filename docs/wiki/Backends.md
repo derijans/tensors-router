@@ -12,6 +12,8 @@ At router startup, the process starts in no-model mode when `kobold.no_model` is
 
 Configurations with `run_embed_separate: true` are the exception: embedding requests lazily start a second KoboldCpp process on `kobold.embeddings_backend_url`. The router writes private role-specific runtime configurations below the model configuration directory so the primary process never receives embedding fields and the embedding process receives no unrelated model components.
 
+Standalone embeddings use one router-wide embedding slot. They can run beside any primary backend family, and switching text, image, or voice families leaves them running. Loading another embedding configuration replaces the current embedding owner. Replacing a shared-process embedding may unload that process's other lanes.
+
 A configuration switch waits for active requests using the current configuration to finish. Requests that use the same active configuration can run together.
 
 KoboldCpp must provide:

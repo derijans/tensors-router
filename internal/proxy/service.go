@@ -61,6 +61,7 @@ type BackendFamilyConfig struct {
 	TranscriptionBackend Backend
 	Start                func(context.Context) error
 	Stop                 func(context.Context) error
+	StopPrimary          func(context.Context) error
 }
 
 type ModelCatalog interface {
@@ -129,6 +130,7 @@ type Service struct {
 	backendMode               string
 	backendFamilies           map[string]*backendFamily
 	backendSwitch             *backendFamilySwitchState
+	embeddingSelection        embeddingSelection
 	webUISession              *webUISession
 	webUIRouteMu              sync.Mutex
 	webUIRoutes               atomic.Pointer[webUIRouteSnapshot]
@@ -222,6 +224,12 @@ type backendFamily struct {
 	transcriptionRuntime *backendRuntime
 	start                func(context.Context) error
 	stop                 func(context.Context) error
+	stopPrimary          func(context.Context) error
+}
+
+type embeddingSelection struct {
+	mu      sync.Mutex
+	runtime *backendRuntime
 }
 
 type backendFamilySwitchState struct {
@@ -474,6 +482,7 @@ func newBackendFamily(mode string, config BackendFamilyConfig) *backendFamily {
 		transcriptionRuntime: transcriptionRuntime,
 		start:                config.Start,
 		stop:                 config.Stop,
+		stopPrimary:          config.StopPrimary,
 	}
 }
 
@@ -1429,6 +1438,16 @@ func (service *Service) shouldRecoverBackend(runtime *backendRuntime, ctx contex
 
 func (service *Service) recoverBackendForModel(runtime *backendRuntime, ctx context.Context, releaseModel func(), modelID string, configFilename string, readiness backendReadiness, path string, cause error) (func(), bool, error) {
 	service.logger.Printf("backend transport recovery attempt path=%s model=%q config=%q error=%v", path, modelID, configFilename, cause)
+	if readiness == readinessEmbeddings {
+		service.embeddingSelection.mu.Lock()
+		defer service.embeddingSelection.mu.Unlock()
+		if previous := service.embeddingSelection.runtime; previous != nil && previous != runtime {
+			if err := service.unloadRuntime(ctx, previous); err != nil {
+				return nil, false, err
+			}
+		}
+		service.embeddingSelection.runtime = runtime
+	}
 	releaseModel()
 	release, loadedFresh, err := service.acquireModelConfig(runtime, ctx, modelID, configFilename, readiness, true)
 	if err != nil {
@@ -1796,7 +1815,7 @@ func (service *Service) stopBackendFamily(ctx context.Context, mode string) erro
 	if family == nil {
 		return nil
 	}
-	runtimes := uniqueBackendRuntimes(family)
+	runtimes := uniquePrimaryBackendRuntimes(family)
 	releases := make([]func(), 0, len(runtimes))
 	for _, runtime := range runtimes {
 		release, err := lockRuntimeForBackendStop(ctx, runtime)
@@ -1808,11 +1827,25 @@ func (service *Service) stopBackendFamily(ctx context.Context, mode string) erro
 		}
 		releases = append(releases, release)
 	}
-	err := family.stopBackend(ctx)
+	err := family.stopPrimaryBackend(ctx)
 	for index := len(releases) - 1; index >= 0; index-- {
 		releases[index]()
 	}
 	return err
+}
+
+func uniquePrimaryBackendRuntimes(family *backendFamily) []*backendRuntime {
+	if family == nil || family.textRuntime == nil {
+		return nil
+	}
+	runtimes := []*backendRuntime{family.textRuntime}
+	if family.imageRuntime != nil && family.imageRuntime != family.textRuntime {
+		runtimes = append(runtimes, family.imageRuntime)
+	}
+	if family.transcriptionRuntime != nil && family.transcriptionRuntime != family.textRuntime && family.transcriptionRuntime != family.imageRuntime {
+		runtimes = append(runtimes, family.transcriptionRuntime)
+	}
+	return runtimes
 }
 
 func uniqueBackendRuntimes(family *backendFamily) []*backendRuntime {
@@ -1845,6 +1878,22 @@ func (family *backendFamily) stopBackend(ctx context.Context) error {
 	}
 	var firstErr error
 	for _, runtime := range uniqueBackendRuntimes(family) {
+		if err := runtime.backend.Unload(ctx); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+func (family *backendFamily) stopPrimaryBackend(ctx context.Context) error {
+	if family.stopPrimary != nil {
+		return family.stopPrimary(ctx)
+	}
+	if family.stop != nil {
+		return family.stop(ctx)
+	}
+	var firstErr error
+	for _, runtime := range uniquePrimaryBackendRuntimes(family) {
 		if err := runtime.backend.Unload(ctx); err != nil && firstErr == nil {
 			firstErr = err
 		}

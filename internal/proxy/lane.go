@@ -56,6 +56,7 @@ type modelConfigAcquireOptions struct {
 }
 
 func (service *Service) acquireModelConfigForBackendModeWithOptions(mode string, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, options modelConfigAcquireOptions) (*backendRuntime, func(), bool, error) {
+	embeddingRequest := readiness == readinessEmbeddings
 	resolvedReadiness, err := service.readinessForConfig(configFilename, readiness)
 	if err != nil {
 		return nil, nil, false, err
@@ -72,6 +73,9 @@ func (service *Service) acquireModelConfigForBackendModeWithOptions(mode string,
 		return nil, nil, false, err
 	}
 	finishDiagnostic := beginBackendDiagnostic(runtime.backend)
+	if embeddingRequest {
+		return service.acquireEmbeddingConfig(runtime, ctx, modelID, configFilename, readiness, options, finishDiagnostic)
+	}
 	if err := service.ensureBackendFamily(ctx, mode); err != nil {
 		return nil, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
 	}
@@ -84,6 +88,25 @@ func (service *Service) acquireModelConfigForBackendModeWithOptions(mode string,
 	}
 	finishDiagnostic(true)
 	return runtime, release, loadedFresh, err
+}
+
+func (service *Service) acquireEmbeddingConfig(runtime *backendRuntime, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, options modelConfigAcquireOptions, finishDiagnostic func(bool) backenddiagnostic.Diagnostic) (*backendRuntime, func(), bool, error) {
+	service.embeddingSelection.mu.Lock()
+	defer service.embeddingSelection.mu.Unlock()
+	previous := service.embeddingSelection.runtime
+	if previous != nil && previous != runtime {
+		if err := service.unloadRuntime(ctx, previous); err != nil {
+			return nil, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
+		}
+		service.embeddingSelection.runtime = nil
+	}
+	release, loadedFresh, err := service.acquireModelConfigWithOptions(runtime, ctx, modelID, configFilename, readiness, options)
+	if err != nil {
+		return runtime, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
+	}
+	service.embeddingSelection.runtime = runtime
+	finishDiagnostic(true)
+	return runtime, release, loadedFresh, nil
 }
 
 func (service *Service) readinessForConfig(filename string, readiness backendReadiness) (backendReadiness, error) {

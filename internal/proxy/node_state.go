@@ -490,7 +490,15 @@ func (service *Service) unloadLocalRuntime(ctx context.Context, request siteapi.
 	if selected == nil {
 		return fmt.Errorf("backend %q and runtime %q are invalid", request.BackendID, request.RuntimeID)
 	}
-	return service.unloadRuntimeGeneration(ctx, selected, request.ExpectedGeneration)
+	service.embeddingSelection.mu.Lock()
+	defer service.embeddingSelection.mu.Unlock()
+	if err := service.unloadRuntimeGeneration(ctx, selected, request.ExpectedGeneration); err != nil {
+		return err
+	}
+	if service.embeddingSelection.runtime == selected {
+		service.embeddingSelection.runtime = nil
+	}
+	return nil
 }
 
 func (service *Service) unloadRuntimeGeneration(ctx context.Context, runtime *backendRuntime, expectedGeneration uint64) error {

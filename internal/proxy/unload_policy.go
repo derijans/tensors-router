@@ -28,7 +28,13 @@ func (service *Service) enforceUnloadPolicy(ctx context.Context, mode string, fi
 	}
 	different := make([]*backendRuntime, 0, len(runtimes))
 	profile := service.chatTemplateProfileForConfig(filename)
+	service.embeddingSelection.mu.Lock()
+	activeEmbedding := service.embeddingSelection.runtime
+	service.embeddingSelection.mu.Unlock()
 	for _, runtime := range uniqueRuntimeList(runtimes) {
+		if readiness != readinessEmbeddings && runtime == activeEmbedding {
+			continue
+		}
 		if runtime == service.backendFamilies[resolvedMode].embeddingsRuntime && readiness != readinessEmbeddings && service.embeddingRuntimeUsesCPU(runtime) {
 			continue
 		}

@@ -3370,14 +3370,73 @@ func TestSeparateEmbeddingRuntimeIsLazyAndIndependentlyUnloadable(t *testing.T) 
 	}
 }
 
-func TestEmbeddingRuntimeUnloadPolicyDistinguishesCPUAndGPU(t *testing.T) {
+func TestStandaloneEmbeddingsSurvivePrimarySwitchAndReplaceAcrossFamilies(t *testing.T) {
+	dir := t.TempDir()
+	writeProxyTestConfig(t, dir, "kobold-text", `{"backend_mode":"kobold","model_param":"C:/models/text.gguf"}`)
+	writeProxyTestConfig(t, dir, "llama-text", `{"backend_mode":"llama_sdcpp","model_param":"C:/models/text.gguf"}`)
+	writeProxyTestConfig(t, dir, "kobold-embed", `{"backend_mode":"kobold","nomodel":true,"model":[],"embeddingsmodel":"C:/models/embed.gguf","run_embed_separate":true}`)
+	writeProxyTestConfig(t, dir, "llama-embed", `{"backend_mode":"llama_sdcpp","nomodel":true,"model":[],"embeddingsmodel":"C:/models/embed.gguf","run_embed_separate":true}`)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
+			_, _ = w.Write([]byte(`{"object":"list","data":[]}`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"model":"backend","data":[]}`))
+	}))
+	t.Cleanup(server.Close)
+	backendURL := mustParseURL(t, server.URL)
+	koboldText := &fakeBackend{url: backendURL, healthy: true}
+	koboldEmbeddings := &fakeBackend{url: backendURL, healthy: true}
+	llamaText := &fakeBackend{url: backendURL, healthy: true}
+	llamaEmbeddings := &fakeBackend{url: backendURL, healthy: true}
+	service := NewService(ServiceConfig{
+		BackendMode: BackendModeKobold,
+		BackendFamilies: map[string]BackendFamilyConfig{
+			BackendModeKobold:     {TextBackend: koboldText, EmbeddingsBackend: koboldEmbeddings, StopPrimary: koboldText.Unload},
+			BackendModeLlamaSDCPP: {TextBackend: llamaText, EmbeddingsBackend: llamaEmbeddings, StopPrimary: llamaText.Unload},
+		},
+		Catalog:   catalog.New(dir),
+		ConfigDir: dir,
+		Logger:    log.New(io.Discard, "", 0),
+	})
+	postProxyModelRequest(t, service, "/v1/chat/completions", `{"model":"kobold-text","messages":[]}`)
+	postProxyModelRequest(t, service, "/v1/embeddings", `{"model":"kobold-embed","input":"one"}`)
+	postProxyModelRequest(t, service, "/v1/chat/completions", `{"model":"llama-text","messages":[]}`)
+	if koboldEmbeddings.unloads.Load() != 0 {
+		t.Fatalf("primary switch unloaded standalone embeddings %d times", koboldEmbeddings.unloads.Load())
+	}
+	postProxyModelRequest(t, service, "/v1/embeddings", `{"model":"llama-embed","input":"two"}`)
+	if koboldEmbeddings.unloads.Load() != 1 || llamaEmbeddings.reloads.Load() != 1 {
+		t.Fatalf("embedding replacement wrong kobold unloads=%d llama reloads=%d", koboldEmbeddings.unloads.Load(), llamaEmbeddings.reloads.Load())
+	}
+	if err := service.unloadLocal(context.Background(), "embeddings"); err != nil {
+		t.Fatal(err)
+	}
+	if llamaEmbeddings.unloads.Load() != 1 {
+		t.Fatalf("manual embedding unload selected wrong owner %d", llamaEmbeddings.unloads.Load())
+	}
+}
+
+func postProxyModelRequest(t *testing.T, service *Service, path string, body string) {
+	t.Helper()
+	request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status path=%s status=%d body=%s", path, recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestPrimaryLoadsPreserveStandaloneEmbeddings(t *testing.T) {
 	for _, test := range []struct {
 		name        string
 		gpu         bool
 		wantUnloads int32
 	}{
 		{name: "CPU coexists", gpu: false, wantUnloads: 0},
-		{name: "GPU follows policy", gpu: true, wantUnloads: 1},
+		{name: "GPU coexists", gpu: true, wantUnloads: 0},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			service, _, embeddingsBackend := newSeparateEmbeddingTestService(t, test.gpu)

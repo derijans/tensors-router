@@ -102,6 +102,9 @@ func vllmBackendFamilies(service vllm.Service, configDirectory string) map[strin
 			Stop: func(ctx context.Context) error {
 				return errors.Join(generation.Unload(ctx), pooling.Unload(ctx), speech.Unload(ctx))
 			},
+			StopPrimary: func(ctx context.Context) error {
+				return errors.Join(generation.Unload(ctx), speech.Unload(ctx))
+			},
 		},
 	}
 }

@@ -638,6 +638,9 @@ func (service *Service) loadLocalRuntimeForRequest(ctx context.Context, mode str
 }
 
 func (service *Service) unloadLocal(ctx context.Context, target string) error {
+	if target == unloadpolicy.Embeddings {
+		return service.unloadActiveEmbedding(ctx)
+	}
 	family := service.backendFamilies[service.currentBackendMode()]
 	if family == nil {
 		return nil
@@ -647,6 +650,20 @@ func (service *Service) unloadLocal(ctx context.Context, target string) error {
 		return err
 	}
 	return service.unloadRuntimes(ctx, runtimes)
+}
+
+func (service *Service) unloadActiveEmbedding(ctx context.Context) error {
+	service.embeddingSelection.mu.Lock()
+	defer service.embeddingSelection.mu.Unlock()
+	runtime := service.embeddingSelection.runtime
+	if runtime == nil {
+		return nil
+	}
+	if err := service.unloadRuntime(ctx, runtime); err != nil {
+		return err
+	}
+	service.embeddingSelection.runtime = nil
+	return nil
 }
 
 func readModelControlRequest(r *http.Request, requireModel bool) (modelControlRequest, error) {

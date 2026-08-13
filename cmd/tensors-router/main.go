@@ -509,6 +509,7 @@ func createBackends(ctx context.Context, cfg config.Config, mcpReconciler *mcp.R
 			ImageBackend:      koboldManager,
 			Start:             koboldManager.Start,
 			Stop:              stopKoboldManagers(koboldManager, koboldEmbeddingsManager),
+			StopPrimary:       koboldManager.Stop,
 		},
 		proxy.BackendModeLlamaSDCPP: {
 			TextBackend:          llamaManager,
@@ -516,6 +517,7 @@ func createBackends(ctx context.Context, cfg config.Config, mcpReconciler *mcp.R
 			ImageBackend:         sdcppManager,
 			TranscriptionBackend: whisperCPPManager,
 			Stop:                 stopNativeManagers(llamaManager, llamaEmbeddingsManager, sdcppManager, whisperCPPManager),
+			StopPrimary:          stopNativeManagers(llamaManager, sdcppManager, whisperCPPManager),
 		},
 	}
 	shutdownBackends := []func(context.Context) error{
