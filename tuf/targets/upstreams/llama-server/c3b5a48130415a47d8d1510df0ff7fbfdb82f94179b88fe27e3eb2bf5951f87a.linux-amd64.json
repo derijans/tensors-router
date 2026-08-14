@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/ggml-org/llama.cpp",
+  "releases": [
+    {
+      "id": "370252493",
+      "tag": "b10423",
+      "published_at": "2026-08-13T22:44:06Z",
+      "payloads": [
+        {
+          "name": "llama-b10423-bin-ubuntu-x64.tar.gz",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10423/llama-b10423-bin-ubuntu-x64.tar.gz",
+          "length": 16606819,
+          "sha256": "664ffbf9134dbc12b2de3281d0404cb8f98a2339580911e5f74035dc320e0e84"
+        }
+      ]
+    }
+  ]
+}
