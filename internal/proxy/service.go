@@ -2092,6 +2092,9 @@ func backendEndpointReady(readiness backendReadiness, backendMode string, status
 	if backendMode == BackendModeVLLM || readiness == readinessTranscription && backendMode == BackendModeLlamaSDCPP {
 		return true
 	}
+	if readiness == readinessEmbeddings && backendMode == BackendModeKobold {
+		return backendCapabilityReady(body, "embeddings")
+	}
 	if capability := readiness.capability(); capability != "" {
 		return backendCapabilityReady(body, capability)
 	}

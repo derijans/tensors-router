@@ -56,8 +56,22 @@ func TestBackendCapabilityReadinessRequiresEnabledBoolean(t *testing.T) {
 }
 
 func TestBackendReadinessEndpoints(t *testing.T) {
-	if readinessText.endpoint() != "/v1/models" {
-		t.Fatalf("unexpected text readiness endpoint %q", readinessText.endpoint())
+	tests := []struct {
+		name        string
+		readiness   backendReadiness
+		backendMode string
+		want        string
+	}{
+		{name: "Kobold embeddings", readiness: readinessEmbeddings, backendMode: BackendModeKobold, want: "/api/extra/version"},
+		{name: "llama embeddings", readiness: readinessEmbeddings, backendMode: BackendModeLlamaSDCPP, want: "/v1/models"},
+		{name: "Kobold text", readiness: readinessText, backendMode: BackendModeKobold, want: "/v1/models"},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := testCase.readiness.endpointForMode(testCase.backendMode); got != testCase.want {
+				t.Fatalf("unexpected readiness endpoint %q want %q", got, testCase.want)
+			}
+		})
 	}
 	if readinessImage.endpoint() != "/sdapi/v1/sd-models" {
 		t.Fatalf("unexpected image readiness endpoint %q", readinessImage.endpoint())
@@ -66,6 +80,22 @@ func TestBackendReadinessEndpoints(t *testing.T) {
 		if readiness.endpoint() != "/api/extra/version" {
 			t.Fatalf("unexpected media readiness endpoint %q", readiness.endpoint())
 		}
+	}
+}
+
+func TestBackendEndpointReadinessKeepsInactiveModelsAndHealthFailuresUnready(t *testing.T) {
+	inactiveModels := `{"object":"list","data":[{"id":"inactive"}]}`
+	if backendEndpointReady(readinessEmbeddings, BackendModeLlamaSDCPP, 200, inactiveModels) {
+		t.Fatal("llama embedding endpoint accepted an inactive model")
+	}
+	if backendEndpointReady(readinessEmbeddings, BackendModeKobold, 503, `{"result":"KoboldCpp"}`) {
+		t.Fatal("Kobold embedding health endpoint accepted a non-success status")
+	}
+	if backendEndpointReady(readinessEmbeddings, BackendModeKobold, 200, `{"result":"KoboldCpp","embeddings":false}`) {
+		t.Fatal("Kobold embedding health endpoint accepted an inactive capability")
+	}
+	if !backendEndpointReady(readinessEmbeddings, BackendModeKobold, 200, `{"result":"KoboldCpp","embeddings":true}`) {
+		t.Fatal("Kobold embedding health endpoint rejected an active capability")
 	}
 }
 

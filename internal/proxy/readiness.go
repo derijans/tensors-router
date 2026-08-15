@@ -32,6 +32,9 @@ func (readiness backendReadiness) endpointForMode(backendMode string) string {
 	case readinessImage:
 		return "/sdapi/v1/sd-models"
 	case readinessEmbeddings:
+		if backendMode == BackendModeKobold {
+			return "/api/extra/version"
+		}
 		return "/v1/models"
 	case readinessTranscription:
 		if backendMode == BackendModeLlamaSDCPP {

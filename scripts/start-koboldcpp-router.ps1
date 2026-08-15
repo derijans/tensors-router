@@ -9,6 +9,8 @@ param(
     [ValidateRange(1, 65535)]
     [int]$BackendPort = 15001,
     [ValidateRange(1, 65535)]
+    [int]$EmbeddingsBackendPort = 15004,
+    [ValidateRange(1, 65535)]
     [int]$WebUIPort = 18443,
     [ValidateRange(1, 65535)]
     [int]$BackendUIPort = 18444,
@@ -140,6 +142,14 @@ foreach ($existingPIDPath in @($pidPath, $webuiPIDPath)) {
 
 Assert-PortAvailable -Port $RouterPort -ServiceName 'Router'
 Assert-PortAvailable -Port $BackendPort -ServiceName 'KoboldCpp'
+$servicePorts = @($RouterPort, $BackendPort, $EmbeddingsBackendPort)
+if ($Role -eq 'master') {
+    $servicePorts += @($WebUIPort, $BackendUIPort)
+}
+if (($servicePorts | Sort-Object -Unique).Count -ne $servicePorts.Count) {
+    throw 'Router, KoboldCpp, embeddings, and active WebUI ports must be distinct.'
+}
+Assert-PortAvailable -Port $EmbeddingsBackendPort -ServiceName 'KoboldCpp embeddings'
 if ($Role -eq 'master') {
     Assert-PortAvailable -Port $WebUIPort -ServiceName 'WebUI'
     Assert-PortAvailable -Port $BackendUIPort -ServiceName 'WebUI backend'
@@ -201,6 +211,7 @@ backend:
   mode: "kobold"
 kobold:
   backend_url: "http://127.0.0.1:$BackendPort"
+  embeddings_backend_url: "http://127.0.0.1:$EmbeddingsBackendPort"
   binary_path: $(ConvertTo-YAMLScalar $koboldPath)
   data_dir: $(ConvertTo-YAMLScalar $runtimePath)
   multiuser: 1
@@ -284,6 +295,7 @@ logging:
         Role = $Role
         Router = "http://$BindAddress`:$RouterPort"
         Backend = "http://127.0.0.1:$BackendPort"
+        EmbeddingsBackend = "http://127.0.0.1:$EmbeddingsBackendPort"
         ProcessId = $routerProcess.Id
         Config = $configPath
         WebUI = $webuiURL

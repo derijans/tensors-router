@@ -52,7 +52,7 @@ Use `-KeepRuntime` to retain the generated configuration and backend log.
 Start one standalone node:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\start-koboldcpp-router.ps1 -NodeId local -RouterPort 18080 -BackendPort 15001
+powershell -ExecutionPolicy Bypass -File .\scripts\start-koboldcpp-router.ps1 -NodeId local -RouterPort 18080 -BackendPort 15001 -EmbeddingsBackendPort 15004
 Invoke-RestMethod http://127.0.0.1:18080/v1/models
 ```
 
@@ -70,6 +70,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-koboldcpp-router.ps1 `
   -Role master `
   -RouterPort 18080 `
   -BackendPort 15001 `
+  -EmbeddingsBackendPort 15004 `
   -WebUIPort 18443 `
   -BackendUIPort 18444 `
   -ClusterToken local-cluster-token `
@@ -84,6 +85,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-koboldcpp-router.ps1 `
   -Role slave `
   -RouterPort 18081 `
   -BackendPort 15002 `
+  -EmbeddingsBackendPort 15005 `
   -ClusterToken local-cluster-token `
   -MasterURL http://127.0.0.1:18080
 ```

@@ -3382,6 +3382,10 @@ func TestStandaloneEmbeddingsSurvivePrimarySwitchAndReplaceAcrossFamilies(t *tes
 			_, _ = w.Write([]byte(`{"object":"list","data":[]}`))
 			return
 		}
+		if r.Method == http.MethodGet && r.URL.Path == "/api/extra/version" {
+			_, _ = w.Write([]byte(`{"result":"KoboldCpp","embeddings":true}`))
+			return
+		}
 		_, _ = w.Write([]byte(`{"model":"backend","data":[]}`))
 	}))
 	t.Cleanup(server.Close)
@@ -3533,6 +3537,76 @@ func TestRouterLoadSelectsEmbeddingRuntimeFromCapabilities(t *testing.T) {
 	}
 }
 
+func TestKoboldRouterLoadSeparateEmbeddingsUsesVersionHealth(t *testing.T) {
+	dir := t.TempDir()
+	writeProxyTestConfig(t, dir, "separate", `{
+		"backend_mode":"kobold",
+		"model_param":"C:/models/text.gguf",
+		"embeddingsmodel":"C:/models/embed.gguf",
+		"run_embed_separate":true
+	}`)
+
+	var textModelProbes atomic.Int32
+	var embeddingVersionProbes atomic.Int32
+	var embeddingRequests atomic.Int32
+	textServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
+			textModelProbes.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"text"}]}`))
+			return
+		}
+		t.Fatalf("unexpected text request %s %s", r.Method, r.URL.Path)
+	}))
+	t.Cleanup(textServer.Close)
+	embeddingsServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"inactive"}]}`))
+		case r.Method == http.MethodGet && r.URL.Path == "/api/extra/version":
+			ready := embeddingVersionProbes.Add(1) > 1
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprintf(w, `{"result":"KoboldCpp","embeddings":%t}`, ready)
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/embeddings":
+			embeddingRequests.Add(1)
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.25]}]}`))
+		default:
+			t.Fatalf("unexpected embeddings request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	t.Cleanup(embeddingsServer.Close)
+
+	textBackend := &fakeBackend{url: mustParseURL(t, textServer.URL), healthy: true}
+	embeddingsBackend := &fakeBackend{url: mustParseURL(t, embeddingsServer.URL), healthy: true}
+	service := NewService(ServiceConfig{
+		BackendMode: BackendModeKobold,
+		BackendFamilies: map[string]BackendFamilyConfig{
+			BackendModeKobold: {
+				TextBackend:       textBackend,
+				EmbeddingsBackend: embeddingsBackend,
+			},
+		},
+		Catalog:   catalog.New(dir),
+		ConfigDir: dir,
+		Logger:    log.New(io.Discard, "", 0),
+	})
+
+	postRouterLoad(t, service, `{"model":"separate"}`)
+	if textBackend.reloads.Load() != 1 || embeddingsBackend.reloads.Load() != 1 {
+		t.Fatalf("unexpected reloads text=%d embeddings=%d", textBackend.reloads.Load(), embeddingsBackend.reloads.Load())
+	}
+	if textModelProbes.Load() != 1 || embeddingVersionProbes.Load() != 2 {
+		t.Fatalf("unexpected readiness probes text=%d embeddings=%d", textModelProbes.Load(), embeddingVersionProbes.Load())
+	}
+
+	postProxyModelRequest(t, service, "/v1/embeddings", `{"model":"separate","input":"hello"}`)
+	if embeddingRequests.Load() != 1 {
+		t.Fatalf("embedding request did not reach the embedding backend: %d", embeddingRequests.Load())
+	}
+}
+
 func newExplicitEmbeddingLoadService(t *testing.T, configContent string) (*Service, *fakeBackend, *fakeBackend, *fakeBackend) {
 	t.Helper()
 	dir := t.TempDir()
@@ -3591,7 +3665,7 @@ func newSeparateEmbeddingTestService(t *testing.T, gpu bool) (*Service, *fakeBac
 			return
 		}
 		if r.Method == http.MethodGet && r.URL.Path == "/api/extra/version" {
-			_, _ = w.Write([]byte(`{"tts":true,"transcribe":true}`))
+			_, _ = w.Write([]byte(`{"tts":true,"transcribe":true,"embeddings":true}`))
 			return
 		}
 		_, _ = w.Write([]byte(`{"model":"backend","data":[]}`))
