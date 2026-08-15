@@ -13,7 +13,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  GO_VERSION: "1.26.5"
+  GO_VERSION: "1.26.6"
   NODE_VERSION: "24"
   UV_VERSION: "0.12.0"
 
