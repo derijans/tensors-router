@@ -73,6 +73,43 @@ func TestExportCoversRegularModelRoleFields(t *testing.T) {
 	}
 }
 
+func TestExportPreservesInactiveModelFields(t *testing.T) {
+	content := []byte(`{"model":[],"model_param":"C:/models/main.gguf","draftmodel":null,"sdmodel":"","sdlora":[]}`)
+	hashedPaths := make([]string, 0, 1)
+	exported, err := Export(content, func(path string) (string, error) {
+		hashedPaths = append(hashedPaths, path)
+		return testHash, nil
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hashedPaths) != 1 || hashedPaths[0] != "C:/models/main.gguf" {
+		t.Fatalf("unexpected hashed paths %#v", hashedPaths)
+	}
+	var portable map[string]any
+	if err := json.Unmarshal(exported, &portable); err != nil {
+		t.Fatal(err)
+	}
+	if portable["draftmodel"] != nil || portable["sdmodel"] != "" {
+		t.Fatalf("inactive scalar fields changed: %#v", portable)
+	}
+	if model, ok := portable["model"].([]any); !ok || len(model) != 0 {
+		t.Fatalf("inactive model array changed: %#v", portable["model"])
+	}
+	if sdlora, ok := portable["sdlora"].([]any); !ok || len(sdlora) != 0 {
+		t.Fatalf("inactive LoRA array changed: %#v", portable["sdlora"])
+	}
+	resolved, err := Resolve(exported, func(hash string, filename string) (string, bool) {
+		return "D:/shared/" + filename, hash == testHash
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(resolved.Fields) != 1 || !resolved.Fields[0].Resolved {
+		t.Fatalf("unexpected resolution %#v", resolved.Fields)
+	}
+}
+
 func TestExportRejectsMissingAndUnsafeValues(t *testing.T) {
 	_, err := Export([]byte(`{"model_param":"C:/models/main.gguf"}`), func(string) (string, error) { return "", errors.New("missing") }, nil)
 	if err == nil {

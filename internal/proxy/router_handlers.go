@@ -571,14 +571,26 @@ func modelLoadReadinesses(mode string, model catalog.Model) []backendReadiness {
 	}
 	separateEmbeddings := model.Capabilities.Embeddings != nil && model.Capabilities.Embeddings.Separate
 	if mode != BackendModeLlamaSDCPP {
-		if !separateEmbeddings {
-			return []backendReadiness{readinessText}
-		}
-		readinesses := make([]backendReadiness, 0, 2)
-		if model.HasLLM || model.HasImage || model.HasMultimodal || model.HasVoice || model.HasMusic {
+		readinesses := make([]backendReadiness, 0, 4)
+		if modelHasExplicitTextAsset(model) || model.HasMultimodal || model.HasEmbeddings && !separateEmbeddings {
 			readinesses = append(readinesses, readinessText)
 		}
-		return append(readinesses, readinessEmbeddings)
+		if model.HasImage {
+			readinesses = append(readinesses, readinessImage)
+		}
+		if model.HasVoice {
+			readinesses = append(readinesses, readinessForVoiceModel(model, mode))
+		}
+		if model.HasMusic {
+			readinesses = append(readinesses, readinessMusic)
+		}
+		if separateEmbeddings {
+			readinesses = append(readinesses, readinessEmbeddings)
+		}
+		if len(readinesses) == 0 {
+			return []backendReadiness{readinessText}
+		}
+		return readinesses
 	}
 
 	readinesses := make([]backendReadiness, 0, 3)
@@ -597,8 +609,35 @@ func modelLoadReadinesses(mode string, model catalog.Model) []backendReadiness {
 	return readinesses
 }
 
+func modelHasExplicitTextAsset(model catalog.Model) bool {
+	for _, key := range []string{"model", "model_param", "draftmodel", "model_hash", "model_param_hash", "draftmodel_hash"} {
+		value, found := model.Options[key]
+		if !found {
+			continue
+		}
+		var decoded any
+		if json.Unmarshal(value, &decoded) != nil {
+			continue
+		}
+		switch typed := decoded.(type) {
+		case string:
+			if strings.TrimSpace(typed) != "" {
+				return true
+			}
+		case []any:
+			if len(typed) > 0 {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func modelControlReadiness(mode string, hasEmbeddings bool, hasVoice bool, task string) backendReadiness {
 	if mode != BackendModeVLLM {
+		if hasVoice {
+			return readinessSpeech
+		}
 		return readinessText
 	}
 	if hasVoice || isVLLMSpeechTask(task) {

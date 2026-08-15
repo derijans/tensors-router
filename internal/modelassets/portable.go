@@ -82,9 +82,15 @@ func Export(content []byte, hashFile HashFile, findOrigin FindOrigin) ([]byte, e
 		if !isModelField(key) {
 			continue
 		}
+		if value == nil {
+			continue
+		}
 		paths, array, ok := pathValues(value)
 		if !ok {
 			return nil, fmt.Errorf("model field %q must be a string or string array", key)
+		}
+		if len(paths) == 0 || (!array && strings.TrimSpace(paths[0]) == "") {
+			continue
 		}
 		hashes := make([]string, len(paths))
 		filenames := make([]string, len(paths))

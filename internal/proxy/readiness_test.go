@@ -1,6 +1,8 @@
 package proxy
 
 import (
+	"encoding/json"
+	"reflect"
 	"testing"
 
 	"tensors-router/internal/catalog"
@@ -115,5 +117,24 @@ func TestVoiceModelReadinessSelection(t *testing.T) {
 	}
 	if got := readinessForVoiceModel(transcriptionModel, BackendModeLlamaSDCPP); got != readinessTranscription {
 		t.Fatalf("unexpected split transcription readiness %v", got)
+	}
+}
+
+func TestKoboldDirectLoadUsesMediaReadinessWithoutExplicitTextAsset(t *testing.T) {
+	ttsModel := catalog.Model{
+		HasLLM:   true,
+		HasVoice: true,
+		Options: map[string]json.RawMessage{
+			"model":       json.RawMessage(`[]`),
+			"model_param": json.RawMessage(`null`),
+			"ttsmodel":    json.RawMessage(`"tts.gguf"`),
+		},
+		Capabilities: catalog.Capabilities{Voice: &catalog.VoiceCapabilities{TTSModel: "tts.gguf"}},
+	}
+	if got := modelLoadReadinesses(BackendModeKobold, ttsModel); !reflect.DeepEqual(got, []backendReadiness{readinessSpeech}) {
+		t.Fatalf("unexpected TTS load readinesses %#v", got)
+	}
+	if got := modelControlReadiness(BackendModeKobold, false, true, ""); got != readinessSpeech {
+		t.Fatalf("unexpected TTS control readiness %v", got)
 	}
 }
