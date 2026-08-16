@@ -1,0 +1,50 @@
+services:
+  router-node:
+    platform: linux/amd64
+    image: "${TENSORS_ROUTER_VLLM_ROCM_NODE_IMAGE:-ghcr.io/derijans/tensors-router/tensors-router-vllm-node-rocm:latest}"
+    build:
+      context: ..
+      dockerfile: Containerfile
+      target: vllm-node-rocm
+    shm_size: "${TENSORS_ROUTER_VLLM_SHM_SIZE:-4gb}"
+    environment:
+      HF_DATASETS_OFFLINE: "1"
+      HF_HOME: "/data/vllm/huggingface"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      VLLM_NO_USAGE_STATS: "1"
+    volumes:
+      - "vllm-rocm-node-data:/data/vllm"
+      - "vllm-rocm-node-models:/models"
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add: ["video", "render"]
+
+  router-webui:
+    platform: linux/amd64
+    image: "${TENSORS_ROUTER_VLLM_ROCM_WEBUI_IMAGE:-ghcr.io/derijans/tensors-router/tensors-router-vllm-webui-rocm:latest}"
+    build:
+      context: ..
+      dockerfile: Containerfile
+      target: vllm-webui-rocm
+    shm_size: "${TENSORS_ROUTER_VLLM_SHM_SIZE:-4gb}"
+    environment:
+      HF_DATASETS_OFFLINE: "1"
+      HF_HOME: "/data/vllm/huggingface"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      VLLM_NO_USAGE_STATS: "1"
+    volumes:
+      - "vllm-rocm-webui-data:/data/vllm"
+      - "vllm-rocm-webui-models:/models"
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add: ["video", "render"]
+
+volumes:
+  vllm-rocm-node-data:
+  vllm-rocm-node-models:
+  vllm-rocm-webui-data:
+  vllm-rocm-webui-models:

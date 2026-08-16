@@ -1,3 +1,5 @@
+x-tensors-router-deprecated: "Use compose.rocm.yaml or compose.vllm-rocm.yaml for images with the ROCm user-space runtime."
+
 services:
   router-node:
     devices:
@@ -10,4 +12,3 @@ services:
       - /dev/kfd:/dev/kfd
       - /dev/dri:/dev/dri
     group_add: ["video", "render"]
-

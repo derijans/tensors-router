@@ -270,7 +270,7 @@ jobs:
           retention-days: 14
 
   containers:
-    name: Build container variants
+    name: Validate container deployment manifests
     runs-on: ubuntu-latest
     needs: test
     steps:
@@ -286,156 +286,33 @@ jobs:
           TENSORS_ROUTER_CLUSTER_TOKEN: ci-cluster-validation-token
           TENSORS_ROUTER_WEBUI_ADMIN_TOKEN: ci-webui-validation-token
         run: |
-          jq -e '.version == "2" and (.templates | length == 6)' deploy/portainer/templates.json
+          jq -e '.version == "2" and (.templates | length == 10)' deploy/portainer/templates.json
           jq -r '.templates[].repository.stackfile' deploy/portainer/templates.json | while IFS= read -r file; do
             test -f "$file" || exit 1
           done
           for file in deploy/portainer/*.yaml; do
-            test -f "$file"
             docker compose -f "$file" config >/dev/null
           done
-          docker compose -f deploy/compose.base.yaml --profile node config >/dev/null
-          docker compose -f deploy/compose.base.yaml --profile webui config >/dev/null
-          docker compose -f deploy/compose.base.yaml -f deploy/compose.nvidia.yaml --profile webui config >/dev/null
-          docker compose -f deploy/compose.base.yaml -f deploy/compose.amd.yaml --profile webui config >/dev/null
-          docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml --profile node config >/dev/null
-          docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml -f deploy/compose.nvidia.yaml --profile webui config >/dev/null
-          docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml -f deploy/compose.amd.yaml --profile webui config >/dev/null
-          docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml -f deploy/compose.intel.yaml --profile webui config >/dev/null
-
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
-
-      - name: Build node image
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
-        with:
-          context: .
-          file: Containerfile
-          target: node
-          load: true
-          push: false
-          tags: local/tensors-router-node:ci
-          build-args: |
-            GO_VERSION=${{ env.GO_VERSION }}
-            VERSION=${{ github.sha }}
-            COMMIT=${{ github.sha }}
-
-      - name: Build WebUI image
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
-        with:
-          context: .
-          file: Containerfile
-          target: webui
-          load: true
-          push: false
-          tags: local/tensors-router-webui:ci
-          build-args: |
-            GO_VERSION=${{ env.GO_VERSION }}
-            VERSION=${{ github.sha }}
-            COMMIT=${{ github.sha }}
-
-      - name: Build vLLM node image
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
-        with:
-          context: .
-          file: Containerfile.vllm
-          target: vllm-node
-          load: true
-          push: false
-          tags: local/tensors-router-vllm-node:ci
-          build-args: |
-            GO_VERSION=${{ env.GO_VERSION }}
-            VERSION=${{ github.sha }}
-            COMMIT=${{ github.sha }}
-
-      - name: Build vLLM WebUI image
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
-        with:
-          context: .
-          file: Containerfile.vllm
-          target: vllm-webui
-          load: true
-          push: false
-          tags: local/tensors-router-vllm-webui:ci
-          build-args: |
-            GO_VERSION=${{ env.GO_VERSION }}
-            VERSION=${{ github.sha }}
-            COMMIT=${{ github.sha }}
-
-      - name: Verify image boundaries
-        run: |
-          docker image inspect local/tensors-router-node:ci --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp"]'
-          docker image inspect local/tensors-router-node:ci --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensors-router", "serve", "--config", "/config/config.yaml"]'
-          docker image inspect local/tensors-router-webui:ci --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp", "8443/tcp", "8444/tcp"]'
-          docker image inspect local/tensors-router-webui:ci --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensor-router-webui", "--config", "/config/webui.yaml"]'
-          test "$(docker run --rm --entrypoint /bin/sh local/tensors-router-node:ci -c 'test ! -e /usr/local/bin/tensor-router-webui && echo isolated')" = "isolated"
-          test "$(docker run --rm --entrypoint /bin/sh local/tensors-router-node:ci -c 'test -x /usr/local/bin/tensor-router-downloader && echo downloader')" = "downloader"
-          test "$(docker run --rm --entrypoint /bin/sh local/tensors-router-node:ci -c 'command -v python >/dev/null 2>&1 || echo python-free')" = "python-free"
-          test "$(docker run --rm --entrypoint /bin/sh local/tensors-router-node:ci -c 'test ! -e /usr/local/bin/tensor-router-vllm && echo vllm-isolated')" = "vllm-isolated"
-          docker image inspect local/tensors-router-vllm-node:ci --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp"]'
-          docker image inspect local/tensors-router-vllm-webui:ci --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp", "8443/tcp", "8444/tcp"]'
-          docker image inspect local/tensors-router-vllm-node:ci --format '{{json .Config.Volumes}}' | jq -e 'keys == ["/data/vllm", "/models"]'
-          docker image inspect local/tensors-router-vllm-webui:ci --format '{{json .Config.Volumes}}' | jq -e 'keys == ["/data/vllm", "/models"]'
-          test "$(docker run --rm --entrypoint /bin/sh local/tensors-router-vllm-node:ci -c 'test -x /usr/local/bin/tensor-router-vllm && test -d /data/vllm && test -d /models && ldd --version 2>&1 | grep -q GLIBC && echo vllm-ready')" = "vllm-ready"
-
-  container-scan:
-    name: Scan ${{ matrix.image.name }} ${{ matrix.arch }}
-    runs-on: ubuntu-latest
-    needs: test
-    strategy:
-      fail-fast: false
-      matrix:
-        image:
-          - name: node
-            file: Containerfile
-            target: node
-          - name: webui
-            file: Containerfile
-            target: webui
-          - name: vllm-node
-            file: Containerfile.vllm
-            target: vllm-node
-          - name: vllm-webui
-            file: Containerfile.vllm
-            target: vllm-webui
-        arch: [amd64, arm64]
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3
-        with:
-          platforms: arm64
-
-      - name: Set up Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
-
-      - name: Build scan candidate
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
-        with:
-          context: .
-          file: ${{ matrix.image.file }}
-          target: ${{ matrix.image.target }}
-          platforms: linux/${{ matrix.arch }}
-          load: true
-          push: false
-          tags: local/tensors-router-${{ matrix.image.name }}:scan-${{ matrix.arch }}
-          build-args: |
-            GO_VERSION=${{ env.GO_VERSION }}
-            VERSION=${{ github.sha }}
-            COMMIT=${{ github.sha }}
-
-      - name: Scan image
-        env:
-          IMAGE: local/tensors-router-${{ matrix.image.name }}:scan-${{ matrix.arch }}
-        run: docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436 image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "$IMAGE"
+          for profile in node webui; do
+            docker compose -f deploy/compose.base.yaml --profile "$profile" config >/dev/null
+            docker compose -f deploy/compose.base.yaml -f deploy/compose.cuda.yaml --profile "$profile" config >/dev/null
+            docker compose -f deploy/compose.base.yaml -f deploy/compose.rocm.yaml --profile "$profile" config >/dev/null
+            docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml --profile "$profile" config >/dev/null
+            docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm-cuda.yaml --profile "$profile" config >/dev/null
+            docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm-rocm.yaml --profile "$profile" config >/dev/null
+            docker compose -f deploy/compose.base.yaml -f deploy/compose.nvidia.yaml --profile "$profile" config >/dev/null
+            docker compose -f deploy/compose.base.yaml -f deploy/compose.amd.yaml --profile "$profile" config >/dev/null
+            docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml -f deploy/compose.nvidia.yaml --profile "$profile" config >/dev/null
+            docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml -f deploy/compose.amd.yaml --profile "$profile" config >/dev/null
+            docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml -f deploy/compose.intel.yaml --profile "$profile" config >/dev/null
+          done
+          bash scripts/test-container-release-gate.sh
 
   release:
     name: Publish release assets
     if: github.event_name == 'release'
     runs-on: ubuntu-latest
-    needs: [build, containers, container-scan]
+    needs: [build, containers]
     permissions:
       contents: write
     steps:
@@ -462,11 +339,12 @@ jobs:
           fi
   publish-containers:
     name: Publish container images
-    if: github.event_name == 'release'
-    needs: [build, containers, container-scan]
+    if: github.event_name == 'release' && github.event.action == 'published' && !github.event.release.prerelease
+    needs: [build, containers]
     permissions:
       contents: read
       packages: write
     uses: ./.github/workflows/containers.yml
     with:
       version: ${{ github.event.release.tag_name }}
+      prerelease: ${{ github.event.release.prerelease }}

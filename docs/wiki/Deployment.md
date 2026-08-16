@@ -108,16 +108,16 @@ Run the managed WebUI:
 docker compose -f deploy/compose.base.yaml --profile webui up -d router-webui
 ```
 
-Add NVIDIA access:
+Run a native CUDA image with NVIDIA access:
 
 ```sh
-docker compose -f deploy/compose.base.yaml -f deploy/compose.nvidia.yaml --profile webui up -d router-webui
+docker compose -f deploy/compose.base.yaml -f deploy/compose.cuda.yaml --profile webui up -d router-webui
 ```
 
-Add AMD access:
+Run a native ROCm image with AMD access:
 
 ```sh
-docker compose -f deploy/compose.base.yaml -f deploy/compose.amd.yaml --profile webui up -d router-webui
+docker compose -f deploy/compose.base.yaml -f deploy/compose.rocm.yaml --profile webui up -d router-webui
 ```
 
 Run a glibc vLLM node:
@@ -126,15 +126,28 @@ Run a glibc vLLM node:
 docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml --profile node up -d router-node
 ```
 
-Add accelerator access to the vLLM deployment with exactly one applicable overlay:
+Run a vLLM-capable image with its vendor runtime and device access:
 
 ```sh
-docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml -f deploy/compose.nvidia.yaml --profile node up -d router-node
-docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml -f deploy/compose.amd.yaml --profile node up -d router-node
+docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm-cuda.yaml --profile node up -d router-node
+docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm-rocm.yaml --profile node up -d router-node
 docker compose -f deploy/compose.base.yaml -f deploy/compose.vllm.yaml -f deploy/compose.intel.yaml --profile node up -d router-node
 ```
 
-These overlays expose devices only. Install compatible host drivers and vendor runtime prerequisites before initialization. They do not install drivers, vendor SDKs, kernel modules, compilers, container engines, or privileged OS packages. Plugin hardware may need vendor-specific devices, groups, security policies, and a signed profile validated on the matching vendor runner; follow that plugin vendor's deployment documentation.
+The CUDA and ROCm overlays include user-space runtime and math libraries but no kernel drivers, compiler SDK, Python, PyTorch, or vLLM installation. The vLLM initialization job installs its signed-profile-selected Python stack in the persistent `/data/vllm` volume. Compatible host drivers and container device integration remain required. `compose.nvidia.yaml` and `compose.amd.yaml` remain available as deprecated device-only compatibility overlays.
+
+Every published tag has an image override variable:
+
+| Image family | Node | WebUI |
+| --- | --- | --- |
+| CPU | `TENSORS_ROUTER_NODE_IMAGE` | `TENSORS_ROUTER_WEBUI_IMAGE` |
+| CPU vLLM | `TENSORS_ROUTER_VLLM_NODE_IMAGE` | `TENSORS_ROUTER_VLLM_WEBUI_IMAGE` |
+| CUDA | `TENSORS_ROUTER_CUDA_NODE_IMAGE` | `TENSORS_ROUTER_CUDA_WEBUI_IMAGE` |
+| CUDA vLLM | `TENSORS_ROUTER_VLLM_CUDA_NODE_IMAGE` | `TENSORS_ROUTER_VLLM_CUDA_WEBUI_IMAGE` |
+| ROCm | `TENSORS_ROUTER_ROCM_NODE_IMAGE` | `TENSORS_ROUTER_ROCM_WEBUI_IMAGE` |
+| ROCm vLLM | `TENSORS_ROUTER_VLLM_ROCM_NODE_IMAGE` | `TENSORS_ROUTER_VLLM_ROCM_WEBUI_IMAGE` |
+
+Container images are built and published only from non-prerelease GitHub Releases tagged `vMAJOR.MINOR.PATCH`. CPU and CUDA tags support `linux/amd64` and `linux/arm64`; ROCm tags support `linux/amd64`. Pull requests and `main` validate these Compose contracts without generating images.
 
 The supplied configurations use `secure`. The bootstrap helper creates separate 256-bit inference, router-admin, cluster, and WebUI-admin credentials below `secrets/`, with a `0700` directory and `0600` files. Compose mounts them through `/run/secrets`; it never places credential values in the stack environment.
 
@@ -154,12 +167,13 @@ Use the application-template catalog at:
 https://raw.githubusercontent.com/derijans/tensors-router/main/deploy/portainer/templates.json
 ```
 
-Portainer reads custom app-template catalogs from a reachable URL. Configure that URL in Portainer's application-template settings, then select one of the six entries:
+Portainer reads custom app-template catalogs from a reachable URL. Configure that URL in Portainer's application-template settings, then select one of the ten entries:
 
 - WebUI or Node
-- CPU, NVIDIA, or AMD
+- native CPU, NVIDIA CUDA, or AMD ROCm
+- vLLM NVIDIA CUDA or vLLM AMD ROCm
 
-Each template prompts for `TENSORS_ROUTER_ROOT`, `TENSORS_ROUTER_MODELS_PATH`, and distinct inference, router-admin, and cluster credentials. WebUI templates also require a separate WebUI-admin credential. Portainer passes these direct values to the container; do not also configure the corresponding `_FILE` variables. Use absolute host paths. The six standalone stack files are also available under `deploy/portainer`; deploy one directly from Git when a custom app-template catalog is not wanted.
+Each template prompts for `TENSORS_ROUTER_ROOT`, `TENSORS_ROUTER_MODELS_PATH`, and distinct inference, router-admin, and cluster credentials. WebUI templates also require a separate WebUI-admin credential. Portainer passes these direct values to the container; do not also configure the corresponding `_FILE` variables. Use absolute host paths. The ten standalone stack files are also available under `deploy/portainer`; deploy one directly from Git when a custom app-template catalog is not wanted.
 
 ## Logs and runtime state
 
@@ -182,8 +196,10 @@ Build both targets:
 ```sh
 podman build --target node -t localhost/tensors-router-node -f Containerfile .
 podman build --target webui -t localhost/tensors-router-webui -f Containerfile .
-podman build --target vllm-node -t localhost/tensors-router-vllm-node -f Containerfile.vllm .
-podman build --target vllm-webui -t localhost/tensors-router-vllm-webui -f Containerfile.vllm .
+podman build --target vllm-node -t localhost/tensors-router-vllm-node -f Containerfile .
+podman build --target vllm-webui -t localhost/tensors-router-vllm-webui -f Containerfile .
+podman build --target node-cuda -t localhost/tensors-router-node-cuda -f Containerfile .
+podman build --target node-rocm -t localhost/tensors-router-node-rocm -f Containerfile .
 ```
 
 Use the same paths, mounts, named `/data` volume, and device configuration as the Compose definitions. The published Compose files are the canonical mount contract.

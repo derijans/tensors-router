@@ -1,20 +1,29 @@
-# vLLM Backend Implementation Plan
+# Release-Only CUDA and ROCm Container Images
 
-1. Add vLLM runtime contracts: backend mode, typed `.kcpps` metadata, immutable snapshot identity, signed runtime manifests, profile compatibility, persistent initialization jobs, and atomic promotion.
-2. Add resident `tensor-router-vllm` framed-protocol companion. Keep Python and vLLM execution isolated from router process and Go dependencies.
-3. Integrate generation, pooling, and speech runtimes into existing load, drain, lease, cluster, analytics, diagnostics, and benchmark machinery.
-4. Expose only allowlisted stable inference and administrator operations. Preserve bodies and streams, strip credentials and hop-by-hop headers, and route private runtime traffic through Unix sockets.
-5. Add local and cluster backend initialization controls plus lifecycle-rich node state.
-6. Add WebUI backend selection, Nodes initialization state/action/progress/cancellation, inventory, analytics, load-capture, benchmark, and validation coverage.
-7. Add supported release archives, glibc container targets, accelerator overlays, signed runtime profile inputs, examples, and documentation without changing unsupported archives or Alpine images.
-8. Run focused tests, full Go tests, race tests, WebUI checks, audits, vulnerability scans available locally, and security boundary review.
+## Implementation
 
-Implementation remains split by responsibility to avoid megafiles and overlapping edits.
+- [x] Consolidate CPU, vLLM, CUDA, and ROCm targets in one pinned `Containerfile`.
+- [x] Keep CPU images lightweight and keep Python, PyTorch, vLLM, and compiler SDKs outside production images.
+- [x] Add native CUDA and ROCm node/WebUI targets for vendor runtime libraries.
+- [x] Add vLLM CUDA and ROCm node/WebUI targets containing the companion and vendor runtime libraries.
+- [x] Add self-contained CUDA, ROCm, vLLM-CUDA, and vLLM-ROCm Compose overlays.
+- [x] Retain NVIDIA and AMD device-only overlays as deprecated compatibility paths.
+- [x] Point accelerator Portainer templates at vendor images and add four vLLM accelerator templates.
+- [x] Document image override variables for all twelve public tags.
 
-## Remainder
+## Release Workflow
 
-9. Fix GitHub CodeQL Zip Slip finding in signed smoke-model extraction with filesystem-enforced destination containment and adversarial archive tests.
-10. Add an offline targets-delegation rotation ceremony for existing TUF repositories. Produce a canonical unsigned payload, require the configured offline threshold signatures, verify the completed metadata, and never expose signing keys to CI or the online publisher.
-11. Bind hardware profile receipts to exact manifest digests and protected runner identity. Publish only profiles whose installation, import, serving, Python audit, and runtime/container scans passed on matching hardware.
-12. Reconcile every original acceptance item against tests and release workflows. Separate code-complete items from external signing and hardware evidence required before profile publication.
-13. Re-run CodeQL-equivalent security tests, full Go/race/WebUI/audit gates, push the fixes, and update PR #8.
+- [x] Restrict push and pull-request container work to deployment-manifest validation.
+- [x] Reject non-release events, non-published actions, prereleases, and tags outside `vMAJOR.MINOR.PATCH`.
+- [x] Build and push digest-addressed candidate images only for accepted stable releases.
+- [x] Verify every candidate boundary, linkage contract, and HIGH/CRITICAL fixed vulnerability scan before promotion.
+- [x] Promote version and `latest` manifests only after the entire candidate matrix passes.
+- [x] Publish CPU and CUDA images for `linux/amd64` and `linux/arm64`, and ROCm images for `linux/amd64`.
+
+## Verification
+
+- [x] Run local release-gate and static manifest checks.
+- [x] Run repository tests and WebUI checks.
+- [ ] Build, inspect, link-check, and scan the full image matrix in the stable release workflow.
+
+The final image-matrix verification requires a published stable GitHub Release because ordinary CI intentionally does not generate images.

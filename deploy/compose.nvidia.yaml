@@ -1,3 +1,5 @@
+x-tensors-router-deprecated: "Use compose.cuda.yaml or compose.vllm-cuda.yaml for images with the CUDA user-space runtime."
+
 services:
   router-node:
     deploy:
@@ -16,4 +18,3 @@ services:
             - driver: nvidia
               count: all
               capabilities: ["gpu"]
-

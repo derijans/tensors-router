@@ -2,7 +2,8 @@ name: tensors-router-node
 
 services:
   router-node:
-    image: "${TENSORS_ROUTER_NODE_IMAGE:-ghcr.io/derijans/tensors-router/tensors-router-node:latest}"
+    platform: linux/amd64
+    image: "${TENSORS_ROUTER_ROCM_NODE_IMAGE:-ghcr.io/derijans/tensors-router/tensors-router-node-rocm:latest}"
     restart: unless-stopped
     init: true
     read_only: true

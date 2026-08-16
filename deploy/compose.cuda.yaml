@@ -1,0 +1,28 @@
+services:
+  router-node:
+    image: "${TENSORS_ROUTER_CUDA_NODE_IMAGE:-ghcr.io/derijans/tensors-router/tensors-router-node-cuda:latest}"
+    build:
+      context: ..
+      dockerfile: Containerfile
+      target: node-cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu"]
+
+  router-webui:
+    image: "${TENSORS_ROUTER_CUDA_WEBUI_IMAGE:-ghcr.io/derijans/tensors-router/tensors-router-webui-cuda:latest}"
+    build:
+      context: ..
+      dockerfile: Containerfile
+      target: webui-cuda
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu"]

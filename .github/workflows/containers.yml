@@ -6,37 +6,53 @@ on:
       version:
         required: true
         type: string
+      prerelease:
+        required: true
+        type: boolean
 
 permissions:
   contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
-  GO_VERSION: "1.26.6"
 
 jobs:
-  publish:
-    name: Publish tensors-router-${{ matrix.target }}
+  gate:
+    name: Validate stable release
     runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Validate release event and version
+        env:
+          PRERELEASE: ${{ inputs.prerelease }}
+          VERSION: ${{ inputs.version }}
+        run: bash scripts/validate-container-release.sh "$GITHUB_EVENT_NAME" "${{ github.event.action }}" "$PRERELEASE" "$VERSION"
+
+  build:
+    name: Build candidate tensors-router-${{ matrix.target }}
+    runs-on: ubuntu-latest
+    needs: gate
     permissions:
       contents: read
       packages: write
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - target: node
-            file: Containerfile
-            stage: node
-          - target: webui
-            file: Containerfile
-            stage: webui
-          - target: vllm-node
-            file: Containerfile.vllm
-            stage: vllm-node
-          - target: vllm-webui
-            file: Containerfile.vllm
-            stage: vllm-webui
+        target:
+          - node
+          - webui
+          - vllm-node
+          - vllm-webui
+          - node-cuda
+          - webui-cuda
+          - vllm-node-cuda
+          - vllm-webui-cuda
+          - node-rocm
+          - webui-rocm
+          - vllm-node-rocm
+          - vllm-webui-rocm
     steps:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -56,53 +72,167 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Resolve image coordinates
+      - name: Resolve candidate coordinates
         id: image
-        shell: bash
         env:
-          REQUESTED_VERSION: ${{ inputs.version }}
           TARGET: ${{ matrix.target }}
         run: |
-          VERSION="$REQUESTED_VERSION"
-          if [[ ! "$VERSION" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]]; then
-            echo "Invalid container version: $VERSION" >&2
-            exit 1
-          fi
-          echo "name=ghcr.io/${GITHUB_REPOSITORY,,}/tensors-router-$TARGET" >> "$GITHUB_OUTPUT"
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          image_name="ghcr.io/${GITHUB_REPOSITORY,,}/tensors-router-$TARGET"
+          platforms=linux/amd64,linux/arm64
+          [[ "$TARGET" != *-rocm ]] || platforms=linux/amd64
+          echo "name=$image_name" >> "$GITHUB_OUTPUT"
+          echo "platforms=$platforms" >> "$GITHUB_OUTPUT"
 
-      - name: Build candidate
+      - name: Build and push candidate
         id: candidate
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
         with:
           context: .
-          file: ${{ matrix.file }}
-          target: ${{ matrix.stage }}
-          platforms: linux/amd64,linux/arm64
+          file: Containerfile
+          target: ${{ matrix.target }}
+          platforms: ${{ steps.image.outputs.platforms }}
           push: true
           tags: ${{ steps.image.outputs.name }}:candidate-${{ github.sha }}
           labels: |
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
             org.opencontainers.image.revision=${{ github.sha }}
-            org.opencontainers.image.version=${{ steps.image.outputs.version }}
+            org.opencontainers.image.version=${{ inputs.version }}
           build-args: |
-            GO_VERSION=${{ env.GO_VERSION }}
-            VERSION=${{ steps.image.outputs.version }}
+            VERSION=${{ inputs.version }}
             COMMIT=${{ github.sha }}
 
-      - name: Scan candidate digest
+      - name: Record candidate digest
         env:
-          CANDIDATE: ${{ steps.image.outputs.name }}@${{ steps.candidate.outputs.digest }}
-        shell: bash
+          DIGEST: ${{ steps.candidate.outputs.digest }}
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+          TARGET: ${{ matrix.target }}
         run: |
-          for platform in linux/amd64 linux/arm64; do
-            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.docker:/root/.docker:ro" aquasec/trivy@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436 image --platform "$platform" --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "$CANDIDATE"
+          mkdir -p container-digests
+          printf '%s@%s\n' "$IMAGE_NAME" "$DIGEST" > "container-digests/$TARGET"
+
+      - name: Upload candidate digest
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: container-digest-${{ matrix.target }}
+          path: container-digests/${{ matrix.target }}
+          if-no-files-found: error
+          retention-days: 1
+
+  verify:
+    name: Verify candidate tensors-router-${{ matrix.target }}
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - node
+          - webui
+          - vllm-node
+          - vllm-webui
+          - node-cuda
+          - webui-cuda
+          - vllm-node-cuda
+          - vllm-webui-cuda
+          - node-rocm
+          - webui-rocm
+          - vllm-node-rocm
+          - vllm-webui-rocm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@06116385d9baf250c9f4dcb4858b16962ea869c3
+        with:
+          platforms: arm64
+
+      - name: Log in to GHCR
+        uses: docker/login-action@465a07811f14bebb1938fbed4728c6a1ff8901fc
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download candidate digest
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: container-digest-${{ matrix.target }}
+          path: container-digests
+
+      - name: Verify boundaries and accelerator linkage
+        env:
+          TARGET: ${{ matrix.target }}
+        run: |
+          candidate=$(cat "container-digests/$TARGET")
+          platforms=(linux/amd64 linux/arm64)
+          [[ "$TARGET" != *-rocm ]] || platforms=(linux/amd64)
+          for platform in "${platforms[@]}"; do
+            docker pull --platform "$platform" "$candidate"
+            test "$(docker image inspect "$candidate" --format '{{.Config.User}}')" = tensors
+            if [[ "$TARGET" == *webui* ]]; then
+              docker image inspect "$candidate" --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp", "8443/tcp", "8444/tcp"]'
+              docker image inspect "$candidate" --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensor-router-webui", "--config", "/config/webui.yaml"]'
+            else
+              docker image inspect "$candidate" --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp"]'
+              docker image inspect "$candidate" --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensors-router", "serve", "--config", "/config/config.yaml"]'
+            fi
+            docker run --rm --platform "$platform" --entrypoint /bin/sh "$candidate" -c 'test -x /usr/local/bin/tensors-router && test -x /usr/local/bin/tensor-router-downloader && test "$(id -u tensors):$(id -g tensors)" = 10001:10001 && test "$(stat -c %u:%g /data)" = 10001:10001 && test "$(stat -c %u:%g /models)" = 10001:10001 && ! command -v python && ! command -v python3 && ! command -v pip && ! command -v gcc && ! command -v g++ && ! command -v cc && ! command -v make && ! command -v cmake && ! command -v nvcc && ! command -v hipcc && ! command -v clang'
+            if [[ "$TARGET" == *webui* ]]; then
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$candidate" -c 'test -x /usr/local/bin/tensor-router-webui'
+            else
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$candidate" -c 'test ! -e /usr/local/bin/tensor-router-webui'
+            fi
+            if [[ "$TARGET" == vllm-* ]]; then
+              docker image inspect "$candidate" --format '{{json .Config.Volumes}}' | jq -e 'keys == ["/data/vllm", "/models"]'
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$candidate" -c 'test -x /usr/local/bin/tensor-router-vllm'
+            else
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$candidate" -c 'test ! -e /usr/local/bin/tensor-router-vllm'
+            fi
+            if [[ "$TARGET" == *-cuda ]]; then
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$candidate" -c "ldconfig -p | grep -q 'libcudart\.so' && ldconfig -p | grep -q 'libcublas\.so'"
+            fi
+            if [[ "$TARGET" == *-rocm ]]; then
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$candidate" -c "ldconfig -p | grep -q 'libamdhip64\.so' && ldconfig -p | grep -q 'librocblas\.so' && hipconfig --version >/dev/null"
+            fi
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.docker:/root/.docker:ro" aquasec/trivy@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436 image --platform "$platform" --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "$candidate"
           done
 
-      - name: Promote scanned digest
+  promote:
+    name: Promote verified container set
+    runs-on: ubuntu-latest
+    needs: verify
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+
+      - name: Log in to GHCR
+        uses: docker/login-action@465a07811f14bebb1938fbed4728c6a1ff8901fc
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download all candidate digests
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: container-digest-*
+          path: container-digests
+          merge-multiple: true
+
+      - name: Promote release manifests
         env:
-          CANDIDATE: ${{ steps.image.outputs.name }}@${{ steps.candidate.outputs.digest }}
-          IMAGE_NAME: ${{ steps.image.outputs.name }}
-          IMAGE_VERSION: ${{ steps.image.outputs.version }}
-        shell: bash
-        run: docker buildx imagetools create --tag "$IMAGE_NAME:$IMAGE_VERSION" --tag "$IMAGE_NAME:latest" "$CANDIDATE"
+          VERSION: ${{ inputs.version }}
+        run: |
+          test "$(find container-digests -type f | wc -l)" -eq 12
+          while IFS= read -r digest_file; do
+            candidate=$(cat "$digest_file")
+            image_name=${candidate%@*}
+            docker buildx imagetools create --tag "$image_name:$VERSION" --tag "$image_name:latest" "$candidate"
+          done < <(find container-digests -type f -print | sort)

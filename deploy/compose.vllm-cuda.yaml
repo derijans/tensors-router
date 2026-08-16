@@ -1,0 +1,54 @@
+services:
+  router-node:
+    image: "${TENSORS_ROUTER_VLLM_CUDA_NODE_IMAGE:-ghcr.io/derijans/tensors-router/tensors-router-vllm-node-cuda:latest}"
+    build:
+      context: ..
+      dockerfile: Containerfile
+      target: vllm-node-cuda
+    shm_size: "${TENSORS_ROUTER_VLLM_SHM_SIZE:-4gb}"
+    environment:
+      HF_DATASETS_OFFLINE: "1"
+      HF_HOME: "/data/vllm/huggingface"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      VLLM_NO_USAGE_STATS: "1"
+    volumes:
+      - "vllm-cuda-node-data:/data/vllm"
+      - "vllm-cuda-node-models:/models"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu"]
+
+  router-webui:
+    image: "${TENSORS_ROUTER_VLLM_CUDA_WEBUI_IMAGE:-ghcr.io/derijans/tensors-router/tensors-router-vllm-webui-cuda:latest}"
+    build:
+      context: ..
+      dockerfile: Containerfile
+      target: vllm-webui-cuda
+    shm_size: "${TENSORS_ROUTER_VLLM_SHM_SIZE:-4gb}"
+    environment:
+      HF_DATASETS_OFFLINE: "1"
+      HF_HOME: "/data/vllm/huggingface"
+      HF_HUB_OFFLINE: "1"
+      TRANSFORMERS_OFFLINE: "1"
+      VLLM_NO_USAGE_STATS: "1"
+    volumes:
+      - "vllm-cuda-webui-data:/data/vllm"
+      - "vllm-cuda-webui-models:/models"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: ["gpu"]
+
+volumes:
+  vllm-cuda-node-data:
+  vllm-cuda-node-models:
+  vllm-cuda-webui-data:
+  vllm-cuda-webui-models:

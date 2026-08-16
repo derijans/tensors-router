@@ -3,7 +3,7 @@ services:
     image: "${TENSORS_ROUTER_VLLM_NODE_IMAGE:-ghcr.io/derijans/tensors-router/tensors-router-vllm-node:latest}"
     build:
       context: ..
-      dockerfile: Containerfile.vllm
+      dockerfile: Containerfile
       target: vllm-node
     shm_size: "${TENSORS_ROUTER_VLLM_SHM_SIZE:-4gb}"
     environment:
@@ -20,7 +20,7 @@ services:
     image: "${TENSORS_ROUTER_VLLM_WEBUI_IMAGE:-ghcr.io/derijans/tensors-router/tensors-router-vllm-webui:latest}"
     build:
       context: ..
-      dockerfile: Containerfile.vllm
+      dockerfile: Containerfile
       target: vllm-webui
     shm_size: "${TENSORS_ROUTER_VLLM_SHM_SIZE:-4gb}"
     environment:

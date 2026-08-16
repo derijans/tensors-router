@@ -2,7 +2,7 @@ name: tensors-router-node
 
 services:
   router-node:
-    image: "${TENSORS_ROUTER_NODE_IMAGE:-ghcr.io/derijans/tensors-router/tensors-router-node:latest}"
+    image: "${TENSORS_ROUTER_CUDA_NODE_IMAGE:-ghcr.io/derijans/tensors-router/tensors-router-node-cuda:latest}"
     restart: unless-stopped
     init: true
     read_only: true
