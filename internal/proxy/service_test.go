@@ -1661,6 +1661,126 @@ func TestEmbeddingsPassThroughWithModelValidation(t *testing.T) {
 	}
 }
 
+func TestSelectorlessEmbeddingUsesLoadedLocalModel(t *testing.T) {
+	service, _, embeddingsBackend := newSeparateEmbeddingTestService(t, false)
+	postProxyModelRequest(t, service, "/v1/embeddings", `{"model":"separate","input":"load"}`)
+	models, err := service.catalog.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	runtimeModels := service.modelsWithRuntimeState(context.Background(), cluster.LocalModelsWithBackendMode(models, service.nodeID, service.nodeURL, cluster.SourceLocal, service.backendMode))
+	embeddingsLoaded := false
+	for _, model := range runtimeModels {
+		embeddingsLoaded = embeddingsLoaded || model.LocalID == "separate" && model.EmbeddingsLoaded
+	}
+	if !embeddingsLoaded {
+		t.Fatalf("embedding runtime load state missing %#v", runtimeModels)
+	}
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(`{"input":"hello"}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"model":"separate"`) {
+		t.Fatalf("unexpected selectorless response status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	if embeddingsBackend.reloads.Load() != 1 {
+		t.Fatalf("loaded embedding model was reloaded %d times", embeddingsBackend.reloads.Load())
+	}
+
+	useTinyTransportLimits(service)
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(`{"input":"selectorless streaming embedding request"}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"model":"separate"`) {
+		t.Fatalf("unexpected streaming selectorless response status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestSelectorlessEmbedPassesThroughWithoutLoadedModel(t *testing.T) {
+	var forwardedBody string
+	service, _ := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		forwardedBody = string(body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"data":[]}`))
+	}))
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/embed", strings.NewReader(`{"input":"hello"}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || forwardedBody != `{"input":"hello"}` {
+		t.Fatalf("unexpected passthrough status=%d body=%q response=%s", recorder.Code, forwardedBody, recorder.Body.String())
+	}
+}
+
+func TestSelectorlessEmbeddingsRoundRobinLoadedClusterModels(t *testing.T) {
+	var hitsMu sync.Mutex
+	hits := make([]string, 0, 3)
+	newRemote := func(id string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(string(body), `"model":"`+id+`"`) {
+				t.Errorf("selected model missing from %s body %s", id, body)
+			}
+			hitsMu.Lock()
+			hits = append(hits, id)
+			hitsMu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"model":"` + id + `","data":[]}`))
+		}))
+	}
+	remoteA := newRemote("embed-a")
+	defer remoteA.Close()
+	remoteB := newRemote("embed-b")
+	defer remoteB.Close()
+
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
+	for _, remote := range []struct {
+		id     string
+		nodeID string
+		url    string
+	}{
+		{id: "embed-a", nodeID: "node-a", url: remoteA.URL},
+		{id: "embed-b", nodeID: "node-b", url: remoteB.URL},
+	} {
+		model := testClusterEmbeddingModel(remote.id, remote.nodeID, remote.id+"-hash", remote.id+"-config", cluster.SourceSlave)
+		model.EmbeddingsLoaded = true
+		if err := registry.UpdateNode(cluster.Snapshot{NodeID: remote.nodeID, NodeURL: remote.url, Models: []cluster.Model{model}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	service, _ := newTestServiceWithRegistry(t, registry, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("selectorless request unexpectedly reached local backend")
+	}), "secret")
+	for range 3 {
+		recorder := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(`{"input":"hello"}`))
+		request.Header.Set("Content-Type", "application/json")
+		service.ServeHTTP(recorder, request)
+		if recorder.Code != http.StatusOK {
+			t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+		}
+	}
+
+	hitsMu.Lock()
+	defer hitsMu.Unlock()
+	if len(hits) != 3 || hits[0] != "embed-a" || hits[1] != "embed-b" || hits[2] != "embed-a" {
+		t.Fatalf("unexpected round robin order %#v", hits)
+	}
+}
+
 func TestKoboldEmbedUsesOnlyEmbeddingModels(t *testing.T) {
 	var forwardedModel string
 	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

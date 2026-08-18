@@ -26,7 +26,7 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 	route := routeFromRecipeComponent(recipe, component, false, cluster.RouteLaneText)
 	profile := service.localChatTemplateProfile(component.ConfigFilename, component.NodeID != service.nodeID)
 	readiness := modelReadiness(r.URL.Path)
-	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, component.ModelID, readiness, profile, true)
+	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, component.ModelID, readiness, profile, true, false)
 	if transformErr != nil {
 		writeTransportError(w, transformErr)
 		return true

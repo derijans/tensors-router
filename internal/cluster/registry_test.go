@@ -137,6 +137,29 @@ func TestRegistryPrefersMasterThenBalancesSlavesWhenMasterBusy(t *testing.T) {
 	releaseThird()
 }
 
+func TestRegistrySpecificEmbeddingRequiresLoadedRemote(t *testing.T) {
+	registry := NewRegistry(RoleMaster, "master", "http://master")
+	model := testModel("embed", "slave-a", "hash", "config", SourceSlave)
+	model.HasLLM = false
+	model.HasEmbeddings = true
+	if err := registry.UpdateNode(Snapshot{NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{model}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, ok := registry.AcquireSpecificEmbedding("slave-a", model.Filename, model.LocalID, true); ok {
+		t.Fatal("unloaded remote embedding was acquired")
+	}
+
+	model.EmbeddingsLoaded = true
+	if err := registry.UpdateNode(Snapshot{NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{model}}); err != nil {
+		t.Fatal(err)
+	}
+	route, release, ok := registry.AcquireSpecificEmbedding("slave-a", model.Filename, model.LocalID, true)
+	if !ok || route.NodeID != "slave-a" || !route.Remote {
+		t.Fatalf("loaded remote embedding was not acquired route=%#v ok=%t", route, ok)
+	}
+	release()
+}
+
 func TestRegistryKeepsSplitImageLaneLocalWhenTextLaneBusy(t *testing.T) {
 	registry := NewRegistry(RoleMaster, "master", "http://master")
 	model := testModel("combo", "master", "mhash", "chash", SourceMaster)

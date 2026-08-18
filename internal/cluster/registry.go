@@ -313,6 +313,25 @@ func (registry *Registry) AcquireEmbedding(publicID string, localHealthy bool) (
 	return registry.acquireRouteLocked(route)
 }
 
+func (registry *Registry) AcquireSpecificEmbedding(nodeID string, filename string, localID string, localHealthy bool) (Route, func(), bool) {
+	registry.mu.Lock()
+	for _, model := range registry.view {
+		if model.Disabled || model.NodeID != nodeID || model.Filename != filename || model.LocalID != localID || !model.HasEmbeddings || !model.Available {
+			continue
+		}
+		if model.NodeID == registry.localID {
+			if !localHealthy {
+				break
+			}
+		} else if !model.EmbeddingsLoaded {
+			continue
+		}
+		return registry.acquireRouteLocked(routeFromModel(model, model.NodeID != registry.localID, RouteLaneText))
+	}
+	registry.mu.Unlock()
+	return Route{}, func() {}, false
+}
+
 func (registry *Registry) AcquireImage(publicImageID string, localHealthy bool, activeConfigFilename string) (Route, func(), bool) {
 	registry.mu.Lock()
 	route, ok := registry.selectRouteLocked(publicImageID, registry.imageReplicasLocked(publicImageID, activeConfigFilename), localHealthy, RouteLaneImage)

@@ -20,7 +20,7 @@ func chatTemplateProfileForRequest(path string, profile catalog.ChatTemplateProf
 	}
 }
 
-func requestJSONRewrite(path string, localID string, readiness backendReadiness, profile catalog.ChatTemplateProfile, rewriteSelectors bool) transportbody.JSONRewrite {
+func requestJSONRewrite(path string, localID string, readiness backendReadiness, profile catalog.ChatTemplateProfile, rewriteSelectors bool, insertModel bool) transportbody.JSONRewrite {
 	rewrite := transportbody.JSONRewrite{
 		ChatTemplateKwargs: chatTemplateProfileForRequest(path, profile),
 	}
@@ -30,6 +30,9 @@ func requestJSONRewrite(path string, localID string, readiness backendReadiness,
 	rewrite.Replacements = map[string]transportbody.StringReplacement{
 		transportbody.PathModel: {To: localID},
 	}
+	if insertModel {
+		rewrite.Insertions = map[string]string{transportbody.PathModel: localID}
+	}
 	if readiness == readinessImage {
 		rewrite.Replacements[transportbody.PathImageModel] = transportbody.StringReplacement{To: localID}
 		rewrite.Replacements[transportbody.PathOverrideImageModel] = transportbody.StringReplacement{To: localID}
@@ -37,11 +40,11 @@ func requestJSONRewrite(path string, localID string, readiness backendReadiness,
 	return rewrite
 }
 
-func transformBufferedTransportRequestBody(r *http.Request, body []byte, localID string, readiness backendReadiness, profile catalog.ChatTemplateProfile, rewriteSelectors bool) ([]byte, error) {
+func transformBufferedTransportRequestBody(r *http.Request, body []byte, localID string, readiness backendReadiness, profile catalog.ChatTemplateProfile, rewriteSelectors bool, insertModel bool) ([]byte, error) {
 	if len(body) == 0 || !requestBodyLooksJSON(body, r) {
 		return body, nil
 	}
-	rewrite := requestJSONRewrite(r.URL.Path, localID, readiness, profile, rewriteSelectors)
+	rewrite := requestJSONRewrite(r.URL.Path, localID, readiness, profile, rewriteSelectors, insertModel)
 	if len(rewrite.Replacements) == 0 && rewrite.ChatTemplateKwargs == nil {
 		return body, nil
 	}

@@ -183,6 +183,30 @@ func TestJSONTransformerStreamsLargeBase64AcrossSingleByteReads(t *testing.T) {
 	}
 }
 
+func TestJSONTransformerInsertsMissingModel(t *testing.T) {
+	reader := NewJSONTransformReadCloser(io.NopCloser(strings.NewReader(`{"input":"hello"}`)), JSONRewrite{
+		Insertions: map[string]string{PathModel: "embed"},
+	})
+	transformed, err := io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(transformed) != `{"input":"hello","model":"embed"}` {
+		t.Fatalf("unexpected transformed body %s", transformed)
+	}
+
+	reader = NewJSONTransformReadCloser(io.NopCloser(strings.NewReader(`{"model":"client","input":"hello"}`)), JSONRewrite{
+		Insertions: map[string]string{PathModel: "embed"},
+	})
+	transformed, err = io.ReadAll(reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(transformed) != `{"model":"client","input":"hello"}` {
+		t.Fatalf("existing model was replaced %s", transformed)
+	}
+}
+
 func TestJSONTransformerRejectsInvalidEscapeOutsideSelector(t *testing.T) {
 	reader := NewJSONTransformReadCloser(io.NopCloser(strings.NewReader(`{"model":"public","prompt":"bad\q"}`)), JSONRewrite{})
 	if _, err := io.ReadAll(reader); !errors.Is(err, ErrInvalidJSON) {

@@ -21,7 +21,7 @@ func (service *Service) reserveTransportWorkingSet(r *http.Request) (*transportb
 	if service.transportLimits.SelectorScanBytes < selectorThreshold {
 		selectorThreshold = service.transportLimits.SelectorScanBytes
 	}
-	if r.ContentLength > selectorThreshold && transportExternalSelector(r) == "" {
+	if r.ContentLength > selectorThreshold && transportExternalSelector(r) == "" && !isEmbeddingsPath(r.URL.Path) {
 		return nil, true
 	}
 	retainedBytes := service.transportLimits.ReplayBufferBytes
@@ -59,7 +59,7 @@ func (service *Service) prepareOrHandleTransport(w http.ResponseWriter, r *http.
 		return false
 	}
 
-	body, err := transportbody.Prepare(r.Body, r.ContentLength, externalSelector != "", limits, service.transportBudget)
+	body, err := transportbody.Prepare(r.Body, r.ContentLength, externalSelector != "" || isEmbeddingsPath(r.URL.Path), limits, service.transportBudget)
 	if err != nil {
 		writeTransportError(w, err)
 		return true

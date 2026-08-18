@@ -70,10 +70,17 @@ curl http://127.0.0.1:8080/v1/chat/completions \
 The router classifies these paths as embedding requests:
 
 - `POST /v1/embeddings`
+- `POST /v2/embed`
 - `POST /api/embed`
 - `POST /api/extra/embeddings`
+- `POST /rerank`, `/v1/rerank`, and `/v2/rerank`
+- `POST /classify`
+- `POST /score` and `/v1/score`
+- `POST /pooling`
 
 The selected configuration must advertise an embedding component, and the selected backend must implement the requested compatibility form.
+
+When no model selector is present in the JSON body, query, or `X-Tensors-Model` header, the router round-robins across healthy loaded configurations that explicitly advertise an embedding component. Cluster aliases for the same node runtime count once. If no eligible embedding configuration is loaded, the request passes through to the default embedding backend without loading a model.
 
 ## Image and video APIs
 

@@ -33,6 +33,7 @@ type StringReplacement struct {
 
 type JSONRewrite struct {
 	Replacements       map[string]StringReplacement
+	Insertions         map[string]string
 	EscapeHTML         bool
 	ChatTemplateKwargs *ChatTemplateKwargsRewrite
 }
@@ -335,6 +336,13 @@ func (processor *jsonProcessor) consumeValue(value byte, parentIndex int) error 
 
 func (processor *jsonProcessor) closeContainer(value byte) error {
 	container := processor.stack[len(processor.stack)-1]
+	if container.root && !processor.fields.ModelSet {
+		if model, ok := processor.rewrite.Insertions[PathModel]; ok {
+			if err := processor.writeRootStringField(&container, PathModel, model); err != nil {
+				return err
+			}
+		}
+	}
 	if container.root && processor.rewrite.ChatTemplateKwargs != nil && !container.chatTemplateKwargsSeen {
 		if container.fieldCount > 0 {
 			if err := processor.writer.WriteByte(','); err != nil {
@@ -362,6 +370,33 @@ func (processor *jsonProcessor) closeContainer(value byte) error {
 	if len(processor.stack) == 0 {
 		processor.complete = true
 	}
+	return nil
+}
+
+func (processor *jsonProcessor) writeRootStringField(container *jsonContainer, key string, value string) error {
+	if container.fieldCount > 0 {
+		if err := processor.writer.WriteByte(','); err != nil {
+			return err
+		}
+	}
+	encodedKey, err := json.Marshal(key)
+	if err != nil {
+		return err
+	}
+	encodedValue, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	if _, err := processor.writer.Write(encodedKey); err != nil {
+		return err
+	}
+	if err := processor.writer.WriteByte(':'); err != nil {
+		return err
+	}
+	if _, err := processor.writer.Write(encodedValue); err != nil {
+		return err
+	}
+	container.fieldCount++
 	return nil
 }
 

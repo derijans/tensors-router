@@ -88,6 +88,7 @@ type Model struct {
 	NodeURL          string                          `json:"node_url,omitempty"`
 	Available        bool                            `json:"available"`
 	Loaded           bool                            `json:"loaded,omitempty"`
+	EmbeddingsLoaded bool                            `json:"embeddings_loaded,omitempty"`
 	AssetState       string                          `json:"asset_state,omitempty"`
 	UnresolvedFields int                             `json:"unresolved_fields,omitempty"`
 	AssetFailure     string                          `json:"asset_failure,omitempty"`

@@ -20,6 +20,14 @@ import (
 
 func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string) {
 	model, route, release, ok := service.acquireRegistryModelRoute(r, publicID)
+	if !ok {
+		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("model %q has no available replicas", publicID))
+		return
+	}
+	service.handleAcquiredRegistryModelRequest(w, r, body, publicID, model, route, release, false)
+}
+
+func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string, model cluster.Model, route cluster.Route, release func(), insertModel bool) {
 	defer release()
 	modelBackendMode, backendModeErr := service.clusterModelBackendMode(model)
 	if backendModeErr != nil {
@@ -34,10 +42,6 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 		openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", publicID))
 		return
 	}
-	if !ok {
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("model %q has no available replicas", publicID))
-		return
-	}
 	backendModelID := route.LocalID
 	if modelBackendMode == BackendModeVLLM {
 		backendModelID = vllmRequestModelID(publicID, route.LocalID, model.ServedNames)
@@ -48,7 +52,7 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 	if modelBackendMode == BackendModeVLLM {
 		readiness = vllmReadinessForTask(r.URL.Path, model.VLLMTask)
 	}
-	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, backendModelID, readiness, profile, true)
+	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, backendModelID, readiness, profile, true, insertModel)
 	if transformErr != nil {
 		writeTransportError(w, transformErr)
 		return

@@ -53,6 +53,8 @@ func (service *Service) handleOllamaRequest(w http.ResponseWriter, r *http.Reque
 	case "/api/version":
 		ollamaVersion := buildinfo.Current().Version
 		writeOllamaJSON(w, http.StatusOK, map[string]string{"version": ollamaVersion})
+	case "/api/embed":
+		service.handleModelRequest(w, r, false)
 	default:
 		service.handleModelRequest(w, r, true)
 	}
@@ -90,13 +92,22 @@ func (service *Service) ollamaVisibleModels(ctx context.Context) ([]cluster.Mode
 
 func (service *Service) modelsWithRuntimeState(ctx context.Context, models []cluster.Model) []cluster.Model {
 	loadedFiles := map[string]bool{}
+	loadedEmbeddingFiles := map[string]bool{}
 	for _, family := range service.backendFamilies {
-		if family == nil || family.textRuntime == nil || family.textRuntime.backend == nil || !family.textRuntime.backend.Healthy(ctx) {
+		if family == nil {
 			continue
 		}
-		filename := currentRuntimeConfigFilename(family.textRuntime)
-		if filename != "" {
-			loadedFiles[filename] = true
+		if family.textRuntime != nil && family.textRuntime.backend != nil && family.textRuntime.backend.Healthy(ctx) {
+			filename := currentRuntimeConfigFilename(family.textRuntime)
+			if filename != "" {
+				loadedFiles[filename] = true
+			}
+		}
+		if family.embeddingsRuntime != nil && family.embeddingsRuntime.backend != nil && family.embeddingsRuntime.backend.Healthy(ctx) {
+			filename := currentRuntimeConfigFilename(family.embeddingsRuntime)
+			if filename != "" {
+				loadedEmbeddingFiles[filename] = true
+			}
 		}
 	}
 	result := make([]cluster.Model, len(models))
@@ -104,6 +115,9 @@ func (service *Service) modelsWithRuntimeState(ctx context.Context, models []clu
 	for index := range result {
 		if result[index].NodeID == service.nodeID && loadedFiles[result[index].Filename] {
 			result[index].Loaded = true
+		}
+		if result[index].NodeID == service.nodeID && result[index].HasEmbeddings && loadedEmbeddingFiles[result[index].Filename] {
+			result[index].EmbeddingsLoaded = true
 		}
 	}
 	return result

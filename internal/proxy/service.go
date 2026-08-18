@@ -183,6 +183,8 @@ type Service struct {
 	draining                  atomic.Bool
 	autoSTTMu                 sync.Mutex
 	autoSTTNext               uint64
+	embeddingRoundRobinMu     sync.Mutex
+	embeddingRoundRobinNext   uint64
 	backendBinaryPaths        map[string]string
 	vllm                      vllm.Service
 	vllmUnavailableReason     string
@@ -1135,7 +1137,19 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
-	if !hasModel && selectorlessVLLMPath(r.URL.Path) {
+	insertModel := false
+	if !hasModel && isEmbeddingsPath(r.URL.Path) {
+		if target, selected := service.acquireSelectorlessEmbeddingTarget(r.URL.Path, r.Context()); selected {
+			if service.registry != nil {
+				service.handleAcquiredRegistryModelRequest(w, r, body, target.publicID, target.clusterModel, target.clusterRoute, target.release, true)
+				return
+			}
+			modelID = target.publicID
+			hasModel = true
+			insertModel = true
+		}
+	}
+	if !hasModel && !isEmbeddingsPath(r.URL.Path) && selectorlessVLLMPath(r.URL.Path) {
 		modelID, err = service.selectSelectorlessVLLMModel(r.URL.Path)
 		if err != nil {
 			writeTransportRouteError(w, err)
@@ -1222,7 +1236,7 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 	if selectedBackendMode == BackendModeVLLM {
 		readiness = vllmReadinessForTask(r.URL.Path, selectedModel.VLLMTask)
 	}
-	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, backendModelID, readiness, selectedModel.ChatTemplate, hasModel && backendModelID != modelID)
+	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, backendModelID, readiness, selectedModel.ChatTemplate, hasModel && backendModelID != modelID || insertModel, insertModel)
 	if transformErr != nil {
 		writeTransportError(w, transformErr)
 		return
@@ -2795,8 +2809,6 @@ func textPathRequiresModel(path string) bool {
 		return true
 	}
 	switch path {
-	case "/api/embed":
-		return true
 	case "/v1/responses",
 		"/v1/responses/input_tokens",
 		"/v1/messages",

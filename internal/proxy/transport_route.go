@@ -25,6 +25,8 @@ type transportRoute struct {
 	remote         bool
 	nodeURL        string
 	rewriteModel   bool
+	insertModel    bool
+	passthrough    bool
 	release        func()
 	catalogModel   catalog.Model
 	clusterModel   cluster.Model
@@ -51,7 +53,7 @@ func (service *Service) handleStreamingRequest(w http.ResponseWriter, r *http.Re
 	}
 	request := rewriteTransportRequestSelectors(r, route.localID, route.readiness)
 	profile := service.localChatTemplateProfile(route.configFilename, route.remote)
-	forwardBody, err := transformTransportRequestBody(request, body, route.publicID, route.localID, route.backendMode, route.readiness, profile)
+	forwardBody, err := transformTransportRequestBody(request, body, route.publicID, route.localID, route.backendMode, route.readiness, profile, route.insertModel)
 	if err != nil {
 		route.release()
 		writeTransportError(w, err)
@@ -102,6 +104,22 @@ func (service *Service) handleStreamingRequest(w http.ResponseWriter, r *http.Re
 func (service *Service) resolveTransportRoute(r *http.Request, selector string) (transportRoute, error) {
 	selector = strings.TrimSpace(selector)
 	automaticallySelected := false
+	if selector == "" && isEmbeddingsPath(r.URL.Path) {
+		if target, selected := service.acquireSelectorlessEmbeddingTarget(r.URL.Path, r.Context()); selected {
+			return target.transportRoute(r.URL.Path), nil
+		}
+		mode, err := service.resolveBackendMode("")
+		if err != nil {
+			return transportRoute{}, err
+		}
+		return transportRoute{
+			backendMode: mode,
+			readiness:   readinessEmbeddings,
+			section:     textAnalyticsSection(r.URL.Path),
+			passthrough: true,
+			release:     func() {},
+		}, nil
+	}
 	if selector == "" && selectorlessVLLMPath(r.URL.Path) {
 		var err error
 		selector, err = service.selectSelectorlessVLLMModel(r.URL.Path)
@@ -370,12 +388,12 @@ func (service *Service) transportRecipeRoute(recipe recipes.Recipe, component re
 	}, nil
 }
 
-func transformTransportRequestBody(r *http.Request, body transportbody.Body, publicID string, localID string, backendMode string, readiness backendReadiness, profile catalog.ChatTemplateProfile) (transportbody.Body, error) {
+func transformTransportRequestBody(r *http.Request, body transportbody.Body, publicID string, localID string, backendMode string, readiness backendReadiness, profile catalog.ChatTemplateProfile, insertModel bool) (transportbody.Body, error) {
 	if strings.TrimSpace(localID) == "" && chatTemplateProfileForRequest(r.URL.Path, profile) == nil {
 		return body, nil
 	}
 	if transportRequestIsJSON(r) {
-		return transportbody.TransformJSON(body, requestJSONRewrite(r.URL.Path, localID, readiness, profile, true)), nil
+		return transportbody.TransformJSON(body, requestJSONRewrite(r.URL.Path, localID, readiness, profile, true, insertModel)), nil
 	}
 	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err == nil && strings.HasPrefix(strings.ToLower(mediaType), "multipart/") {

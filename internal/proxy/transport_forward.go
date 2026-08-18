@@ -35,6 +35,14 @@ func (service *Service) forwardTransportRoute(r *http.Request, body transportbod
 	if err := service.prepareTransportCompanionRuntime(r.Context(), r.URL.Path, route); err != nil {
 		return nil, routeranalytics.Event{}, nil, err
 	}
+	if route.passthrough {
+		runtime, err := service.runtimeForBackendMode(route.backendMode, route.readiness)
+		if err != nil {
+			return nil, routeranalytics.Event{}, nil, err
+		}
+		response, err := service.forwardTransportLocal(runtime, r.Context(), r, body)
+		return response, routeranalytics.Event{}, nil, err
+	}
 	modelContext, cancel := context.WithTimeout(r.Context(), modelOperationTimeout)
 	defer cancel()
 	runtime, release, _, err := service.acquireModelConfigForBackendMode(route.backendMode, modelContext, route.publicID, route.configFilename, route.readiness, false)
