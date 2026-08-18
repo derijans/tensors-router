@@ -2,6 +2,8 @@
 .go-build-cache/
 .tmp/
 .agents/
+.claude/
+.codex/
 
 dist/
 bin/
