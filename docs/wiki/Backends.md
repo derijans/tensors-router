@@ -10,7 +10,7 @@ Valid values are `kobold`, `llama_sdcpp`, and `vllm`.
 
 At router startup, the process starts in no-model mode when `kobold.no_model` is enabled. Model selection reloads the complete `.kcpps` file through the backend administration interface. Text, image, embedding, voice, and music requests share that process and its model gate.
 
-Configurations with `run_embed_separate: true` are the exception: embedding requests lazily start a second KoboldCpp process on `kobold.embeddings_backend_url`. That endpoint's port may be pinned or, by default, router-allocated at process start (see [Configuration](Configuration)) — a router-allocated endpoint is not addressable until the embedding process has started at least once. The router writes private role-specific runtime configurations below the model configuration directory so the primary process never receives embedding fields and the embedding process receives no unrelated model components.
+Configurations with `run_embed_separate: true` are the exception: embedding requests lazily start a second KoboldCpp process on `kobold.embeddings_backend_url`. That endpoint's port may be pinned or, by default, router-allocated at process start (see [Configuration](Configuration)); a router-allocated endpoint is not addressable until the embedding process has started at least once. The router writes private role-specific runtime configurations below the model configuration directory so the primary process never receives embedding fields and the embedding process receives no unrelated model components.
 
 Standalone embeddings use one router-wide embedding slot. They can run beside any primary backend family, and switching text, image, or voice families leaves them running. Loading another embedding configuration replaces the current embedding owner. Replacing a shared-process embedding may unload that process's other lanes.
 
@@ -56,7 +56,7 @@ For `sd-server`, it maps diffusion model components, VAE and text encoder paths,
 
 For `whisper-server`, shared fields map the model, threads, device, flash attention, and CPU controls. Native options use the `whispercpp_*` prefix. Existing llama-only unprefixed fields remain aliases; canonical `llama_*` fields win when both are present.
 
-Backend-specific `extra_args` are appended after mapped arguments. Use them only for options that are accepted by the selected executable. Host and port overrides are rejected because managed backends must stay on their router-assigned loopback listeners — whether that address is pinned by configuration or allocated by the router at startup.
+Backend-specific `extra_args` are appended after mapped arguments. Use them only for options that are accepted by the selected executable. Host and port overrides are rejected because managed backends must stay on their router-assigned loopback listeners, whether that address is pinned by configuration or allocated by the router at startup.
 
 See [Cook Backend Options](Cook-Backend-Options) for the editable option catalog.
 

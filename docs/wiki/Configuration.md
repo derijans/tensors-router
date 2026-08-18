@@ -85,7 +85,7 @@ built-in default for both embeddings endpoints) lets the router allocate a
 free loopback port when the backend process starts, so it can never collide
 with another managed backend; and an omitted port is rejected at startup
 rather than silently falling back to a shared default. Two of these URLs
-resolving to the same host and port — including against `server.bind` — is
+resolving to the same host and port, including against `server.bind`, is
 also rejected at startup, naming both offending keys. A dynamically
 allocated endpoint is not addressable until the backend has started at
 least once.
