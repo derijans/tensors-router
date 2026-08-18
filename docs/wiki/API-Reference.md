@@ -14,6 +14,8 @@ Requests and responses retain streaming behavior. Server-sent event responses re
 
 Cluster node IDs are not exposed through `/v1/models`. Image-only and combined configurations follow the availability rules in [Model Configs and Routing](Model-Configs-and-Routing).
 
+A model disabled from the Models tab (or `POST /router/v1/site/models/state`) is omitted from listings and also rejected on inference: a request naming a disabled model returns the same HTTP 404 `model %q was not found` response as an unknown model ID, rather than loading and serving it.
+
 ## Text APIs
 
 For KoboldCpp and split native backends, the router recognizes paths at `/v1` and `/v1/...` as text-side API paths unless a more specific image or voice classifier applies. vLLM routes use a strict method and path allowlist. Common backend APIs in this namespace include:

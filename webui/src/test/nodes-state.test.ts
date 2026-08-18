@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { state } from "../state";
-import type { BackendInitializationJob, BackendInitializationJobState, BackendLifecycleState, NodeState } from "../types";
+import type { BackendInitializationJob, BackendInitializationJobState, BackendLifecycleState, NodeInventory, NodeRuntimeSlice, NodeState } from "../types";
 
 const apiMocks = vi.hoisted(() => ({
   cancelNodeBackendInitialization: vi.fn(),
@@ -10,22 +10,24 @@ const apiMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../api", () => apiMocks);
-vi.mock("../elements", () => ({elements: {nodeCount: {}, nodesGrid: {}}}));
+vi.mock("../elements", () => ({elements: {nodeCount: {}, nodesGrid: {}, nodesScanNotices: {}}}));
 
 import {
   cancelSelectedBackendInitialization,
+  collapseNode,
   initializeSelectedBackend,
   nodeBackendActionKey,
   nodeUnloadKey,
-  pollSelectedNode,
+  pollNode,
+  reconcileNodeStateSelection,
   setNodesTabActive,
   stopNodeStatePolling,
   unloadSelectedRuntime
 } from "../nodes-state";
 
-function snapshot(modelID = "model-a"): NodeState {
+function snapshot(modelID = "model-a", nodeID = "node-a"): NodeState {
   return {
-    node_id: "node-a",
+    node_id: nodeID,
     backends: [{
       id: "koboldcpp",
       display_name: "KoboldCpp",
@@ -79,6 +81,45 @@ function deferred<T>(): {promise: Promise<T>; resolve: (value: T) => void; rejec
   };
 }
 
+function defaultSlice(overrides: Partial<NodeRuntimeSlice> = {}): NodeRuntimeSlice {
+  return {snapshot: null, loading: true, error: "", pollGeneration: 1, pollTimer: null, pendingUnload: "", pendingBackendAction: "", ...overrides};
+}
+
+function nodeInventory(nodeID: string): NodeInventory {
+  return {
+    node_id: nodeID,
+    node_url: `http://${nodeID}.invalid`,
+    source: "local",
+    role: "standalone",
+    backend_mode: "kobold",
+    available: true,
+    hardware: {max_threads: 8, gpu_backend: "cuda", gpu_count: 1},
+    models: [],
+    files: []
+  };
+}
+
+function expandNode(nodeID: string, overrides: Partial<NodeRuntimeSlice> = {}): void {
+  if (!state.nodes.expanded.includes(nodeID)) {
+    state.nodes.expanded = [...state.nodes.expanded, nodeID];
+  }
+  state.nodes.byNode[nodeID] = defaultSlice(overrides);
+  // Keep the cached inventory in sync so renderNodesPanel's reconciliation
+  // does not treat this node as vanished and collapse it right back out.
+  const nodes = state.inventory?.nodes ?? [];
+  if (!nodes.some(node => node.node_id === nodeID)) {
+    state.inventory = {
+      role: "standalone",
+      node_id: "node-a",
+      nodes: [...nodes, nodeInventory(nodeID)],
+      models: [],
+      recipes: [],
+      option_catalog: [],
+      observed_options: []
+    };
+  }
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.stubGlobal("document", {getElementById: vi.fn(() => null)});
@@ -91,14 +132,9 @@ beforeEach(() => {
   apiMocks.cancelNodeBackendInitialization.mockReset();
   apiMocks.unloadNodeRuntime.mockReset();
   state.activeTab = "nodes";
-  state.nodes.selectedNodeID = "node-a";
-  state.nodes.snapshot = null;
-  state.nodes.loading = true;
-  state.nodes.error = "";
-  state.nodes.pendingUnload = "";
-  state.nodes.pendingBackendAction = "";
-  state.nodes.pollGeneration = 1;
-  state.nodes.pollTimer = null;
+  state.nodes.expanded = [];
+  state.nodes.byNode = {};
+  expandNode("node-a");
 });
 
 afterEach(() => {
@@ -112,7 +148,7 @@ describe("node state polling", () => {
     const first = deferred<NodeState>();
     apiMocks.getNodeState.mockReturnValueOnce(first.promise).mockResolvedValue(snapshot("model-b"));
 
-    const initialPoll = pollSelectedNode(1);
+    const initialPoll = pollNode("node-a", 1);
     expect(apiMocks.getNodeState).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(5000);
     expect(apiMocks.getNodeState).toHaveBeenCalledTimes(1);
@@ -129,18 +165,18 @@ describe("node state polling", () => {
     const stale = deferred<NodeState>();
     apiMocks.getNodeState.mockReturnValueOnce(stale.promise).mockResolvedValue(snapshot("fresh"));
 
-    const stalePoll = pollSelectedNode(1);
+    const stalePoll = pollNode("node-a", 1);
     stopNodeStatePolling();
     stale.resolve(snapshot("stale"));
     await stalePoll;
-    expect(state.nodes.snapshot).toBeNull();
+    expect(state.nodes.byNode["node-a"]?.snapshot).toBeNull();
     await vi.advanceTimersByTimeAsync(5000);
     expect(apiMocks.getNodeState).toHaveBeenCalledTimes(1);
 
     setNodesTabActive(true);
     await vi.advanceTimersByTimeAsync(0);
     expect(apiMocks.getNodeState).toHaveBeenCalledTimes(2);
-    expect(state.nodes.snapshot?.backends[0]?.loaded_models[0]?.model_id).toBe("fresh");
+    expect(state.nodes.byNode["node-a"]?.snapshot?.backends[0]?.loaded_models[0]?.model_id).toBe("fresh");
   });
 
   it("posts the exact unload target, marks only that row pending, and refreshes", async () => {
@@ -148,8 +184,8 @@ describe("node state polling", () => {
     apiMocks.unloadNodeRuntime.mockReturnValue(unload.promise);
     apiMocks.getNodeState.mockResolvedValue(snapshot("after-unload"));
 
-    const action = unloadSelectedRuntime("koboldcpp", "kobold-text", 4);
-    expect(state.nodes.pendingUnload).toBe(nodeUnloadKey("koboldcpp", "kobold-text"));
+    const action = unloadSelectedRuntime("node-a", "koboldcpp", "kobold-text", 4);
+    expect(state.nodes.byNode["node-a"]?.pendingUnload).toBe(nodeUnloadKey("koboldcpp", "kobold-text"));
     expect(apiMocks.unloadNodeRuntime).toHaveBeenCalledWith({
       node_id: "node-a",
       backend_id: "koboldcpp",
@@ -159,31 +195,31 @@ describe("node state polling", () => {
 
     unload.resolve({ok: true});
     await action;
-    expect(state.nodes.pendingUnload).toBe("");
+    expect(state.nodes.byNode["node-a"]?.pendingUnload).toBe("");
     expect(apiMocks.getNodeState).toHaveBeenCalledWith("node-a");
-    expect(state.nodes.snapshot?.backends[0]?.loaded_models[0]?.model_id).toBe("after-unload");
+    expect(state.nodes.byNode["node-a"]?.snapshot?.backends[0]?.loaded_models[0]?.model_id).toBe("after-unload");
   });
 
   it("keeps a conflict visible while refreshing the stale row", async () => {
     apiMocks.unloadNodeRuntime.mockRejectedValue(new Error("runtime changed before unload"));
     apiMocks.getNodeState.mockResolvedValue(snapshot("replacement"));
 
-    await unloadSelectedRuntime("koboldcpp", "kobold-text", 4);
+    await unloadSelectedRuntime("node-a", "koboldcpp", "kobold-text", 4);
 
-    expect(state.nodes.error).toBe("runtime changed before unload");
-    expect(state.nodes.snapshot?.backends[0]?.loaded_models[0]?.model_id).toBe("replacement");
+    expect(state.nodes.byNode["node-a"]?.error).toBe("runtime changed before unload");
+    expect(state.nodes.byNode["node-a"]?.snapshot?.backends[0]?.loaded_models[0]?.model_id).toBe("replacement");
   });
 
   it("starts one initialization job for duplicate requests and refreshes progress", async () => {
     const initialization = deferred<BackendInitializationJob>();
-    state.nodes.snapshot = vllmSnapshot("needs_init");
+    state.nodes.byNode["node-a"]!.snapshot = vllmSnapshot("needs_init");
     apiMocks.initializeNodeBackend.mockReturnValue(initialization.promise);
     apiMocks.getNodeState.mockResolvedValue(vllmSnapshot("initializing"));
 
-    const first = initializeSelectedBackend("vllm", "cuda");
-    const duplicate = initializeSelectedBackend("vllm", "cuda");
+    const first = initializeSelectedBackend("node-a", "vllm", "cuda");
+    const duplicate = initializeSelectedBackend("node-a", "vllm", "cuda");
 
-    expect(state.nodes.pendingBackendAction).toBe(nodeBackendActionKey("init", "vllm"));
+    expect(state.nodes.byNode["node-a"]?.pendingBackendAction).toBe(nodeBackendActionKey("init", "vllm"));
     expect(apiMocks.initializeNodeBackend).toHaveBeenCalledTimes(1);
     expect(apiMocks.initializeNodeBackend).toHaveBeenCalledWith({node_id: "node-a", backend_id: "vllm", profile: "cuda"});
     await duplicate;
@@ -191,41 +227,129 @@ describe("node state polling", () => {
     initialization.resolve(initializationJob("running"));
     await first;
 
-    expect(state.nodes.pendingBackendAction).toBe("");
+    expect(state.nodes.byNode["node-a"]?.pendingBackendAction).toBe("");
     expect(apiMocks.getNodeState).toHaveBeenCalledWith("node-a");
-    expect(state.nodes.snapshot?.backends[0]?.lifecycle_state).toBe("initializing");
+    expect(state.nodes.byNode["node-a"]?.snapshot?.backends[0]?.lifecycle_state).toBe("initializing");
   });
 
-  it("forwards cancellation to the selected remote node", async () => {
-    state.nodes.selectedNodeID = "worker";
-    state.nodes.snapshot = vllmSnapshot("initializing", "worker");
+  it("forwards actions to the target node", async () => {
+    expandNode("worker", {snapshot: vllmSnapshot("initializing", "worker")});
     apiMocks.cancelNodeBackendInitialization.mockResolvedValue(initializationJob("cancelled"));
     apiMocks.getNodeState.mockResolvedValue(vllmSnapshot("needs_init", "worker"));
 
-    await cancelSelectedBackendInitialization("vllm");
+    await cancelSelectedBackendInitialization("worker", "vllm");
 
     expect(apiMocks.cancelNodeBackendInitialization).toHaveBeenCalledWith({node_id: "worker", backend_id: "vllm"});
     expect(apiMocks.getNodeState).toHaveBeenCalledWith("worker");
   });
 
   it("keeps initialization failure visible and allows retry", async () => {
-    state.nodes.snapshot = vllmSnapshot("needs_init");
+    state.nodes.byNode["node-a"]!.snapshot = vllmSnapshot("needs_init");
     const failedSnapshot = vllmSnapshot("failed");
     Object.assign(failedSnapshot.backends[0]!, {error: "missing CUDA toolkit", retryable: true});
     apiMocks.initializeNodeBackend.mockResolvedValueOnce(initializationJob("failed", {error: "missing CUDA toolkit", retryable: true}));
     apiMocks.getNodeState.mockResolvedValueOnce(failedSnapshot);
 
-    await initializeSelectedBackend("vllm");
+    await initializeSelectedBackend("node-a", "vllm");
 
-    expect(state.nodes.snapshot?.backends[0]?.error).toBe("missing CUDA toolkit");
-    expect(state.nodes.snapshot?.backends[0]?.retryable).toBe(true);
-    expect(state.nodes.pendingBackendAction).toBe("");
+    expect(state.nodes.byNode["node-a"]?.snapshot?.backends[0]?.error).toBe("missing CUDA toolkit");
+    expect(state.nodes.byNode["node-a"]?.snapshot?.backends[0]?.retryable).toBe(true);
+    expect(state.nodes.byNode["node-a"]?.pendingBackendAction).toBe("");
 
     apiMocks.initializeNodeBackend.mockResolvedValueOnce(initializationJob("running"));
     apiMocks.getNodeState.mockResolvedValueOnce(vllmSnapshot("initializing"));
-    await initializeSelectedBackend("vllm");
+    await initializeSelectedBackend("node-a", "vllm");
 
     expect(apiMocks.initializeNodeBackend).toHaveBeenCalledTimes(2);
-    expect(state.nodes.error).toBe("");
+    expect(state.nodes.byNode["node-a"]?.error).toBe("");
+  });
+});
+
+describe("multi-node expansion", () => {
+  it("polls two expanded nodes independently", async () => {
+    expandNode("node-b");
+    apiMocks.getNodeState.mockImplementation((nodeID: string) => Promise.resolve(nodeID === "node-a" ? snapshot("from-a", "node-a") : snapshot("from-b", "node-b")));
+
+    await pollNode("node-a", 1);
+    await pollNode("node-b", 1);
+
+    expect(state.nodes.byNode["node-a"]?.snapshot?.backends[0]?.loaded_models[0]?.model_id).toBe("from-a");
+    expect(state.nodes.byNode["node-b"]?.snapshot?.backends[0]?.loaded_models[0]?.model_id).toBe("from-b");
+
+    apiMocks.getNodeState.mockClear();
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(apiMocks.getNodeState).toHaveBeenCalledWith("node-a");
+    expect(apiMocks.getNodeState).toHaveBeenCalledWith("node-b");
+  });
+
+  it("an error on one node's poll does not affect the other", async () => {
+    expandNode("node-b");
+    apiMocks.getNodeState.mockImplementation((nodeID: string) => {
+      if (nodeID === "node-a") {
+        return Promise.reject(new Error("node-a unreachable"));
+      }
+      return Promise.resolve(snapshot("from-b", "node-b"));
+    });
+
+    await pollNode("node-a", 1);
+    await pollNode("node-b", 1);
+
+    expect(state.nodes.byNode["node-a"]?.error).toBe("node-a unreachable");
+    expect(state.nodes.byNode["node-b"]?.error).toBe("");
+    expect(state.nodes.byNode["node-b"]?.snapshot?.backends[0]?.loaded_models[0]?.model_id).toBe("from-b");
+  });
+
+  it("collapsing one node leaves the other's timer running", async () => {
+    expandNode("node-b");
+    apiMocks.getNodeState.mockResolvedValue(snapshot("steady"));
+
+    await pollNode("node-a", 1);
+    await pollNode("node-b", 1);
+    apiMocks.getNodeState.mockClear();
+
+    collapseNode("node-a");
+    expect(state.nodes.expanded).not.toContain("node-a");
+    expect(state.nodes.byNode["node-a"]).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(apiMocks.getNodeState).toHaveBeenCalledWith("node-b");
+    expect(apiMocks.getNodeState).not.toHaveBeenCalledWith("node-a");
+  });
+
+  it("a pending unload on one node does not block an action on another", async () => {
+    expandNode("node-b", {snapshot: snapshot("model-b", "node-b")});
+    const unload = deferred<{ok: boolean}>();
+    apiMocks.unloadNodeRuntime.mockReturnValue(unload.promise);
+    apiMocks.getNodeState.mockResolvedValue(snapshot("after-unload"));
+
+    const firstAction = unloadSelectedRuntime("node-a", "koboldcpp", "kobold-text", 4);
+    expect(state.nodes.byNode["node-a"]?.pendingUnload).toBe(nodeUnloadKey("koboldcpp", "kobold-text"));
+
+    const secondUnload = deferred<{ok: boolean}>();
+    apiMocks.unloadNodeRuntime.mockReturnValueOnce(secondUnload.promise);
+    const secondAction = unloadSelectedRuntime("node-b", "koboldcpp", "kobold-text", 4);
+    expect(state.nodes.byNode["node-b"]?.pendingUnload).toBe(nodeUnloadKey("koboldcpp", "kobold-text"));
+
+    unload.resolve({ok: true});
+    secondUnload.resolve({ok: true});
+    await Promise.all([firstAction, secondAction]);
+  });
+
+  it("a node disappearing from inventory stops only its timer", async () => {
+    expandNode("node-b");
+    apiMocks.getNodeState.mockResolvedValue(snapshot("steady"));
+    await pollNode("node-a", 1);
+    await pollNode("node-b", 1);
+    apiMocks.getNodeState.mockClear();
+
+    reconcileNodeStateSelection([nodeInventory("node-b")]);
+
+    expect(state.nodes.expanded).toEqual(["node-b"]);
+    expect(state.nodes.byNode["node-a"]).toBeUndefined();
+    expect(state.nodes.byNode["node-b"]).toBeDefined();
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(apiMocks.getNodeState).toHaveBeenCalledWith("node-b");
+    expect(apiMocks.getNodeState).not.toHaveBeenCalledWith("node-a");
   });
 });

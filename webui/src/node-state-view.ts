@@ -3,14 +3,20 @@ import { chip, escapeAttribute, escapeHTML, formatBytes } from "./utils";
 
 const backendOrder = ["koboldcpp", "llama-server", "vllm", "sd-server", "whisper-server"];
 
-export function renderNodeCard(node: NodeInventory, selected: boolean): string {
+export function nodeStatePanelID(nodeID: string): string {
+  return `nodeStatePanel-${nodeID}`;
+}
+
+export function renderNodeCard(node: NodeInventory, expanded: boolean): string {
   const hardware = node.hardware;
   const nodeID = node.node_id || node.node_url || "unknown";
   return `
-    <button class="node-card${selected ? " selected" : ""}" type="button" data-node-select="${escapeAttribute(node.node_id)}" aria-expanded="${selected}" aria-controls="nodeStatePanel">
+    <button class="node-card${expanded ? " selected" : ""}" type="button" data-node-select="${escapeAttribute(node.node_id)}" aria-expanded="${expanded}" aria-controls="${escapeAttribute(nodeStatePanelID(node.node_id))}">
       <strong>${escapeHTML(nodeID)}</strong>
       <span class="muted">${escapeHTML(node.node_url || "local")}</span>
       <span class="node-meta">
+        ${chip(node.role || "unknown", roleColor(node.role))}
+        ${chip(node.source || "unknown", "violet")}
         ${chip(node.backend_mode || "unknown", "cyan")}
         ${chip(node.available ? "available" : "down", node.available ? "lime" : "amber")}
         ${chip(`${hardware.max_threads || "?"} threads`, "magenta")}
@@ -21,11 +27,21 @@ export function renderNodeCard(node: NodeInventory, selected: boolean): string {
   `;
 }
 
-export function renderNodeStateSnapshot(snapshot: NodeState, pendingUnload: string, pendingBackendAction = ""): string {
+function roleColor(role: string): string {
+  if (role === "master") {
+    return "amber";
+  }
+  if (role === "slave") {
+    return "cyan";
+  }
+  return "magenta";
+}
+
+export function renderNodeStateSnapshot(nodeID: string, snapshot: NodeState, pendingUnload: string, pendingBackendAction = ""): string {
   const backends = [...(snapshot.backends || [])].sort((left, right) => backendRank(left.id) - backendRank(right.id));
   return `
     <div class="node-state-backends">
-      ${backends.length > 0 ? backends.map(backend => renderBackend(backend, pendingUnload, pendingBackendAction)).join("") : `<p class="muted node-state-empty">No backend binaries detected.</p>`}
+      ${backends.length > 0 ? backends.map(backend => renderBackend(nodeID, backend, pendingUnload, pendingBackendAction)).join("") : `<p class="muted node-state-empty">No backend binaries detected.</p>`}
     </div>
     <section class="node-active-requests" aria-label="Active requests">
       <h4>Active requests</h4>
@@ -34,7 +50,7 @@ export function renderNodeStateSnapshot(snapshot: NodeState, pendingUnload: stri
   `;
 }
 
-function renderBackend(backend: NodeStateBackend, pendingUnload: string, pendingBackendAction: string): string {
+function renderBackend(nodeID: string, backend: NodeStateBackend, pendingUnload: string, pendingBackendAction: string): string {
   const initializationPending = pendingBackendAction === backendActionKey("init", backend.id);
   const cancellationPending = pendingBackendAction === backendActionKey("cancel", backend.id);
   const lifecycleState = initializationPending ? "initializing" : backend.lifecycle_state || "ready";
@@ -47,19 +63,19 @@ function renderBackend(backend: NodeStateBackend, pendingUnload: string, pending
           ${chip(lifecycleState, lifecycleColor(lifecycleState))}
         </div>
       </div>
-      ${lifecycleState === "ready" ? renderReadyBackend(backend, pendingUnload) : renderBackendLifecycle(backend, lifecycleState, cancellationPending)}
+      ${lifecycleState === "ready" ? renderReadyBackend(nodeID, backend, pendingUnload) : renderBackendLifecycle(nodeID, backend, lifecycleState, cancellationPending)}
     </article>
   `;
 }
 
-function renderReadyBackend(backend: NodeStateBackend, pendingUnload: string): string {
+function renderReadyBackend(nodeID: string, backend: NodeStateBackend, pendingUnload: string): string {
   return `
     ${renderRuntimeIdentity(backend)}
-    ${backend.loaded_models.length > 0 ? `<div class="node-loaded-models">${backend.loaded_models.map(model => renderLoadedModel(backend.id, model, pendingUnload)).join("")}</div>` : `<p class="muted node-state-empty">No loaded models.</p>`}
+    ${backend.loaded_models.length > 0 ? `<div class="node-loaded-models">${backend.loaded_models.map(model => renderLoadedModel(nodeID, backend.id, model, pendingUnload)).join("")}</div>` : `<p class="muted node-state-empty">No loaded models.</p>`}
   `;
 }
 
-function renderBackendLifecycle(backend: NodeStateBackend, lifecycleState: string, cancellationPending: boolean): string {
+function renderBackendLifecycle(nodeID: string, backend: NodeStateBackend, lifecycleState: string, cancellationPending: boolean): string {
   if (lifecycleState === "initializing") {
     return `
       ${renderRuntimeIdentity(backend)}
@@ -68,7 +84,7 @@ function renderBackendLifecycle(backend: NodeStateBackend, lifecycleState: strin
         ${renderInitializationProgress(backend)}
         <div class="node-backend-actions">
           <button class="chip amber node-backend-init-action" type="button" disabled>backend needs init</button>
-          <button type="button" data-node-backend-init-cancel data-backend-id="${escapeAttribute(backend.id)}"${cancellationPending ? " disabled" : ""}>${cancellationPending ? "Cancelling..." : "Cancel"}</button>
+          <button type="button" data-node-backend-init-cancel data-node-id="${escapeAttribute(nodeID)}" data-backend-id="${escapeAttribute(backend.id)}"${cancellationPending ? " disabled" : ""}>${cancellationPending ? "Cancelling..." : "Cancel"}</button>
         </div>
       </div>
     `;
@@ -79,7 +95,7 @@ function renderBackendLifecycle(backend: NodeStateBackend, lifecycleState: strin
     ${renderRuntimeIdentity(backend)}
     <div class="node-backend-lifecycle">
       ${reason ? `<p class="${lifecycleState === "failed" ? "error-text" : "muted"} node-state-message">${escapeHTML(reason)}</p>` : ""}
-      ${initializationAction ? `<button class="chip amber node-backend-init-action" type="button" data-node-backend-init data-backend-id="${escapeAttribute(backend.id)}"${backend.selected_profile ? ` data-profile="${escapeAttribute(backend.selected_profile)}"` : ""}>backend needs init</button>` : ""}
+      ${initializationAction ? `<button class="chip amber node-backend-init-action" type="button" data-node-backend-init data-node-id="${escapeAttribute(nodeID)}" data-backend-id="${escapeAttribute(backend.id)}"${backend.selected_profile ? ` data-profile="${escapeAttribute(backend.selected_profile)}"` : ""}>backend needs init</button>` : ""}
     </div>
   `;
 }
@@ -131,18 +147,18 @@ function lifecycleColor(lifecycleState: string): string {
 }
 
 function backendActionKey(action: string, backendID: string): string {
-  return `${action}\u0000${backendID}`;
+  return `${action} ${backendID}`;
 }
 
-function renderLoadedModel(backendID: string, model: NodeStateModelRow, pendingUnload: string): string {
-  const pending = pendingUnload === `${backendID}\u0000${model.runtime_id}`;
+function renderLoadedModel(nodeID: string, backendID: string, model: NodeStateModelRow, pendingUnload: string): string {
+  const pending = pendingUnload === `${backendID} ${model.runtime_id}`;
   return `
     <div class="node-loaded-model">
       <div>
         <strong>${escapeHTML(model.model_id)}</strong>
         <div class="muted">${escapeHTML(model.lane)} / ${escapeHTML(model.runtime_id)}</div>
       </div>
-      <button type="button" data-node-unload data-backend-id="${escapeAttribute(backendID)}" data-runtime-id="${escapeAttribute(model.runtime_id)}" data-generation="${model.generation}"${pending ? " disabled" : ""}>${pending ? "Unloading..." : "Unload"}</button>
+      <button type="button" data-node-unload data-node-id="${escapeAttribute(nodeID)}" data-backend-id="${escapeAttribute(backendID)}" data-runtime-id="${escapeAttribute(model.runtime_id)}" data-generation="${model.generation}"${pending ? " disabled" : ""}>${pending ? "Unloading..." : "Unload"}</button>
     </div>
   `;
 }

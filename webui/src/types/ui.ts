@@ -100,19 +100,23 @@ export interface SidebarValueRow {
   config: string;
 }
 
+export interface NodeRuntimeSlice {
+  snapshot: NodeState | null;
+  loading: boolean;
+  error: string;
+  pollGeneration: number;
+  pollTimer: number | null;
+  pendingUnload: string;
+  pendingBackendAction: string;
+}
+
 export interface AppState {
   csrf: string;
   inventory: InventoryResponse | null;
   router: RouterProcessStatus | null;
   nodes: {
-    selectedNodeID: string;
-    snapshot: NodeState | null;
-    loading: boolean;
-    error: string;
-    pollGeneration: number;
-    pollTimer: number | null;
-    pendingUnload: string;
-    pendingBackendAction: string;
+    expanded: string[];
+    byNode: Record<string, NodeRuntimeSlice>;
   };
   models: {
     activeSubtab: ModelInventorySubtab;

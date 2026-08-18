@@ -77,7 +77,9 @@
             <p class="muted">cluster inventory</p>
           </div>
           <span id="nodeCount" class="pill"></span>
+          <button id="nodesRefreshButton" type="button" data-operation-group="nodes">Refresh</button>
         </div>
+        <div id="nodesScanNotices" class="inventory-notices"></div>
         <div id="nodesGrid" class="cards-grid"></div>
       </section>
 
@@ -395,6 +397,8 @@
               </div>
               <div class="cook-actions">
                 <button id="previewButton" type="button" data-operation-group="cook">Preview</button>
+                <button id="simpleImportButton" type="button" data-operation-group="cook-selection">Import KCPPS</button>
+                <input id="simpleImportInput" type="file" accept=".kcpps,.json" hidden>
                 <button id="simpleExportButton" type="button" data-operation-group="cook">Export KCPPS</button>
                 <button type="submit" data-operation-group="cook">Save</button>
               </div>

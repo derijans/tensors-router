@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	"tensors-router/internal/portalloc"
 )
 
 func TestLaunchArguments(t *testing.T) {
@@ -48,6 +50,60 @@ func TestNewManagerRejectsNonLoopbackAndBindOverrides(t *testing.T) {
 	if _, err := NewManager(ProcessConfig{BackendURL: "http://127.0.0.1:5001", Multiuser: 1, ExtraArgs: []string{"--host=0.0.0.0"}}); err == nil {
 		t.Fatal("expected bind override rejection")
 	}
+	if _, err := NewManager(ProcessConfig{BackendURL: "http://127.0.0.1", Multiuser: 1}); err == nil {
+		t.Fatal("expected a backend URL with no port to be rejected")
+	}
+}
+
+func TestDynamicPortReservedBeforeLaunchArguments(t *testing.T) {
+	manager, err := NewManager(ProcessConfig{
+		BackendURL: "http://127.0.0.1:0",
+		BinaryPath: "./koboldcpp",
+		ConfigDir:  "./kcpps",
+		DataDir:    "./data",
+		Multiuser:  1,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !manager.endpoint.Dynamic() {
+		t.Fatal("expected a dynamic endpoint for port 0")
+	}
+	expectSequence(t, manager.LaunchArguments(), "--port", "0")
+
+	if err := manager.endpoint.Reserve(portalloc.Default()); err != nil {
+		t.Fatal(err)
+	}
+	_, port := manager.endpoint.HostPort()
+	if port == "0" || port == "" {
+		t.Fatalf("expected a reserved port, got %q", port)
+	}
+	expectSequence(t, manager.LaunchArguments(), "--port", port)
+	manager.endpoint.Release(portalloc.Default())
+}
+
+func TestTwoDynamicManagersReserveDistinctPorts(t *testing.T) {
+	first, err := NewManager(ProcessConfig{BackendURL: "http://127.0.0.1:0", Multiuser: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewEmbeddingsManager(ProcessConfig{BackendURL: "http://127.0.0.1:0", Multiuser: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.endpoint.Reserve(portalloc.Default()); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.endpoint.Reserve(portalloc.Default()); err != nil {
+		t.Fatal(err)
+	}
+	_, firstPort := first.endpoint.HostPort()
+	_, secondPort := second.endpoint.HostPort()
+	if firstPort == secondPort {
+		t.Fatalf("expected distinct dynamic ports, both got %s", firstPort)
+	}
+	first.endpoint.Release(portalloc.Default())
+	second.endpoint.Release(portalloc.Default())
 }
 
 func TestReloadConfigUsesAdminEndpoint(t *testing.T) {

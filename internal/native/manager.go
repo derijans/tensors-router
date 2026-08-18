@@ -2,9 +2,9 @@ package native
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -22,6 +22,7 @@ import (
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/mcp"
+	"tensors-router/internal/portalloc"
 	"tensors-router/internal/processcontrol"
 )
 
@@ -38,8 +39,7 @@ type ProcessConfig struct {
 
 type Manager struct {
 	config          ProcessConfig
-	backendURL      *url.URL
-	defaultPort     string
+	endpoint        *backendendpoint.Endpoint
 	readinessPath   string
 	logName         string
 	argumentBuilder func(catalog.RuntimeConfig, string, string, string, string) ([]string, error)
@@ -59,11 +59,11 @@ type Manager struct {
 }
 
 func NewLlamaManager(config ProcessConfig) (*Manager, error) {
-	return newManager(config, "5002", "/v1/models", "llama-server.log", llamaArguments)
+	return newManager(config, "/v1/models", "llama-server.log", llamaArguments)
 }
 
 func NewLlamaEmbeddingsManager(config ProcessConfig) (*Manager, error) {
-	manager, err := newManager(config, "5005", "/v1/models", "llama-server-embeddings.log", llamaEmbeddingArguments)
+	manager, err := newManager(config, "/v1/models", "llama-server-embeddings.log", llamaEmbeddingArguments)
 	if err != nil {
 		return nil, err
 	}
@@ -72,18 +72,18 @@ func NewLlamaEmbeddingsManager(config ProcessConfig) (*Manager, error) {
 }
 
 func NewSDCPPManager(config ProcessConfig) (*Manager, error) {
-	return newManager(config, "7860", "/sdapi/v1/sd-models", "sd-server.log", sdcppArguments)
+	return newManager(config, "/sdapi/v1/sd-models", "sd-server.log", sdcppArguments)
 }
 
 func NewWhisperCPPManager(config ProcessConfig) (*Manager, error) {
 	if err := backendendpoint.RejectConflictingArgs(config.ExtraArgs, "--public", "--public-path", "--request-path", "--inference-path", "--convert", "--no-convert", "--tmp-dir"); err != nil {
 		return nil, err
 	}
-	return newManager(config, "5003", "/health", "whisper-server.log", whisperCPPArguments)
+	return newManager(config, "/health", "whisper-server.log", whisperCPPArguments)
 }
 
-func newManager(config ProcessConfig, defaultPort string, readinessPath string, logName string, argumentBuilder func(catalog.RuntimeConfig, string, string, string, string) ([]string, error)) (*Manager, error) {
-	backendURL, err := backendendpoint.ParseLoopback(config.BackendURL)
+func newManager(config ProcessConfig, readinessPath string, logName string, argumentBuilder func(catalog.RuntimeConfig, string, string, string, string) ([]string, error)) (*Manager, error) {
+	endpoint, err := backendendpoint.NewEndpoint(config.BackendURL)
 	if err != nil {
 		return nil, err
 	}
@@ -92,8 +92,7 @@ func newManager(config ProcessConfig, defaultPort string, readinessPath string, 
 	}
 	return &Manager{
 		config:          config,
-		backendURL:      backendURL,
-		defaultPort:     defaultPort,
+		endpoint:        endpoint,
 		readinessPath:   readinessPath,
 		logName:         logName,
 		argumentBuilder: argumentBuilder,
@@ -107,8 +106,7 @@ func newManager(config ProcessConfig, defaultPort string, readinessPath string, 
 }
 
 func (manager *Manager) URL() *url.URL {
-	copyValue := *manager.backendURL
-	return &copyValue
+	return manager.endpoint.URL()
 }
 
 func (manager *Manager) LaunchArguments(filename string) ([]string, error) {
@@ -119,7 +117,7 @@ func (manager *Manager) LaunchArguments(filename string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	host, port := manager.hostPort()
+	host, port := manager.endpoint.HostPort()
 	mcpServersPath := ""
 	if manager.config.MCP != nil {
 		result, err := manager.config.MCP.Reconcile(filename, mcp.BackendLlama)
@@ -137,21 +135,25 @@ func (manager *Manager) LaunchArguments(filename string) ([]string, error) {
 }
 
 func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error {
-	args, err := manager.LaunchArguments(filename)
-	if err != nil {
-		return err
-	}
-
 	manager.mu.Lock()
 	defer manager.mu.Unlock()
 
 	if manager.currentFilename == filename && manager.cmd != nil && manager.cmd.Process != nil && manager.healthy(ctx) {
 		return nil
 	}
+	// Reserve (a no-op for a pinned or already-sticky-reserved endpoint)
+	// and validate the config before touching the currently running
+	// process, so a bad config leaves the existing backend untouched.
+	if err := manager.endpoint.Reserve(portalloc.Default()); err != nil {
+		return err
+	}
+	if _, err := manager.LaunchArguments(filename); err != nil {
+		return err
+	}
 	if err := manager.stopLocked(ctx); err != nil {
 		return err
 	}
-	return manager.startLocked(ctx, filename, args)
+	return manager.startLocked(ctx, filename)
 }
 
 func (manager *Manager) Restart(ctx context.Context) error {
@@ -162,14 +164,16 @@ func (manager *Manager) Restart(ctx context.Context) error {
 		return nil
 	}
 	filename := manager.currentFilename
-	args, err := manager.LaunchArguments(filename)
-	if err != nil {
+	if err := manager.endpoint.Reserve(portalloc.Default()); err != nil {
+		return err
+	}
+	if _, err := manager.LaunchArguments(filename); err != nil {
 		return err
 	}
 	if err := manager.stopLocked(ctx); err != nil {
 		return err
 	}
-	return manager.startLocked(ctx, filename, args)
+	return manager.startLocked(ctx, filename)
 }
 
 func (manager *Manager) Unload(ctx context.Context) error {
@@ -178,6 +182,15 @@ func (manager *Manager) Unload(ctx context.Context) error {
 
 	manager.currentFilename = ""
 	return manager.stopLocked(ctx)
+}
+
+// ReleaseEndpoint returns a dynamically allocated endpoint's port to the
+// shared allocator. Call this only when the manager itself is being torn
+// down for good (router shutdown) — Unload alone deliberately keeps a
+// dynamic endpoint's port reserved so a later reload does not change the
+// backend's address. It is a no-op for a pinned endpoint.
+func (manager *Manager) ReleaseEndpoint() {
+	manager.endpoint.Release(portalloc.Default())
 }
 
 func (manager *Manager) Healthy(ctx context.Context) bool {
@@ -190,11 +203,41 @@ func (manager *Manager) Healthy(ctx context.Context) bool {
 	return manager.healthy(ctx)
 }
 
-func (manager *Manager) startLocked(ctx context.Context, filename string, args []string) error {
+const maxPortAttempts = 3
+
+func (manager *Manager) startLocked(ctx context.Context, filename string) error {
 	if err := os.MkdirAll(manager.config.DataDir, 0o755); err != nil {
 		return err
 	}
 
+	for attempt := 1; ; attempt++ {
+		if err := manager.endpoint.Reserve(portalloc.Default()); err != nil {
+			return err
+		}
+		host, port := manager.endpoint.HostPort()
+		if err := portalloc.CheckAvailable(host, port); err != nil {
+			return err
+		}
+		args, err := manager.LaunchArguments(filename)
+		if err != nil {
+			return err
+		}
+		err = manager.spawnLocked(ctx, filename, args)
+		if err == nil {
+			return nil
+		}
+		var exitErr *backendExitedError
+		if attempt >= maxPortAttempts || !manager.endpoint.Dynamic() || !errors.As(err, &exitErr) {
+			return err
+		}
+		// The child exited during startup on a dynamically allocated port,
+		// the signature of a lost race for that port. Free it and retry
+		// with a freshly reserved one.
+		manager.endpoint.Release(portalloc.Default())
+	}
+}
+
+func (manager *Manager) spawnLocked(ctx context.Context, filename string, args []string) error {
 	var logFile *os.File
 	stdout := io.MultiWriter(manager.capture, manager.captureHub.Stdout())
 	stderr := io.MultiWriter(manager.capture, manager.captureHub.Stderr())
@@ -326,11 +369,30 @@ func (manager *Manager) BackendExitError() error {
 	return unexpectedExitError("native server", manager.exitErr)
 }
 
-func unexpectedExitError(name string, err error) error {
-	if err == nil {
-		return fmt.Errorf("%s exited during startup", name)
+// backendExitedError marks a health-wait failure caused by the child process
+// exiting, as opposed to it simply never becoming healthy in time. Only the
+// former is worth retrying with a freshly allocated port: an exit signals
+// the child failed outright (most commonly a lost race for a dynamic port),
+// while a plain timeout means the process is alive and a retry would just
+// waste the same 90 second wait again.
+type backendExitedError struct {
+	name string
+	err  error
+}
+
+func (exitErr *backendExitedError) Error() string {
+	if exitErr.err == nil {
+		return fmt.Sprintf("%s exited during startup", exitErr.name)
 	}
-	return fmt.Errorf("%s exited during startup: %w", name, err)
+	return fmt.Sprintf("%s exited during startup: %s", exitErr.name, exitErr.err)
+}
+
+func (exitErr *backendExitedError) Unwrap() error {
+	return exitErr.err
+}
+
+func unexpectedExitError(name string, err error) error {
+	return &backendExitedError{name: name, err: err}
 }
 
 func (manager *Manager) BeginLoadCapture(maxOutputBytes int64) func() loadcapture.Capture {
@@ -340,21 +402,6 @@ func (manager *Manager) BeginLoadCapture(maxOutputBytes int64) func() loadcaptur
 func (manager *Manager) BeginLoadDiagnostic() func(bool) backenddiagnostic.Diagnostic {
 	manager.capture.Begin()
 	return manager.capture.End
-}
-
-func (manager *Manager) hostPort() (string, string) {
-	host := manager.backendURL.Hostname()
-	port := manager.backendURL.Port()
-	if host == "" {
-		host = "127.0.0.1"
-	}
-	if port == "" {
-		port = manager.defaultPort
-	}
-	if parsed := net.ParseIP(host); parsed != nil && parsed.IsUnspecified() {
-		host = "127.0.0.1"
-	}
-	return host, port
 }
 
 func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string, port string, mcpServersPath string) ([]string, error) {

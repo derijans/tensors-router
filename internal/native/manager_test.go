@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"tensors-router/internal/catalog"
+	"tensors-router/internal/portalloc"
 )
 
 func TestLlamaLaunchArgumentsFromKcpps(t *testing.T) {
@@ -127,6 +128,77 @@ func TestNewManagersRejectNonLoopbackAndBindOverrides(t *testing.T) {
 	}
 	if _, err := NewSDCPPManager(ProcessConfig{BackendURL: "http://127.0.0.1:7860", ExtraArgs: []string{"--listen-ip", "0.0.0.0"}}); err == nil {
 		t.Fatal("expected bind override rejection")
+	}
+	if _, err := NewLlamaManager(ProcessConfig{BackendURL: "http://127.0.0.1"}); err == nil {
+		t.Fatal("expected a backend URL with no port to be rejected")
+	}
+}
+
+func TestDynamicPortManagersDoNotCollide(t *testing.T) {
+	binaryPath := buildFakeNativeServer(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "model.kcpps"), []byte(`{"model":"C:/models/model.gguf"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := NewLlamaManager(ProcessConfig{BackendURL: "http://127.0.0.1:0", BinaryPath: binaryPath, ConfigDir: dir, DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := NewLlamaEmbeddingsManager(ProcessConfig{BackendURL: "http://127.0.0.1:0", BinaryPath: binaryPath, ConfigDir: dir, DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := first.endpoint.Reserve(portalloc.Default()); err != nil {
+		t.Fatal(err)
+	}
+	if err := second.endpoint.Reserve(portalloc.Default()); err != nil {
+		t.Fatal(err)
+	}
+	_, firstPort := first.endpoint.HostPort()
+	_, secondPort := second.endpoint.HostPort()
+	if firstPort == "0" || secondPort == "0" {
+		t.Fatalf("expected reserved ports, got %s and %s", firstPort, secondPort)
+	}
+	if firstPort == secondPort {
+		t.Fatalf("expected distinct ports, both got %s", firstPort)
+	}
+	first.endpoint.Release(portalloc.Default())
+	second.endpoint.Release(portalloc.Default())
+}
+
+func TestPinnedPortInUseFailsFast(t *testing.T) {
+	held, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	_, port, err := net.SplitHostPort(held.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	binaryPath := buildFakeNativeServer(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "model.kcpps"), []byte(`{"model":"C:/models/model.gguf"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	manager, err := NewLlamaManager(ProcessConfig{BackendURL: "http://127.0.0.1:" + port, BinaryPath: binaryPath, ConfigDir: dir, DataDir: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	started := time.Now()
+	err = manager.ReloadConfig(context.Background(), "model.kcpps")
+	elapsed := time.Since(started)
+	if err == nil {
+		t.Fatal("expected ReloadConfig to fail against an already-held port")
+	}
+	if !strings.Contains(err.Error(), "already in use") {
+		t.Fatalf("expected a named port-in-use error, got: %v", err)
+	}
+	if elapsed > 5*time.Second {
+		t.Fatalf("expected fast failure, took %s", elapsed)
 	}
 }
 

@@ -57,7 +57,7 @@ MCP server definitions remain embedded in the `.kcpps` source. When active, the 
 | Field | Type or options | Example or default | Description |
 | --- | --- | --- | --- |
 | `kobold.backend_url` | Loopback HTTP URL string | `http://127.0.0.1:5001` | Managed KoboldCpp endpoint. |
-| `kobold.embeddings_backend_url` | Loopback HTTP URL string | `http://127.0.0.1:5004` | On-demand managed KoboldCpp embeddings endpoint. |
+| `kobold.embeddings_backend_url` | Loopback HTTP URL string | `http://127.0.0.1:0` | On-demand managed KoboldCpp embeddings endpoint. |
 | `kobold.binary_path` | Path string | `./bin/kobold/koboldcpp` | KoboldCpp executable. |
 | `kobold.data_dir` | Path string | `./data` | Working and data directory for the process. |
 | `kobold.multiuser` | Integer, at least `1` | `1` | Value supplied to KoboldCpp multiuser handling. |
@@ -72,11 +72,23 @@ MCP server definitions remain embedded in the `.kcpps` source. When active, the 
 | Field | Type or options | Example or default | Description |
 | --- | --- | --- | --- |
 | `llama.backend_url` | Loopback HTTP URL string | `http://127.0.0.1:5002` | Managed `llama-server` endpoint. |
-| `llama.embeddings_backend_url` | Loopback HTTP URL string | `http://127.0.0.1:5005` | On-demand managed `llama-server` embeddings endpoint. |
+| `llama.embeddings_backend_url` | Loopback HTTP URL string | `http://127.0.0.1:0` | On-demand managed `llama-server` embeddings endpoint. |
 | `llama.binary_path` | Path string | `./bin/llama/llama-server` | `llama-server` executable. |
 | `llama.data_dir` | Path string | `./data/llama` | Working and data directory for the text process. |
 | `llama.hide_window` | Boolean | `true` | Hides the child process window on supported platforms. |
 | `llama.extra_args` | List of strings | `[]` | Additional arguments. Managed host and port options cannot be overridden. |
+
+Every `*_backend_url` and `*.embeddings_backend_url` field above (plus
+`sdcpp.backend_url` and `whispercpp.backend_url` below) accepts three port
+forms: an explicit port pins the backend to that address; port `0` (the
+built-in default for both embeddings endpoints) lets the router allocate a
+free loopback port when the backend process starts, so it can never collide
+with another managed backend; and an omitted port is rejected at startup
+rather than silently falling back to a shared default. Two of these URLs
+resolving to the same host and port — including against `server.bind` — is
+also rejected at startup, naming both offending keys. A dynamically
+allocated endpoint is not addressable until the backend has started at
+least once.
 
 ### stable-diffusion.cpp process
 

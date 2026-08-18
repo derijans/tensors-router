@@ -29,13 +29,15 @@ import {
   fieldRenderContext,
   groupedFieldKeys,
   nodeLabel,
+  parseImportedOptions,
   safeID,
   sectionLabels,
   sectionModelKeys,
   selectedConfig,
   selectedNode,
   sidebarValueRows,
-  suggestedConfigID
+  suggestedConfigID,
+  importedConfigNameStem
 } from "./simple-cook-data";
 import {
   escapeAttribute,
@@ -74,6 +76,20 @@ export async function exportSimpleConfig(): Promise<void> {
   link.download = `${config.local_id}.kcpps`;
   link.click();
   URL.revokeObjectURL(url);
+}
+
+export async function importSimpleConfig(file: File): Promise<void> {
+  const parsed = parseImportedOptions(await file.text());
+  const node = selectedNode();
+  state.simpleCook.configID = "";
+  state.simpleCook.mode = "new";
+  state.simpleCook.fields = parsed;
+  state.simpleCook.cleanFields = {};
+  state.simpleCook.cleanID = "";
+  clearConversionScope("quick");
+  state.simpleCook.openSections = [];
+  elements.cookIdInput.value = suggestedConfigID(node, importedConfigNameStem(file.name));
+  renderSimpleCook();
 }
 
 export function selectSimpleNode(nodeID: string): void {

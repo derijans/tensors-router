@@ -148,6 +148,7 @@ Check:
 - archive extraction layout relative to `binary_path`
 - backend log files when `logging.backend_logs_to_disk` is enabled
 - whether an `extra_args` value conflicts with managed host or port settings
+- whether the error names a backend port as already in use — the router now probes the port immediately before spawning and fails fast with that message, instead of the process silently failing to bind and the router waiting out the full health-check timeout
 
 Kobold mode starts its process during router startup. Split backend processes start only after a matching model is selected.
 

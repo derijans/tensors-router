@@ -523,6 +523,8 @@ func createBackends(ctx context.Context, cfg config.Config, mcpReconciler *mcp.R
 	shutdownBackends := []func(context.Context) error{
 		stopKoboldManagers(koboldManager, koboldEmbeddingsManager),
 		stopNativeManagers(llamaManager, llamaEmbeddingsManager, sdcppManager, whisperCPPManager),
+		releaseKoboldEndpoints(koboldManager, koboldEmbeddingsManager),
+		releaseNativeEndpoints(llamaManager, llamaEmbeddingsManager, sdcppManager, whisperCPPManager),
 	}
 	return families, shutdownBackends, nil
 }
@@ -587,6 +589,21 @@ func stopKoboldManagers(managers ...*kobold.Manager) func(context.Context) error
 	}
 }
 
+// releaseKoboldEndpoints returns dynamically allocated ports to the shared
+// allocator. This is distinct from stopKoboldManagers, which also backs the
+// family's runtime Stop/StopPrimary hooks (invoked while the router keeps
+// running, e.g. from an admin endpoint) — releasing the port there would
+// break the sticky-port guarantee across a restart. Call this only from the
+// final process shutdown path.
+func releaseKoboldEndpoints(managers ...*kobold.Manager) func(context.Context) error {
+	return func(context.Context) error {
+		for _, manager := range managers {
+			manager.ReleaseEndpoint()
+		}
+		return nil
+	}
+}
+
 func firstMCPReconciler(values []*mcp.Reconciler) *mcp.Reconciler {
 	if len(values) == 0 {
 		return nil
@@ -627,6 +644,21 @@ func stopNativeManagers(managers ...*native.Manager) func(context.Context) error
 			}
 		}
 		return firstErr
+	}
+}
+
+// releaseNativeEndpoints returns dynamically allocated ports to the shared
+// allocator. This is distinct from stopNativeManagers, which also backs the
+// family's runtime Stop/StopPrimary hooks (invoked while the router keeps
+// running, e.g. from an admin endpoint) — releasing the port there would
+// break the sticky-port guarantee across a reload. Call this only from the
+// final process shutdown path.
+func releaseNativeEndpoints(managers ...*native.Manager) func(context.Context) error {
+	return func(context.Context) error {
+		for _, manager := range managers {
+			manager.ReleaseEndpoint()
+		}
+		return nil
 	}
 }
 

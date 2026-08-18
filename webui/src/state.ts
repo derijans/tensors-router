@@ -35,14 +35,8 @@ export const state: AppState = {
   inventory: null,
   router: null,
   nodes: {
-    selectedNodeID: "",
-    snapshot: null,
-    loading: false,
-    error: "",
-    pollGeneration: 0,
-    pollTimer: null,
-    pendingUnload: "",
-    pendingBackendAction: ""
+    expanded: [],
+    byNode: {}
   },
   models: {
     activeSubtab: "models",

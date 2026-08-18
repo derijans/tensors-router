@@ -30,7 +30,7 @@ function snapshot(): NodeState {
 
 describe("node state view", () => {
   it("renders escaped values, fixed backend order, and duplicate active model names", () => {
-    const html = renderNodeStateSnapshot(snapshot(), "");
+    const html = renderNodeStateSnapshot("node-a", snapshot(), "");
 
     expect(html).toContain("Kobold &lt;unsafe&gt;");
     expect(html).toContain("model &lt;one&gt;");
@@ -40,20 +40,21 @@ describe("node state view", () => {
   });
 
   it("renders explicit empty states", () => {
-    const html = renderNodeStateSnapshot({node_id: "empty", backends: [], active_requests: []}, "");
+    const html = renderNodeStateSnapshot("empty", {node_id: "empty", backends: [], active_requests: []}, "");
 
     expect(html).toContain("No backend binaries detected.");
     expect(html).toContain("No active requests.");
   });
 
   it("disables only the pending runtime row", () => {
-    const html = renderNodeStateSnapshot(snapshot(), "koboldcpp\u0000kobold-text");
+    const html = renderNodeStateSnapshot("node-a", snapshot(), "koboldcpp kobold-text");
     const buttons = html.match(/<button[^>]*>/g) || [];
 
     expect(buttons).toHaveLength(2);
     expect(buttons[0]).toContain("disabled");
     expect(buttons[1]).not.toContain("disabled");
     expect(buttons[0]).toContain('data-generation="7"');
+    expect(buttons[0]).toContain('data-node-id="node-a"');
   });
 
   it("renders the exact initialization action for needs-init and retryable failures", () => {
@@ -97,11 +98,11 @@ describe("node state view", () => {
       active_requests: []
     };
 
-    const pendingStart = renderNodeStateSnapshot(needsInitialization, "", "init\u0000vllm");
-    const pendingCancel = renderNodeStateSnapshot(initializing, "", "cancel\u0000vllm");
+    const pendingStart = renderNodeStateSnapshot("node-a", needsInitialization, "", "init vllm");
+    const pendingCancel = renderNodeStateSnapshot("node-a", initializing, "", "cancel vllm");
 
     expect(pendingStart).toMatch(/<button[^>]*disabled>backend needs init<\/button>/);
-    expect(pendingCancel).toContain('data-node-backend-init-cancel data-backend-id="vllm" disabled>Cancelling...</button>');
+    expect(pendingCancel).toContain('data-node-backend-init-cancel data-node-id="node-a" data-backend-id="vllm" disabled>Cancelling...</button>');
   });
 
   it("renders ready identity and suppresses init for unsupported or missing companions", () => {
@@ -117,10 +118,49 @@ describe("node state view", () => {
     expect(missing).toContain("vLLM companion is missing.");
     expect(missing).not.toContain("data-node-backend-init");
   });
+
+  it("renders node selection as a keyboard-clickable button with role and source chips", () => {
+    const node: NodeInventory = {
+      node_id: "node <one>",
+      source: "slave",
+      role: "slave",
+      backend_mode: "kobold",
+      available: true,
+      hardware: {max_threads: 8, gpu_backend: "cpu", gpu_count: 0},
+      models: [],
+      files: []
+    };
+    const html = renderNodeCard(node, true);
+
+    expect(html).toMatch(/<button\b/);
+    expect(html).toContain('type="button"');
+    expect(html).toContain('aria-expanded="true"');
+    expect(html).toContain('aria-controls="nodeStatePanel-node &lt;one&gt;"');
+    expect(html).toContain("node &lt;one&gt;");
+    expect(html).toContain(">slave</span>");
+  });
+
+  it("shows a node as down when unavailable", () => {
+    const node: NodeInventory = {
+      node_id: "node-b",
+      source: "local",
+      role: "standalone",
+      backend_mode: "kobold",
+      available: false,
+      hardware: {max_threads: 8, gpu_backend: "cpu", gpu_count: 0},
+      models: [],
+      files: []
+    };
+    const html = renderNodeCard(node, false);
+
+    expect(html).toContain(">down</span>");
+    expect(html).not.toContain(">available</span>");
+    expect(html).toContain('aria-expanded="false"');
+  });
 });
 
 function renderVLLMBackend(lifecycleState: BackendLifecycleState, values: Partial<NodeStateBackend> = {}): string {
-  return renderNodeStateSnapshot({
+  return renderNodeStateSnapshot("node-a", {
     node_id: "node-a",
     backends: [{
       id: "vllm",
@@ -133,22 +173,3 @@ function renderVLLMBackend(lifecycleState: BackendLifecycleState, values: Partia
     active_requests: []
   }, "");
 }
-  it("renders node selection as a keyboard-clickable button", () => {
-    const node: NodeInventory = {
-      node_id: "node <one>",
-      source: "local",
-      role: "standalone",
-      backend_mode: "kobold",
-      available: true,
-      hardware: {max_threads: 8, gpu_backend: "cpu", gpu_count: 0},
-      models: [],
-      files: []
-    };
-    const html = renderNodeCard(node, true);
-
-    expect(html).toMatch(/<button\b/);
-    expect(html).toContain('type="button"');
-    expect(html).toContain('aria-expanded="true"');
-    expect(html).toContain('aria-controls="nodeStatePanel"');
-    expect(html).toContain("node &lt;one&gt;");
-  });

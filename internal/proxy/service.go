@@ -1183,6 +1183,17 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 			openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", modelID))
 			return
 		}
+		enabled, err := service.localModelEnabled(r.Context(), model.ID)
+		if err != nil {
+			service.logger.Printf("model state check failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
+			openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+			return
+		}
+		if !enabled {
+			service.logger.Printf("disabled model requested path=%s remote=%s model=%q", r.URL.Path, r.RemoteAddr, modelID)
+			openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", modelID))
+			return
+		}
 		configFilename = model.Filename
 		backendModelID = model.ID
 		selectedModel = model

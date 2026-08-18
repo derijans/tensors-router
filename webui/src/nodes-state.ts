@@ -2,31 +2,38 @@ import { cancelNodeBackendInitialization, getNodeState, initializeNodeBackend, u
 import { closestElement } from "./dom";
 import { elements } from "./elements";
 import { state } from "./state";
-import type { BackendInitializationJob, BackendInitializationRequest, NodeInventory, NodeStateBackend } from "./types";
+import type { BackendInitializationJob, BackendInitializationRequest, NodeInventory, NodeRuntimeSlice, NodeStateBackend } from "./types";
 import { escapeAttribute, escapeHTML } from "./utils";
-import { renderNodeCard, renderNodeStateSnapshot } from "./node-state-view";
+import { nodeStatePanelID, renderNodeCard, renderNodeStateSnapshot } from "./node-state-view";
 
 const pollIntervalMilliseconds = 1000;
 
 export function renderNodesPanel(): void {
   const nodes = state.inventory?.nodes ?? [];
   reconcileNodeStateSelection(nodes);
-  elements.nodeCount.textContent = `${nodes.length} nodes`;
+  elements.nodeCount.textContent = `${nodes.length} node${nodes.length === 1 ? "" : "s"}`;
+  elements.nodesScanNotices.innerHTML = scanNotices(nodes);
   elements.nodesGrid.innerHTML = nodes.map(node => {
-    const selected = node.node_id === state.nodes.selectedNodeID;
-    return `${renderNodeCard(node, selected)}${selected ? nodeStatePanel() : ""}`;
+    const expanded = state.nodes.expanded.includes(node.node_id);
+    return `${renderNodeCard(node, expanded)}${expanded ? nodeStatePanel(node.node_id) : ""}`;
   }).join("");
+}
+
+function scanNotices(nodes: NodeInventory[]): string {
+  return nodes.filter(node => node.error)
+    .map(node => `<div class="inventory-notice error-text">${escapeHTML(node.node_id || node.node_url || "unknown node")}: ${escapeHTML(node.error || "scan failed")}</div>`)
+    .join("");
 }
 
 export function handleNodesClick(event: Event): void {
   const initializeButton = closestElement(event.target, "[data-node-backend-init]", HTMLButtonElement);
   if (initializeButton) {
-    void initializeSelectedBackend(initializeButton.dataset.backendId || "", initializeButton.dataset.profile);
+    void initializeSelectedBackend(initializeButton.dataset.nodeId || "", initializeButton.dataset.backendId || "", initializeButton.dataset.profile);
     return;
   }
   const cancelInitializationButton = closestElement(event.target, "[data-node-backend-init-cancel]", HTMLButtonElement);
   if (cancelInitializationButton) {
-    void cancelSelectedBackendInitialization(cancelInitializationButton.dataset.backendId || "");
+    void cancelSelectedBackendInitialization(cancelInitializationButton.dataset.nodeId || "", cancelInitializationButton.dataset.backendId || "");
     return;
   }
   const unloadButton = closestElement(event.target, "[data-node-unload]", HTMLButtonElement);
@@ -34,6 +41,7 @@ export function handleNodesClick(event: Event): void {
     const generation = Number(unloadButton.dataset.generation);
     if (Number.isSafeInteger(generation) && generation > 0) {
       void unloadSelectedRuntime(
+        unloadButton.dataset.nodeId || "",
         unloadButton.dataset.backendId || "",
         unloadButton.dataset.runtimeId || "",
         generation
@@ -41,8 +49,9 @@ export function handleNodesClick(event: Event): void {
     }
     return;
   }
-  if (closestElement(event.target, "[data-node-close]", HTMLButtonElement)) {
-    collapseNodeState();
+  const closeButton = closestElement(event.target, "[data-node-close]", HTMLButtonElement);
+  if (closeButton) {
+    collapseNode(closeButton.dataset.nodeId || "");
     return;
   }
   const nodeButton = closestElement(event.target, "[data-node-select]", HTMLButtonElement);
@@ -52,119 +61,133 @@ export function handleNodesClick(event: Event): void {
 }
 
 export function selectNode(nodeID: string): void {
-  if (state.nodes.selectedNodeID === nodeID) {
-    collapseNodeState();
+  if (state.nodes.expanded.includes(nodeID)) {
+    collapseNode(nodeID);
     return;
   }
-  resetPolling(nodeID);
-  state.nodes.snapshot = null;
-  state.nodes.loading = true;
-  state.nodes.error = "";
-  state.nodes.pendingUnload = "";
-  state.nodes.pendingBackendAction = "";
+  state.nodes.expanded = [...state.nodes.expanded, nodeID];
+  const created = defaultNodeSlice();
+  created.loading = true;
+  state.nodes.byNode[nodeID] = created;
   renderNodesPanel();
   if (state.activeTab === "nodes") {
-    void pollSelectedNode(state.nodes.pollGeneration);
+    void pollNode(nodeID, created.pollGeneration);
   }
 }
 
-export function setNodesTabActive(active: boolean): void {
-  invalidatePolling();
-  if (!active || !state.nodes.selectedNodeID) {
+export function collapseNode(nodeID: string): void {
+  if (!nodeID) {
     return;
   }
-  state.nodes.loading = state.nodes.snapshot === null;
-  renderSelectedStatePanel();
-  void pollSelectedNode(state.nodes.pollGeneration);
-}
-
-export function stopNodeStatePolling(): void {
-  invalidatePolling();
-}
-
-export function collapseNodeState(): void {
-  invalidatePolling();
-  state.nodes.selectedNodeID = "";
-  state.nodes.snapshot = null;
-  state.nodes.loading = false;
-  state.nodes.error = "";
-  state.nodes.pendingUnload = "";
-  state.nodes.pendingBackendAction = "";
+  invalidatePolling(nodeID);
+  state.nodes.expanded = state.nodes.expanded.filter(id => id !== nodeID);
+  delete state.nodes.byNode[nodeID];
   renderNodesPanel();
 }
 
 export function reconcileNodeStateSelection(nodes: NodeInventory[]): void {
-  const selectedNodeID = state.nodes.selectedNodeID;
-  if (!selectedNodeID || nodes.some(node => node.node_id === selectedNodeID)) {
+  const present = new Set(nodes.map(node => node.node_id));
+  const stale = state.nodes.expanded.filter(id => !present.has(id));
+  if (stale.length === 0) {
     return;
   }
-  invalidatePolling();
-  state.nodes.selectedNodeID = "";
-  state.nodes.snapshot = null;
-  state.nodes.loading = false;
-  state.nodes.error = "";
-  state.nodes.pendingUnload = "";
-  state.nodes.pendingBackendAction = "";
+  for (const nodeID of stale) {
+    invalidatePolling(nodeID);
+    delete state.nodes.byNode[nodeID];
+  }
+  state.nodes.expanded = state.nodes.expanded.filter(id => present.has(id));
+}
+
+export function setNodesTabActive(active: boolean): void {
+  invalidateAllPolling();
+  if (!active) {
+    return;
+  }
+  for (const nodeID of state.nodes.expanded) {
+    const current = slice(nodeID);
+    if (current) {
+      current.loading = current.snapshot === null;
+    }
+  }
+  renderNodesPanel();
+  for (const nodeID of state.nodes.expanded) {
+    const current = slice(nodeID);
+    if (current) {
+      void pollNode(nodeID, current.pollGeneration);
+    }
+  }
+}
+
+export function stopNodeStatePolling(): void {
+  invalidateAllPolling();
 }
 
 export function nodeUnloadKey(backendID: string, runtimeID: string): string {
-  return `${backendID}\u0000${runtimeID}`;
+  return `${backendID} ${runtimeID}`;
 }
 
 export function nodeBackendActionKey(action: "init" | "cancel", backendID: string): string {
-  return `${action}\u0000${backendID}`;
+  return `${action} ${backendID}`;
 }
 
-export async function pollSelectedNode(generation: number, clearErrorOnSuccess = true): Promise<void> {
-  const nodeID = state.nodes.selectedNodeID;
-  if (!pollingCurrent(generation, nodeID)) {
+export async function pollNode(nodeID: string, generation: number, clearErrorOnSuccess = true): Promise<void> {
+  if (!pollingCurrent(nodeID, generation)) {
     return;
   }
   try {
     const snapshot = await getNodeState(nodeID);
-    if (!pollingCurrent(generation, nodeID)) {
+    if (!pollingCurrent(nodeID, generation)) {
       return;
     }
-    const changed = JSON.stringify(state.nodes.snapshot) !== JSON.stringify(snapshot) || state.nodes.loading || (clearErrorOnSuccess && state.nodes.error !== "");
-    state.nodes.snapshot = snapshot;
-    state.nodes.loading = false;
+    const current = slice(nodeID);
+    if (!current) {
+      return;
+    }
+    const changed = JSON.stringify(current.snapshot) !== JSON.stringify(snapshot) || current.loading || (clearErrorOnSuccess && current.error !== "");
+    current.snapshot = snapshot;
+    current.loading = false;
     if (clearErrorOnSuccess) {
-      state.nodes.error = "";
+      current.error = "";
     }
     if (changed) {
-      renderSelectedStatePanel();
+      renderNodePanel(nodeID);
     }
   } catch (error) {
-    if (!pollingCurrent(generation, nodeID)) {
+    if (!pollingCurrent(nodeID, generation)) {
       return;
     }
-    state.nodes.loading = false;
-    state.nodes.error = errorMessage(error);
-    renderSelectedStatePanel();
+    const current = slice(nodeID);
+    if (!current) {
+      return;
+    }
+    current.loading = false;
+    current.error = errorMessage(error);
+    renderNodePanel(nodeID);
   } finally {
-    if (pollingCurrent(generation, nodeID)) {
-      state.nodes.pollTimer = window.setTimeout(() => {
-        state.nodes.pollTimer = null;
-        void pollSelectedNode(generation);
+    const current = slice(nodeID);
+    if (current && pollingCurrent(nodeID, generation)) {
+      current.pollTimer = window.setTimeout(() => {
+        const latest = slice(nodeID);
+        if (latest) {
+          latest.pollTimer = null;
+        }
+        void pollNode(nodeID, generation);
       }, pollIntervalMilliseconds);
     }
   }
 }
 
-export async function unloadSelectedRuntime(backendID: string, runtimeID: string, generation: number): Promise<void> {
-  if (!backendID || !runtimeID || state.nodes.pendingUnload) {
+export async function unloadSelectedRuntime(nodeID: string, backendID: string, runtimeID: string, generation: number): Promise<void> {
+  const current = slice(nodeID);
+  if (!nodeID || !backendID || !runtimeID || !current || current.pendingUnload) {
     return;
   }
-  const nodeID = state.nodes.selectedNodeID;
-  if (!nodeID) {
-    return;
-  }
-  invalidatePolling();
-  const pollGeneration = state.nodes.pollGeneration;
+  invalidatePolling(nodeID);
+  const pollGeneration = current.pollGeneration;
   const pendingUnload = nodeUnloadKey(backendID, runtimeID);
-  state.nodes.pendingUnload = pendingUnload;
-  state.nodes.error = "";
-  renderSelectedStatePanel();
+  current.pendingUnload = pendingUnload;
+  current.error = "";
+  renderNodePanel(nodeID);
   let succeeded = false;
   try {
     await unloadNodeRuntime({
@@ -175,44 +198,45 @@ export async function unloadSelectedRuntime(backendID: string, runtimeID: string
     });
     succeeded = true;
   } catch (error) {
-    if (pollingCurrent(pollGeneration, nodeID)) {
-      state.nodes.error = errorMessage(error);
-    }
-  } finally {
-    if (state.nodes.selectedNodeID === nodeID && state.nodes.pendingUnload === pendingUnload) {
-      state.nodes.pendingUnload = "";
-      if (state.activeTab === "nodes") {
-        renderSelectedStatePanel();
+    if (pollingCurrent(nodeID, pollGeneration)) {
+      const active = slice(nodeID);
+      if (active) {
+        active.error = errorMessage(error);
       }
     }
-    if (pollingCurrent(pollGeneration, nodeID)) {
-      await pollSelectedNode(pollGeneration, succeeded);
+  } finally {
+    const after = slice(nodeID);
+    if (after && after.pendingUnload === pendingUnload) {
+      after.pendingUnload = "";
+      if (state.activeTab === "nodes" && state.nodes.expanded.includes(nodeID)) {
+        renderNodePanel(nodeID);
+      }
+    }
+    if (pollingCurrent(nodeID, pollGeneration)) {
+      await pollNode(nodeID, pollGeneration, succeeded);
     }
   }
 }
 
-export async function initializeSelectedBackend(backendID: string, profile?: string): Promise<void> {
-  await runBackendInitializationAction("init", backendID, profile);
+export async function initializeSelectedBackend(nodeID: string, backendID: string, profile?: string): Promise<void> {
+  await runBackendInitializationAction("init", nodeID, backendID, profile);
 }
 
-export async function cancelSelectedBackendInitialization(backendID: string): Promise<void> {
-  await runBackendInitializationAction("cancel", backendID);
+export async function cancelSelectedBackendInitialization(nodeID: string, backendID: string): Promise<void> {
+  await runBackendInitializationAction("cancel", nodeID, backendID);
 }
 
-async function runBackendInitializationAction(action: "init" | "cancel", backendID: string, profile?: string): Promise<void> {
-  if (!backendID || state.nodes.pendingBackendAction) {
+async function runBackendInitializationAction(action: "init" | "cancel", nodeID: string, backendID: string, profile?: string): Promise<void> {
+  const current = slice(nodeID);
+  if (!nodeID || !backendID || !current || current.pendingBackendAction) {
     return;
   }
-  const nodeID = state.nodes.selectedNodeID;
-  if (!nodeID) {
-    return;
-  }
-  invalidatePolling();
-  const pollGeneration = state.nodes.pollGeneration;
+  invalidatePolling(nodeID);
+  const pollGeneration = current.pollGeneration;
   const pendingAction = nodeBackendActionKey(action, backendID);
-  state.nodes.pendingBackendAction = pendingAction;
-  state.nodes.error = "";
-  renderSelectedStatePanel();
+  current.pendingBackendAction = pendingAction;
+  current.error = "";
+  renderNodePanel(nodeID);
   let succeeded = false;
   try {
     const request: BackendInitializationRequest = {node_id: nodeID, backend_id: backendID};
@@ -225,27 +249,32 @@ async function runBackendInitializationAction(action: "init" | "cancel", backend
     succeeded = true;
     applyBackendInitializationJob(nodeID, job);
   } catch (error) {
-    if (pollingCurrent(pollGeneration, nodeID)) {
-      state.nodes.error = errorMessage(error);
-    }
-  } finally {
-    if (state.nodes.selectedNodeID === nodeID && state.nodes.pendingBackendAction === pendingAction) {
-      state.nodes.pendingBackendAction = "";
-      if (state.activeTab === "nodes") {
-        renderSelectedStatePanel();
+    if (pollingCurrent(nodeID, pollGeneration)) {
+      const active = slice(nodeID);
+      if (active) {
+        active.error = errorMessage(error);
       }
     }
-    if (pollingCurrent(pollGeneration, nodeID)) {
-      await pollSelectedNode(pollGeneration, succeeded);
+  } finally {
+    const after = slice(nodeID);
+    if (after && after.pendingBackendAction === pendingAction) {
+      after.pendingBackendAction = "";
+      if (state.activeTab === "nodes" && state.nodes.expanded.includes(nodeID)) {
+        renderNodePanel(nodeID);
+      }
+    }
+    if (pollingCurrent(nodeID, pollGeneration)) {
+      await pollNode(nodeID, pollGeneration, succeeded);
     }
   }
 }
 
 function applyBackendInitializationJob(nodeID: string, job: BackendInitializationJob): void {
-  if (state.nodes.snapshot?.node_id !== nodeID) {
+  const current = slice(nodeID);
+  if (!current?.snapshot || current.snapshot.node_id !== nodeID) {
     return;
   }
-  const backend = state.nodes.snapshot.backends.find(candidate => candidate.id === job.backend_id);
+  const backend = current.snapshot.backends.find(candidate => candidate.id === job.backend_id);
   if (!backend) {
     return;
   }
@@ -281,49 +310,62 @@ function assignOptionalBackendValue(backend: NodeStateBackend, key: "initializat
   delete backend[key];
 }
 
-function resetPolling(nodeID: string): void {
-  invalidatePolling();
-  state.nodes.selectedNodeID = nodeID;
+function defaultNodeSlice(): NodeRuntimeSlice {
+  return {snapshot: null, loading: false, error: "", pollGeneration: 0, pollTimer: null, pendingUnload: "", pendingBackendAction: ""};
 }
 
-function invalidatePolling(): void {
-  state.nodes.pollGeneration++;
-  if (state.nodes.pollTimer !== null) {
-    window.clearTimeout(state.nodes.pollTimer);
-    state.nodes.pollTimer = null;
+function slice(nodeID: string): NodeRuntimeSlice | undefined {
+  return state.nodes.byNode[nodeID];
+}
+
+function invalidatePolling(nodeID: string): void {
+  const current = slice(nodeID);
+  if (!current) {
+    return;
+  }
+  current.pollGeneration++;
+  if (current.pollTimer !== null) {
+    window.clearTimeout(current.pollTimer);
+    current.pollTimer = null;
   }
 }
 
-function pollingCurrent(generation: number, nodeID: string): boolean {
-  return generation === state.nodes.pollGeneration &&
+function invalidateAllPolling(): void {
+  for (const nodeID of Object.keys(state.nodes.byNode)) {
+    invalidatePolling(nodeID);
+  }
+}
+
+function pollingCurrent(nodeID: string, generation: number): boolean {
+  const current = slice(nodeID);
+  return current !== undefined &&
+    generation === current.pollGeneration &&
     nodeID !== "" &&
-    nodeID === state.nodes.selectedNodeID &&
+    state.nodes.expanded.includes(nodeID) &&
     state.activeTab === "nodes";
 }
 
-function renderSelectedStatePanel(): void {
-  const current = document.getElementById("nodeStatePanel");
-  if (current) {
-    current.outerHTML = nodeStatePanel();
+function renderNodePanel(nodeID: string): void {
+  const panel = document.getElementById(nodeStatePanelID(nodeID));
+  if (panel) {
+    panel.outerHTML = nodeStatePanel(nodeID);
   }
 }
 
-
-function nodeStatePanel(): string {
-  const nodeID = state.nodes.selectedNodeID;
+function nodeStatePanel(nodeID: string): string {
+  const current = slice(nodeID) ?? defaultNodeSlice();
   return `
-    <section id="nodeStatePanel" class="node-state-panel" aria-label="Runtime state for ${escapeAttribute(nodeID)}">
+    <section id="${escapeAttribute(nodeStatePanelID(nodeID))}" class="node-state-panel" aria-label="Runtime state for ${escapeAttribute(nodeID)}">
       <div class="node-state-header">
         <h3>Runtime state - ${escapeHTML(nodeID)}</h3>
-        <button type="button" data-node-close>Close</button>
+        <button type="button" data-node-close data-node-id="${escapeAttribute(nodeID)}">Close</button>
       </div>
-      ${state.nodes.loading && !state.nodes.snapshot ? `<p class="muted node-state-message">Loading runtime state...</p>` : ""}
-      ${state.nodes.error ? `<div class="error-text node-state-message" role="alert">${escapeHTML(state.nodes.error)}</div>` : ""}
-      ${state.nodes.snapshot ? renderNodeStateSnapshot(state.nodes.snapshot, state.nodes.pendingUnload, state.nodes.pendingBackendAction) : ""}
+      ${current.loading && !current.snapshot ? `<p class="muted node-state-message">Loading runtime state...</p>` : ""}
+      ${current.error ? `<div class="error-text node-state-message" role="alert">${escapeHTML(current.error)}</div>` : ""}
+      ${current.snapshot ? renderNodeStateSnapshot(nodeID, current.snapshot, current.pendingUnload, current.pendingBackendAction) : ""}
     </section>
   `;
 }
-
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);

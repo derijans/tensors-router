@@ -75,6 +75,42 @@ func TestLocalModelStateValidatesPersistsAndRequiresClusterAuth(t *testing.T) {
 	}
 }
 
+func TestDisabledModelRejectedOnInferencePath(t *testing.T) {
+	service, _, registry := newModelStateTestService(t)
+	backend := service.backend.(*fakeBackend)
+
+	disabled := postModelState(service, "/router/v1/site/models/state", siteapi.ModelStateRequest{NodeID: "node-a", LocalID: "model-a", Enabled: false}, "")
+	if disabled.Code != http.StatusOK {
+		t.Fatalf("disable status=%d body=%s", disabled.Code, disabled.Body.String())
+	}
+	if !registry.ConfigDisabled("node-a", "model-a.kcpps") {
+		t.Fatal("registry did not observe disabled model")
+	}
+
+	before := backend.reloads.Load()
+	chat := httptest.NewRecorder()
+	service.ServeHTTP(chat, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"model-a","messages":[]}`)))
+	if chat.Code != http.StatusNotFound {
+		t.Fatalf("disabled model served on chat completions status=%d body=%s", chat.Code, chat.Body.String())
+	}
+	if got := backend.reloads.Load(); got != before {
+		t.Fatalf("disabled model triggered a backend load reloads=%d want=%d", got, before)
+	}
+
+	enabled := postModelState(service, "/router/v1/site/models/state", siteapi.ModelStateRequest{NodeID: "node-a", LocalID: "model-a", Enabled: true}, "")
+	if enabled.Code != http.StatusOK {
+		t.Fatalf("enable status=%d body=%s", enabled.Code, enabled.Body.String())
+	}
+	chatAgain := httptest.NewRecorder()
+	service.ServeHTTP(chatAgain, httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"model-a","messages":[]}`)))
+	if chatAgain.Code == http.StatusNotFound {
+		t.Fatalf("re-enabled model still rejected status=%d body=%s", chatAgain.Code, chatAgain.Body.String())
+	}
+	if got := backend.reloads.Load(); got == before {
+		t.Fatal("re-enabled model did not trigger a backend load")
+	}
+}
+
 func TestMasterModelStateUsesRegisteredNodeAndRefreshesSnapshot(t *testing.T) {
 	var received cluster.ModelStateRequest
 	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -167,7 +203,12 @@ func newModelStateTestService(t *testing.T) (*Service, *modelstate.Store, *clust
 	if err != nil {
 		t.Fatal(err)
 	}
-	backendURL, err := url.Parse("http://127.0.0.1:1")
+	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(backendServer.Close)
+	backendURL, err := url.Parse(backendServer.URL)
 	if err != nil {
 		t.Fatal(err)
 	}

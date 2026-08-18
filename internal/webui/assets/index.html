@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>tensor-router-webui</title>
-  <script type="module" crossorigin src="/assets/index-BLQJNmVK.js"></script>
+  <title>tensor-router-webui</title>
+  <script type="module" crossorigin src="/assets/index-B3rF2vl1.js"></script>
   <link rel="stylesheet" crossorigin href="/assets/index-DFktx7T_.css">
 </head>
 <body>
@@ -78,7 +78,9 @@
             <p class="muted">cluster inventory</p>
           </div>
           <span id="nodeCount" class="pill"></span>
+          <button id="nodesRefreshButton" type="button" data-operation-group="nodes">Refresh</button>
         </div>
+        <div id="nodesScanNotices" class="inventory-notices"></div>
         <div id="nodesGrid" class="cards-grid"></div>
       </section>
 
@@ -396,6 +398,8 @@
               </div>
               <div class="cook-actions">
                 <button id="previewButton" type="button" data-operation-group="cook">Preview</button>
+                <button id="simpleImportButton" type="button" data-operation-group="cook-selection">Import KCPPS</button>
+                <input id="simpleImportInput" type="file" accept=".kcpps,.json" hidden>
                 <button id="simpleExportButton" type="button" data-operation-group="cook">Export KCPPS</button>
                 <button type="submit" data-operation-group="cook">Save</button>
               </div>
@@ -500,6 +504,6 @@
   <dialog id="safetyDialog" class="field-dialog safety-dialog">
     <div id="safetyDialogBody" class="field-dialog-body"></div>
   </dialog>
-
+
 </body>
 </html>

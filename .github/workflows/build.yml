@@ -50,7 +50,7 @@ jobs:
         run: go test ./...
 
       - name: Test concurrent state
-        run: go test -race ./internal/recipes ./internal/benchmark ./internal/catalog ./internal/proxy ./internal/vllm
+        run: go test -race ./internal/recipes ./internal/benchmark ./internal/catalog ./internal/proxy ./internal/vllm ./internal/portalloc ./internal/backendendpoint ./internal/native ./internal/kobold
 
       - name: Check Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...

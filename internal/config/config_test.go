@@ -401,6 +401,55 @@ kobold:
 	}
 }
 
+func TestValidateRejectsDuplicateBackendEndpoints(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+llama:
+  backend_url: "http://127.0.0.1:5001"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected a collision between kobold.backend_url and llama.backend_url to be rejected")
+	}
+	if !strings.Contains(err.Error(), "kobold.backend_url") || !strings.Contains(err.Error(), "llama.backend_url") {
+		t.Fatalf("expected the error to name both offending keys, got: %v", err)
+	}
+}
+
+func TestValidateRejectsPortlessBackendURL(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+kobold:
+  backend_url: "http://127.0.0.1"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("expected a portless backend URL to be rejected")
+	}
+	if !strings.Contains(err.Error(), "kobold.backend_url") || !strings.Contains(err.Error(), "explicit port") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestValidateAllowsDynamicEndpointsToShareTheZeroPort(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte(`
+kobold:
+  embeddings_backend_url: "http://127.0.0.1:0"
+llama:
+  embeddings_backend_url: "http://127.0.0.1:0"
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err != nil {
+		t.Fatalf("expected two dynamic (port 0) endpoints not to collide, got: %v", err)
+	}
+}
+
 func TestLoadRejectsBackendBindOverride(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(`
@@ -441,7 +490,10 @@ func TestDefaultsIncludeSecureStreamingAndRetentionValues(t *testing.T) {
 	if !cfg.Downloader.Enabled || cfg.Downloader.BinaryLocation != "" {
 		t.Fatalf("unexpected downloader defaults %#v", cfg.Downloader)
 	}
-	if cfg.Kobold.EmbeddingsBackendURL != "http://127.0.0.1:5004" || cfg.Llama.EmbeddingsBackendURL != "http://127.0.0.1:5005" {
+	// Port 0 means the router allocates a free loopback port at spawn
+	// time, so the default embeddings endpoints can never collide with
+	// each other or with the primary backend.
+	if cfg.Kobold.EmbeddingsBackendURL != "http://127.0.0.1:0" || cfg.Llama.EmbeddingsBackendURL != "http://127.0.0.1:0" {
 		t.Fatalf("unexpected embeddings endpoint defaults kobold=%q llama=%q", cfg.Kobold.EmbeddingsBackendURL, cfg.Llama.EmbeddingsBackendURL)
 	}
 }

@@ -31,6 +31,11 @@ mcp:
   directory: "./mcp"
 
 kobold:
+  # backend_url and embeddings_backend_url: the port may be pinned (as
+  # below), set to 0 to let the router allocate a free loopback port at
+  # startup (the built-in default for embeddings_backend_url), or omitted
+  # to fail fast at startup instead of silently colliding with another
+  # backend.
   backend_url: "http://127.0.0.1:5001"
   embeddings_backend_url: "http://127.0.0.1:5004"
   binary_path: "./bin/kobold/koboldcpp"
@@ -43,6 +48,7 @@ kobold:
   extra_args: []
 
 llama:
+  # See kobold.embeddings_backend_url above for the port-0/omitted-port rules.
   backend_url: "http://127.0.0.1:5002"
   embeddings_backend_url: "http://127.0.0.1:5005"
   binary_path: "./bin/llama/llama-server"

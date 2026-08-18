@@ -1,6 +1,13 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { state } from "../state";
-import { comparisonClass, fieldChoices, fieldRenderContext, groupedFieldKeys } from "../simple-cook-data";
+import {
+  comparisonClass,
+  fieldChoices,
+  fieldRenderContext,
+  groupedFieldKeys,
+  importedConfigNameStem,
+  parseImportedOptions
+} from "../simple-cook-data";
 import { optionDefinition, testInventory, testModel } from "./factories";
 
 describe("simple cook option data", () => {
@@ -61,5 +68,32 @@ describe("simple cook option data", () => {
       }
     ]);
     expect(fieldChoices("musicvae", definition, fieldRenderContext())).toContain("music-vae.gguf");
+  });
+});
+
+describe("imported KCPPS parsing", () => {
+  it("accepts a JSON object as options", () => {
+    expect(parseImportedOptions(`{"model_param":"model.gguf","gpulayers":99}`)).toEqual({
+      model_param: "model.gguf",
+      gpulayers: 99
+    });
+  });
+
+  it("rejects malformed JSON", () => {
+    expect(() => parseImportedOptions("{not json")).toThrow("not valid JSON");
+  });
+
+  it("rejects a JSON array", () => {
+    expect(() => parseImportedOptions("[1,2,3]")).toThrow("expected a JSON object");
+  });
+
+  it("rejects a bare JSON scalar", () => {
+    expect(() => parseImportedOptions("42")).toThrow("expected a JSON object");
+  });
+
+  it("derives a safe id stem from the filename, stripping the kcpps/json extension", () => {
+    expect(importedConfigNameStem("My Model.kcpps")).toBe("My-Model");
+    expect(importedConfigNameStem("config.json")).toBe("config");
+    expect(importedConfigNameStem(".kcpps")).toBe("imported-config");
   });
 });

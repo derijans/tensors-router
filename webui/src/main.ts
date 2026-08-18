@@ -100,6 +100,7 @@ import {
   applySimpleCook,
   copySimpleConfig,
   deleteSimpleConfig,
+  importSimpleConfig,
   newSimpleConfig,
   previewSimpleCook,
   removeSimpleField,
@@ -226,6 +227,7 @@ elements.logoutButton.addEventListener("click", () => runTask(async () => {
 
 elements.refreshButton.addEventListener("click", () => runTask(refreshAll, "refresh-all", "refresh", "Refreshing data…"));
 elements.nodesGrid.addEventListener("click", handleNodesClick);
+elements.nodesRefreshButton.addEventListener("click", () => runTask(() => refreshInventory(false), "nodes-refresh", "nodes", "Refreshing nodes…"));
 elements.webuiFilterInput.addEventListener("input", () => updateWebUIFilter(elements.webuiFilterInput.value));
 elements.webuiGrid.addEventListener("click", event => {
   const target = elementTarget(event);
@@ -480,6 +482,18 @@ elements.forceKillButton.addEventListener("click", () => runTask(async () => {
 
 elements.previewButton.addEventListener("click", () => runTask(previewSimpleCook, "quick-preview", "cook", "Preparing preview…"));
 elements.simpleExportButton.addEventListener("click", () => runTask(exportSimpleConfig, "quick-export", "cook", "Exporting KCPPS…"));
+elements.simpleImportButton.addEventListener("click", () => runTask(async () => {
+  if (await confirmDiscardDirtyWork("Importing a configuration")) {
+    elements.simpleImportInput.click();
+  }
+}, "quick-import-pick", "cook-selection", "Choosing file…"));
+elements.simpleImportInput.addEventListener("change", () => runTask(async () => {
+  const file = elements.simpleImportInput.files?.[0];
+  elements.simpleImportInput.value = "";
+  if (file) {
+    await importSimpleConfig(file);
+  }
+}, "quick-import", "cook", "Importing KCPPS…"));
 elements.cookForm.addEventListener("submit", event => {
   event.preventDefault();
   runTask(() => applySimpleCook(refreshInventory), "quick-apply", "cook", "Applying config…");

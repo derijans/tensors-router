@@ -6,9 +6,9 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -23,6 +23,7 @@ import (
 	"tensors-router/internal/backendendpoint"
 	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/mcp"
+	"tensors-router/internal/portalloc"
 	"tensors-router/internal/processcontrol"
 )
 
@@ -43,7 +44,7 @@ type ProcessConfig struct {
 
 type Manager struct {
 	config        ProcessConfig
-	backendURL    *url.URL
+	endpoint      *backendendpoint.Endpoint
 	adminPassword string
 	client        *http.Client
 	mu            sync.Mutex
@@ -78,7 +79,7 @@ func NewEmbeddingsManager(config ProcessConfig) (*Manager, error) {
 }
 
 func newManager(config ProcessConfig, role string) (*Manager, error) {
-	backendURL, err := backendendpoint.ParseLoopback(config.BackendURL)
+	endpoint, err := backendendpoint.NewEndpoint(config.BackendURL)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +97,7 @@ func newManager(config ProcessConfig, role string) (*Manager, error) {
 
 	return &Manager{
 		config:        config,
-		backendURL:    backendURL,
+		endpoint:      endpoint,
 		adminPassword: adminPassword,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
@@ -109,8 +110,7 @@ func newManager(config ProcessConfig, role string) (*Manager, error) {
 }
 
 func (manager *Manager) URL() *url.URL {
-	copyValue := *manager.backendURL
-	return &copyValue
+	return manager.endpoint.URL()
 }
 
 func (manager *Manager) AdminPassword() string {
@@ -118,7 +118,7 @@ func (manager *Manager) AdminPassword() string {
 }
 
 func (manager *Manager) LaunchArguments() []string {
-	host, port := hostPort(manager.backendURL)
+	host, port := manager.endpoint.HostPort()
 	args := []string{
 		"--host", host,
 		"--port", port,
@@ -191,6 +191,8 @@ func (manager *Manager) Start(ctx context.Context) error {
 	return manager.startLocked(ctx)
 }
 
+const maxPortAttempts = 3
+
 func (manager *Manager) startLocked(ctx context.Context) error {
 	if manager.cmd != nil && manager.cmd.Process != nil && manager.Healthy(ctx) {
 		return nil
@@ -205,6 +207,31 @@ func (manager *Manager) startLocked(ctx context.Context) error {
 		return err
 	}
 
+	for attempt := 1; ; attempt++ {
+		if err := manager.endpoint.Reserve(portalloc.Default()); err != nil {
+			return err
+		}
+		host, port := manager.endpoint.HostPort()
+		if err := portalloc.CheckAvailable(host, port); err != nil {
+			return err
+		}
+		err := manager.spawnLocked(ctx)
+		if err == nil {
+			return nil
+		}
+		var exitErr *backendExitedError
+		if attempt >= maxPortAttempts || !manager.endpoint.Dynamic() || !errors.As(err, &exitErr) {
+			return err
+		}
+		// The child exited during startup on a dynamically allocated port,
+		// which is the signature of a lost race for that port (something
+		// else bound it between our probe and the child's own bind). Free
+		// the port and try again with a freshly reserved one.
+		manager.endpoint.Release(portalloc.Default())
+	}
+}
+
+func (manager *Manager) spawnLocked(ctx context.Context) error {
 	var logFile *os.File
 	stdout := io.MultiWriter(manager.capture, manager.captureHub.Stdout())
 	stderr := io.MultiWriter(manager.capture, manager.captureHub.Stderr())
@@ -277,6 +304,15 @@ func (manager *Manager) Stop(ctx context.Context) error {
 		return err
 	}
 	return cleanupErr
+}
+
+// ReleaseEndpoint returns a dynamically allocated endpoint's port to the
+// shared allocator. Call this only when the manager itself is being torn
+// down for good (router shutdown) — Stop alone (used by Restart and Unload)
+// deliberately keeps a dynamic endpoint's port reserved so those operations
+// do not change the backend's address. It is a no-op for a pinned endpoint.
+func (manager *Manager) ReleaseEndpoint() {
+	manager.endpoint.Release(portalloc.Default())
 }
 
 func (manager *Manager) stopLocked(ctx context.Context) error {
@@ -474,11 +510,30 @@ func (manager *Manager) BackendExitError() error {
 	return unexpectedExitError("koboldcpp", manager.exitErr)
 }
 
-func unexpectedExitError(name string, err error) error {
-	if err == nil {
-		return fmt.Errorf("%s exited during startup", name)
+// backendExitedError marks a health-wait failure caused by the child process
+// exiting, as opposed to it simply never becoming healthy in time. Only the
+// former is worth retrying with a freshly allocated port: an exit signals
+// the child failed outright (most commonly a lost race for a dynamic port),
+// while a plain timeout means the process is alive and a retry would just
+// waste the same 90 second wait again.
+type backendExitedError struct {
+	name string
+	err  error
+}
+
+func (exitErr *backendExitedError) Error() string {
+	if exitErr.err == nil {
+		return fmt.Sprintf("%s exited during startup", exitErr.name)
 	}
-	return fmt.Errorf("%s exited during startup: %w", name, err)
+	return fmt.Sprintf("%s exited during startup: %s", exitErr.name, exitErr.err)
+}
+
+func (exitErr *backendExitedError) Unwrap() error {
+	return exitErr.err
+}
+
+func unexpectedExitError(name string, err error) error {
+	return &backendExitedError{name: name, err: err}
 }
 
 func (manager *Manager) BeginLoadCapture(maxOutputBytes int64) func() loadcapture.Capture {
@@ -501,24 +556,4 @@ func generateAdminPassword() (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(buffer), nil
-}
-
-func hostPort(backendURL *url.URL) (string, string) {
-	host := backendURL.Hostname()
-	port := backendURL.Port()
-	if host == "" {
-		host = "127.0.0.1"
-	}
-	if port == "" {
-		switch backendURL.Scheme {
-		case "https":
-			port = "443"
-		default:
-			port = "5001"
-		}
-	}
-	if parsed := net.ParseIP(host); parsed != nil && parsed.IsUnspecified() {
-		host = "127.0.0.1"
-	}
-	return host, port
 }
