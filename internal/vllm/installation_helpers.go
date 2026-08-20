@@ -157,6 +157,26 @@ func isolatedInstallEnvironment(environmentPath string) []string {
 	return environment
 }
 
+// networkInstallEnvironment matches isolatedInstallEnvironment except it drops
+// UV_OFFLINE and PIP_NO_INDEX, since installFromPyPI needs uv and pip to actually reach
+// the network. Every other isolation property (HOME, cache dir, no user config, no
+// bytecode, no pip config file, no version check) still applies.
+func networkInstallEnvironment(environmentPath string) []string {
+	environment := []string{
+		"HOME=" + environmentPath,
+		"UV_CACHE_DIR=" + filepath.Join(environmentPath, "uv-cache"),
+		"UV_NO_CONFIG=1",
+		"PYTHONNOUSERSITE=1",
+		"PYTHONDONTWRITEBYTECODE=1",
+		"PIP_CONFIG_FILE=" + os.DevNull,
+		"PIP_DISABLE_PIP_VERSION_CHECK=1",
+	}
+	if path := os.Getenv("PATH"); path != "" && !strings.ContainsAny(path, "\x00\r\n") {
+		environment = append(environment, "PATH="+path)
+	}
+	return environment
+}
+
 func findExecutable(name string) (string, error) {
 	return exec.LookPath(name)
 }

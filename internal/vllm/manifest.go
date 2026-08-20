@@ -35,7 +35,12 @@ const (
 	ManifestTrustTUF             ManifestTrust = "tuf"
 	ManifestTrustOperatorPinned  ManifestTrust = "operator-pinned"
 	ManifestTrustEmbeddedDefault ManifestTrust = "embedded-default"
-	ManifestTrustUnknown         ManifestTrust = "unknown"
+	// ManifestTrustUnverified marks a manifest that authorizes nothing: it names a
+	// package to install from PyPI with no digest pin. It is never produced by
+	// ParseManifest, so no TUF-signed or operator-pinned manifest can ever carry it -
+	// only UnverifiedManifestSource, which an operator must explicitly opt into.
+	ManifestTrustUnverified ManifestTrust = "unverified"
+	ManifestTrustUnknown    ManifestTrust = "unknown"
 )
 
 // ResolvingManifestSource is implemented by sources that decide their trust tier while

@@ -39,19 +39,24 @@ func optionalVLLMCompanion(routerConfigPath string, configuration config.VLLMCon
 	// other configured paths.
 	manifestPath := configuration.ManifestPath
 	if strings.TrimSpace(configuration.TUFRepositoryURL) == "" {
-		manifestPath = resolveVLLMPath(configDirectory, manifestPath)
+		manifestPath = resolveOptionalVLLMPath(configDirectory, manifestPath)
 	}
 	client, err := vllm.StartClient(context.Background(), binaryPath, vllm.ClientConfig{
-		DataDir:              resolveVLLMPath(configDirectory, configuration.DataDir),
-		DefaultProfile:       configuration.Profile,
-		ManifestPath:         manifestPath,
-		ManifestSize:         configuration.ManifestSize,
-		ManifestSHA256:       configuration.ManifestSHA256,
-		TUFRepositoryURL:     configuration.TUFRepositoryURL,
-		TUFRootPath:          resolveOptionalVLLMPath(configDirectory, configuration.TUFRootPath),
-		AllowTrustRemoteCode: configuration.TrustRemoteCode,
-		AllowExternalTools:   configuration.ExternalTools,
-		AllowDynamicLoRA:     configuration.DynamicLoRAEnabled,
+		DataDir:                 resolveVLLMPath(configDirectory, configuration.DataDir),
+		DefaultProfile:          configuration.Profile,
+		ManifestPath:            manifestPath,
+		ManifestSize:            configuration.ManifestSize,
+		ManifestSHA256:          configuration.ManifestSHA256,
+		TUFRepositoryURL:        configuration.TUFRepositoryURL,
+		TUFRootPath:             resolveOptionalVLLMPath(configDirectory, configuration.TUFRootPath),
+		AllowTrustRemoteCode:    configuration.TrustRemoteCode,
+		AllowExternalTools:      configuration.ExternalTools,
+		AllowDynamicLoRA:        configuration.DynamicLoRAEnabled,
+		AllowUnverifiedInstall:  configuration.AllowUnverifiedInstall,
+		UnverifiedVLLMVersion:   configuration.UnverifiedVLLMVersion,
+		UnverifiedPythonVersion: configuration.UnverifiedPythonVersion,
+		UnverifiedIndexURL:      configuration.UnverifiedIndexURL,
+		UnverifiedExtraIndexURL: configuration.UnverifiedExtraIndexURL,
 	})
 	if err != nil {
 		return nil, err.Error()

@@ -119,6 +119,20 @@ describe("node state view", () => {
     expect(missing).not.toContain("data-node-backend-init");
   });
 
+  it("calls out an unverified manifest distinctly from pinned trust tiers", () => {
+    const tuf = renderVLLMBackend("ready", {runtime_version: "0.10.2", manifest_trust: "tuf"});
+    const pinned = renderVLLMBackend("ready", {runtime_version: "0.10.2", manifest_trust: "operator-pinned"});
+    const unverified = renderVLLMBackend("ready", {runtime_version: "0.10.2", manifest_trust: "unverified"});
+
+    expect(tuf).not.toContain("Manifest trust:");
+    expect(tuf).not.toContain("error-text");
+    expect(pinned).toContain("Manifest trust: operator-pinned");
+    expect(pinned).not.toContain("error-text");
+    expect(unverified).not.toContain("Manifest trust:");
+    expect(unverified).toContain("error-text");
+    expect(unverified).toContain("Unverified install");
+  });
+
   it("renders node selection as a keyboard-clickable button with role and source chips", () => {
     const node: NodeInventory = {
       node_id: "node <one>",

@@ -693,3 +693,47 @@ func TestValidateStillRequiresCanonicalVLLMTUFRepositoryURL(t *testing.T) {
 		t.Fatal("a plaintext vLLM TUF repository URL was accepted")
 	}
 }
+
+func TestValidateAcceptsUnverifiedInstallWithNoManifestAtAll(t *testing.T) {
+	cfg := Defaults()
+	cfg.VLLM.TUFRepositoryURL = ""
+	cfg.VLLM.ManifestPath = ""
+	cfg.VLLM.AllowUnverifiedInstall = true
+	cfg.VLLM.UnverifiedVLLMVersion = "0.6.3"
+	cfg.VLLM.UnverifiedPythonVersion = "3.12"
+	if err := validate(&cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateAcceptsUnverifiedInstallAlongsideTUF(t *testing.T) {
+	cfg := Defaults()
+	cfg.VLLM.AllowUnverifiedInstall = true
+	if err := validate(&cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateRejectsUnverifiedOptionsWhenDisabled(t *testing.T) {
+	for name, mutate := range map[string]func(*Config){
+		"vllm_version":    func(cfg *Config) { cfg.VLLM.UnverifiedVLLMVersion = "0.6.3" },
+		"python_version":  func(cfg *Config) { cfg.VLLM.UnverifiedPythonVersion = "3.12" },
+		"index_url":       func(cfg *Config) { cfg.VLLM.UnverifiedIndexURL = "https://pypi.org/simple" },
+		"extra_index_url": func(cfg *Config) { cfg.VLLM.UnverifiedExtraIndexURL = "https://pypi.org/simple" },
+	} {
+		cfg := Defaults()
+		mutate(&cfg)
+		if err := validate(&cfg); err == nil {
+			t.Fatalf("%s was accepted with allow_unverified_install false", name)
+		}
+	}
+}
+
+func TestValidateRejectsUnverifiedInstallDisabledWithNoManifest(t *testing.T) {
+	cfg := Defaults()
+	cfg.VLLM.TUFRepositoryURL = ""
+	cfg.VLLM.ManifestPath = ""
+	if err := validate(&cfg); err == nil {
+		t.Fatal("expected rejection with no TUF, no pin, and unverified install disabled")
+	}
+}

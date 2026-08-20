@@ -87,6 +87,22 @@ vllm:
   # authorized against this exact length and digest, and no fallback applies.
   manifest_sha256: ""
   manifest_size: 0
+  # Last resort: install vLLM straight from PyPI with no manifest and no digest
+  # pinning at all, when no TUF-published or operator-pinned manifest is available.
+  # This is a real reduction in supply-chain integrity, not a convenience toggle -
+  # off by default, and it reports the "unverified" trust tier everywhere the other
+  # tiers report theirs (state, logs, WebUI) so the gap is visible, not silent.
+  # unverified_vllm_version is the exact `vllm==<version>` to install; leave it empty
+  # to install whatever `uv pip install vllm` resolves as latest, which is unpinned
+  # even by version. unverified_python_version defaults to 3.12 when left empty.
+  # unverified_index_url / unverified_extra_index_url are most commonly needed to
+  # reach a CUDA/ROCm-specific torch wheel index. These four options are only valid
+  # when allow_unverified_install is true.
+  allow_unverified_install: false
+  unverified_vllm_version: ""
+  unverified_python_version: ""
+  unverified_index_url: ""
+  unverified_extra_index_url: ""
   dynamic_lora_enabled: false
   eep_enabled: false
   trust_remote_code: false

@@ -15,9 +15,16 @@ type UVEnvironmentInstaller struct {
 	Runner          CommandRunner
 	Logs            io.Writer
 	ContainerEngine string
+	// IndexURL and ExtraIndexURL are only used by the "pypi" install method, most
+	// commonly to reach a CUDA/ROCm-specific torch wheel index.
+	IndexURL      string
+	ExtraIndexURL string
 }
 
 func (installer UVEnvironmentInstaller) Install(ctx context.Context, profile Profile, artifacts map[string]string, environmentPath string, phase func(string) error) error {
+	if profile.InstallMethod == "pypi" {
+		return installer.installFromPyPI(ctx, profile, environmentPath, phase)
+	}
 	if err := stageSmokeModel(ctx, profile, artifacts, environmentPath, phase); err != nil {
 		return err
 	}
@@ -140,6 +147,66 @@ func (installer UVEnvironmentInstaller) installOCI(ctx context.Context, profile 
 	return writeJSONAtomic(filepath.Join(environmentPath, ociMetadataFilename), ociRuntimeMetadata{Engine: engineName, Image: profile.OCIImage}, 0o600)
 }
 
+// installFromPyPI installs vLLM directly from PyPI with uv resolving dependencies
+// normally. Unlike every other install path here, nothing downloaded in this method is
+// digest-verified: there is no artifact list to check against, because there is no
+// manifest authorizing specific bytes. It is only reachable through
+// UnverifiedManifestSource, which an operator must explicitly enable.
+func (installer UVEnvironmentInstaller) installFromPyPI(ctx context.Context, profile Profile, environmentPath string, phase func(string) error) error {
+	bootstrapDirectory := filepath.Join(environmentPath, "bootstrap")
+	if err := ensurePrivateDirectory(bootstrapDirectory); err != nil {
+		return err
+	}
+	uvPath := filepath.Join(bootstrapDirectory, "uv")
+	if runtime.GOOS == "windows" {
+		uvPath += ".exe"
+	}
+	embedded, err := stageEmbeddedUV(uvPath)
+	if err != nil {
+		return fmt.Errorf("stage embedded uv bootstrap: %w", err)
+	}
+	if !embedded {
+		return fmt.Errorf("companion has no embedded uv bootstrap; unverified installs require a build with the embedded uv bootstrap")
+	}
+	if err := makeExecutable(uvPath); err != nil {
+		return err
+	}
+	runner := installer.Runner
+	if runner == nil {
+		runner = ExecCommandRunner{}
+	}
+	logs := installer.Logs
+	if logs == nil {
+		logs = io.Discard
+	}
+	environment := networkInstallEnvironment(environmentPath)
+	if err := phase("creating_environment"); err != nil {
+		return err
+	}
+	if err := runner.Run(ctx, uvPath, []string{"venv", "--python", profile.PythonVersion, "--no-project", environmentPath}, environment, environmentPath, logs); err != nil {
+		return fmt.Errorf("create isolated Python environment: %w", err)
+	}
+	if err := phase("installing_packages"); err != nil {
+		return err
+	}
+	packageSpec := "vllm"
+	if profile.VLLMVersion != "" {
+		packageSpec = "vllm==" + profile.VLLMVersion
+	}
+	arguments := []string{"pip", "install", "--python", environmentPythonPath(environmentPath)}
+	if installer.IndexURL != "" {
+		arguments = append(arguments, "--index-url", installer.IndexURL)
+	}
+	if installer.ExtraIndexURL != "" {
+		arguments = append(arguments, "--extra-index-url", installer.ExtraIndexURL)
+	}
+	arguments = append(arguments, packageSpec)
+	if err := runner.Run(ctx, uvPath, arguments, environment, environmentPath, logs); err != nil {
+		return fmt.Errorf("install unpinned vLLM package from PyPI: %w", err)
+	}
+	return nil
+}
+
 type CommandSmokeTester struct {
 	Runner          CommandRunner
 	Launcher        RuntimeLauncher
@@ -162,6 +229,18 @@ func (tester CommandSmokeTester) Test(ctx context.Context, profile Profile, envi
 	}
 	pythonPath := environmentPythonPath(environmentPath)
 	environment := isolatedRuntimeEnvironment(environmentPath, "")
+	if profile.InstallMethod == "pypi" {
+		// No signed smoke model exists for an unverified install, so this checks
+		// only that the unpinned package imports - not that it can actually serve.
+		versionCheck := "import sys,vllm; assert '.'.join(map(str,sys.version_info[:3])) == " + strconv.Quote(profile.PythonVersion)
+		if profile.VLLMVersion != "" {
+			versionCheck += "; assert vllm.__version__ == " + strconv.Quote(profile.VLLMVersion)
+		}
+		if err := runner.Run(ctx, pythonPath, []string{"-I", "-c", versionCheck}, environment, environmentPath, logs); err != nil {
+			return fmt.Errorf("import unverified vLLM install: %w", err)
+		}
+		return nil
+	}
 	versionCheck := "import sys,vllm; assert vllm.__version__ == " + strconv.Quote(profile.VLLMVersion) + "; assert '.'.join(map(str,sys.version_info[:3])) == " + strconv.Quote(profile.PythonVersion)
 	if err := runner.Run(ctx, pythonPath, []string{"-I", "-c", versionCheck}, environment, environmentPath, logs); err != nil {
 		return fmt.Errorf("import vLLM: %w", err)

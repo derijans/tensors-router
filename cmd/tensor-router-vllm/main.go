@@ -49,14 +49,27 @@ func run(arguments []string, input io.Reader, output io.Writer) error {
 		return err
 	}
 	// An operator-pinned manifest is authoritative: a missing or mismatched file is an
-	// error, never a reason to install something else. Only the TUF tier falls back, and
-	// only when the metadata chain verified but no runtime manifest has been published.
-	var manifestSource vllm.ManifestSource = vllm.AuthorizedManifestFile{Path: configuration.ManifestPath, Authorization: vllm.ArtifactAuthorization{Length: configuration.ManifestSize, SHA256: configuration.ManifestSHA256}}
-	if configuration.TUFRepositoryURL != "" {
+	// error, never a reason to install something else. The TUF tier falls back to the
+	// embedded default, and only that, when the metadata chain verified but no runtime
+	// manifest has been published; an explicit --allow-unverified-install extends that
+	// chain one step further, to installing vLLM unpinned from PyPI. Nothing here lets
+	// a TUF-signed or operator-pinned manifest itself select an unverified install --
+	// only this flag can.
+	var unverifiedSource vllm.ManifestSource
+	if configuration.AllowUnverifiedInstall {
+		unverifiedSource = vllm.UnverifiedManifestSource{VLLMVersion: configuration.UnverifiedVLLMVersion, PythonVersion: configuration.UnverifiedPythonVersion}
+	}
+	var manifestSource vllm.ManifestSource
+	switch {
+	case configuration.TUFRepositoryURL != "":
 		manifestSource = vllm.FallbackManifestSource{
 			Primary:  vllm.TUFManifestSource{RepositoryURL: configuration.TUFRepositoryURL, TrustedRootPath: configuration.TUFRootPath, TrustedRoot: routerupdate.TrustedRoot(), TargetPath: configuration.ManifestPath, CacheDir: configuration.DataDir + "/tuf"},
-			Fallback: vllm.EmbeddedManifestSource{},
+			Fallback: vllm.FallbackManifestSource{Primary: vllm.EmbeddedManifestSource{}, Fallback: unverifiedSource},
 		}
+	case configuration.ManifestPath != "":
+		manifestSource = vllm.AuthorizedManifestFile{Path: configuration.ManifestPath, Authorization: vllm.ArtifactAuthorization{Length: configuration.ManifestSize, SHA256: configuration.ManifestSHA256}}
+	default:
+		manifestSource = unverifiedSource
 	}
 	manager, err := vllm.NewManager(vllm.ManagerOptions{
 		DataDir:              configuration.DataDir,
@@ -64,7 +77,7 @@ func run(arguments []string, input io.Reader, output io.Writer) error {
 		ManifestSource:       manifestSource,
 		Detector:             vllm.SystemDetector{},
 		Downloader:           vllm.HTTPArtifactDownloader{},
-		Installer:            vllm.UVEnvironmentInstaller{},
+		Installer:            vllm.UVEnvironmentInstaller{IndexURL: configuration.UnverifiedIndexURL, ExtraIndexURL: configuration.UnverifiedExtraIndexURL},
 		SmokeTester:          vllm.CommandSmokeTester{},
 		AllowTrustRemoteCode: configuration.AllowTrustRemoteCode,
 		AllowExternalTools:   configuration.AllowExternalTools,
@@ -122,20 +135,43 @@ func parseWorkerConfig(arguments []string) (vllm.ClientConfig, error) {
 				return vllm.ClientConfig{}, fmt.Errorf("%s must be true or false", name)
 			}
 			configuration.AllowDynamicLoRA = parsed
+		case "--allow-unverified-install":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return vllm.ClientConfig{}, fmt.Errorf("%s must be true or false", name)
+			}
+			configuration.AllowUnverifiedInstall = parsed
+		case "--unverified-vllm-version":
+			configuration.UnverifiedVLLMVersion = value
+		case "--unverified-python-version":
+			configuration.UnverifiedPythonVersion = value
+		case "--unverified-index-url":
+			configuration.UnverifiedIndexURL = value
+		case "--unverified-extra-index-url":
+			configuration.UnverifiedExtraIndexURL = value
 		default:
 			return vllm.ClientConfig{}, fmt.Errorf("unknown worker option %q", name)
 		}
 	}
-	if configuration.DataDir == "" || configuration.ManifestPath == "" {
-		return vllm.ClientConfig{}, fmt.Errorf("worker requires --data-dir and --manifest")
+	if configuration.DataDir == "" {
+		return vllm.ClientConfig{}, fmt.Errorf("worker requires --data-dir")
 	}
-	if configuration.TUFRepositoryURL == "" && (configuration.ManifestSize <= 0 || configuration.ManifestSHA256 == "") {
-		return vllm.ClientConfig{}, fmt.Errorf("worker requires TUF configuration or --manifest-size and --manifest-sha256")
+	switch {
+	case configuration.TUFRepositoryURL != "":
+		if configuration.ManifestPath == "" {
+			return vllm.ClientConfig{}, fmt.Errorf("worker requires --manifest when --tuf-repository-url is set")
+		}
+	case configuration.ManifestPath != "":
+		if configuration.ManifestSize <= 0 || configuration.ManifestSHA256 == "" {
+			return vllm.ClientConfig{}, fmt.Errorf("worker requires --manifest-size and --manifest-sha256 when --manifest is set without --tuf-repository-url")
+		}
+	case !configuration.AllowUnverifiedInstall:
+		return vllm.ClientConfig{}, fmt.Errorf("worker requires --tuf-repository-url, --manifest with --manifest-size and --manifest-sha256, or --allow-unverified-install")
 	}
 	return configuration, nil
 }
 
 func usage(output io.Writer) error {
-	_, err := fmt.Fprintln(output, "Usage: tensor-router-vllm worker --data-dir PATH --profile PROFILE --manifest TARGET --tuf-repository-url URL --tuf-root PATH")
+	_, err := fmt.Fprintln(output, "Usage: tensor-router-vllm worker --data-dir PATH --profile PROFILE --manifest TARGET --tuf-repository-url URL --tuf-root PATH --allow-unverified-install BOOL")
 	return err
 }

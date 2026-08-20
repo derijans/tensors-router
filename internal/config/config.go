@@ -137,6 +137,15 @@ type VLLMConfig struct {
 	EEPEnabled         bool
 	TrustRemoteCode    bool
 	ExternalTools      bool
+	// AllowUnverifiedInstall opts into installing vLLM straight from PyPI with no
+	// manifest and no digest pinning, when no TUF-published or operator-pinned
+	// manifest is available. Off by default: this is a real reduction in
+	// supply-chain integrity, not a convenience toggle.
+	AllowUnverifiedInstall  bool
+	UnverifiedVLLMVersion   string
+	UnverifiedPythonVersion string
+	UnverifiedIndexURL      string
+	UnverifiedExtraIndexURL string
 }
 
 type BackendUpdateSource struct {
@@ -387,7 +396,9 @@ func validate(cfg *Config) error {
 	if !validVLLMProfile(cfg.VLLM.Profile) {
 		return fmt.Errorf("vllm.profile must be auto or a safe profile identifier")
 	}
-	if strings.TrimSpace(cfg.VLLM.ManifestPath) == "" {
+	vllmTUFConfigured := strings.TrimSpace(cfg.VLLM.TUFRepositoryURL) != ""
+	vllmPinConfigured := strings.TrimSpace(cfg.VLLM.ManifestSHA256) != "" || cfg.VLLM.ManifestSize != 0
+	if (vllmTUFConfigured || vllmPinConfigured) && strings.TrimSpace(cfg.VLLM.ManifestPath) == "" {
 		return fmt.Errorf("vllm.manifest_path is required")
 	}
 	if err := validateVLLMManifestSource(cfg.VLLM); err != nil {
@@ -702,16 +713,30 @@ func updateSourceUsesTrustedRepository(source BackendUpdateSource) bool {
 // operator-pinned local manifest. An empty repository URL selects the pinned mode, which
 // still requires an explicit digest and length so the manifest bytes remain authorized.
 func validateVLLMManifestSource(cfg VLLMConfig) error {
-	if strings.TrimSpace(cfg.TUFRepositoryURL) == "" {
-		if !validSHA256Hex(cfg.ManifestSHA256) {
-			return fmt.Errorf("vllm.manifest_sha256 must be a 64-character hex digest when vllm.tuf_repository_url is empty")
+	tufConfigured := strings.TrimSpace(cfg.TUFRepositoryURL) != ""
+	pinConfigured := strings.TrimSpace(cfg.ManifestSHA256) != "" || cfg.ManifestSize != 0
+	if !cfg.AllowUnverifiedInstall {
+		if strings.TrimSpace(cfg.UnverifiedVLLMVersion) != "" || strings.TrimSpace(cfg.UnverifiedPythonVersion) != "" || strings.TrimSpace(cfg.UnverifiedIndexURL) != "" || strings.TrimSpace(cfg.UnverifiedExtraIndexURL) != "" {
+			return fmt.Errorf("vllm.unverified_* options are only valid when vllm.allow_unverified_install is true")
 		}
-		if cfg.ManifestSize <= 0 {
-			return fmt.Errorf("vllm.manifest_size must be a positive byte count when vllm.tuf_repository_url is empty")
-		}
-		return nil
 	}
-	if strings.TrimSpace(cfg.ManifestSHA256) != "" || cfg.ManifestSize != 0 {
+	if !tufConfigured {
+		if pinConfigured {
+			if !validSHA256Hex(cfg.ManifestSHA256) {
+				return fmt.Errorf("vllm.manifest_sha256 must be a 64-character hex digest when vllm.tuf_repository_url is empty")
+			}
+			if cfg.ManifestSize <= 0 {
+				return fmt.Errorf("vllm.manifest_size must be a positive byte count when vllm.tuf_repository_url is empty")
+			}
+			return nil
+		}
+		if cfg.AllowUnverifiedInstall {
+			// No TUF target, no operator pin: vLLM installs unpinned from PyPI.
+			return nil
+		}
+		return fmt.Errorf("vllm.manifest_sha256 and vllm.manifest_size are required when vllm.tuf_repository_url is empty and vllm.allow_unverified_install is false")
+	}
+	if pinConfigured {
 		return fmt.Errorf("vllm.manifest_sha256 and vllm.manifest_size are only valid when vllm.tuf_repository_url is empty")
 	}
 	if err := validateTUFRepositoryURL(cfg.TUFRepositoryURL); err != nil {
@@ -1103,6 +1128,25 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 				return err
 			}
 			cfg.VLLM.ExternalTools = parsed
+			return nil
+		case "allow_unverified_install":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return err
+			}
+			cfg.VLLM.AllowUnverifiedInstall = parsed
+			return nil
+		case "unverified_vllm_version":
+			cfg.VLLM.UnverifiedVLLMVersion = value
+			return nil
+		case "unverified_python_version":
+			cfg.VLLM.UnverifiedPythonVersion = value
+			return nil
+		case "unverified_index_url":
+			cfg.VLLM.UnverifiedIndexURL = value
+			return nil
+		case "unverified_extra_index_url":
+			cfg.VLLM.UnverifiedExtraIndexURL = value
 			return nil
 		}
 	case "logging":

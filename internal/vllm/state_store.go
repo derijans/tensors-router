@@ -78,11 +78,17 @@ func validatePersistentJob(job InitializationJob) error {
 }
 
 func validateActiveEnvironment(dataDir string, active activeEnvironment) error {
-	if !safeIdentifier(active.ProfileID) || validatePinnedVersion("vLLM version", active.VLLMVersion) != nil || !validSHA256(active.ManifestSHA256) {
+	if !safeIdentifier(active.ProfileID) || !validSHA256(active.ManifestSHA256) {
+		return fmt.Errorf("active vLLM environment identity is invalid")
+	}
+	// An unverified PyPI install with no pinned version has no exact version to
+	// validate here; every other install method still requires one.
+	unpinnedPyPIInstall := active.InstallMethod == "pypi" && active.VLLMVersion == ""
+	if !unpinnedPyPIInstall && validatePinnedVersion("vLLM version", active.VLLMVersion) != nil {
 		return fmt.Errorf("active vLLM environment identity is invalid")
 	}
 	switch active.InstallMethod {
-	case "", "wheel", "source":
+	case "", "wheel", "source", "pypi":
 		if active.OCIImage != "" || active.ContainerEngine != "" {
 			return fmt.Errorf("non-OCI environment contains OCI metadata")
 		}

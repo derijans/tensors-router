@@ -22,16 +22,21 @@ const (
 )
 
 type ClientConfig struct {
-	DataDir              string
-	DefaultProfile       string
-	ManifestPath         string
-	ManifestSize         int64
-	ManifestSHA256       string
-	TUFRepositoryURL     string
-	TUFRootPath          string
-	AllowTrustRemoteCode bool
-	AllowExternalTools   bool
-	AllowDynamicLoRA     bool
+	DataDir                 string
+	DefaultProfile          string
+	ManifestPath            string
+	ManifestSize            int64
+	ManifestSHA256          string
+	TUFRepositoryURL        string
+	TUFRootPath             string
+	AllowTrustRemoteCode    bool
+	AllowExternalTools      bool
+	AllowDynamicLoRA        bool
+	AllowUnverifiedInstall  bool
+	UnverifiedVLLMVersion   string
+	UnverifiedPythonVersion string
+	UnverifiedIndexURL      string
+	UnverifiedExtraIndexURL string
 }
 
 type Client struct {
@@ -51,14 +56,32 @@ type Client struct {
 var _ Service = (*Client)(nil)
 
 func StartClient(ctx context.Context, binaryPath string, configuration ClientConfig) (*Client, error) {
-	arguments := []string{"worker", "--data-dir", configuration.DataDir, "--profile", configuration.DefaultProfile, "--manifest", configuration.ManifestPath}
+	arguments := []string{"worker", "--data-dir", configuration.DataDir, "--profile", configuration.DefaultProfile}
+	if configuration.ManifestPath != "" {
+		arguments = append(arguments, "--manifest", configuration.ManifestPath)
+	}
 	if configuration.TUFRepositoryURL != "" {
 		arguments = append(arguments, "--tuf-repository-url", configuration.TUFRepositoryURL)
 		if configuration.TUFRootPath != "" {
 			arguments = append(arguments, "--tuf-root", configuration.TUFRootPath)
 		}
-	} else {
+	} else if configuration.ManifestSHA256 != "" || configuration.ManifestSize != 0 {
 		arguments = append(arguments, "--manifest-size", fmt.Sprint(configuration.ManifestSize), "--manifest-sha256", configuration.ManifestSHA256)
+	}
+	if configuration.AllowUnverifiedInstall {
+		arguments = append(arguments, "--allow-unverified-install", "true")
+		if configuration.UnverifiedVLLMVersion != "" {
+			arguments = append(arguments, "--unverified-vllm-version", configuration.UnverifiedVLLMVersion)
+		}
+		if configuration.UnverifiedPythonVersion != "" {
+			arguments = append(arguments, "--unverified-python-version", configuration.UnverifiedPythonVersion)
+		}
+		if configuration.UnverifiedIndexURL != "" {
+			arguments = append(arguments, "--unverified-index-url", configuration.UnverifiedIndexURL)
+		}
+		if configuration.UnverifiedExtraIndexURL != "" {
+			arguments = append(arguments, "--unverified-extra-index-url", configuration.UnverifiedExtraIndexURL)
+		}
 	}
 	if configuration.AllowTrustRemoteCode {
 		arguments = append(arguments, "--allow-trust-remote-code", "true")

@@ -105,9 +105,14 @@ function renderRuntimeIdentity(backend: NodeStateBackend): string {
     backend.runtime_version ? `Version: ${backend.runtime_version}` : "",
     backend.selected_profile ? `Profile: ${backend.selected_profile}` : "",
     backend.detected_profile && backend.detected_profile !== backend.selected_profile ? `Detected: ${backend.detected_profile}` : "",
-    backend.manifest_trust && backend.manifest_trust !== "tuf" ? `Manifest trust: ${backend.manifest_trust}` : ""
+    backend.manifest_trust && backend.manifest_trust !== "tuf" && backend.manifest_trust !== "unverified" ? `Manifest trust: ${backend.manifest_trust}` : ""
   ].filter(Boolean);
-  return rows.length > 0 ? `<div class="muted node-backend-runtime">${rows.map(value => `<span>${escapeHTML(value)}</span>`).join("")}</div>` : "";
+  const identity = rows.length > 0 ? `<div class="muted node-backend-runtime">${rows.map(value => `<span>${escapeHTML(value)}</span>`).join("")}</div>` : "";
+  // Unlike every other trust tier, "unverified" pins nothing at all - it is called
+  // out on its own line, not folded into the muted identity row, so it cannot be
+  // mistaken for routine metadata.
+  const unverifiedWarning = backend.manifest_trust === "unverified" ? `<p class="error-text node-backend-unverified">Unverified install: no manifest, no digest pinning - installed straight from PyPI</p>` : "";
+  return identity + unverifiedWarning;
 }
 
 function renderInitializationProgress(backend: NodeStateBackend): string {
