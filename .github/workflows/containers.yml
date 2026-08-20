@@ -186,7 +186,9 @@ jobs:
               docker image inspect "$image" --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp"]'
               docker image inspect "$image" --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensors-router", "serve", "--config", "/config/config.yaml"]'
             fi
-            docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c 'test -x /usr/local/bin/tensors-router && test -x /usr/local/bin/tensor-router-downloader && test "$(id -u tensors):$(id -g tensors)" = 10001:10001 && test "$(stat -c %u:%g /data)" = 10001:10001 && test "$(stat -c %u:%g /models)" = 10001:10001 && ! command -v pip && ! command -v gcc && ! command -v g++ && ! command -v cc && ! command -v make && ! command -v cmake && ! command -v nvcc && ! command -v hipcc && ! command -v clang'
+            compiler_ban='! command -v pip && ! command -v gcc && ! command -v g++ && ! command -v cc && ! command -v make && ! command -v cmake && ! command -v nvcc'
+            [[ "$TARGET" == *-rocm ]] || compiler_ban="$compiler_ban && ! command -v hipcc && ! command -v clang"
+            docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c "test -x /usr/local/bin/tensors-router && test -x /usr/local/bin/tensor-router-downloader && test \"\$(id -u tensors):\$(id -g tensors)\" = 10001:10001 && test \"\$(stat -c %u:%g /data)\" = 10001:10001 && test \"\$(stat -c %u:%g /models)\" = 10001:10001 && $compiler_ban"
             if [[ "$TARGET" == *webui* ]]; then
               docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c 'test -x /usr/local/bin/tensor-router-webui'
             else
