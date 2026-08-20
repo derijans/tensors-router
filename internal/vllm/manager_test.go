@@ -478,6 +478,19 @@ func TestManagerCloseHasBoundedInitializationWait(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("stubborn initialization did not finish after release")
 	}
+	// smoke.finished only confirms the smoke tester's own call returned; the
+	// background worker still has cleanup and job persistence left to do, and
+	// that work races t.TempDir()'s removal unless we wait for it here too.
+	workersDone := make(chan struct{})
+	go func() {
+		manager.workers.Wait()
+		close(workersDone)
+	}()
+	select {
+	case <-workersDone:
+	case <-time.After(time.Second):
+		t.Fatal("background initialization worker did not finish after release")
+	}
 }
 
 func testManagerOptions(t *testing.T) (ManagerOptions, *staticManifestSource, *staticDetector, *writingDownloader, *controlledInstaller, *controlledSmokeTester) {
