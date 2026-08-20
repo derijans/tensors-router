@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "373307933",
+      "tag": "master-827-97d2990",
+      "published_at": "2026-08-19T19:41:42Z",
+      "payloads": [
+        {
+          "name": "sd-master-97d2990-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-827-97d2990/sd-master-97d2990-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 32901539,
+          "sha256": "9fb6e80b656723baddd9a9692090e8db40d34f839d2d5f13b7741c30f3b28ba9"
+        }
+      ]
+    }
+  ]
+}
