@@ -70,6 +70,7 @@ FROM ubuntu:24.04@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e8
 ARG ROCM_PACKAGE_VERSION=7.2.4.70204-93~24.04
 ARG ROCM_INFO_PACKAGE_VERSION=1.0.0.70204-93~24.04
 RUN apt-get update && apt-get dist-upgrade --yes && apt-get install --yes --no-install-recommends ca-certificates curl gnupg libgomp1 tzdata && install -d -m 0755 /etc/apt/keyrings && curl --fail --location --silent --show-error https://repo.radeon.com/rocm/rocm.gpg.key -o /tmp/rocm.gpg.key && echo '2de99e2354646a90d9903e2a669fc4e36b02c1bbff7075c481e12d7edab2c88b  /tmp/rocm.gpg.key' | sha256sum -c - && gpg --batch --dearmor --output /etc/apt/keyrings/rocm.gpg /tmp/rocm.gpg.key && echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2.4 noble main' > /etc/apt/sources.list.d/rocm.list && apt-get update && apt-get install --yes --no-install-recommends rocm-hip-runtime="${ROCM_PACKAGE_VERSION}" rocm-hip-libraries="${ROCM_PACKAGE_VERSION}" rocminfo="${ROCM_INFO_PACKAGE_VERSION}" && apt-get purge --yes --auto-remove curl gnupg && rm -rf /var/lib/apt/lists/* /tmp/rocm.gpg.key
+RUN printf '/opt/rocm/lib\n/opt/rocm/lib64\n' > /etc/ld.so.conf.d/rocm.conf && ldconfig && ldconfig -p | grep -q 'libamdhip64\.so' && ldconfig -p | grep -q 'librocblas\.so'
 RUN getent group video >/dev/null || groupadd --system video
 RUN getent group render >/dev/null || groupadd --system render
 RUN groupadd --gid 10001 tensors && useradd --no-create-home --uid 10001 --gid tensors tensors && install -d -o tensors -g tensors /config /models /data /data/vllm

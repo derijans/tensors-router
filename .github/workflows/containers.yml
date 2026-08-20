@@ -177,14 +177,16 @@ jobs:
           for platform in "${platforms[@]}"; do
             platform_digest=$(docker buildx imagetools inspect --raw "$candidate" | jq -er --arg os "${platform%%/*}" --arg architecture "${platform##*/}" '[.manifests[] | select(.platform.os == $os and .platform.architecture == $architecture) | .digest] | if length == 1 then .[0] else error("expected exactly one \($os)/\($architecture) manifest") end')
             image="$image_name@$platform_digest"
+            fail() { echo "verify($TARGET/$platform): $1"; exit 1; }
             docker pull --platform "$platform" "$image"
-            test "$(docker image inspect "$image" --format '{{.Config.User}}')" = tensors
+            actual_user=$(docker image inspect "$image" --format '{{.Config.User}}') || fail "docker image inspect for Config.User failed"
+            [ "$actual_user" = tensors ] || fail "unexpected Config.User $actual_user"
             if [[ "$TARGET" == *webui* ]]; then
-              docker image inspect "$image" --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp", "8443/tcp", "8444/tcp"]'
-              docker image inspect "$image" --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensor-router-webui", "--config", "/config/webui.yaml"]'
+              docker image inspect "$image" --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp", "8443/tcp", "8444/tcp"]' >/dev/null || fail "unexpected webui ExposedPorts"
+              docker image inspect "$image" --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensor-router-webui", "--config", "/config/webui.yaml"]' >/dev/null || fail "unexpected webui Entrypoint"
             else
-              docker image inspect "$image" --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp"]'
-              docker image inspect "$image" --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensors-router", "serve", "--config", "/config/config.yaml"]'
+              docker image inspect "$image" --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp"]' >/dev/null || fail "unexpected ExposedPorts"
+              docker image inspect "$image" --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensors-router", "serve", "--config", "/config/config.yaml"]' >/dev/null || fail "unexpected Entrypoint"
             fi
             banned_tools="pip gcc g++ cc make cmake nvcc"
             [[ "$TARGET" == *-rocm ]] || banned_tools="$banned_tools hipcc clang"
@@ -205,24 +207,24 @@ jobs:
               done
             '
             if [[ "$TARGET" == *webui* ]]; then
-              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c 'test -x /usr/local/bin/tensor-router-webui'
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c 'test -x /usr/local/bin/tensor-router-webui' || fail "missing /usr/local/bin/tensor-router-webui"
             else
-              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c 'test ! -e /usr/local/bin/tensor-router-webui'
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c 'test ! -e /usr/local/bin/tensor-router-webui' || fail "unexpected /usr/local/bin/tensor-router-webui present"
             fi
             if [[ "$TARGET" == vllm-* ]]; then
-              docker image inspect "$image" --format '{{json .Config.Volumes}}' | jq -e 'keys == ["/data/vllm", "/models"]'
-              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c 'test -x /usr/local/bin/tensor-router-vllm'
+              docker image inspect "$image" --format '{{json .Config.Volumes}}' | jq -e 'keys == ["/data/vllm", "/models"]' >/dev/null || fail "unexpected Config.Volumes"
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c 'test -x /usr/local/bin/tensor-router-vllm' || fail "missing /usr/local/bin/tensor-router-vllm"
             else
-              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c 'test ! -e /usr/local/bin/tensor-router-vllm'
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c 'test ! -e /usr/local/bin/tensor-router-vllm' || fail "unexpected /usr/local/bin/tensor-router-vllm present"
             fi
             if [[ "$TARGET" == *-cuda ]]; then
-              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c "ldconfig -p | grep -q 'libcudart\.so' && ldconfig -p | grep -q 'libcublas\.so'"
-              docker image inspect "$image" --format '{{json .Config.Env}}' | jq -e 'index("NVIDIA_VISIBLE_DEVICES=all") and index("NVIDIA_DRIVER_CAPABILITIES=compute,utility")'
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c "ldconfig -p | grep -q 'libcudart\.so' && ldconfig -p | grep -q 'libcublas\.so'" || fail "libcudart.so/libcublas.so not registered with ldconfig"
+              docker image inspect "$image" --format '{{json .Config.Env}}' | jq -e 'index("NVIDIA_VISIBLE_DEVICES=all") and index("NVIDIA_DRIVER_CAPABILITIES=compute,utility")' >/dev/null || fail "missing NVIDIA env vars"
             fi
             if [[ "$TARGET" == *-rocm ]]; then
-              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c "ldconfig -p | grep -q 'libamdhip64\.so' && ldconfig -p | grep -q 'librocblas\.so'"
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c "ldconfig -p | grep -q 'libamdhip64\.so' && ldconfig -p | grep -q 'librocblas\.so'" || fail "libamdhip64.so/librocblas.so not registered with ldconfig"
             fi
-            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.docker:/root/.docker:ro" aquasec/trivy@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436 image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "$image"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.docker:/root/.docker:ro" aquasec/trivy@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436 image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "$image" || fail "Trivy found fixed HIGH/CRITICAL vulnerabilities"
           done
 
   promote:
