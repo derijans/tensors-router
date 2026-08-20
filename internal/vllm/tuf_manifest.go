@@ -26,6 +26,10 @@ type TUFManifestSource struct {
 	HTTPClient      *http.Client
 }
 
+func (source TUFManifestSource) ManifestTrust() ManifestTrust {
+	return ManifestTrustTUF
+}
+
 func (source TUFManifestSource) Load(ctx context.Context) (Manifest, string, error) {
 	repositoryURL, targetPath, root, err := source.validate()
 	if err != nil {
@@ -68,7 +72,10 @@ func (source TUFManifestSource) Load(ctx context.Context) (Manifest, string, err
 	}
 	targetInfo, err := client.GetTargetInfo(targetPath)
 	if err != nil {
-		return Manifest{}, "", fmt.Errorf("resolve trusted vLLM manifest %q: %w", targetPath, err)
+		// Refresh already validated signatures, expiry, and rollback for the whole
+		// metadata chain, so a target that cannot be resolved inside that valid
+		// metadata was never published rather than tampered with.
+		return Manifest{}, "", fmt.Errorf("resolve trusted vLLM manifest %q: %v: %w", targetPath, err, ErrManifestNotPublished)
 	}
 	_, content, err := client.DownloadTarget(targetInfo, filepath.Join(targetsDir, url.PathEscape(targetPath)), "")
 	if err != nil {

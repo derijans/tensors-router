@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -22,9 +23,86 @@ type ManifestSource interface {
 	Load(context.Context) (Manifest, string, error)
 }
 
+// ErrManifestNotPublished reports that a manifest source completed every integrity
+// check it is responsible for and established that no manifest exists for this
+// platform. It never reports a signature, freshness, transport, or digest failure.
+var ErrManifestNotPublished = errors.New("vLLM runtime manifest is not published")
+
+// ManifestTrust names how strongly the manifest that was loaded is authorized.
+type ManifestTrust string
+
+const (
+	ManifestTrustTUF             ManifestTrust = "tuf"
+	ManifestTrustOperatorPinned  ManifestTrust = "operator-pinned"
+	ManifestTrustEmbeddedDefault ManifestTrust = "embedded-default"
+	ManifestTrustUnknown         ManifestTrust = "unknown"
+)
+
+// ResolvingManifestSource is implemented by sources that decide their trust tier while
+// loading rather than statically.
+type ResolvingManifestSource interface {
+	ManifestSource
+	Resolve(context.Context) (Manifest, string, ManifestTrust, error)
+}
+
+// ResolveManifest loads a manifest and reports which trust tier produced it.
+func ResolveManifest(ctx context.Context, source ManifestSource) (Manifest, string, ManifestTrust, error) {
+	if resolving, ok := source.(ResolvingManifestSource); ok {
+		return resolving.Resolve(ctx)
+	}
+	manifest, digest, err := source.Load(ctx)
+	return manifest, digest, staticManifestTrust(source), err
+}
+
+func staticManifestTrust(source ManifestSource) ManifestTrust {
+	type trusted interface{ ManifestTrust() ManifestTrust }
+	if value, ok := source.(trusted); ok {
+		return value.ManifestTrust()
+	}
+	return ManifestTrustUnknown
+}
+
+// FallbackManifestSource tries Primary first and falls back to Fallback only when
+// Primary reports ErrManifestNotPublished. Every other failure is returned unchanged,
+// so a tampered, expired, or unreachable repository still fails closed.
+type FallbackManifestSource struct {
+	Primary  ManifestSource
+	Fallback ManifestSource
+}
+
+func (source FallbackManifestSource) Load(ctx context.Context) (Manifest, string, error) {
+	manifest, digest, _, err := source.Resolve(ctx)
+	return manifest, digest, err
+}
+
+func (source FallbackManifestSource) Resolve(ctx context.Context) (Manifest, string, ManifestTrust, error) {
+	if source.Primary == nil {
+		if source.Fallback == nil {
+			return Manifest{}, "", ManifestTrustUnknown, fmt.Errorf("no vLLM manifest source is configured")
+		}
+		return ResolveManifest(ctx, source.Fallback)
+	}
+	manifest, digest, trust, err := ResolveManifest(ctx, source.Primary)
+	if err == nil {
+		return manifest, digest, trust, nil
+	}
+	if !errors.Is(err, ErrManifestNotPublished) || source.Fallback == nil {
+		return Manifest{}, "", ManifestTrustUnknown, err
+	}
+	fallbackManifest, fallbackDigest, fallbackTrust, fallbackErr := ResolveManifest(ctx, source.Fallback)
+	if fallbackErr != nil {
+		return Manifest{}, "", ManifestTrustUnknown, fmt.Errorf("%w; no fallback manifest is available: %v", err, fallbackErr)
+	}
+	return fallbackManifest, fallbackDigest, fallbackTrust, nil
+}
+
 type AuthorizedManifestFile struct {
 	Path          string
 	Authorization ArtifactAuthorization
+}
+
+func (source AuthorizedManifestFile) ManifestTrust() ManifestTrust {
+	return ManifestTrustOperatorPinned
 }
 
 func (source AuthorizedManifestFile) Load(_ context.Context) (Manifest, string, error) {
@@ -460,6 +538,11 @@ func safePackageName(value string) bool {
 func validSHA256(value string) bool {
 	decoded, err := hex.DecodeString(strings.TrimSpace(value))
 	return err == nil && len(decoded) == sha256.Size
+}
+
+func sha256Hex(content []byte) string {
+	digest := sha256.Sum256(content)
+	return hex.EncodeToString(digest[:])
 }
 
 func equalSHA256(left string, right string) bool {

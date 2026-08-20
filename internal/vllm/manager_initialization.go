@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -66,10 +67,13 @@ func (manager *Manager) prepareInitialization(ctx context.Context, jobID string,
 	if err := manager.updateJob(jobID, "authorizing_manifest", 0); err != nil {
 		return
 	}
-	manifest, manifestDigest, err := manager.options.ManifestSource.Load(ctx)
+	manifest, manifestDigest, manifestTrust, err := ResolveManifest(ctx, manager.options.ManifestSource)
 	if err != nil {
 		manager.finishJobFromContext(jobID, ctx, err)
 		return
+	}
+	if manifestTrust != ManifestTrustTUF {
+		log.Printf("vLLM manifest is not TUF-authorized: trust tier %s; artifacts remain pinned by the manifest digest %s", manifestTrust, manifestDigest)
 	}
 	if err := manager.updateJob(jobID, "detecting_prerequisites", 0); err != nil {
 		return
@@ -97,6 +101,7 @@ func (manager *Manager) prepareInitialization(ctx context.Context, jobID string,
 	manager.job.SelectedProfile = profile.ID
 	manager.job.DetectedProfile = strings.Join(detection.Devices, ",")
 	manager.job.ManifestSHA256 = manifestDigest
+	manager.job.ManifestTrust = string(manifestTrust)
 	manager.job.TotalBytes = totalBytes
 	manager.job.UpdatedAt = manager.now().UTC()
 	if err := manager.saveJobLocked(); err != nil {

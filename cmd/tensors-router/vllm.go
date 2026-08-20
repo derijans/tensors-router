@@ -34,10 +34,19 @@ func optionalVLLMCompanion(routerConfigPath string, configuration config.VLLMCon
 		return nil, fmt.Sprintf("vLLM companion at %q is not a regular file", binaryPath)
 	}
 	configDirectory := filepath.Dir(routerConfigPath)
+	// With TUF configured the manifest path is a target path inside the repository and
+	// must stay verbatim; an operator-pinned manifest is a local file resolved like the
+	// other configured paths.
+	manifestPath := configuration.ManifestPath
+	if strings.TrimSpace(configuration.TUFRepositoryURL) == "" {
+		manifestPath = resolveVLLMPath(configDirectory, manifestPath)
+	}
 	client, err := vllm.StartClient(context.Background(), binaryPath, vllm.ClientConfig{
 		DataDir:              resolveVLLMPath(configDirectory, configuration.DataDir),
 		DefaultProfile:       configuration.Profile,
-		ManifestPath:         configuration.ManifestPath,
+		ManifestPath:         manifestPath,
+		ManifestSize:         configuration.ManifestSize,
+		ManifestSHA256:       configuration.ManifestSHA256,
 		TUFRepositoryURL:     configuration.TUFRepositoryURL,
 		TUFRootPath:          resolveOptionalVLLMPath(configDirectory, configuration.TUFRootPath),
 		AllowTrustRemoteCode: configuration.TrustRemoteCode,

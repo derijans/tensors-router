@@ -48,9 +48,15 @@ func run(arguments []string, input io.Reader, output io.Writer) error {
 	if err != nil {
 		return err
 	}
+	// An operator-pinned manifest is authoritative: a missing or mismatched file is an
+	// error, never a reason to install something else. Only the TUF tier falls back, and
+	// only when the metadata chain verified but no runtime manifest has been published.
 	var manifestSource vllm.ManifestSource = vllm.AuthorizedManifestFile{Path: configuration.ManifestPath, Authorization: vllm.ArtifactAuthorization{Length: configuration.ManifestSize, SHA256: configuration.ManifestSHA256}}
 	if configuration.TUFRepositoryURL != "" {
-		manifestSource = vllm.TUFManifestSource{RepositoryURL: configuration.TUFRepositoryURL, TrustedRootPath: configuration.TUFRootPath, TrustedRoot: routerupdate.TrustedRoot(), TargetPath: configuration.ManifestPath, CacheDir: configuration.DataDir + "/tuf"}
+		manifestSource = vllm.FallbackManifestSource{
+			Primary:  vllm.TUFManifestSource{RepositoryURL: configuration.TUFRepositoryURL, TrustedRootPath: configuration.TUFRootPath, TrustedRoot: routerupdate.TrustedRoot(), TargetPath: configuration.ManifestPath, CacheDir: configuration.DataDir + "/tuf"},
+			Fallback: vllm.EmbeddedManifestSource{},
+		}
 	}
 	manager, err := vllm.NewManager(vllm.ManagerOptions{
 		DataDir:              configuration.DataDir,

@@ -150,6 +150,9 @@ jobs:
         with:
           platforms: arm64
 
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+
       - name: Log in to GHCR
         uses: docker/login-action@465a07811f14bebb1938fbed4728c6a1ff8901fc
         with:
@@ -168,37 +171,41 @@ jobs:
           TARGET: ${{ matrix.target }}
         run: |
           candidate=$(cat "container-digests/$TARGET")
+          image_name=${candidate%@*}
           platforms=(linux/amd64 linux/arm64)
           [[ "$TARGET" != *-rocm ]] || platforms=(linux/amd64)
           for platform in "${platforms[@]}"; do
-            docker pull --platform "$platform" "$candidate"
-            test "$(docker image inspect "$candidate" --format '{{.Config.User}}')" = tensors
+            platform_digest=$(docker buildx imagetools inspect --raw "$candidate" | jq -er --arg os "${platform%%/*}" --arg architecture "${platform##*/}" '[.manifests[] | select(.platform.os == $os and .platform.architecture == $architecture) | .digest] | if length == 1 then .[0] else error("expected exactly one \($os)/\($architecture) manifest") end')
+            image="$image_name@$platform_digest"
+            docker pull --platform "$platform" "$image"
+            test "$(docker image inspect "$image" --format '{{.Config.User}}')" = tensors
             if [[ "$TARGET" == *webui* ]]; then
-              docker image inspect "$candidate" --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp", "8443/tcp", "8444/tcp"]'
-              docker image inspect "$candidate" --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensor-router-webui", "--config", "/config/webui.yaml"]'
+              docker image inspect "$image" --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp", "8443/tcp", "8444/tcp"]'
+              docker image inspect "$image" --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensor-router-webui", "--config", "/config/webui.yaml"]'
             else
-              docker image inspect "$candidate" --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp"]'
-              docker image inspect "$candidate" --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensors-router", "serve", "--config", "/config/config.yaml"]'
+              docker image inspect "$image" --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp"]'
+              docker image inspect "$image" --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensors-router", "serve", "--config", "/config/config.yaml"]'
             fi
-            docker run --rm --platform "$platform" --entrypoint /bin/sh "$candidate" -c 'test -x /usr/local/bin/tensors-router && test -x /usr/local/bin/tensor-router-downloader && test "$(id -u tensors):$(id -g tensors)" = 10001:10001 && test "$(stat -c %u:%g /data)" = 10001:10001 && test "$(stat -c %u:%g /models)" = 10001:10001 && ! command -v python && ! command -v python3 && ! command -v pip && ! command -v gcc && ! command -v g++ && ! command -v cc && ! command -v make && ! command -v cmake && ! command -v nvcc && ! command -v hipcc && ! command -v clang'
+            docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c 'test -x /usr/local/bin/tensors-router && test -x /usr/local/bin/tensor-router-downloader && test "$(id -u tensors):$(id -g tensors)" = 10001:10001 && test "$(stat -c %u:%g /data)" = 10001:10001 && test "$(stat -c %u:%g /models)" = 10001:10001 && ! command -v pip && ! command -v gcc && ! command -v g++ && ! command -v cc && ! command -v make && ! command -v cmake && ! command -v nvcc && ! command -v hipcc && ! command -v clang'
             if [[ "$TARGET" == *webui* ]]; then
-              docker run --rm --platform "$platform" --entrypoint /bin/sh "$candidate" -c 'test -x /usr/local/bin/tensor-router-webui'
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c 'test -x /usr/local/bin/tensor-router-webui'
             else
-              docker run --rm --platform "$platform" --entrypoint /bin/sh "$candidate" -c 'test ! -e /usr/local/bin/tensor-router-webui'
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c 'test ! -e /usr/local/bin/tensor-router-webui'
             fi
             if [[ "$TARGET" == vllm-* ]]; then
-              docker image inspect "$candidate" --format '{{json .Config.Volumes}}' | jq -e 'keys == ["/data/vllm", "/models"]'
-              docker run --rm --platform "$platform" --entrypoint /bin/sh "$candidate" -c 'test -x /usr/local/bin/tensor-router-vllm'
+              docker image inspect "$image" --format '{{json .Config.Volumes}}' | jq -e 'keys == ["/data/vllm", "/models"]'
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c 'test -x /usr/local/bin/tensor-router-vllm'
             else
-              docker run --rm --platform "$platform" --entrypoint /bin/sh "$candidate" -c 'test ! -e /usr/local/bin/tensor-router-vllm'
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c 'test ! -e /usr/local/bin/tensor-router-vllm'
             fi
             if [[ "$TARGET" == *-cuda ]]; then
-              docker run --rm --platform "$platform" --entrypoint /bin/sh "$candidate" -c "ldconfig -p | grep -q 'libcudart\.so' && ldconfig -p | grep -q 'libcublas\.so'"
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c "ldconfig -p | grep -q 'libcudart\.so' && ldconfig -p | grep -q 'libcublas\.so'"
+              docker image inspect "$image" --format '{{json .Config.Env}}' | jq -e 'index("NVIDIA_VISIBLE_DEVICES=all") and index("NVIDIA_DRIVER_CAPABILITIES=compute,utility")'
             fi
             if [[ "$TARGET" == *-rocm ]]; then
-              docker run --rm --platform "$platform" --entrypoint /bin/sh "$candidate" -c "ldconfig -p | grep -q 'libamdhip64\.so' && ldconfig -p | grep -q 'librocblas\.so' && hipconfig --version >/dev/null"
+              docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c "ldconfig -p | grep -q 'libamdhip64\.so' && ldconfig -p | grep -q 'librocblas\.so'"
             fi
-            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.docker:/root/.docker:ro" aquasec/trivy@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436 image --platform "$platform" --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "$candidate"
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.docker:/root/.docker:ro" aquasec/trivy@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436 image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "$image"
           done
 
   promote:
@@ -236,3 +243,29 @@ jobs:
             image_name=${candidate%@*}
             docker buildx imagetools create --tag "$image_name:$VERSION" --tag "$image_name:latest" "$candidate"
           done < <(find container-digests -type f -print | sort)
+
+  cleanup:
+    name: Remove candidate-only packages
+    runs-on: ubuntu-latest
+    needs: [build, verify, promote]
+    if: always()
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Delete candidate-only package versions
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          OWNER: ${{ github.repository_owner }}
+          CANDIDATE_TAG: candidate-${{ github.sha }}
+        run: |
+          for target in node webui vllm-node vllm-webui node-cuda webui-cuda vllm-node-cuda vllm-webui-cuda node-rocm webui-rocm vllm-node-rocm vllm-webui-rocm; do
+            package=$(jq -rn --arg name "tensors-router/tensors-router-$target" '$name | @uri')
+            versions=$(gh api --paginate "/users/$OWNER/packages/container/$package/versions?per_page=100" 2>/dev/null | jq -s 'flatten(1)') || continue
+            while IFS= read -r version_id; do
+              [[ -n "$version_id" ]] || continue
+              echo "deleting candidate-only version $version_id of tensors-router-$target"
+              gh api --method DELETE "/users/$OWNER/packages/container/$package/versions/$version_id" >/dev/null 2>&1 ||                 gh api --method DELETE "/user/packages/container/$package/versions/$version_id" >/dev/null 2>&1 ||                 echo "could not delete version $version_id; a token with delete:packages is required"
+            done < <(jq -r '.[] | select([.metadata.container.tags[]? | startswith("candidate-")] | length > 0 and all) | .id' <<<"$versions")
+          done

@@ -648,3 +648,48 @@ func TestValidateRejectsUnsafeVLLMProfile(t *testing.T) {
 		t.Fatal("expected unsafe vLLM profile rejection")
 	}
 }
+
+func TestValidateAcceptsOperatorPinnedVLLMManifest(t *testing.T) {
+	cfg := Defaults()
+	cfg.VLLM.TUFRepositoryURL = ""
+	cfg.VLLM.ManifestPath = "vllm-manifest.json"
+	cfg.VLLM.ManifestSHA256 = strings.Repeat("a", 64)
+	cfg.VLLM.ManifestSize = 1024
+	if err := validate(&cfg); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestValidateRejectsUnpinnedVLLMManifestWithoutTUF(t *testing.T) {
+	for name, mutate := range map[string]func(*Config){
+		"no pin":       func(cfg *Config) {},
+		"short digest": func(cfg *Config) { cfg.VLLM.ManifestSHA256 = strings.Repeat("a", 63); cfg.VLLM.ManifestSize = 1024 },
+		"non-hex":      func(cfg *Config) { cfg.VLLM.ManifestSHA256 = strings.Repeat("z", 64); cfg.VLLM.ManifestSize = 1024 },
+		"zero size":    func(cfg *Config) { cfg.VLLM.ManifestSHA256 = strings.Repeat("a", 64) },
+		"negative":     func(cfg *Config) { cfg.VLLM.ManifestSHA256 = strings.Repeat("a", 64); cfg.VLLM.ManifestSize = -1 },
+	} {
+		cfg := Defaults()
+		cfg.VLLM.TUFRepositoryURL = ""
+		mutate(&cfg)
+		if err := validate(&cfg); err == nil {
+			t.Fatalf("%s was accepted without a TUF repository", name)
+		}
+	}
+}
+
+func TestValidateRejectsManifestPinAlongsideTUFRepository(t *testing.T) {
+	cfg := Defaults()
+	cfg.VLLM.ManifestSHA256 = strings.Repeat("a", 64)
+	cfg.VLLM.ManifestSize = 1024
+	if err := validate(&cfg); err == nil {
+		t.Fatal("a manifest pin was accepted alongside a TUF repository")
+	}
+}
+
+func TestValidateStillRequiresCanonicalVLLMTUFRepositoryURL(t *testing.T) {
+	cfg := Defaults()
+	cfg.VLLM.TUFRepositoryURL = "http://example.test/metadata"
+	if err := validate(&cfg); err == nil {
+		t.Fatal("a plaintext vLLM TUF repository URL was accepted")
+	}
+}

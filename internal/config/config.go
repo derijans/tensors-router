@@ -129,6 +129,8 @@ type VLLMConfig struct {
 	DataDir            string
 	Profile            string
 	ManifestPath       string
+	ManifestSHA256     string
+	ManifestSize       int64
 	TUFRepositoryURL   string
 	TUFRootPath        string
 	DynamicLoRAEnabled bool
@@ -388,8 +390,8 @@ func validate(cfg *Config) error {
 	if strings.TrimSpace(cfg.VLLM.ManifestPath) == "" {
 		return fmt.Errorf("vllm.manifest_path is required")
 	}
-	if err := validateTUFRepositoryURL(cfg.VLLM.TUFRepositoryURL); err != nil {
-		return fmt.Errorf("vllm.tuf_repository_url is invalid: %w", err)
+	if err := validateVLLMManifestSource(cfg.VLLM); err != nil {
+		return err
 	}
 	if _, err := backendendpoint.ParseLoopback(cfg.Kobold.BackendURL); err != nil {
 		return fmt.Errorf("kobold.backend_url is invalid: %w", err)
@@ -694,6 +696,28 @@ func validateHTTPSUpdateURL(field string, rawURL string) error {
 
 func updateSourceUsesTrustedRepository(source BackendUpdateSource) bool {
 	return strings.TrimSpace(source.BinaryURL) == "" && strings.TrimSpace(source.RepositoryURL) != ""
+}
+
+// validateVLLMManifestSource accepts either a TUF-authorized manifest target or an
+// operator-pinned local manifest. An empty repository URL selects the pinned mode, which
+// still requires an explicit digest and length so the manifest bytes remain authorized.
+func validateVLLMManifestSource(cfg VLLMConfig) error {
+	if strings.TrimSpace(cfg.TUFRepositoryURL) == "" {
+		if !validSHA256Hex(cfg.ManifestSHA256) {
+			return fmt.Errorf("vllm.manifest_sha256 must be a 64-character hex digest when vllm.tuf_repository_url is empty")
+		}
+		if cfg.ManifestSize <= 0 {
+			return fmt.Errorf("vllm.manifest_size must be a positive byte count when vllm.tuf_repository_url is empty")
+		}
+		return nil
+	}
+	if strings.TrimSpace(cfg.ManifestSHA256) != "" || cfg.ManifestSize != 0 {
+		return fmt.Errorf("vllm.manifest_sha256 and vllm.manifest_size are only valid when vllm.tuf_repository_url is empty")
+	}
+	if err := validateTUFRepositoryURL(cfg.TUFRepositoryURL); err != nil {
+		return fmt.Errorf("vllm.tuf_repository_url is invalid: %w", err)
+	}
+	return nil
 }
 
 func validateTUFRepositoryURL(rawURL string) error {
@@ -1035,6 +1059,16 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			return nil
 		case "manifest_path":
 			cfg.VLLM.ManifestPath = value
+			return nil
+		case "manifest_sha256":
+			cfg.VLLM.ManifestSHA256 = value
+			return nil
+		case "manifest_size":
+			parsed, err := strconv.ParseInt(value, 10, 64)
+			if err != nil {
+				return err
+			}
+			cfg.VLLM.ManifestSize = parsed
 			return nil
 		case "tuf_repository_url":
 			cfg.VLLM.TUFRepositoryURL = value

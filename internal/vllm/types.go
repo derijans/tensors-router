@@ -28,6 +28,7 @@ type State struct {
 	InitializationPhase      string `json:"initialization_phase,omitempty"`
 	InitializationBytes      int64  `json:"initialization_bytes,omitempty"`
 	InitializationTotalBytes int64  `json:"initialization_total_bytes,omitempty"`
+	ManifestTrust            string `json:"manifest_trust,omitempty"`
 	Error                    string `json:"error,omitempty"`
 	Retryable                bool   `json:"retryable,omitempty"`
 }
@@ -39,6 +40,7 @@ type InitializationJob struct {
 	SelectedProfile string    `json:"selected_profile,omitempty"`
 	DetectedProfile string    `json:"detected_profile,omitempty"`
 	ManifestSHA256  string    `json:"manifest_sha256,omitempty"`
+	ManifestTrust   string    `json:"manifest_trust,omitempty"`
 	Phase           string    `json:"phase,omitempty"`
 	CompletedBytes  int64     `json:"completed_bytes"`
 	TotalBytes      int64     `json:"total_bytes"`

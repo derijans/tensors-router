@@ -104,7 +104,8 @@ function renderRuntimeIdentity(backend: NodeStateBackend): string {
   const rows = [
     backend.runtime_version ? `Version: ${backend.runtime_version}` : "",
     backend.selected_profile ? `Profile: ${backend.selected_profile}` : "",
-    backend.detected_profile && backend.detected_profile !== backend.selected_profile ? `Detected: ${backend.detected_profile}` : ""
+    backend.detected_profile && backend.detected_profile !== backend.selected_profile ? `Detected: ${backend.detected_profile}` : "",
+    backend.manifest_trust && backend.manifest_trust !== "tuf" ? `Manifest trust: ${backend.manifest_trust}` : ""
   ].filter(Boolean);
   return rows.length > 0 ? `<div class="muted node-backend-runtime">${rows.map(value => `<span>${escapeHTML(value)}</span>`).join("")}</div>` : "";
 }

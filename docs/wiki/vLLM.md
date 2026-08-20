@@ -23,7 +23,19 @@ Content-Type: application/json
 
 Initialization returns `202 Accepted`. Repeated requests return the active persistent job instead of creating another. Cancellation leaves the previous promoted environment intact. A staged environment is promoted only after artifact verification, import validation, and a serving smoke test.
 
-The companion fetches only TUF-authorized manifests. Each runtime artifact has an exact version, URL, byte size, SHA-256 digest, installation method, compatibility fields, and prerequisites. Release builds embed the platform-matched `uv` 0.12.0 bootstrap; the release workflow verifies the embedded bytes before packaging. Runtime initialization extracts those bytes into the staged environment and uses content-addressed per-profile directories without modifying system Python, `pip`, `PATH`, or user environments. Stable versions are pinned; nightlies and runtime-resolved `latest` packages are rejected.
+The companion resolves its manifest from one of three trust tiers. Each runtime artifact has an exact version, URL, byte size, SHA-256 digest, installation method, compatibility fields, and prerequisites. Release builds embed the platform-matched `uv` 0.12.0 bootstrap; the release workflow verifies the embedded bytes before packaging. Runtime initialization extracts those bytes into the staged environment and uses content-addressed per-profile directories without modifying system Python, `pip`, `PATH`, or user environments. Stable versions are pinned; nightlies and runtime-resolved `latest` packages are rejected.
+
+### Manifest trust tiers
+
+| Tier | When it applies | Guarantee |
+|---|---|---|
+| `tuf` | `vllm.tuf_repository_url` is set and `runtimes/vllm/<os>-<arch>.json` is published | Independently signed, expiring, revocable, rollback-protected |
+| `operator-pinned` | `vllm.tuf_repository_url` is empty and `vllm.manifest_sha256` plus `vllm.manifest_size` pin a local `vllm.manifest_path` | Bytes fixed by an operator-supplied digest and length |
+| `embedded-default` | TUF metadata verified but no runtime manifest has been published for this platform | Bytes fixed by the manifest compiled into the release binary |
+
+The companion falls back to `embedded-default` only after the TUF metadata chain refreshes successfully and the platform's target turns out not to exist. A signature, expiry, rollback, transport, or digest failure is never a reason to fall back: those still fail closed with the previous environment untouched. An operator-pinned manifest never falls back either, because a missing or mismatched pinned file is an error rather than an invitation to install something else.
+
+The active tier is reported as `manifest_trust` on the vLLM state and logged as a warning whenever it is not `tuf`. Publishing a reviewed bundle under `tuf/profile-evidence/` is what moves a platform to the `tuf` tier.
 
 OCI profiles additionally pin the imported image by immutable `sha256:` image ID, require a preinstalled Docker or Podman engine, and run with read-only model mounts, a private socket mount, dropped capabilities, offline model-loading variables, and only the device mappings declared by the signed profile. The companion never installs the engine.
 

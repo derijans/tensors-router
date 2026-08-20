@@ -52,18 +52,24 @@ RUN groupadd --gid 10001 tensors && useradd --no-create-home --uid 10001 --gid t
 WORKDIR /data
 STOPSIGNAL SIGTERM
 
-FROM nvidia/cuda:12.9.1-runtime-ubuntu24.04@sha256:1287141d283b8f06f45681b56a48a85791398c615888b1f96bfb9fc981392d98 AS runtime-cuda
-RUN apt-get update && apt-get install --yes --no-install-recommends ca-certificates libgomp1 tzdata && rm -rf /var/lib/apt/lists/*
+FROM ubuntu:24.04@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea AS runtime-cuda
+ARG TARGETARCH
+ARG CUDA_CUDART_PACKAGE_VERSION=12.9.79-1
+ARG CUDA_CUBLAS_PACKAGE_VERSION=12.9.2.10-1
+RUN apt-get update && apt-get dist-upgrade --yes && apt-get install --yes --no-install-recommends ca-certificates curl gnupg libgomp1 tzdata && case "$TARGETARCH" in amd64) cuda_repository_architecture=x86_64 ;; arm64) cuda_repository_architecture=sbsa ;; *) echo "unsupported CUDA architecture $TARGETARCH" >&2; exit 1 ;; esac && install -d -m 0755 /etc/apt/keyrings && curl --fail --location --silent --show-error "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/${cuda_repository_architecture}/3bf863cc.pub" -o /tmp/cuda.pub && echo '7eb71103e32e813ea3e1c06bdb01b143f36feb8d83ecac2b0c11c9273f9e6822  /tmp/cuda.pub' | sha256sum -c - && gpg --batch --dearmor --output /etc/apt/keyrings/cuda.gpg /tmp/cuda.pub && echo "deb [signed-by=/etc/apt/keyrings/cuda.gpg] https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/${cuda_repository_architecture}/ /" > /etc/apt/sources.list.d/cuda.list && apt-get update && apt-get install --yes --no-install-recommends cuda-cudart-12-9="${CUDA_CUDART_PACKAGE_VERSION}" libcublas-12-9="${CUDA_CUBLAS_PACKAGE_VERSION}" && apt-get purge --yes --auto-remove curl gnupg && rm -rf /var/lib/apt/lists/* /tmp/cuda.pub
+RUN for library_directory in /usr/local/cuda-12.9/targets/*/lib; do echo "$library_directory"; done > /etc/ld.so.conf.d/cuda.conf && ldconfig && ldconfig -p | grep -q 'libcudart\.so' && ldconfig -p | grep -q 'libcublas\.so'
 RUN getent group video >/dev/null || groupadd --system video
 RUN getent group render >/dev/null || groupadd --system render
 RUN groupadd --gid 10001 tensors && useradd --no-create-home --uid 10001 --gid tensors tensors && install -d -o tensors -g tensors /config /models /data /data/vllm
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility
 WORKDIR /data
 STOPSIGNAL SIGTERM
 
 FROM ubuntu:24.04@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea AS runtime-rocm
-ARG ROCM_PACKAGE_VERSION=7.2.1.70201-81~24.04
-ARG ROCM_INFO_PACKAGE_VERSION=1.0.0.70201-81~24.04
-RUN apt-get update && apt-get install --yes --no-install-recommends ca-certificates curl gnupg libgomp1 tzdata && install -d -m 0755 /etc/apt/keyrings && curl --fail --location --silent --show-error https://repo.radeon.com/rocm/rocm.gpg.key -o /tmp/rocm.gpg.key && echo '2de99e2354646a90d9903e2a669fc4e36b02c1bbff7075c481e12d7edab2c88b  /tmp/rocm.gpg.key' | sha256sum -c - && gpg --batch --dearmor --output /etc/apt/keyrings/rocm.gpg /tmp/rocm.gpg.key && echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2.1 noble main' > /etc/apt/sources.list.d/rocm.list && apt-get update && apt-get install --yes --no-install-recommends rocm-hip-runtime="${ROCM_PACKAGE_VERSION}" rocm-hip-libraries="${ROCM_PACKAGE_VERSION}" rocminfo="${ROCM_INFO_PACKAGE_VERSION}" && apt-get purge --yes --auto-remove curl gnupg && rm -rf /var/lib/apt/lists/* /tmp/rocm.gpg.key
+ARG ROCM_PACKAGE_VERSION=7.2.4.70204-93~24.04
+ARG ROCM_INFO_PACKAGE_VERSION=1.0.0.70204-93~24.04
+RUN apt-get update && apt-get dist-upgrade --yes && apt-get install --yes --no-install-recommends ca-certificates curl gnupg libgomp1 tzdata && install -d -m 0755 /etc/apt/keyrings && curl --fail --location --silent --show-error https://repo.radeon.com/rocm/rocm.gpg.key -o /tmp/rocm.gpg.key && echo '2de99e2354646a90d9903e2a669fc4e36b02c1bbff7075c481e12d7edab2c88b  /tmp/rocm.gpg.key' | sha256sum -c - && gpg --batch --dearmor --output /etc/apt/keyrings/rocm.gpg /tmp/rocm.gpg.key && echo 'deb [arch=amd64 signed-by=/etc/apt/keyrings/rocm.gpg] https://repo.radeon.com/rocm/apt/7.2.4 noble main' > /etc/apt/sources.list.d/rocm.list && apt-get update && apt-get install --yes --no-install-recommends rocm-hip-runtime="${ROCM_PACKAGE_VERSION}" rocm-hip-libraries="${ROCM_PACKAGE_VERSION}" rocminfo="${ROCM_INFO_PACKAGE_VERSION}" && apt-get purge --yes --auto-remove curl gnupg && rm -rf /var/lib/apt/lists/* /tmp/rocm.gpg.key
 RUN getent group video >/dev/null || groupadd --system video
 RUN getent group render >/dev/null || groupadd --system render
 RUN groupadd --gid 10001 tensors && useradd --no-create-home --uid 10001 --gid tensors tensors && install -d -o tensors -g tensors /config /models /data /data/vllm

@@ -43,7 +43,8 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
 
-      - name: Verify protected runner labels
+      - name: Verify runner class and labels
+        id: runner
         env:
           LABELS: ${{ inputs.runner_labels }}
           EXPECTED_OS: ${{ inputs.operating_system }}
@@ -51,12 +52,22 @@ jobs:
           EXPECTED_DEVICE: ${{ inputs.device }}
         shell: bash
         run: |
-          jq -e \
-            --arg os "vllm-$EXPECTED_OS" \
-            --arg architecture "vllm-$EXPECTED_ARCHITECTURE" \
-            --arg device "vllm-$EXPECTED_DEVICE" \
-            'type == "array" and index("self-hosted") and index($os) and index($architecture) and index($device)' \
-            <<<"$LABELS" >/dev/null
+          jq -e 'type == "array"' <<<"$LABELS" >/dev/null
+          if jq -e 'index("self-hosted")' <<<"$LABELS" >/dev/null; then
+            jq -e \
+              --arg os "vllm-$EXPECTED_OS" \
+              --arg architecture "vllm-$EXPECTED_ARCHITECTURE" \
+              --arg device "vllm-$EXPECTED_DEVICE" \
+              'index($os) and index($architecture) and index($device)' \
+              <<<"$LABELS" >/dev/null
+            runner_class=self-hosted
+          else
+            # A GitHub-hosted runner exposes no accelerator, so it may only attest a
+            # CPU profile. Every other device still requires a self-hosted runner.
+            test "$EXPECTED_DEVICE" = cpu
+            runner_class=github-hosted
+          fi
+          echo "class=$runner_class" >> "$GITHUB_OUTPUT"
 
       - name: Resolve reviewed manifest
         id: manifest
@@ -160,6 +171,7 @@ jobs:
           EXPECTED_OS: ${{ inputs.operating_system }}
           EXPECTED_ARCHITECTURE: ${{ inputs.architecture }}
           EXPECTED_DEVICE: ${{ inputs.device }}
+          RUNNER_CLASS: ${{ steps.runner.outputs.class }}
         shell: bash
         run: |
           install_method="$(jq -r --arg profile "$PROFILE_ID" '.profiles[] | select(.id == $profile) | .install_method' '${{ steps.manifest.outputs.path }}')"
@@ -171,10 +183,11 @@ jobs:
             --arg architecture "$EXPECTED_ARCHITECTURE" \
             --arg device "$EXPECTED_DEVICE" \
             --arg runner "$RUNNER_NAME" \
+            --arg runner_class "$RUNNER_CLASS" \
             --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
             --arg manifest_sha256 "$(jq -r '.manifest_sha256' .tmp/vllm-profile-check.json)" \
             --arg container_scan "$container_scan" \
-            '{profile_id: $profile_id, operating_system: $operating_system, architecture: $architecture, device: $device, runner: $runner, run_url: $run_url, manifest_sha256: $manifest_sha256, installation: "passed", import: "passed", serve: "passed", python_dependency_audit: "passed", runtime_vulnerability_scan: "passed", container_vulnerability_scan: $container_scan}' \
+            '{profile_id: $profile_id, operating_system: $operating_system, architecture: $architecture, device: $device, runner: $runner, runner_class: $runner_class, run_url: $run_url, manifest_sha256: $manifest_sha256, installation: "passed", import: "passed", serve: "passed", python_dependency_audit: "passed", runtime_vulnerability_scan: "passed", container_vulnerability_scan: $container_scan}' \
             > result.json
 
       - name: Upload profile receipt

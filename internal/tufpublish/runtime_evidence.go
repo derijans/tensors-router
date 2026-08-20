@@ -40,6 +40,7 @@ type RuntimeProfileEvidence struct {
 	Architecture          string `json:"architecture"`
 	Device                string `json:"device"`
 	Runner                string `json:"runner"`
+	RunnerClass           string `json:"runner_class"`
 	RunURL                string `json:"run_url"`
 	ManifestSHA256        string `json:"manifest_sha256"`
 	Installation          string `json:"installation"`
@@ -73,8 +74,14 @@ func LoadRuntimeEvidence(directory string, expectedCommit string, now time.Time)
 	if evidence.GeneratedAt.After(now.Add(5*time.Minute)) || evidence.GeneratedAt.Before(now.Add(-14*24*time.Hour)) {
 		return nil, fmt.Errorf("vLLM runtime evidence is outside its 14-day validity window")
 	}
-	if len(evidence.Manifests) != len(requiredVLLMPlatforms) {
-		return nil, fmt.Errorf("vLLM runtime evidence must cover every release platform")
+	// A bundle may cover a subset of the supported platforms. The publisher merges the
+	// result with the runtime targets already published, so platforms absent from this
+	// bundle keep their current signed manifest instead of being dropped.
+	if len(evidence.Manifests) == 0 {
+		return nil, fmt.Errorf("vLLM runtime evidence must cover at least one supported platform")
+	}
+	if len(evidence.Manifests) > len(requiredVLLMPlatforms) {
+		return nil, fmt.Errorf("vLLM runtime evidence covers more platforms than are supported")
 	}
 	manifestPaths := make(map[string]string, len(evidence.Manifests))
 	for _, manifestEvidence := range evidence.Manifests {
@@ -134,6 +141,17 @@ func validateProfileEvidence(manifest vllm.Manifest, manifestSHA256 string, resu
 		seen[key] = struct{}{}
 		if strings.TrimSpace(result.Runner) == "" || len(result.Runner) > 256 {
 			return fmt.Errorf("profile result %q has no hardware runner identity", key)
+		}
+		// A GitHub-hosted runner has no accelerator, so it can only attest a CPU
+		// profile. Everything else still requires a protected self-hosted runner.
+		switch result.RunnerClass {
+		case "self-hosted":
+		case "github-hosted":
+			if result.Device != "cpu" {
+				return fmt.Errorf("profile result %q was produced on a GitHub-hosted runner, which cannot validate a %s profile", key, result.Device)
+			}
+		default:
+			return fmt.Errorf("profile result %q has unsupported runner class %q", key, result.RunnerClass)
 		}
 		if !strings.EqualFold(result.ManifestSHA256, manifestSHA256) {
 			return fmt.Errorf("profile result %q does not match manifest SHA-256", key)

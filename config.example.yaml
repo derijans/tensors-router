@@ -74,9 +74,19 @@ vllm:
   binary_location: ""
   data_dir: "./data/vllm"
   profile: "auto"
+  # With tuf_repository_url set, manifest_path is a target path inside the TUF
+  # repository. If that target has not been published yet, the companion falls back to
+  # the default manifest embedded in the release binary and reports the
+  # "embedded-default" trust tier. Signature, freshness, and digest failures still fail
+  # closed and never fall back.
   manifest_path: "runtimes/vllm/linux-amd64.json"
   tuf_repository_url: "https://derijans.github.io/tensors-router/tuf/metadata"
   tuf_root_path: ""
+  # To pin a reviewed manifest yourself instead, clear tuf_repository_url, point
+  # manifest_path at a local file, and supply both values below. The manifest is then
+  # authorized against this exact length and digest, and no fallback applies.
+  manifest_sha256: ""
+  manifest_size: 0
   dynamic_lora_enabled: false
   eep_enabled: false
   trust_remote_code: false

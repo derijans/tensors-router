@@ -141,6 +141,7 @@ func (manager *Manager) State(context.Context) State {
 	state.DetectedProfile = manager.job.DetectedProfile
 	state.InitializationJobID = manager.job.JobID
 	state.InitializationPhase = manager.job.Phase
+	state.ManifestTrust = manager.job.ManifestTrust
 	state.InitializationBytes = manager.job.CompletedBytes
 	state.InitializationTotalBytes = manager.job.TotalBytes
 	state.Error = manager.job.Error

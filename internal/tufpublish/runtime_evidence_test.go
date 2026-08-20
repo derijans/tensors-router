@@ -54,6 +54,7 @@ func passingRuntimeProfileEvidence() RuntimeProfileEvidence {
 		Architecture:          "amd64",
 		Device:                "cuda",
 		Runner:                "vendor-cuda-runner",
+		RunnerClass:           "self-hosted",
 		RunURL:                "https://github.com/derijans/tensors-router/actions/runs/1",
 		ManifestSHA256:        strings.Repeat("a", 64),
 		Installation:          "passed",
@@ -79,5 +80,27 @@ func TestValidateProfileEvidenceBindsReceiptToManifest(t *testing.T) {
 	result := passingRuntimeProfileEvidence()
 	if err := validateProfileEvidence(manifest, strings.Repeat("b", 64), []RuntimeProfileEvidence{result}); err == nil {
 		t.Fatal("profile receipt for different manifest was accepted")
+	}
+}
+
+func TestValidateProfileEvidenceRestrictsHostedRunnersToCPU(t *testing.T) {
+	manifest := vllm.Manifest{Profiles: []vllm.Profile{{ID: "linux-amd64-cuda", InstallMethod: "wheel", OperatingSystems: []string{"linux"}, Architectures: []string{"amd64"}, Devices: []string{"cuda"}}}}
+	result := passingRuntimeProfileEvidence()
+	result.RunnerClass = "github-hosted"
+	if err := validateProfileEvidence(manifest, strings.Repeat("a", 64), []RuntimeProfileEvidence{result}); err == nil {
+		t.Fatal("a GitHub-hosted runner was accepted for an accelerator profile")
+	}
+	cpuManifest := vllm.Manifest{Profiles: []vllm.Profile{{ID: "linux-amd64-cpu", InstallMethod: "wheel", OperatingSystems: []string{"linux"}, Architectures: []string{"amd64"}, Devices: []string{"cpu"}}}}
+	cpuResult := passingRuntimeProfileEvidence()
+	cpuResult.ProfileID = "linux-amd64-cpu"
+	cpuResult.Device = "cpu"
+	cpuResult.RunnerClass = "github-hosted"
+	if err := validateProfileEvidence(cpuManifest, strings.Repeat("a", 64), []RuntimeProfileEvidence{cpuResult}); err != nil {
+		t.Fatal(err)
+	}
+	unknown := passingRuntimeProfileEvidence()
+	unknown.RunnerClass = ""
+	if err := validateProfileEvidence(manifest, strings.Repeat("a", 64), []RuntimeProfileEvidence{unknown}); err == nil {
+		t.Fatal("a profile result without a runner class was accepted")
 	}
 }

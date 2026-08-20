@@ -44,9 +44,14 @@ jobs:
             "$GITHUB_WORKSPACE"/tuf/profile-evidence/*) ;;
             *) echo "manifest bundle escaped tuf/profile-evidence" >&2; exit 1 ;;
           esac
+          # A bundle may cover a subset of the supported platforms; platforms it omits
+          # keep the runtime manifest already published for them.
+          bundled=0
           for platform in linux-amd64 linux-arm64 darwin-arm64; do
-            test -f "$BUNDLE_PATH/manifests/$platform.json"
+            ! test -f "$BUNDLE_PATH/manifests/$platform.json" || bundled=$((bundled + 1))
           done
+          test "$bundled" -gt 0
+          test "$(find "$BUNDLE_PATH/manifests" -maxdepth 1 -name '*.json' | wc -l)" -eq "$bundled"
           echo "path=$BUNDLE_PATH" >> "$GITHUB_OUTPUT"
 
       - name: Authenticate runner receipts
@@ -84,13 +89,30 @@ jobs:
             device="$(jq -r '.device' "$receipt")"
             jobs_path=".tmp/vllm-jobs-$run_id.json"
             gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/jobs?filter=all&per_page=100" --slurp | jq '{jobs: map(.jobs[]) }' > "$jobs_path"
-            jq -e \
-              --arg runner "$runner_name" \
-              --arg os "vllm-$operating_system" \
-              --arg arch "vllm-$architecture" \
-              --arg device "vllm-$device" \
-              '[.jobs[] | select(.name == "Validate vLLM profile" and .conclusion == "success" and .runner_name == $runner and (.labels | index("self-hosted")) and (.labels | index($os)) and (.labels | index($arch)) and (.labels | index($device)))] | length == 1' \
-              "$jobs_path" >/dev/null
+            runner_class="$(jq -r '.runner_class // ""' "$receipt")"
+            case "$runner_class" in
+              self-hosted)
+                jq -e \
+                  --arg runner "$runner_name" \
+                  --arg os "vllm-$operating_system" \
+                  --arg arch "vllm-$architecture" \
+                  --arg device "vllm-$device" \
+                  '[.jobs[] | select(.name == "Validate vLLM profile" and .conclusion == "success" and .runner_name == $runner and (.labels | index("self-hosted")) and (.labels | index($os)) and (.labels | index($arch)) and (.labels | index($device)))] | length == 1' \
+                  "$jobs_path" >/dev/null
+                ;;
+              github-hosted)
+                # A hosted runner has no accelerator, so it may only attest CPU.
+                test "$device" = cpu
+                jq -e \
+                  --arg runner "$runner_name" \
+                  '[.jobs[] | select(.name == "Validate vLLM profile" and .conclusion == "success" and .runner_name == $runner and ((.labels | index("self-hosted")) | not))] | length == 1' \
+                  "$jobs_path" >/dev/null
+                ;;
+              *)
+                echo "receipt $run_id has unsupported runner class" >&2
+                exit 1
+                ;;
+            esac
           done
           jq -s '.' .tmp/vllm-receipts/*/result.json > .tmp/vllm-profile-results.json
 
@@ -107,9 +129,10 @@ jobs:
             --arg generated "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             '{schema: 1, source_commit: $commit, generated_at: $generated, manifests: []}' > "$output/evidence.json"
           for platform in linux-amd64 linux-arm64 darwin-arm64; do
+            manifest="$output/manifests/$platform.json"
+            test -f "$manifest" || continue
             operating_system="${platform%-*}"
             architecture="${platform##*-}"
-            manifest="$output/manifests/$platform.json"
             sha256="$(sha256sum "$manifest" | awk '{print $1}')"
             jq \
               --arg platform "$platform" \

@@ -99,6 +99,7 @@ type NodeStateBackend struct {
 	InitializationPhase      string              `json:"initialization_phase,omitempty"`
 	InitializationBytes      int64               `json:"initialization_bytes,omitempty"`
 	InitializationTotalBytes int64               `json:"initialization_total_bytes,omitempty"`
+	ManifestTrust            string              `json:"manifest_trust,omitempty"`
 	Error                    string              `json:"error,omitempty"`
 	Retryable                bool                `json:"retryable,omitempty"`
 	LoadedModels             []NodeStateModelRow `json:"loaded_models"`

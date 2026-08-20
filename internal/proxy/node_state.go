@@ -433,6 +433,7 @@ func (service *Service) vllmNodeState(backend siteapi.NodeStateBackend) siteapi.
 	backend.InitializationPhase = state.InitializationPhase
 	backend.InitializationBytes = state.InitializationBytes
 	backend.InitializationTotalBytes = state.InitializationTotalBytes
+	backend.ManifestTrust = state.ManifestTrust
 	backend.Error = state.Error
 	backend.Retryable = state.Retryable
 	return backend

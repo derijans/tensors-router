@@ -364,6 +364,7 @@ export interface NodeStateBackend {
   initialization_phase?: string;
   initialization_bytes?: number;
   initialization_total_bytes?: number;
+  manifest_trust?: string;
   error?: string;
   retryable?: boolean;
   loaded_models: NodeStateModelRow[];
