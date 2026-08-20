@@ -192,14 +192,15 @@ jobs:
               set -e
               test -x /usr/local/bin/tensors-router || { echo "verify: missing /usr/local/bin/tensors-router"; exit 1; }
               test -x /usr/local/bin/tensor-router-downloader || { echo "verify: missing /usr/local/bin/tensor-router-downloader"; exit 1; }
-              ids="$(id -u tensors):$(id -g tensors)"
-              [ "$ids" = 10001:10001 ] || { echo "verify: unexpected tensors uid:gid $ids"; exit 1; }
-              data_owner="$(stat -c %u:%g /data)"
+              tensors_uid=$(id -u tensors) || { echo "verify: id -u tensors failed"; exit 1; }
+              tensors_gid=$(id -g tensors) || { echo "verify: id -g tensors failed"; exit 1; }
+              [ "$tensors_uid:$tensors_gid" = 10001:10001 ] || { echo "verify: unexpected tensors uid:gid $tensors_uid:$tensors_gid"; exit 1; }
+              data_owner=$(stat -c %u:%g /data) || { echo "verify: stat /data failed"; exit 1; }
               [ "$data_owner" = 10001:10001 ] || { echo "verify: unexpected /data ownership $data_owner"; exit 1; }
-              models_owner="$(stat -c %u:%g /models)"
+              models_owner=$(stat -c %u:%g /models) || { echo "verify: stat /models failed"; exit 1; }
               [ "$models_owner" = 10001:10001 ] || { echo "verify: unexpected /models ownership $models_owner"; exit 1; }
               for tool in $BANNED_TOOLS; do
-                found="$(command -v "$tool" 2>/dev/null || true)"
+                found=$(command -v "$tool" 2>/dev/null) || found=""
                 [ -z "$found" ] || { echo "verify: unexpected $tool at $found"; exit 1; }
               done
             '
