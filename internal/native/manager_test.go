@@ -569,7 +569,7 @@ func TestCurrentReleaseArgumentsPreserveOptionalAndAssignmentValues(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"--max-vram", "cuda0=6,vulkan0=4", "--stream-layers", "4", "--streaming", "--autofit", "--split-mode", "layer", "--circular", "--circular-x", "--circular-y"} {
+	for _, expected := range []string{"--max-vram", "cuda0=6,vulkan0=4", "--stream-layers", "--streaming", "--autofit", "--split-mode", "layer", "--circular", "--circular-x", "--circular-y"} {
 		if !containsArgument(sdcppArgs, expected) {
 			t.Fatalf("missing stable-diffusion.cpp argument %q in %#v", expected, sdcppArgs)
 		}
@@ -674,7 +674,7 @@ func TestSDCPPLaunchArgumentsFromKcpps(t *testing.T) {
 		"--params-backend", "cpu",
 		"--rpc-servers", "127.0.0.1:9001,127.0.0.1:9002",
 		"--max-vram", "12288",
-		"--stream-layers", "4",
+		"--stream-layers",
 		"--tensor-type-rules", "vae=f16,clip=q8_0",
 		"--vae-format", "safetensors",
 		"--lora-model-dir", "C:/models/loras",

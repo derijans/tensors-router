@@ -34,6 +34,11 @@ type Hub struct {
 	started     time.Time
 	sequence    int64
 	subscribers map[*subscription]struct{}
+	watchers    map[*watcher]struct{}
+}
+
+type watcher struct {
+	observe func(Stream, []byte)
 }
 
 type subscription struct {
@@ -48,7 +53,29 @@ type writer struct {
 }
 
 func NewHub() *Hub {
-	return &Hub{started: time.Now(), subscribers: make(map[*subscription]struct{})}
+	return &Hub{started: time.Now(), subscribers: make(map[*subscription]struct{}), watchers: make(map[*watcher]struct{})}
+}
+
+// Watch delivers every captured chunk to observe as it arrives, for callers that need
+// to react to backend output live rather than collect it. Unlike Subscribe there is no
+// byte budget: nothing is retained. observe runs while the hub lock is held, so it must
+// not block or call back into the hub.
+func (hub *Hub) Watch(observe func(Stream, []byte)) func() {
+	if hub == nil || observe == nil {
+		return func() {}
+	}
+	entry := &watcher{observe: observe}
+	hub.mu.Lock()
+	hub.watchers[entry] = struct{}{}
+	hub.mu.Unlock()
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			hub.mu.Lock()
+			delete(hub.watchers, entry)
+			hub.mu.Unlock()
+		})
+	}
 }
 
 func (hub *Hub) Stdout() io.Writer {
@@ -95,6 +122,9 @@ func (writer writer) Write(payload []byte) (int, error) {
 func (hub *Hub) record(stream Stream, payload []byte) {
 	hub.mu.Lock()
 	defer hub.mu.Unlock()
+	for entry := range hub.watchers {
+		entry.observe(stream, payload)
+	}
 	if len(hub.subscribers) == 0 {
 		return
 	}

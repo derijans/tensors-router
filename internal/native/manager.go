@@ -19,6 +19,7 @@ import (
 
 	"tensors-router/internal/backenddiagnostic"
 	"tensors-router/internal/backendendpoint"
+	"tensors-router/internal/backendreadiness"
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/mcp"
@@ -343,7 +344,7 @@ func (manager *Manager) waitHealthy(ctx context.Context, timeout time.Duration, 
 	for time.Now().Before(deadline) {
 		select {
 		case err := <-exitDone:
-			return unexpectedExitError("native server", err)
+			return manager.exitError(err)
 		default:
 		}
 		if manager.healthy(ctx) {
@@ -353,7 +354,7 @@ func (manager *Manager) waitHealthy(ctx context.Context, timeout time.Duration, 
 		case <-ctx.Done():
 			return ctx.Err()
 		case err := <-exitDone:
-			return unexpectedExitError("native server", err)
+			return manager.exitError(err)
 		case <-time.After(500 * time.Millisecond):
 		}
 	}
@@ -366,7 +367,7 @@ func (manager *Manager) BackendExitError() error {
 	if !manager.exitObserved {
 		return nil
 	}
-	return unexpectedExitError("native server", manager.exitErr)
+	return manager.exitError(manager.exitErr)
 }
 
 // backendExitedError marks a health-wait failure caused by the child process
@@ -378,13 +379,20 @@ func (manager *Manager) BackendExitError() error {
 type backendExitedError struct {
 	name string
 	err  error
+	// detail is the decisive line from the backend's own output, so the failure names
+	// its cause rather than only an exit status.
+	detail string
 }
 
 func (exitErr *backendExitedError) Error() string {
-	if exitErr.err == nil {
-		return fmt.Sprintf("%s exited during startup", exitErr.name)
+	message := fmt.Sprintf("%s exited during startup", exitErr.name)
+	if exitErr.err != nil {
+		message = fmt.Sprintf("%s: %s", message, exitErr.err)
 	}
-	return fmt.Sprintf("%s exited during startup: %s", exitErr.name, exitErr.err)
+	if exitErr.detail != "" {
+		message = fmt.Sprintf("%s: %s", message, exitErr.detail)
+	}
+	return message
 }
 
 func (exitErr *backendExitedError) Unwrap() error {
@@ -395,8 +403,21 @@ func unexpectedExitError(name string, err error) error {
 	return &backendExitedError{name: name, err: err}
 }
 
+// exitError builds the startup failure for this manager, enriched with the decisive line
+// from the captured output when the backend explained itself before dying.
+func (manager *Manager) exitError(err error) error {
+	detail := backendreadiness.DecisiveFailureLine(manager.capture.Snapshot().Output)
+	return &backendExitedError{name: "native server", err: err, detail: detail}
+}
+
 func (manager *Manager) BeginLoadCapture(maxOutputBytes int64) func() loadcapture.Capture {
 	return manager.captureHub.Subscribe(maxOutputBytes)
+}
+
+// WatchOutput delivers backend output to observe as it is produced, so a caller can
+// decide readiness from what the process reports instead of polling an HTTP endpoint.
+func (manager *Manager) WatchOutput(observe func(loadcapture.Stream, []byte)) func() {
+	return manager.captureHub.Watch(observe)
 }
 
 func (manager *Manager) BeginLoadDiagnostic() func(bool) backenddiagnostic.Diagnostic {
@@ -696,7 +717,11 @@ func sdcppArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	appendStringArg(&args, "--params-backend", metadata.SDParamsBackend)
 	appendStringListArg(&args, "--rpc-servers", metadata.SDRPCServers)
 	appendStringArg(&args, "--max-vram", nativeSingleString(metadata.SDMaxVRAM))
-	appendIntArg(&args, "--stream-layers", metadata.SDStreamLayers)
+	// stable-diffusion.cpp declares --stream-layers among its bool options, so it takes
+	// no value; passing a count leaves the number as a stray positional argument.
+	if metadata.SDStreamLayers != 0 {
+		args = append(args, "--stream-layers")
+	}
 	appendStringListArg(&args, "--tensor-type-rules", metadata.SDTensorTypeRules)
 	appendStringArg(&args, "--vae-format", metadata.SDVAEFormat)
 	appendStringArg(&args, "--lora-model-dir", metadata.SDLoRAModelDir)

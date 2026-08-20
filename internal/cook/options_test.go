@@ -204,7 +204,7 @@ func TestOptionCatalogIncludesCurrentCompatibilityOptions(t *testing.T) {
 		{key: "sdcircularx", valueType: ValueBool, nativeFlag: "--circular-x"},
 		{key: "sdcirculary", valueType: ValueBool, nativeFlag: "--circular-y"},
 		{key: "sdmaxvram", valueType: ValueString, nativeFlag: "--max-vram"},
-		{key: "sdstreamlayers", valueType: ValueNumber, nativeFlag: "--stream-layers", legacy: true},
+		{key: "sdstreamlayers", valueType: ValueBool, nativeFlag: "--stream-layers", legacy: true},
 		{key: "swapadding", valueType: ValueNumber},
 	}
 	for _, testCase := range tests {

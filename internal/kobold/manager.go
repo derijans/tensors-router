@@ -434,7 +434,7 @@ func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error
 	}
 	if response.StatusCode < 200 || response.StatusCode > 299 {
 		manager.removeGenerated(generatedPath)
-		return fmt.Errorf("admin reload failed with status %d", response.StatusCode)
+		return fmt.Errorf("admin reload failed with status %d: %s", response.StatusCode, reloadErrorDetail(responseBody))
 	}
 
 	var reload reloadResponse
@@ -447,7 +447,9 @@ func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error
 		if reload.Error != "" {
 			return fmt.Errorf("admin reload failed: %s", reload.Error)
 		}
-		return fmt.Errorf("admin reload failed")
+		// KoboldCpp can report failure with no error field at all. Fall back to the raw
+		// response rather than an unattributable "admin reload failed".
+		return fmt.Errorf("admin reload failed: %s", reloadErrorDetail(responseBody))
 	}
 
 	manager.mu.Lock()
@@ -536,6 +538,20 @@ func unexpectedExitError(name string, err error) error {
 	return &backendExitedError{name: name, err: err}
 }
 
+// reloadErrorDetail summarises an admin reload response body for an error message,
+// bounded so a stray HTML error page cannot flood the log.
+func reloadErrorDetail(body []byte) string {
+	detail := strings.TrimSpace(string(body))
+	if detail == "" {
+		return "no detail reported"
+	}
+	const limit = 512
+	if len(detail) > limit {
+		detail = detail[:limit] + "…"
+	}
+	return detail
+}
+
 func (manager *Manager) BeginLoadCapture(maxOutputBytes int64) func() loadcapture.Capture {
 	finish := manager.captureHub.Subscribe(maxOutputBytes)
 	return func() loadcapture.Capture {
@@ -543,6 +559,12 @@ func (manager *Manager) BeginLoadCapture(maxOutputBytes int64) func() loadcaptur
 		capture.Secrets = []string{manager.adminPassword}
 		return capture
 	}
+}
+
+// WatchOutput delivers backend output to observe as it is produced, so a caller can
+// decide readiness from what the process reports instead of polling an HTTP endpoint.
+func (manager *Manager) WatchOutput(observe func(loadcapture.Stream, []byte)) func() {
+	return manager.captureHub.Watch(observe)
 }
 
 func (manager *Manager) BeginLoadDiagnostic() func(bool) backenddiagnostic.Diagnostic {
