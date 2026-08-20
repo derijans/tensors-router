@@ -49,27 +49,75 @@ func TestOllamaLocalErrorsDoNotUseOpenAIEnvelope(t *testing.T) {
 	}
 }
 
-func TestOllamaShowPreservesContractAndVerbose(t *testing.T) {
-	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(string(body), `"verbose":true`) {
-			t.Fatalf("verbose was not forwarded: %s", body)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"model":"backend-local","parameters":"temperature 0.8","details":{"family":"llama"},"model_info":{"general.architecture":"llama"},"capabilities":["completion"]}`))
+// /api/show is metadata, and Ollama's own handler answers it from disk without ever
+// scheduling the model. Forwarding it to the backend both loaded a model for a metadata
+// call and 404'd on backends that have no such route, so it is answered locally now.
+func TestOllamaShowAnswersLocallyWithoutTouchingBackend(t *testing.T) {
+	service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("backend received %s %s for a metadata call", r.Method, r.URL.Path)
 	}), map[string]string{"text": `{"model_param":"C:\\models\\text.gguf"}`})
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/show", strings.NewReader(`{"model":"text","verbose":true}`))
 	request.Header.Set("Content-Type", "application/json")
 	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body %s", recorder.Code, recorder.Body.String())
+	}
 	body := recorder.Body.String()
-	for _, field := range []string{`"model":"text"`, `"parameters":`, `"details":`, `"model_info":`, `"capabilities":`} {
+	for _, field := range []string{`"details":`, `"model_info":`, `"capabilities":`} {
 		if !strings.Contains(body, field) {
 			t.Fatalf("missing %s in %s", field, body)
 		}
+	}
+	if backend.reloads.Load() != 0 {
+		t.Fatalf("metadata call loaded a model: %d reloads", backend.reloads.Load())
+	}
+}
+
+func TestOllamaShowRequiresModelAndReportsUnknown(t *testing.T) {
+	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("backend received %s %s", r.Method, r.URL.Path)
+	}), map[string]string{"text": `{"model_param":"C:\\models\\text.gguf"}`})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/show", strings.NewReader(`{}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusBadRequest || strings.TrimSpace(recorder.Body.String()) != `{"error":"model is required"}` {
+		t.Fatalf("missing model: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	recorder = httptest.NewRecorder()
+	request = httptest.NewRequest(http.MethodPost, "/api/show", strings.NewReader(`{"model":"nope"}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusNotFound || strings.TrimSpace(recorder.Body.String()) != `{"error":"model 'nope' not found"}` {
+		t.Fatalf("unknown model: status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+}
+
+// An embedding-only model must be visible and must report Ollama's "embedding"
+// capability without also claiming "completion" — upstream treats the two as exclusive.
+func TestOllamaShowReportsEmbeddingOnlyModel(t *testing.T) {
+	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("backend received %s %s", r.Method, r.URL.Path)
+	}), map[string]string{"embed": `{"nomodel":true,"embeddingsmodel":"C:\\models\\embed.gguf"}`})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/show", strings.NewReader(`{"model":"embed"}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d body %s", recorder.Code, recorder.Body.String())
+	}
+	body := recorder.Body.String()
+	if !strings.Contains(body, `"capabilities":["embedding"]`) {
+		t.Fatalf("expected embedding-only capabilities, got %s", body)
+	}
+	if !strings.Contains(body, `"model_info":`) {
+		t.Fatalf("model_info must always be present, got %s", body)
 	}
 }
 

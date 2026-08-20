@@ -27,15 +27,21 @@ type activeConfigState struct {
 	physicalFingerprint string
 	physicalShareable   bool
 	physicalAttemptID   string
-	users               int
-	switching           bool
-	switchWaiters       int
-	vramBaselineMB      int64
-	vramTotalMB         int64
-	vramBaselineValid   bool
-	modelID             string
-	generation          uint64
-	leases              map[uint64]string
+	// pendingFilename and pendingProfile describe the config currently being loaded while
+	// switching is true. Without them a concurrent caller wanting that same config sees
+	// only "switching" and concludes the runtime holds something else, then unloads it —
+	// killing the load in flight.
+	pendingFilename   string
+	pendingProfile    catalog.ChatTemplateProfile
+	users             int
+	switching         bool
+	switchWaiters     int
+	vramBaselineMB    int64
+	vramTotalMB       int64
+	vramBaselineValid bool
+	modelID           string
+	generation        uint64
+	leases            map[uint64]string
 }
 
 func newActiveConfigState() *activeConfigState {
@@ -238,12 +244,16 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 
 		state.switchWaiters--
 		state.switching = true
+		state.pendingFilename = configFilename
+		state.pendingProfile = profile
 		state.mu.Unlock()
 
 		capture, err := service.beginPhysicalLoadCapture(ctx, runtime, configFilename, readiness)
 		if err != nil {
 			state.mu.Lock()
 			state.switching = false
+			state.pendingFilename = ""
+			state.pendingProfile = catalog.ChatTemplateProfile{}
 			state.filename = ""
 			state.modelID = ""
 			state.physicalAttemptID = ""
@@ -264,6 +274,8 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 
 		state.mu.Lock()
 		state.switching = false
+		state.pendingFilename = ""
+		state.pendingProfile = catalog.ChatTemplateProfile{}
 		if err != nil {
 			state.filename = ""
 			state.modelID = ""
@@ -484,10 +496,30 @@ func activeRuntimeSupportsConfig(runtime *backendRuntime, filename string, profi
 	}
 	runtime.state.mu.Lock()
 	defer runtime.state.mu.Unlock()
-	if runtime.state.switching || runtime.state.filename == "" {
+	if runtime.state.switching {
+		// A load is in flight. If it is loading what this caller wants, the runtime does
+		// support the config: report that rather than letting the caller unload it and
+		// abort the load partway through.
+		return pendingConfigMatchesProfileLocked(runtime.state, filename, profile)
+	}
+	if runtime.state.filename == "" {
 		return false
 	}
 	return activeConfigMatchesProfile(runtime.state, filename, profile)
+}
+
+func pendingConfigMatchesProfileLocked(state *activeConfigState, filename string, profile catalog.ChatTemplateProfile) bool {
+	if state.pendingFilename == "" {
+		return false
+	}
+	if state.pendingFilename == filename {
+		return true
+	}
+	// Profile variants of one physical model share a runtime, so a pending load of a
+	// sibling variant also satisfies this caller.
+	fingerprint := profile.PhysicalLoadFingerprint()
+	return profile.HasConfiguredKwargs() && fingerprint != "" &&
+		state.pendingProfile.HasConfiguredKwargs() && state.pendingProfile.PhysicalLoadFingerprint() == fingerprint
 }
 
 func applyPhysicalLoadProfileLocked(state *activeConfigState, filename string, profile catalog.ChatTemplateProfile) {

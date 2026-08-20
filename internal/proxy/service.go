@@ -192,22 +192,27 @@ type Service struct {
 	vllmEEPEnabled            bool
 	nextRuntimeLease          atomic.Uint64
 
-	backendRetryAttempts int
-	backendRetryDelay    time.Duration
-	backendRetryMaxDelay time.Duration
+	backendRetryAttempts          int
+	backendInferenceRetryAttempts int
+	backendRetryDelay             time.Duration
+	backendRetryMaxDelay          time.Duration
 }
 
 const (
-	defaultBackendRetryAttempts  = 300
-	defaultBackendRetryDelay     = 1 * time.Second
-	defaultBackendRetryMaxDelay  = 2 * time.Second
-	backendErrorBodyLimit        = 1024
-	backendResponseMetadataLimit = 1 << 20
-	modelOperationTimeout        = 15 * time.Minute
-	assetLookupTimeout           = 30 * time.Second
-	BackendModeKobold            = backendmode.Kobold
-	BackendModeLlamaSDCPP        = backendmode.LlamaSDCPP
-	BackendModeVLLM              = backendmode.VLLM
+	defaultBackendRetryAttempts = 300
+	// Re-running inference is far more expensive than probing a readiness endpoint, so
+	// the retry budget for a request that already produced a response is small. The large
+	// budget above is for waiting on a model load, not for regenerating.
+	defaultBackendInferenceRetryAttempts = 3
+	defaultBackendRetryDelay             = 1 * time.Second
+	defaultBackendRetryMaxDelay          = 2 * time.Second
+	backendErrorBodyLimit                = 1024
+	backendResponseMetadataLimit         = 1 << 20
+	modelOperationTimeout                = 15 * time.Minute
+	assetLookupTimeout                   = 30 * time.Second
+	BackendModeKobold                    = backendmode.Kobold
+	BackendModeLlamaSDCPP                = backendmode.LlamaSDCPP
+	BackendModeVLLM                      = backendmode.VLLM
 )
 
 type backendRetryResult struct {
@@ -216,6 +221,11 @@ type backendRetryResult struct {
 	status   int
 	err      error
 	body     string
+	// emptyOutput marks a successful response whose only defect is that it carried no
+	// generated text. It is retried in case the backend was still warming, but it stays
+	// serviceable: if the retries run out it is returned to the client as-is.
+	emptyOutput bool
+	header      http.Header
 }
 
 type backendFamily struct {
@@ -394,9 +404,10 @@ func NewService(config ServiceConfig) *Service {
 		client: &http.Client{
 			Timeout: 0,
 		},
-		backendRetryAttempts: defaultBackendRetryAttempts,
-		backendRetryDelay:    defaultBackendRetryDelay,
-		backendRetryMaxDelay: defaultBackendRetryMaxDelay,
+		backendRetryAttempts:          defaultBackendRetryAttempts,
+		backendInferenceRetryAttempts: defaultBackendInferenceRetryAttempts,
+		backendRetryDelay:             defaultBackendRetryDelay,
+		backendRetryMaxDelay:          defaultBackendRetryMaxDelay,
 	}
 	service.transportBudget = transportbody.NewBudget(service.transportLimits.MemoryBudgetBytes)
 	if service.clusterClient == nil {
@@ -1408,7 +1419,7 @@ func (service *Service) forwardWithFallbackObserved(ctx context.Context, origina
 		}
 		skipRetryDelay = true
 	}
-	for attempt := 1; attempt <= service.backendRetryAttempts; attempt++ {
+	for attempt := 1; attempt <= service.inferenceRetryAttempts(retryResult); attempt++ {
 		if attempt > 1 && !skipRetryDelay {
 			if err := waitForRetry(ctx, retryDelay); err != nil {
 				releaseModel()
@@ -1446,9 +1457,53 @@ func (service *Service) forwardWithFallbackObserved(ctx context.Context, origina
 		}
 	}
 
-	service.logger.Printf("backend retry exhausted path=%s model=%q config=%q attempts=%d status=%d error=%v body=%q", original.URL.Path, modelID, configFilename, service.backendRetryAttempts, lastStatus, lastErr, lastBody)
+	service.logger.Printf("backend retry exhausted path=%s model=%q config=%q attempts=%d status=%d error=%v body=%q", original.URL.Path, modelID, configFilename, service.inferenceRetryAttempts(retryResult), lastStatus, lastErr, lastBody)
+	// The backend never produced generated text, but it did answer successfully every
+	// time. That is a valid — if empty — completion, so return it instead of turning it
+	// into a gateway error the client cannot act on.
+	if retryResult.emptyOutput {
+		return responseWithRelease(emptyOutputResponse(retryResult), releaseModel), workFinalizer, nil
+	}
 	releaseModel()
 	return nil, workFinalizer, backendRetryExhaustedError(lastStatus, lastErr, lastBody)
+}
+
+// inferenceRetryAttempts sizes the retry budget for a request that is being re-run. A
+// backend still reporting itself inactive is waited out with the large readiness budget;
+// anything else gets the small inference budget, because each attempt regenerates.
+func (service *Service) inferenceRetryAttempts(result backendRetryResult) int {
+	if result.inactive {
+		return service.backendRetryAttempts
+	}
+	attempts := service.backendInferenceRetryAttempts
+	if attempts < 1 {
+		attempts = defaultBackendInferenceRetryAttempts
+	}
+	if attempts > service.backendRetryAttempts {
+		attempts = service.backendRetryAttempts
+	}
+	return attempts
+}
+
+func emptyOutputResponse(result backendRetryResult) *http.Response {
+	header := result.header
+	if header == nil {
+		header = http.Header{}
+		header.Set("Content-Type", "application/json")
+	}
+	status := result.status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	body := []byte(result.body)
+	header = header.Clone()
+	header.Del("Content-Length")
+	return &http.Response{
+		StatusCode:    status,
+		Header:        header,
+		Body:          io.NopCloser(bytes.NewReader(body)),
+		ContentLength: int64(len(body)),
+	}
 }
 
 func (service *Service) shouldRecoverBackend(runtime *backendRuntime, ctx context.Context, retryResult backendRetryResult) bool {
@@ -1556,7 +1611,18 @@ func (service *Service) successRetryResult(response *http.Response, path string)
 	if isCorePath(path) && isJSONResponse(response.Header) {
 		inactive := coreResponseIsInactive(body)
 		if inactive || coreResponseHasEmptyText(body) {
-			return backendRetryResult{retry: true, inactive: inactive, status: response.StatusCode, body: strings.TrimSpace(string(body))}
+			// An empty completion usually means the backend is still warming, so it is
+			// worth retrying — but it can also be a genuine empty answer. Carry the body
+			// so that if the retries run out we can hand the client this response rather
+			// than inventing a gateway error out of a valid 2xx.
+			return backendRetryResult{
+				retry:       true,
+				inactive:    inactive,
+				status:      response.StatusCode,
+				body:        strings.TrimSpace(string(body)),
+				emptyOutput: !inactive,
+				header:      response.Header.Clone(),
+			}
 		}
 	}
 	response.Body = io.NopCloser(bytes.NewReader(body))
@@ -1681,6 +1747,14 @@ func messageContentText(message json.RawMessage) (string, bool) {
 	if err := json.Unmarshal(message, &fields); err != nil {
 		return "", false
 	}
+	// A thinking model may answer with only reasoning_content/reasoning and an empty
+	// content field; that is a complete response, not evidence the backend is still
+	// warming up, so treat non-empty reasoning text as output too.
+	for _, key := range []string{"content", "reasoning_content", "reasoning"} {
+		if text, ok := jsonStringField(fields, key); ok && strings.TrimSpace(text) != "" {
+			return text, true
+		}
+	}
 	return jsonStringField(fields, "content")
 }
 
@@ -1750,6 +1824,24 @@ func waitForRetry(ctx context.Context, delay time.Duration) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
+}
+
+// waitForBackendSignal waits out the retry delay, returning early when the backend's
+// output settles on a verdict so a decided load is not made to sit through the backoff.
+func waitForBackendSignal(ctx context.Context, delay time.Duration, settled <-chan struct{}) error {
+	if delay <= 0 {
+		return nil
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-settled:
+		return nil
 	case <-timer.C:
 		return nil
 	}
@@ -2070,6 +2162,13 @@ func (service *Service) reloadModelConfig(runtime *backendRuntime, ctx context.C
 }
 
 func (service *Service) waitForBackendEndpoint(runtime *backendRuntime, ctx context.Context, readiness backendReadiness, modelID string, configFilename string) error {
+	// The backend's own output is the authoritative signal: an HTTP probe cannot tell a
+	// slow load apart from a process that died mid-load and restarted with no model, and
+	// both report a model id of "inactive". Watch the output and keep probing as the
+	// fallback for backends that cannot stream it.
+	watch := service.watchBackendReadiness(runtime, readiness)
+	defer watch.close()
+
 	retryDelay := service.backendRetryDelay
 	var lastStatus int
 	var lastBody string
@@ -2080,6 +2179,9 @@ func (service *Service) waitForBackendEndpoint(runtime *backendRuntime, ctx cont
 			if err := reporter.BackendExitError(); err != nil {
 				return err
 			}
+		}
+		if err, decided := service.backendOutputVerdict(watch, modelID, configFilename); decided {
+			return err
 		}
 		status, body, err := service.probeBackendEndpoint(runtime, ctx, readiness.endpointForMode(runtime.mode))
 		if err == nil && backendEndpointReady(readiness, runtime.mode, status, body) {
@@ -2097,11 +2199,14 @@ func (service *Service) waitForBackendEndpoint(runtime *backendRuntime, ctx cont
 		}
 
 		if attempt < service.backendRetryAttempts {
-			if err := waitForRetry(ctx, retryDelay); err != nil {
+			if err := waitForBackendSignal(ctx, retryDelay, watch.settledChannel()); err != nil {
 				return err
 			}
 			retryDelay = nextRetryDelay(retryDelay, service.backendRetryMaxDelay)
 		}
+	}
+	if err, decided := service.backendOutputVerdict(watch, modelID, configFilename); decided {
+		return err
 	}
 
 	return fmt.Errorf("backend model endpoint unavailable after retries: status %d error=%v body=%q", lastStatus, lastErr, lastBody)
@@ -2816,8 +2921,7 @@ func textPathRequiresModel(path string) bool {
 		"/v1/rerank",
 		"/v1/reranking",
 		"/api/generate",
-		"/api/chat",
-		"/api/show":
+		"/api/chat":
 		return true
 	default:
 		return false

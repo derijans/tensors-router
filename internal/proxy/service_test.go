@@ -148,7 +148,8 @@ func TestModelAwareTextEndpointsRouteSelectedConfig(t *testing.T) {
 		"/api/extra/tokencount",
 		"/api/generate",
 		"/api/chat",
-		"/api/show",
+		// /api/show is deliberately absent: it is metadata, answered from the catalog
+		// without forwarding or loading. See TestOllamaShowAnswersLocallyWithoutTouchingBackend.
 	}
 
 	for _, endpoint := range endpoints {
