@@ -186,9 +186,23 @@ jobs:
               docker image inspect "$image" --format '{{json .Config.ExposedPorts}}' | jq -e 'keys == ["8080/tcp"]'
               docker image inspect "$image" --format '{{json .Config.Entrypoint}}' | jq -e '. == ["tensors-router", "serve", "--config", "/config/config.yaml"]'
             fi
-            compiler_ban='! command -v pip && ! command -v gcc && ! command -v g++ && ! command -v cc && ! command -v make && ! command -v cmake && ! command -v nvcc'
-            [[ "$TARGET" == *-rocm ]] || compiler_ban="$compiler_ban && ! command -v hipcc && ! command -v clang"
-            docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c "test -x /usr/local/bin/tensors-router && test -x /usr/local/bin/tensor-router-downloader && test \"\$(id -u tensors):\$(id -g tensors)\" = 10001:10001 && test \"\$(stat -c %u:%g /data)\" = 10001:10001 && test \"\$(stat -c %u:%g /models)\" = 10001:10001 && $compiler_ban"
+            banned_tools="pip gcc g++ cc make cmake nvcc"
+            [[ "$TARGET" == *-rocm ]] || banned_tools="$banned_tools hipcc clang"
+            docker run --rm --platform "$platform" -e BANNED_TOOLS="$banned_tools" --entrypoint /bin/sh "$image" -c '
+              set -e
+              test -x /usr/local/bin/tensors-router || { echo "verify: missing /usr/local/bin/tensors-router"; exit 1; }
+              test -x /usr/local/bin/tensor-router-downloader || { echo "verify: missing /usr/local/bin/tensor-router-downloader"; exit 1; }
+              ids="$(id -u tensors):$(id -g tensors)"
+              [ "$ids" = 10001:10001 ] || { echo "verify: unexpected tensors uid:gid $ids"; exit 1; }
+              data_owner="$(stat -c %u:%g /data)"
+              [ "$data_owner" = 10001:10001 ] || { echo "verify: unexpected /data ownership $data_owner"; exit 1; }
+              models_owner="$(stat -c %u:%g /models)"
+              [ "$models_owner" = 10001:10001 ] || { echo "verify: unexpected /models ownership $models_owner"; exit 1; }
+              for tool in $BANNED_TOOLS; do
+                found="$(command -v "$tool" 2>/dev/null || true)"
+                [ -z "$found" ] || { echo "verify: unexpected $tool at $found"; exit 1; }
+              done
+            '
             if [[ "$TARGET" == *webui* ]]; then
               docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c 'test -x /usr/local/bin/tensor-router-webui'
             else
