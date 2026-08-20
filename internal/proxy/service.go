@@ -2180,7 +2180,7 @@ func (service *Service) waitForBackendEndpoint(runtime *backendRuntime, ctx cont
 				return err
 			}
 		}
-		if err, decided := service.backendOutputVerdict(watch, modelID, configFilename); decided {
+		if err := service.backendOutputFailure(watch, modelID, configFilename); err != nil {
 			return err
 		}
 		status, body, err := service.probeBackendEndpoint(runtime, ctx, readiness.endpointForMode(runtime.mode))
@@ -2205,7 +2205,7 @@ func (service *Service) waitForBackendEndpoint(runtime *backendRuntime, ctx cont
 			retryDelay = nextRetryDelay(retryDelay, service.backendRetryMaxDelay)
 		}
 	}
-	if err, decided := service.backendOutputVerdict(watch, modelID, configFilename); decided {
+	if err := service.backendOutputFailure(watch, modelID, configFilename); err != nil {
 		return err
 	}
 

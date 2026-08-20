@@ -54,12 +54,15 @@ func (watch *readinessWatch) observe(_ loadcapture.Stream, payload []byte) {
 	result := watch.scanner.Write(payload)
 	watch.result = result
 	watch.mu.Unlock()
-	if result.Verdict != backendreadiness.Undecided {
+	// Only a failure cuts the wait short. The channel latches open once closed, so
+	// signalling on readiness too would make every subsequent backoff return instantly
+	// and turn the retry loop into a busy poll.
+	if result.Verdict == backendreadiness.Failed {
 		watch.once.Do(func() { close(watch.settled) })
 	}
 }
 
-// settledChannel closes as soon as the output yields a definitive verdict.
+// settledChannel closes as soon as the output reports a load failure.
 func (watch *readinessWatch) settledChannel() <-chan struct{} {
 	if watch == nil {
 		return nil
@@ -83,21 +86,25 @@ func (watch *readinessWatch) close() {
 	watch.stop()
 }
 
-// backendOutputVerdict converts a settled output verdict into a wait result. The second
-// return reports whether the output decided the outcome; when false the caller keeps
-// probing.
-func (service *Service) backendOutputVerdict(watch *readinessWatch, modelID string, configFilename string) (error, bool) {
+// backendOutputFailure reports a load failure the backend announced on its own output.
+//
+// Only failure is taken from the output, never readiness. The markers identify a lane,
+// not a model: any "Load Text Model OK: True" satisfies any text-lane watcher, and
+// waitForInactiveBackend calls into here from the retry path without holding the switch
+// lock, so a banner from one load can be observed by the next one. Treating that as
+// "ready" declares a model loaded that is not, and the request then hits an unloaded
+// backend. A failure marker does not have that problem: it reports that the process is
+// serving no model in this lane at all, which is true for every waiter on it.
+//
+// Readiness therefore stays with the HTTP probe, which reflects current state rather
+// than a historical log line.
+func (service *Service) backendOutputFailure(watch *readinessWatch, modelID string, configFilename string) error {
 	result := watch.verdict()
-	switch result.Verdict {
-	case backendreadiness.Ready:
-		service.logger.Printf("backend reported model ready model=%q config=%q", modelID, configFilename)
-		return nil, true
-	case backendreadiness.Failed:
-		service.logger.Printf("backend reported load failure model=%q config=%q reason=%q", modelID, configFilename, result.Reason)
-		return fmt.Errorf("backend reported load failure: %s", result.Reason), true
-	default:
-		return nil, false
+	if result.Verdict != backendreadiness.Failed {
+		return nil
 	}
+	service.logger.Printf("backend reported load failure model=%q config=%q reason=%q", modelID, configFilename, result.Reason)
+	return fmt.Errorf("backend reported load failure: %s", result.Reason)
 }
 
 func readinessOutputLane(readiness backendReadiness) backendreadiness.Lane {
