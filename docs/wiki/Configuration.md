@@ -117,9 +117,17 @@ least once.
 | `vllm.binary_location` | Empty or executable path | Empty | Companion executable. Empty searches beside the router executable on supported platforms. |
 | `vllm.data_dir` | Path string | `./data/vllm` | Persistent jobs, content-addressed environments, staging, bounded logs, and private runtime sockets. |
 | `vllm.profile` | `auto` or signed profile ID | `auto` | Runtime profile requested by explicit initialization. |
-| `vllm.manifest_path` | TUF target path | platform-specific | Signed runtime-manifest target inside the configured TUF repository. |
-| `vllm.tuf_repository_url` | HTTPS URL ending in `/metadata` | Built-in project metadata repository | Metadata endpoint authorizing runtime manifests and their exact artifacts. |
+| `vllm.manifest_path` | TUF target path, local file path, or empty | platform-specific | Signed runtime-manifest target inside the configured TUF repository. With `tuf_repository_url` empty it is a local file authorized by the pin below. Ignored when neither a repository nor a pin is configured. |
+| `vllm.tuf_repository_url` | HTTPS URL ending in `/metadata`, or empty | Built-in project metadata repository | Metadata endpoint authorizing runtime manifests and their exact artifacts. Empty selects the operator-pinned or unverified tier instead. |
 | `vllm.tuf_root_path` | Empty or file path | Empty | Optional trusted root override. Empty uses the root embedded in the companion. |
+| `vllm.manifest_sha256` | Empty or 64-character hex digest | Empty | Authorizes a local `manifest_path`. Required with `manifest_size` when `tuf_repository_url` is empty and `allow_unverified_install` is false. Rejected alongside a TUF repository. |
+| `vllm.manifest_size` | `0` or positive byte count | `0` | Exact byte length of the operator-pinned manifest. Paired with `manifest_sha256`. |
+| `vllm.allow_unverified_install` | Boolean | `false` | Installs vLLM from PyPI with no manifest and no digest pinning when no authorized manifest resolves. A real reduction in supply-chain integrity; reports the `unverified` trust tier in state, logs, and the WebUI. |
+| `vllm.unverified_vllm_version` | Empty or exact version | Empty | Pins `vllm==<version>` for an unverified install. Empty installs whatever resolves as latest, which is unpinned even by version. Only valid with `allow_unverified_install`. |
+| `vllm.unverified_python_version` | Empty or version request | Empty (`3.12`) | Interpreter uv provisions for the unverified environment. A request such as `3.12` resolves to a specific patch release. |
+| `vllm.unverified_index_url` | Empty or HTTPS URL | Empty | Replaces the default package index for an unverified install. |
+| `vllm.unverified_extra_index_url` | Empty or HTTPS URL | Empty | Additional index, most commonly an accelerator-specific torch wheel index. Left on uv's default index strategy, so a named index is preferred rather than silently outranked. |
+| `vllm.oci_run_as_image_user` | Boolean | `false` | Runs an OCI runtime as the image's own user instead of the host user, for vendor images that install their interpreter under `/root`. Drops only that mapping; the read-only root filesystem, dropped capabilities, and `no-new-privileges` still apply. |
 | `vllm.dynamic_lora_enabled` | Boolean | `false` | Separately enables administrator-only dynamic LoRA operations. |
 | `vllm.eep_enabled` | Boolean | `false` | Separately enables administrator-only Elastic Expert Parallelism operations. |
 | `vllm.trust_remote_code` | Boolean | `false` | Allows a model configuration to opt into remote repository code. Model-level consent is also required. |

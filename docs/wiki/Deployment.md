@@ -45,14 +45,20 @@ The installer enables the service and writes it under the current user's systemd
 
 ## Container images
 
-The repository publishes separate images:
+The repository publishes twelve images, named `ghcr.io/derijans/tensors-router/tensors-router-{variant}:{tag}`. Each of the four roles is built for CPU, CUDA, and ROCm:
 
-- `ghcr.io/derijans/tensors-router/tensors-router-node:{tag}`
-- `ghcr.io/derijans/tensors-router/tensors-router-webui:{tag}`
-- `ghcr.io/derijans/tensors-router/tensors-router-vllm-node:{tag}`
-- `ghcr.io/derijans/tensors-router/tensors-router-vllm-webui:{tag}`
+| Role | CPU | CUDA | ROCm |
+| --- | --- | --- | --- |
+| Node | `node` | `node-cuda` | `node-rocm` |
+| WebUI | `webui` | `webui-cuda` | `webui-rocm` |
+| vLLM node | `vllm-node` | `vllm-node-cuda` | `vllm-node-rocm` |
+| vLLM WebUI | `vllm-webui` | `vllm-webui-cuda` | `vllm-webui-rocm` |
+
+CPU and CUDA variants are published for Linux amd64 and arm64; ROCm variants are amd64 only. Images are built and pushed only from a published non-prerelease GitHub Release, and the version and `latest` tags are applied only after every variant passes its boundary and vulnerability checks.
 
 The standard node and WebUI images remain Alpine-based and contain no Python. vLLM variants use a glibc runtime and add `tensor-router-vllm`; Python and vLLM are still installed only after an explicit administrator initialization action. All images run as UID and GID `10001`.
+
+None of the images contain a container engine. The vLLM `oci` installation method shells out to Docker or Podman, so it works only where the router runs with an engine reachable, which is not the case inside these images.
 
 ## Docker storage layout
 

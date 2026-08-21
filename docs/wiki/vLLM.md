@@ -23,7 +23,7 @@ Content-Type: application/json
 
 Initialization returns `202 Accepted`. Repeated requests return the active persistent job instead of creating another. Cancellation leaves the previous promoted environment intact. A staged environment is promoted only after artifact verification, import validation, and a serving smoke test.
 
-The companion resolves its manifest from one of four trust tiers. Each runtime artifact has an exact version, URL, byte size, SHA-256 digest, installation method, compatibility fields, and prerequisites. Release builds embed the platform-matched `uv` 0.12.0 bootstrap; the release workflow verifies the embedded bytes before packaging. Runtime initialization extracts those bytes into the staged environment and uses content-addressed per-profile directories without modifying system Python, `pip`, `PATH`, or user environments. Stable versions are pinned; nightlies and runtime-resolved `latest` packages are rejected — except in the `unverified` tier, which pins nothing at all.
+The companion resolves its manifest from one of four trust tiers. Each runtime artifact has an exact version, URL, byte size, SHA-256 digest, installation method, compatibility fields, and prerequisites. Release builds embed the platform-matched `uv` 0.12.0 bootstrap; the release workflow verifies the embedded bytes before packaging. Runtime initialization extracts those bytes into the staged environment and uses content-addressed per-profile directories without modifying system Python, `pip`, `PATH`, or user environments. Stable versions are pinned; nightlies and runtime-resolved `latest` packages are rejected everywhere except the `unverified` tier, which pins nothing at all.
 
 ### Manifest trust tiers
 
@@ -32,7 +32,7 @@ The companion resolves its manifest from one of four trust tiers. Each runtime a
 | `tuf` | `vllm.tuf_repository_url` is set and `runtimes/vllm/<os>-<arch>.json` is published | Independently signed, expiring, revocable, rollback-protected |
 | `operator-pinned` | `vllm.tuf_repository_url` is empty and `vllm.manifest_sha256` plus `vllm.manifest_size` pin a local `vllm.manifest_path` | Bytes fixed by an operator-supplied digest and length |
 | `embedded-default` | TUF metadata verified but no runtime manifest has been published for this platform | Bytes fixed by the manifest compiled into the release binary |
-| `unverified` | `vllm.allow_unverified_install` is `true` and neither of the above resolved a manifest | None — `uv pip install vllm` runs against PyPI with no artifact list to check bytes against |
+| `unverified` | `vllm.allow_unverified_install` is `true` and neither of the above resolved a manifest | None. `uv pip install vllm` runs against PyPI with no artifact list to check bytes against |
 
 The companion falls back to `embedded-default`, and from there to `unverified` if enabled, only after the TUF metadata chain refreshes successfully and the platform's target turns out not to exist. A signature, expiry, rollback, transport, or digest failure is never a reason to fall back: those still fail closed with the previous environment untouched. An operator-pinned manifest never falls back either, because a missing or mismatched pinned file is an error rather than an invitation to install something else. Nothing parsed from a TUF-signed or operator-pinned manifest can ever select the `unverified` tier; it is only reachable through the explicit config flag.
 
@@ -83,6 +83,20 @@ This drops only the forced host-user mapping. The read-only root filesystem, dro
 OCI profiles additionally pin the imported image by immutable `sha256:` image ID, require a preinstalled Docker or Podman engine, and run with read-only model mounts, a private socket mount, dropped capabilities, offline model-loading variables, and only the device mappings declared by the signed profile. The companion never installs the engine.
 
 Model loading is offline and never installs or downloads packages or models. A vLLM inference request before successful initialization returns `503` with `backend_not_initialized`.
+
+## Launch options
+
+Three offline switches applied to every runtime process are selectable per node rather than fixed:
+
+| Option | Environment variable |
+| --- | --- |
+| `hf_hub_offline` | `HF_HUB_OFFLINE` |
+| `transformers_offline` | `TRANSFORMERS_OFFLINE` |
+| `hf_datasets_offline` | `HF_DATASETS_OFFLINE` |
+
+All three default to on, which keeps a running model from reaching Hugging Face so only the local pinned snapshot is used. Turning one off lets vLLM resolve missing files over the network, which is occasionally needed for a model whose snapshot is incomplete.
+
+Select them in the vLLM section of the Nodes panel and press **Apply and reload**. The choice is stored in the companion's data directory and survives a router or companion restart. Applying unloads any running runtime, because the environment is fixed when the process starts; the next load uses the new selection. The same values are readable and writable through `/router/v1/site/nodes/backends/launch-options`.
 
 ## Model configuration
 

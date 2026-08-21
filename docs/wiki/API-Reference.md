@@ -155,12 +155,15 @@ Standalone and master routers expose administration routes in these groups:
 - `/router/v1/benchmarks` and `/router/v1/benchmarks/run`
 - `/router/v1/site/inventory`
 - `/router/v1/site/nodes/backends/init` and `/router/v1/site/nodes/backends/init/cancel`
+- `/router/v1/site/nodes/backends/launch-options`
 - `/router/v1/site/download/...`
 - `/router/v1/site/webuis/...`
 - `/router/v1/site/analytics`
 - `/router/v1/site/load-captures`
 - `/router/v1/site/cook/...` and `/router/v1/site/config-file/...`
 - `/router/v1/site/model-files/...` and `/router/v1/site/model-assets/...`
+
+`GET /router/v1/site/nodes/backends/launch-options?node_id={node_id}&backend_id=vllm` reports the persisted vLLM launch options for a node. `POST` to the same path with `{"node_id":"...","backend_id":"vllm","options":{"hf_hub_offline":true,"transformers_offline":true,"hf_datasets_offline":true}}` stores the selection and unloads running runtimes so the next load applies it. Both forms are answered by the owning node, and a master forwards them to it over the matching `/router/v1/node/backends/launch-options` route.
 
 Load-capture recording is opt-in on each node. The site endpoint merges enabled nodes and accepts repeated `node` parameters plus `status`, `kind`, `backend`, `from`, `to`, `limit`, and `cursor` filters. Summary records expose content hashes instead of local model paths.
 
