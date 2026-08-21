@@ -2,6 +2,7 @@ package vllm
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -141,24 +142,31 @@ func TestServeArgumentsPreferRunnerOverRemovedTaskFlag(t *testing.T) {
 
 func TestOCIArgumentsOnlyDropHostIdentityWhenOptedIn(t *testing.T) {
 	profile := Profile{OCIImage: "sha256:" + strings.Repeat("b", 64), Devices: []string{"rocm"}}
-	defaulted := strings.Join(ociCommandArguments("docker", profile, nil, nil, []string{"-c", "pass"}, false), " ")
-	optedIn := strings.Join(ociCommandArguments("docker", profile, nil, nil, []string{"-c", "pass"}, false, true), " ")
+	defaulted := ociCommandArguments("docker", profile, nil, nil, []string{"-c", "pass"}, false)
+	optedIn := ociCommandArguments("docker", profile, nil, nil, []string{"-c", "pass"}, false, true)
 
-	// Host identity arguments are platform-specific and empty on Windows, so assert
-	// against whatever this platform actually contributes rather than a literal flag.
+	// Identity arguments are platform-specific (empty on Windows) and include bare
+	// values such as a numeric group id, so compare argument slices rather than
+	// searching the joined string, where "4" also matches "--shm-size=4g".
 	identity := containerIdentityArguments("docker")
-	for _, argument := range identity {
-		if !strings.Contains(defaulted, argument) {
-			t.Fatalf("the default must keep the host identity argument %q: %s", argument, defaulted)
+	if len(defaulted)-len(optedIn) != len(identity) {
+		t.Fatalf("opting in should remove exactly the %d identity arguments: %v vs %v", len(identity), defaulted, optedIn)
+	}
+	expected := make([]string, 0, len(optedIn))
+	for index := 0; index < len(defaulted); index++ {
+		if len(identity) > 0 && index+len(identity) <= len(defaulted) && slices.Equal(defaulted[index:index+len(identity)], identity) {
+			index += len(identity) - 1
+			continue
 		}
-		if strings.Contains(optedIn, argument) {
-			t.Fatalf("opting in must drop the host identity argument %q: %s", argument, optedIn)
-		}
+		expected = append(expected, defaulted[index])
+	}
+	if !slices.Equal(expected, optedIn) {
+		t.Fatalf("opting in must differ from the default only by the identity arguments:\n want %v\n got  %v", expected, optedIn)
 	}
 	// The rest of the containment must survive either way.
 	for _, guarantee := range []string{"--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--device=/dev/kfd"} {
-		if !strings.Contains(optedIn, guarantee) {
-			t.Fatalf("opting in must not weaken %q: %s", guarantee, optedIn)
+		if !slices.Contains(optedIn, guarantee) {
+			t.Fatalf("opting in must not weaken %q: %v", guarantee, optedIn)
 		}
 	}
 }
