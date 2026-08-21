@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/ggml-org/whisper.cpp",
+  "releases": [
+    {
+      "id": "373686414",
+      "tag": "b4938",
+      "published_at": "2026-08-20T11:33:19Z",
+      "payloads": [
+        {
+          "name": "whisper-bin-ubuntu-x64.tar.gz",
+          "url": "https://github.com/ggml-org/whisper.cpp/releases/download/b4938/whisper-bin-ubuntu-x64.tar.gz",
+          "length": 9503425,
+          "sha256": "f4cfc1f969a13805908fb72043ce7cc896eb42e0b8afbe841dc8e7298923b061"
+        }
+      ]
+    }
+  ]
+}
