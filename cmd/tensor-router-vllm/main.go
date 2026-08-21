@@ -82,6 +82,7 @@ func run(arguments []string, input io.Reader, output io.Writer) error {
 		AllowTrustRemoteCode: configuration.AllowTrustRemoteCode,
 		AllowExternalTools:   configuration.AllowExternalTools,
 		AllowDynamicLoRA:     configuration.AllowDynamicLoRA,
+		OCIRunAsImageUser:    configuration.OCIRunAsImageUser,
 	})
 	if err != nil {
 		return err
@@ -135,6 +136,12 @@ func parseWorkerConfig(arguments []string) (vllm.ClientConfig, error) {
 				return vllm.ClientConfig{}, fmt.Errorf("%s must be true or false", name)
 			}
 			configuration.AllowDynamicLoRA = parsed
+		case "--oci-run-as-image-user":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return vllm.ClientConfig{}, fmt.Errorf("%s must be true or false", name)
+			}
+			configuration.OCIRunAsImageUser = parsed
 		case "--allow-unverified-install":
 			parsed, err := strconv.ParseBool(value)
 			if err != nil {

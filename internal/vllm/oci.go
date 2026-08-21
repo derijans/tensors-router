@@ -81,9 +81,16 @@ func installedContainerEngine(profile Profile, environmentPath string) (string, 
 	return metadata.Engine, nil
 }
 
-func ociCommandArguments(engine string, profile Profile, mounts []ociMount, environment []string, command []string, network bool) []string {
+func ociCommandArguments(engine string, profile Profile, mounts []ociMount, environment []string, command []string, network bool, runAsImageUser ...bool) []string {
 	arguments := []string{"run", "--rm", "--pull=never", "--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--tmpfs", "/tmp:rw,nosuid,nodev,size=1g", "--shm-size=4g"}
-	arguments = append(arguments, containerIdentityArguments(engine)...)
+	// By default the container runs as the host user so anything it writes stays
+	// owned by that user and nothing runs as root. Some vendor images keep their
+	// interpreter under /root and are unusable that way, so an operator can opt a
+	// deployment back onto the image own user. Everything else stays: no new
+	// privileges, all capabilities dropped, read-only root.
+	if len(runAsImageUser) == 0 || !runAsImageUser[0] {
+		arguments = append(arguments, containerIdentityArguments(engine)...)
+	}
 	if !network {
 		arguments = append(arguments, "--network=none")
 	}

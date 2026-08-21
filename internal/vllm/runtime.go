@@ -75,7 +75,7 @@ func (manager *Manager) Load(ctx context.Context, request RuntimeLoadRequest) (R
 	}
 	_ = os.Remove(socketPath)
 	logs := newBoundedLog(maximumRuntimeLogBytes)
-	executable, arguments, environment, err := runtimeLaunchCommand(active, configuration, socketPath, manager.options.AllowDynamicLoRA)
+	executable, arguments, environment, err := runtimeLaunchCommand(active, configuration, socketPath, manager.options.AllowDynamicLoRA, manager.currentLaunchOptions(), manager.options.OCIRunAsImageUser)
 	if err != nil {
 		return RuntimeStatus{}, err
 	}
@@ -143,13 +143,13 @@ func ensureRouterServedName(servedNames []string, routerModelID string) []string
 	return append([]string{routerModelID}, servedNames...)
 }
 
-func runtimeLaunchCommand(active activeEnvironment, configuration VLLMModelConfig, socketPath string, dynamicLoRA bool) (string, []string, []string, error) {
+func runtimeLaunchCommand(active activeEnvironment, configuration VLLMModelConfig, socketPath string, dynamicLoRA bool, launchOptions LaunchOptions, ociRunAsImageUser bool) (string, []string, []string, error) {
 	if active.InstallMethod != "oci" {
 		arguments, err := BuildServeArguments(configuration, socketPath, dynamicLoRA)
 		if err != nil {
 			return "", nil, nil, err
 		}
-		environment := isolatedRuntimeEnvironment(active.Path, configuration.Snapshot.Path)
+		environment := isolatedRuntimeEnvironmentWithOptions(active.Path, configuration.Snapshot.Path, launchOptions)
 		if dynamicLoRA {
 			environment = append(environment, "VLLM_ALLOW_RUNTIME_LORA_UPDATING=True")
 		}
@@ -179,7 +179,7 @@ func runtimeLaunchCommand(active activeEnvironment, configuration VLLMModelConfi
 		containerEnvironment = append(containerEnvironment, "VLLM_ALLOW_RUNTIME_LORA_UPDATING=True")
 	}
 	profile := Profile{OCIImage: active.OCIImage, Devices: append([]string{}, active.Devices...)}
-	arguments := ociCommandArguments(engineName, profile, mounts, containerEnvironment, command, len(configuration.ExternalToolServers) > 0)
+	arguments := ociCommandArguments(engineName, profile, mounts, containerEnvironment, command, len(configuration.ExternalToolServers) > 0, ociRunAsImageUser)
 	return enginePath, arguments, containerEngineEnvironment(active.Path), nil
 }
 
@@ -258,8 +258,15 @@ func (manager *Manager) waitForRuntimeSocket(ctx context.Context, kind RuntimeKi
 		manager.mu.Lock()
 		running := manager.runtimes[kind] == process && process.status.Running
 		exitError := process.status.Error
+		// watchRuntime captures the runtime's own output when it exits. Without it
+		// this reports a bare exit status and the reason the process died - a missing
+		// accelerator library, a bad serve argument, an out-of-memory kill - is lost.
+		exitLogs := process.status.Logs
 		manager.mu.Unlock()
 		if !running {
+			if strings.TrimSpace(exitLogs) != "" {
+				return RuntimeStatus{}, fmt.Errorf("vLLM %s runtime exited before health check succeeded: %s: %s", kind, exitError, exitLogs)
+			}
 			return RuntimeStatus{}, fmt.Errorf("vLLM %s runtime exited before health check succeeded: %s", kind, exitError)
 		}
 		select {

@@ -28,9 +28,32 @@ type State struct {
 	InitializationPhase      string `json:"initialization_phase,omitempty"`
 	InitializationBytes      int64  `json:"initialization_bytes,omitempty"`
 	InitializationTotalBytes int64  `json:"initialization_total_bytes,omitempty"`
-	ManifestTrust            string `json:"manifest_trust,omitempty"`
-	Error                    string `json:"error,omitempty"`
-	Retryable                bool   `json:"retryable,omitempty"`
+	ManifestTrust            string        `json:"manifest_trust,omitempty"`
+	LaunchOptions            LaunchOptions `json:"launch_options"`
+	Error                    string        `json:"error,omitempty"`
+	Retryable                bool          `json:"retryable,omitempty"`
+}
+
+// LaunchOptions are operator-selected environment switches applied every time a vLLM
+// runtime process starts. They persist in the companion's data directory, so a choice
+// survives a router or companion restart, and they take effect on the next runtime
+// launch - which is why setting them unloads whatever is currently running.
+type LaunchOptions struct {
+	// HubOffline controls HF_HUB_OFFLINE. Offline is the safe default: it keeps a
+	// running model from reaching Hugging Face, so only the local pinned snapshot is
+	// ever used. Turning it off lets vLLM resolve missing files over the network.
+	HubOffline bool `json:"hf_hub_offline"`
+	// TransformersOffline controls TRANSFORMERS_OFFLINE.
+	TransformersOffline bool `json:"transformers_offline"`
+	// DatasetsOffline controls HF_DATASETS_OFFLINE.
+	DatasetsOffline bool `json:"hf_datasets_offline"`
+}
+
+// DefaultLaunchOptions keeps the fully offline behaviour that was previously hardcoded
+// into the runtime environment, so an existing deployment behaves identically until an
+// operator deliberately changes something.
+func DefaultLaunchOptions() LaunchOptions {
+	return LaunchOptions{HubOffline: true, TransformersOffline: true, DatasetsOffline: true}
 }
 
 type InitializationJob struct {

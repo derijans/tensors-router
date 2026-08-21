@@ -37,6 +37,7 @@ type ClientConfig struct {
 	UnverifiedPythonVersion string
 	UnverifiedIndexURL      string
 	UnverifiedExtraIndexURL string
+	OCIRunAsImageUser       bool
 }
 
 type Client struct {
@@ -82,6 +83,9 @@ func StartClient(ctx context.Context, binaryPath string, configuration ClientCon
 		if configuration.UnverifiedExtraIndexURL != "" {
 			arguments = append(arguments, "--unverified-extra-index-url", configuration.UnverifiedExtraIndexURL)
 		}
+	}
+	if configuration.OCIRunAsImageUser {
+		arguments = append(arguments, "--oci-run-as-image-user", "true")
 	}
 	if configuration.AllowTrustRemoteCode {
 		arguments = append(arguments, "--allow-trust-remote-code", "true")
@@ -179,6 +183,18 @@ func (client *Client) Runtime(ctx context.Context, kind RuntimeKind) (RuntimeSta
 	var status RuntimeStatus
 	err := client.call(ctx, "runtime", runtimeCall{Kind: kind}, &status)
 	return status, err
+}
+
+func (client *Client) LaunchOptions(ctx context.Context) (LaunchOptions, error) {
+	var options LaunchOptions
+	err := client.call(ctx, "launch_options", nil, &options)
+	return options, err
+}
+
+func (client *Client) SetLaunchOptions(ctx context.Context, options LaunchOptions) (LaunchOptions, error) {
+	var applied LaunchOptions
+	err := client.call(ctx, "set_launch_options", options, &applied)
+	return applied, err
 }
 
 func (client *Client) Close() error {

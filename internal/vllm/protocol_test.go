@@ -38,6 +38,14 @@ func (*protocolTestService) Runtime(_ context.Context, kind RuntimeKind) (Runtim
 	return RuntimeStatus{Kind: kind}, nil
 }
 
+func (*protocolTestService) LaunchOptions(context.Context) (LaunchOptions, error) {
+	return DefaultLaunchOptions(), nil
+}
+
+func (*protocolTestService) SetLaunchOptions(_ context.Context, options LaunchOptions) (LaunchOptions, error) {
+	return options, nil
+}
+
 func (service *protocolTestService) Close() error {
 	service.closed = true
 	return nil

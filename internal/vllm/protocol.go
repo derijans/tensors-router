@@ -107,6 +107,14 @@ func dispatchWorkerRequest(ctx context.Context, service Service, request protoco
 			return nil, err
 		}
 		return nil, service.Unload(ctx, value.Kind)
+	case "launch_options":
+		return service.LaunchOptions(ctx)
+	case "set_launch_options":
+		var value LaunchOptions
+		if err := decodePayload(request.Payload, &value); err != nil {
+			return nil, err
+		}
+		return service.SetLaunchOptions(ctx, value)
 	case "runtime":
 		var value runtimeCall
 		if err := decodePayload(request.Payload, &value); err != nil {

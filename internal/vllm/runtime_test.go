@@ -218,7 +218,7 @@ func TestOCIRuntimeUsesPrivateMountsOfflineEnvironmentAndDeviceIsolation(t *test
 	}
 	configuration := VLLMModelConfig{Snapshot: SnapshotIdentity{Path: snapshotPath, TreeDigest: strings.Repeat("a", 64)}}
 	active := activeEnvironment{Path: directory, InstallMethod: "oci", OCIImage: "sha256:" + strings.Repeat("b", 64), ContainerEngine: "docker", Devices: []string{"cuda"}}
-	executable, arguments, environment, err := runtimeLaunchCommand(active, configuration, filepath.Join(socketDirectory, "vllm.sock"), true)
+	executable, arguments, environment, err := runtimeLaunchCommand(active, configuration, filepath.Join(socketDirectory, "vllm.sock"), true, DefaultLaunchOptions(), false)
 	if err != nil {
 		t.Fatal(err)
 	}

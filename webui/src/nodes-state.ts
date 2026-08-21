@@ -1,8 +1,8 @@
-import { cancelNodeBackendInitialization, getNodeState, initializeNodeBackend, unloadNodeRuntime } from "./api";
+import { applyNodeBackendLaunchOptions, cancelNodeBackendInitialization, getNodeState, initializeNodeBackend, unloadNodeRuntime } from "./api";
 import { closestElement } from "./dom";
 import { elements } from "./elements";
 import { state } from "./state";
-import type { BackendInitializationJob, BackendInitializationRequest, NodeInventory, NodeRuntimeSlice, NodeStateBackend } from "./types";
+import type { BackendInitializationJob, BackendInitializationRequest, BackendLaunchOptions, NodeInventory, NodeRuntimeSlice, NodeStateBackend } from "./types";
 import { escapeAttribute, escapeHTML } from "./utils";
 import { nodeStatePanelID, renderNodeCard, renderNodeStateSnapshot } from "./node-state-view";
 
@@ -34,6 +34,11 @@ export function handleNodesClick(event: Event): void {
   const cancelInitializationButton = closestElement(event.target, "[data-node-backend-init-cancel]", HTMLButtonElement);
   if (cancelInitializationButton) {
     void cancelSelectedBackendInitialization(cancelInitializationButton.dataset.nodeId || "", cancelInitializationButton.dataset.backendId || "");
+    return;
+  }
+  const launchApplyButton = closestElement(event.target, "[data-node-backend-launch-apply]", HTMLButtonElement);
+  if (launchApplyButton) {
+    void applySelectedLaunchOptions(launchApplyButton);
     return;
   }
   const unloadButton = closestElement(event.target, "[data-node-unload]", HTMLButtonElement);
@@ -126,7 +131,7 @@ export function nodeUnloadKey(backendID: string, runtimeID: string): string {
   return `${backendID} ${runtimeID}`;
 }
 
-export function nodeBackendActionKey(action: "init" | "cancel", backendID: string): string {
+export function nodeBackendActionKey(action: "init" | "cancel" | "launch-options", backendID: string): string {
   return `${action} ${backendID}`;
 }
 
@@ -224,6 +229,58 @@ export async function initializeSelectedBackend(nodeID: string, backendID: strin
 
 export async function cancelSelectedBackendInitialization(nodeID: string, backendID: string): Promise<void> {
   await runBackendInitializationAction("cancel", nodeID, backendID);
+}
+
+// The checkboxes are read straight out of the rendered panel rather than mirrored into
+// state, so what is applied is exactly what the operator sees ticked.
+async function applySelectedLaunchOptions(button: HTMLButtonElement): Promise<void> {
+  const nodeID = button.dataset.nodeId || "";
+  const backendID = button.dataset.backendId || "";
+  const current = slice(nodeID);
+  if (!nodeID || !backendID || !current || current.pendingBackendAction) {
+    return;
+  }
+  const panel = button.closest(".node-state-backend");
+  if (!panel) {
+    return;
+  }
+  const options: BackendLaunchOptions = {hf_hub_offline: false, transformers_offline: false, hf_datasets_offline: false};
+  panel.querySelectorAll("[data-node-backend-launch-option]").forEach(element => {
+    const checkbox = element as HTMLInputElement;
+    const key = checkbox.dataset.nodeBackendLaunchOption as keyof BackendLaunchOptions | undefined;
+    if (key && key in options) {
+      options[key] = checkbox.checked;
+    }
+  });
+  invalidatePolling(nodeID);
+  const pollGeneration = current.pollGeneration;
+  const pendingAction = nodeBackendActionKey("launch-options", backendID);
+  current.pendingBackendAction = pendingAction;
+  current.error = "";
+  renderNodePanel(nodeID);
+  let succeeded = false;
+  try {
+    await applyNodeBackendLaunchOptions({node_id: nodeID, backend_id: backendID, options});
+    succeeded = true;
+  } catch (error) {
+    if (pollingCurrent(nodeID, pollGeneration)) {
+      const active = slice(nodeID);
+      if (active) {
+        active.error = errorMessage(error);
+      }
+    }
+  } finally {
+    const after = slice(nodeID);
+    if (after && after.pendingBackendAction === pendingAction) {
+      after.pendingBackendAction = "";
+      if (state.activeTab === "nodes" && state.nodes.expanded.includes(nodeID)) {
+        renderNodePanel(nodeID);
+      }
+    }
+    if (pollingCurrent(nodeID, pollGeneration)) {
+      await pollNode(nodeID, pollGeneration, succeeded);
+    }
+  }
 }
 
 async function runBackendInitializationAction(action: "init" | "cancel", nodeID: string, backendID: string, profile?: string): Promise<void> {

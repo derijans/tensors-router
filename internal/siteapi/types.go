@@ -127,6 +127,16 @@ type BackendInitializationRequest struct {
 
 type BackendInitializationJob = vllm.InitializationJob
 
+// BackendLaunchOptionsRequest carries an operator's vLLM launch-option selection. A
+// request with Options omitted is a read; the handlers distinguish the two by method.
+type BackendLaunchOptionsRequest struct {
+	NodeID    string             `json:"node_id"`
+	BackendID string             `json:"backend_id"`
+	Options   vllm.LaunchOptions `json:"options"`
+}
+
+type BackendLaunchOptions = vllm.LaunchOptions
+
 type InventoryResponse struct {
 	Role            string                  `json:"role"`
 	NodeID          string                  `json:"node_id"`

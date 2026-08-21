@@ -365,9 +365,22 @@ export interface NodeStateBackend {
   initialization_bytes?: number;
   initialization_total_bytes?: number;
   manifest_trust?: string;
+  launch_options?: BackendLaunchOptions;
   error?: string;
   retryable?: boolean;
   loaded_models: NodeStateModelRow[];
+}
+
+export interface BackendLaunchOptions {
+  hf_hub_offline: boolean;
+  transformers_offline: boolean;
+  hf_datasets_offline: boolean;
+}
+
+export interface BackendLaunchOptionsRequest {
+  node_id: string;
+  backend_id: string;
+  options: BackendLaunchOptions;
 }
 
 export interface NodeState {

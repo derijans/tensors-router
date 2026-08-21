@@ -38,22 +38,26 @@ type ManagerOptions struct {
 	AllowTrustRemoteCode bool
 	AllowExternalTools   bool
 	AllowDynamicLoRA     bool
-	DisableRecovery      bool
+	// OCIRunAsImageUser lets an OCI runtime keep the image own user instead of the
+	// host user. Needed for vendor images that install their interpreter under /root.
+	OCIRunAsImageUser bool
+	DisableRecovery   bool
 }
 
 type Manager struct {
-	mu        sync.Mutex
-	options   ManagerOptions
-	dataDir   string
-	job       InitializationJob
-	worker    *initializationWorker
-	active    activeEnvironment
-	runtimes  map[RuntimeKind]*runtimeProcess
-	closed    bool
-	workers   sync.WaitGroup
-	closeWait time.Duration
-	now       func() time.Time
-	jobWriter func(string, any, os.FileMode) error
+	mu            sync.Mutex
+	options       ManagerOptions
+	dataDir       string
+	job           InitializationJob
+	worker        *initializationWorker
+	active        activeEnvironment
+	runtimes      map[RuntimeKind]*runtimeProcess
+	closed        bool
+	workers       sync.WaitGroup
+	closeWait     time.Duration
+	now           func() time.Time
+	jobWriter     func(string, any, os.FileMode) error
+	launchOptions LaunchOptions
 }
 
 type initializationWorker struct {
@@ -142,6 +146,7 @@ func (manager *Manager) State(context.Context) State {
 	state.InitializationJobID = manager.job.JobID
 	state.InitializationPhase = manager.job.Phase
 	state.ManifestTrust = manager.job.ManifestTrust
+	state.LaunchOptions = manager.launchOptions
 	state.InitializationBytes = manager.job.CompletedBytes
 	state.InitializationTotalBytes = manager.job.TotalBytes
 	state.Error = manager.job.Error

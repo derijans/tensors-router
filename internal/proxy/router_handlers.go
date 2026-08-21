@@ -34,6 +34,8 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		service.handleSiteBackendInitialization(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/nodes/backends/init/cancel":
 		service.handleSiteBackendInitializationCancel(w, r)
+	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && r.URL.Path == "/router/v1/site/nodes/backends/launch-options":
+		service.handleSiteBackendLaunchOptions(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/models/state":
 		service.handleSiteModelState(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/download/capabilities":
@@ -139,6 +141,10 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/backends/init/cancel":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeBackendInitializationCancel(w, r)
+		}
+	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && r.URL.Path == "/router/v1/node/backends/launch-options":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeBackendLaunchOptions(w, r)
 		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/resolve":
 		if service.requireClusterToken(w, r) {

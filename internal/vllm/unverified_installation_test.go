@@ -28,6 +28,11 @@ func TestUnverifiedInstallationInvokesUVWithoutPinningOrOfflineFlags(t *testing.
 	if !strings.Contains(venvArguments, "venv --python 3.12") {
 		t.Fatalf("expected uv venv with the pinned Python version, got: %s", venvArguments)
 	}
+	// The staged environment already contains the bootstrap directory, and uv exits 2
+	// on a non-empty target without this flag.
+	if !strings.Contains(venvArguments, "--allow-existing") {
+		t.Fatalf("expected uv venv to tolerate the pre-created environment directory, got: %s", venvArguments)
+	}
 	installArguments := strings.Join(runner.commands[1].arguments, " ")
 	if !strings.Contains(installArguments, "vllm==0.6.3") {
 		t.Fatalf("expected the pinned vLLM version in the install command, got: %s", installArguments)

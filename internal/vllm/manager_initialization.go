@@ -88,6 +88,12 @@ func (manager *Manager) prepareInitialization(ctx context.Context, jobID string,
 		manager.finishJobFromContext(jobID, ctx, err)
 		return
 	}
+	if profile.InstallMethod == "pypi" {
+		// The synthesized profile advertises every device because it is built before
+		// detection runs. Narrow it to what this host actually has, so the smoke test
+		// can tell a matching accelerator stack from a mismatched one.
+		profile.Devices = append([]string{}, detection.Devices...)
+	}
 	totalBytes, err := profileArtifactBytes(profile)
 	if err != nil {
 		manager.finishJobFromContext(jobID, ctx, err)

@@ -167,6 +167,10 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/nodes/backends/init")
 	case r.URL.Path == "/api/nodes/backends/init/cancel" && r.Method == http.MethodPost:
 		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/nodes/backends/init/cancel")
+	case r.URL.Path == "/api/nodes/backends/launch-options" && r.Method == http.MethodGet:
+		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/nodes/backends/launch-options")
+	case r.URL.Path == "/api/nodes/backends/launch-options" && r.Method == http.MethodPost:
+		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/nodes/backends/launch-options")
 	case r.URL.Path == "/api/models/state" && r.Method == http.MethodPost:
 		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/models/state")
 	case r.URL.Path == "/api/download/capabilities" && r.Method == http.MethodGet:

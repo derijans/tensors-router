@@ -1,7 +1,9 @@
 package vllm
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +11,10 @@ import (
 )
 
 func (manager *Manager) loadPersistentState() error {
+	manager.launchOptions = DefaultLaunchOptions()
+	if err := readJSONIfExists(manager.launchOptionsPath(), &manager.launchOptions); err != nil {
+		return fmt.Errorf("load vLLM launch options: %w", err)
+	}
 	if err := readJSONIfExists(manager.jobPath(), &manager.job); err != nil {
 		return fmt.Errorf("load vLLM initialization job: %w", err)
 	}
@@ -265,4 +271,53 @@ func clearInitializationStaging(dataDir string, jobID string) error {
 		return err
 	}
 	return os.RemoveAll(stagePath)
+}
+
+func (manager *Manager) launchOptionsPath() string {
+	return filepath.Join(manager.dataDir, "state", "launch-options.json")
+}
+
+// LaunchOptions reports the persisted launch options, falling back to the fully offline
+// defaults when an operator has never chosen anything.
+func (manager *Manager) LaunchOptions(context.Context) (LaunchOptions, error) {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	return manager.launchOptions, nil
+}
+
+// SetLaunchOptions persists the selection and unloads every running runtime so the next
+// load starts with the new environment. Persisting before unloading means a crash
+// between the two still leaves the stored choice authoritative.
+func (manager *Manager) SetLaunchOptions(ctx context.Context, options LaunchOptions) (LaunchOptions, error) {
+	manager.mu.Lock()
+	if manager.closed {
+		manager.mu.Unlock()
+		return LaunchOptions{}, fmt.Errorf("vLLM manager is closed")
+	}
+	previous := manager.launchOptions
+	manager.launchOptions = options
+	if err := writeJSONAtomic(manager.launchOptionsPath(), options, 0o600); err != nil {
+		manager.launchOptions = previous
+		manager.mu.Unlock()
+		return LaunchOptions{}, fmt.Errorf("persist vLLM launch options: %w", err)
+	}
+	kinds := make([]RuntimeKind, 0, len(manager.runtimes))
+	for kind := range manager.runtimes {
+		kinds = append(kinds, kind)
+	}
+	manager.mu.Unlock()
+	var unloadError error
+	for _, kind := range kinds {
+		unloadError = errors.Join(unloadError, manager.Unload(ctx, kind))
+	}
+	if unloadError != nil {
+		return options, fmt.Errorf("apply vLLM launch options: %w", unloadError)
+	}
+	return options, nil
+}
+
+func (manager *Manager) currentLaunchOptions() LaunchOptions {
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	return manager.launchOptions
 }

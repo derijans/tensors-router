@@ -188,6 +188,11 @@ func TestWheelInstallationKeepsCompilerPathAndUsesOnlyLocalArtifacts(t *testing.
 	if versionArguments := strings.Join(runner.commands[0].arguments, " "); !strings.Contains(versionArguments, "sys.version_info") || !strings.Contains(versionArguments, profile.PythonVersion) {
 		t.Fatalf("Python runtime version was not validated exactly: %s", versionArguments)
 	}
+	// The staged environment already holds the smoke model and bootstrap directory, so
+	// uv needs --allow-existing or it exits 2 on the non-empty target.
+	if venvArguments := strings.Join(runner.commands[1].arguments, " "); !strings.Contains(venvArguments, "venv ") || !strings.Contains(venvArguments, "--allow-existing") {
+		t.Fatalf("uv venv did not tolerate the pre-populated environment directory: %s", venvArguments)
+	}
 	installArguments := strings.Join(runner.commands[2].arguments, " ")
 	if !strings.Contains(installArguments, "--offline --no-index --no-deps --find-links "+artifactsDirectory) {
 		t.Fatalf("installer did not constrain package resolution to signed artifacts: %s", installArguments)

@@ -1,4 +1,4 @@
-import type { NodeInventory, NodeState, NodeStateBackend, NodeStateModelRow } from "./types";
+import type { BackendLaunchOptions, NodeInventory, NodeState, NodeStateBackend, NodeStateModelRow } from "./types";
 import { chip, escapeAttribute, escapeHTML, formatBytes } from "./utils";
 
 const backendOrder = ["koboldcpp", "llama-server", "vllm", "sd-server", "whisper-server"];
@@ -72,6 +72,7 @@ function renderReadyBackend(nodeID: string, backend: NodeStateBackend, pendingUn
   return `
     ${renderRuntimeIdentity(backend)}
     ${backend.loaded_models.length > 0 ? `<div class="node-loaded-models">${backend.loaded_models.map(model => renderLoadedModel(nodeID, backend.id, model, pendingUnload)).join("")}</div>` : `<p class="muted node-state-empty">No loaded models.</p>`}
+    ${renderLaunchOptions(nodeID, backend)}
   `;
 }
 
@@ -96,6 +97,34 @@ function renderBackendLifecycle(nodeID: string, backend: NodeStateBackend, lifec
     <div class="node-backend-lifecycle">
       ${reason ? `<p class="${lifecycleState === "failed" ? "error-text" : "muted"} node-state-message">${escapeHTML(reason)}</p>` : ""}
       ${initializationAction ? `<button class="chip amber node-backend-init-action" type="button" data-node-backend-init data-node-id="${escapeAttribute(nodeID)}" data-backend-id="${escapeAttribute(backend.id)}"${backend.selected_profile ? ` data-profile="${escapeAttribute(backend.selected_profile)}"` : ""}>backend needs init</button>` : ""}
+    </div>
+    ${renderLaunchOptions(nodeID, backend)}
+  `;
+}
+
+const launchOptionFields: {key: keyof BackendLaunchOptions; label: string}[] = [
+  {key: "hf_hub_offline", label: "HF_HUB_OFFLINE"},
+  {key: "transformers_offline", label: "TRANSFORMERS_OFFLINE"},
+  {key: "hf_datasets_offline", label: "HF_DATASETS_OFFLINE"}
+];
+
+// Launch options only exist for the vLLM companion, and only matter once it can
+// actually start a runtime. Applying them unloads any loaded runtime, so the control is
+// explicit rather than auto-saving on every toggle.
+function renderLaunchOptions(nodeID: string, backend: NodeStateBackend): string {
+  if (backend.mode !== "vllm" || !backend.launch_options) {
+    return "";
+  }
+  const options = backend.launch_options;
+  const checkboxes = launchOptionFields.map(field => {
+    const checked = options[field.key] ? " checked" : "";
+    return `<label class="node-backend-launch-option"><input type="checkbox" data-node-backend-launch-option="${escapeAttribute(field.key)}" data-node-id="${escapeAttribute(nodeID)}" data-backend-id="${escapeAttribute(backend.id)}"${checked}> ${escapeHTML(field.label)}</label>`;
+  }).join("");
+  return `
+    <div class="node-backend-launch-options">
+      <p class="muted">Launch environment</p>
+      ${checkboxes}
+      <button type="button" class="chip" data-node-backend-launch-apply data-node-id="${escapeAttribute(nodeID)}" data-backend-id="${escapeAttribute(backend.id)}">Apply and reload</button>
     </div>
   `;
 }

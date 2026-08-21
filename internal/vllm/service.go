@@ -10,5 +10,7 @@ type Service interface {
 	Restart(context.Context, RuntimeKind) (RuntimeStatus, error)
 	Unload(context.Context, RuntimeKind) error
 	Runtime(context.Context, RuntimeKind) (RuntimeStatus, error)
+	LaunchOptions(context.Context) (LaunchOptions, error)
+	SetLaunchOptions(context.Context, LaunchOptions) (LaunchOptions, error)
 	Close() error
 }

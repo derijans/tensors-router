@@ -641,6 +641,60 @@ func TestLoadVLLMConfiguration(t *testing.T) {
 	}
 }
 
+func TestLoadStripsInlineCommentsWithoutTouchingQuotedContent(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := strings.Join([]string{
+		"server:  # trailing comment on a section header",
+		`  bind: "127.0.0.1:9999" # trailing comment after a quoted value`,
+		"  allowed_cidrs:   # comment on a list key",
+		`    - "127.0.0.0/8" # comment on a list item`,
+		"backend:",
+		"  mode: vllm",
+		"vllm:",
+		"  data_dir: ./data/vllm",
+		"  allow_unverified_install: true   # explicit opt-in",
+		`  unverified_extra_index_url: "https://download.pytorch.org/whl/cu129" #line 61`,
+		`  unverified_python_version: "3.12"`,
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Server.Bind != "127.0.0.1:9999" {
+		t.Fatalf("unexpected bind %q", cfg.Server.Bind)
+	}
+	if !reflect.DeepEqual(cfg.Server.AllowedCIDRs, []string{"127.0.0.0/8"}) {
+		t.Fatalf("unexpected allowed CIDRs %#v", cfg.Server.AllowedCIDRs)
+	}
+	if !cfg.VLLM.AllowUnverifiedInstall {
+		t.Fatal("allow_unverified_install was not parsed with a trailing comment")
+	}
+	if cfg.VLLM.UnverifiedExtraIndexURL != "https://download.pytorch.org/whl/cu129" {
+		t.Fatalf("unexpected extra index URL %q", cfg.VLLM.UnverifiedExtraIndexURL)
+	}
+}
+
+func TestStripInlineCommentKeepsHashesThatAreNotComments(t *testing.T) {
+	for input, expected := range map[string]string{
+		`"https://example.test/whl/cu129" #line 61`: `"https://example.test/whl/cu129"`,
+		`"a # b"`:                     `"a # b"`,
+		`'a # b'`:                     `'a # b'`,
+		`https://example.test/x#frag`: `https://example.test/x#frag`,
+		`plain value`:                 `plain value`,
+		`value\t# tabbed comment`:     `value\t# tabbed comment`,
+		`""  # empty quoted`:          `""`,
+		`# whole value is a comment`:  ``,
+	} {
+		if actual := stripInlineComment(input); actual != expected {
+			t.Fatalf("stripInlineComment(%q) = %q, want %q", input, actual, expected)
+		}
+	}
+}
+
 func TestValidateRejectsUnsafeVLLMProfile(t *testing.T) {
 	cfg := Defaults()
 	cfg.VLLM.Profile = "../../escape"

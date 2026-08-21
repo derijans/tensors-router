@@ -41,12 +41,44 @@ As of this writing, no `runtimes/vllm/*` TUF target has been published (it requi
 ```yaml
 vllm:
   allow_unverified_install: true
-  unverified_vllm_version: "0.6.3"   # empty installs latest, which is unpinned even by version
+  # unverified_vllm_version pins the exact release; empty installs latest, which is
+  # unpinned even by version. unverified_python_version defaults to 3.12 when empty.
+  # unverified_extra_index_url reaches a CUDA/ROCm-specific torch wheel index.
+  unverified_vllm_version: "0.6.3"
   unverified_python_version: "3.12"
-  unverified_extra_index_url: ""     # e.g. a CUDA/ROCm-specific torch wheel index
+  unverified_extra_index_url: "https://download.pytorch.org/whl/cu129"
 ```
 
 The active tier is reported as `manifest_trust` on the vLLM state and logged as a warning whenever it is not `tuf`. Publishing a reviewed bundle under `tuf/profile-evidence/` is what moves a platform to the `tuf` tier.
+
+### Initializing an unverified install per platform
+
+Initialization is the same everywhere: set the options above, open the node in the WebUI, and press **backend needs init**. What differs is whether PyPI can supply a usable build.
+
+| Host | Works | Notes |
+| --- | --- | --- |
+| CUDA | Yes | PyPI vLLM wheels are CUDA builds. Point `unverified_extra_index_url` at the torch index matching your driver, for example `https://download.pytorch.org/whl/cu129`. |
+| CPU | Yes for import; serving depends on the release | The published wheels are built for CUDA, so a CPU-only host can install and import but may not serve. |
+| ROCm | **No** | vLLM publishes no ROCm wheels, on PyPI or in AMD's ROCm wheel index. |
+
+On ROCm the resolver has no good answer. Left on uv's default index strategy it cannot satisfy the dependency graph at all; widened, it silently prefers PyPI's newer **CUDA** torch and produces a complete, importable, entirely unusable stack. The smoke test therefore inspects the resolved torch build and fails with an explanation rather than letting a mismatched install look successful:
+
+```
+this host reports a ROCm accelerator but the resolved torch "2.13.0+cu130" is a CUDA
+build; PyPI publishes only CUDA vLLM wheels, so an unverified install cannot target
+ROCm - use an OCI profile built for ROCm instead
+```
+
+A ROCm deployment needs a vendor image such as `rocm/vllm`, which is the `oci` installation method rather than the unverified PyPI path. Note that an OCI runtime is launched through the local container engine, so the router has to run somewhere a container engine is reachable - the published router images deliberately contain none.
+
+Vendor images that install their interpreter under `/root` cannot run as the host user. For those, set:
+
+```yaml
+vllm:
+  oci_run_as_image_user: true
+```
+
+This drops only the forced host-user mapping. The read-only root filesystem, dropped capabilities, and `no-new-privileges` all still apply. It is off by default because anything the runtime writes then lands as the image's user rather than yours.
 
 OCI profiles additionally pin the imported image by immutable `sha256:` image ID, require a preinstalled Docker or Podman engine, and run with read-only model mounts, a private socket mount, dropped capabilities, offline model-loading variables, and only the device mappings declared by the signed profile. The companion never installs the engine.
 

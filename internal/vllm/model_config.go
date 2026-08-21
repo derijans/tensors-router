@@ -120,7 +120,10 @@ func BuildServeArguments(configuration VLLMModelConfig, socketPath string, dynam
 	if configuration.Runner != "" {
 		arguments = append(arguments, "--runner", configuration.Runner)
 	}
-	if configuration.Task != "" {
+	// --task was superseded by --runner and removed outright in current vLLM, which
+	// exits with "unrecognized arguments: --task" before it ever serves. Only fall back
+	// to it for a legacy config that names a task without a runner.
+	if configuration.Task != "" && configuration.Runner == "" {
 		arguments = append(arguments, "--task", configuration.Task)
 	}
 	if len(configuration.ServedNames) > 0 {
@@ -226,9 +229,16 @@ func ValidateServeArguments(arguments []string) error {
 }
 
 func isolatedRuntimeEnvironment(environmentPath string, snapshotPath string) []string {
+	return isolatedRuntimeEnvironmentWithOptions(environmentPath, snapshotPath, DefaultLaunchOptions())
+}
+
+func isolatedRuntimeEnvironmentWithOptions(environmentPath string, snapshotPath string, options LaunchOptions) []string {
 	values := map[string]string{
-		"HOME": environmentPath, "HF_HUB_OFFLINE": "1", "HF_DATASETS_OFFLINE": "1", "TRANSFORMERS_OFFLINE": "1",
-		"VLLM_NO_USAGE_STATS": "1", "DO_NOT_TRACK": "1", "PYTHONNOUSERSITE": "1", "PYTHONDONTWRITEBYTECODE": "1",
+		"HOME":                 environmentPath,
+		"HF_HUB_OFFLINE":       offlineFlag(options.HubOffline),
+		"HF_DATASETS_OFFLINE":  offlineFlag(options.DatasetsOffline),
+		"TRANSFORMERS_OFFLINE": offlineFlag(options.TransformersOffline),
+		"VLLM_NO_USAGE_STATS":  "1", "DO_NOT_TRACK": "1", "PYTHONNOUSERSITE": "1", "PYTHONDONTWRITEBYTECODE": "1",
 		"PIP_CONFIG_FILE": os.DevNull, "PIP_DISABLE_PIP_VERSION_CHECK": "1", "PIP_NO_INDEX": "1",
 		"HF_HOME": filepath.Join(environmentPath, "hf-home"),
 	}
@@ -253,4 +263,11 @@ func isolatedRuntimeEnvironment(environmentPath string, snapshotPath string) []s
 		}
 	}
 	return environment
+}
+
+func offlineFlag(enabled bool) string {
+	if enabled {
+		return "1"
+	}
+	return "0"
 }

@@ -15,6 +15,8 @@ import type {
   ModelStateRequest,
   BackendInitializationJob,
   BackendInitializationRequest,
+  BackendLaunchOptions,
+  BackendLaunchOptionsRequest,
   NodeState,
   NodeUnloadRequest,
   LoadConfigRequest,
@@ -105,6 +107,15 @@ export function initializeNodeBackend(request: BackendInitializationRequest): Pr
 
 export function cancelNodeBackendInitialization(request: BackendInitializationRequest): Promise<BackendInitializationJob> {
   return api<BackendInitializationJob>("/api/nodes/backends/init/cancel", {method: "POST", body: JSON.stringify(request)});
+}
+
+export function nodeBackendLaunchOptions(nodeID: string, backendID: string): Promise<BackendLaunchOptions> {
+  const query = new URLSearchParams({node_id: nodeID, backend_id: backendID});
+  return api<BackendLaunchOptions>(`/api/nodes/backends/launch-options?${query.toString()}`);
+}
+
+export function applyNodeBackendLaunchOptions(request: BackendLaunchOptionsRequest): Promise<BackendLaunchOptions> {
+  return api<BackendLaunchOptions>("/api/nodes/backends/launch-options", {method: "POST", body: JSON.stringify(request)});
 }
 
 export function updateModelState(request: ModelStateRequest): Promise<unknown> {

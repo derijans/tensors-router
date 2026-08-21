@@ -103,6 +103,10 @@ vllm:
   unverified_python_version: ""
   unverified_index_url: ""
   unverified_extra_index_url: ""
+  # Some vendor OCI images (notably rocm/vllm) install their interpreter under /root
+  # and cannot run as the host user. This drops only that mapping; the read-only root
+  # filesystem, dropped capabilities, and no-new-privileges still apply.
+  oci_run_as_image_user: false
   dynamic_lora_enabled: false
   eep_enabled: false
   trust_remote_code: false

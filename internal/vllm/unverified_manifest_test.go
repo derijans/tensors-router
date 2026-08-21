@@ -108,3 +108,57 @@ func TestNetworkInstallEnvironmentOnlyDropsOfflineSwitches(t *testing.T) {
 		}
 	}
 }
+
+func TestServeArgumentsPreferRunnerOverRemovedTaskFlag(t *testing.T) {
+	base := VLLMModelConfig{
+		Snapshot: SnapshotIdentity{Path: "/models/model", TreeDigest: strings.Repeat("a", 64)},
+		Task:     "embed",
+		Runner:   "pooling",
+	}
+	arguments, err := BuildServeArguments(base, "/tmp/vllm.sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(arguments, " ")
+	// Current vLLM exits with "unrecognized arguments: --task" before it can serve.
+	if strings.Contains(joined, "--task") {
+		t.Fatalf("runner-based config must not emit the removed --task flag: %s", joined)
+	}
+	if !strings.Contains(joined, "--runner pooling") {
+		t.Fatalf("expected --runner to select the pooling runtime: %s", joined)
+	}
+
+	legacy := base
+	legacy.Runner = ""
+	legacyArguments, err := BuildServeArguments(legacy, "/tmp/vllm.sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(legacyArguments, " "), "--task embed") {
+		t.Fatalf("a config with only a task must still emit --task: %v", legacyArguments)
+	}
+}
+
+func TestOCIArgumentsOnlyDropHostIdentityWhenOptedIn(t *testing.T) {
+	profile := Profile{OCIImage: "sha256:" + strings.Repeat("b", 64), Devices: []string{"rocm"}}
+	defaulted := strings.Join(ociCommandArguments("docker", profile, nil, nil, []string{"-c", "pass"}, false), " ")
+	optedIn := strings.Join(ociCommandArguments("docker", profile, nil, nil, []string{"-c", "pass"}, false, true), " ")
+
+	// Host identity arguments are platform-specific and empty on Windows, so assert
+	// against whatever this platform actually contributes rather than a literal flag.
+	identity := containerIdentityArguments("docker")
+	for _, argument := range identity {
+		if !strings.Contains(defaulted, argument) {
+			t.Fatalf("the default must keep the host identity argument %q: %s", argument, defaulted)
+		}
+		if strings.Contains(optedIn, argument) {
+			t.Fatalf("opting in must drop the host identity argument %q: %s", argument, optedIn)
+		}
+	}
+	// The rest of the containment must survive either way.
+	for _, guarantee := range []string{"--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--device=/dev/kfd"} {
+		if !strings.Contains(optedIn, guarantee) {
+			t.Fatalf("opting in must not weaken %q: %s", guarantee, optedIn)
+		}
+	}
+}

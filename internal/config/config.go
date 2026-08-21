@@ -146,6 +146,9 @@ type VLLMConfig struct {
 	UnverifiedPythonVersion string
 	UnverifiedIndexURL      string
 	UnverifiedExtraIndexURL string
+	// OCIRunAsImageUser keeps an OCI vLLM runtime on the image own user instead of
+	// the host user, for vendor images that are unusable as a non-root user.
+	OCIRunAsImageUser bool
 }
 
 type BackendUpdateSource struct {
@@ -796,7 +799,10 @@ func parseYAML(content []byte, cfg *Config) error {
 		}
 
 		indent := countLeadingSpaces(rawLine)
-		line := strings.TrimSpace(rawLine)
+		line := strings.TrimSpace(stripInlineComment(strings.TrimSpace(rawLine)))
+		if line == "" {
+			continue
+		}
 
 		if indent == 0 && strings.HasSuffix(line, ":") {
 			section = strings.TrimSuffix(line, ":")
@@ -869,6 +875,30 @@ func countLeadingSpaces(value string) int {
 		}
 	}
 	return len(value)
+}
+
+// stripInlineComment removes a trailing comment from a value. A comment starts at a
+// '#' that follows whitespace or ends a quoted scalar; a '#' inside quotes, or embedded
+// in an unquoted token such as a URL fragment, stays part of the value.
+func stripInlineComment(value string) string {
+	inSingle := false
+	inDouble := false
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		switch {
+		case inDouble && character == '\\':
+			index++
+		case character == '"' && !inSingle:
+			inDouble = !inDouble
+		case character == '\'' && !inDouble:
+			inSingle = !inSingle
+		case character == '#' && !inSingle && !inDouble:
+			if index == 0 || value[index-1] == ' ' || value[index-1] == '\t' {
+				return strings.TrimRight(value[:index], " \t")
+			}
+		}
+	}
+	return value
 }
 
 func parseStringScalar(value string) (string, error) {
@@ -1128,6 +1158,13 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 				return err
 			}
 			cfg.VLLM.ExternalTools = parsed
+			return nil
+		case "oci_run_as_image_user":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return err
+			}
+			cfg.VLLM.OCIRunAsImageUser = parsed
 			return nil
 		case "allow_unverified_install":
 			parsed, err := strconv.ParseBool(value)

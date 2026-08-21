@@ -197,6 +197,12 @@ func (*fakeVLLMService) Unload(context.Context, vllm.RuntimeKind) error { return
 func (*fakeVLLMService) Runtime(context.Context, vllm.RuntimeKind) (vllm.RuntimeStatus, error) {
 	return vllm.RuntimeStatus{}, nil
 }
+func (*fakeVLLMService) LaunchOptions(context.Context) (vllm.LaunchOptions, error) {
+	return vllm.DefaultLaunchOptions(), nil
+}
+func (*fakeVLLMService) SetLaunchOptions(_ context.Context, options vllm.LaunchOptions) (vllm.LaunchOptions, error) {
+	return options, nil
+}
 func (*fakeVLLMService) Close() error { return nil }
 
 func TestBackendInitializationRoutesForwardToRemoteNode(t *testing.T) {

@@ -119,6 +119,28 @@ describe("node state view", () => {
     expect(missing).not.toContain("data-node-backend-init");
   });
 
+  it("offers the three offline launch options for vLLM and reflects the stored selection", () => {
+    const html = renderVLLMBackend("ready", {
+      launch_options: {hf_hub_offline: true, transformers_offline: false, hf_datasets_offline: true}
+    });
+
+    expect(html).toContain("Launch environment");
+    expect(html).toContain("HF_HUB_OFFLINE");
+    expect(html).toContain("TRANSFORMERS_OFFLINE");
+    expect(html).toContain("HF_DATASETS_OFFLINE");
+    expect(html).toContain("data-node-backend-launch-apply");
+    expect(html).toContain('data-node-backend-launch-option="hf_hub_offline" data-node-id="node-a" data-backend-id="vllm" checked');
+    expect(html).toContain('data-node-backend-launch-option="transformers_offline" data-node-id="node-a" data-backend-id="vllm">');
+  });
+
+  it("omits launch options for non-vLLM backends and when none are reported", () => {
+    const withoutOptions = renderVLLMBackend("ready", {});
+    const kobold = renderNodeStateSnapshot("node-a", snapshot(), "");
+
+    expect(withoutOptions).not.toContain("Launch environment");
+    expect(kobold).not.toContain("Launch environment");
+  });
+
   it("calls out an unverified manifest distinctly from pinned trust tiers", () => {
     const tuf = renderVLLMBackend("ready", {runtime_version: "0.10.2", manifest_trust: "tuf"});
     const pinned = renderVLLMBackend("ready", {runtime_version: "0.10.2", manifest_trust: "operator-pinned"});
