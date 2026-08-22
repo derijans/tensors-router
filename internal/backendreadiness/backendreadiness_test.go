@@ -55,9 +55,9 @@ func TestScannerVerdicts(t *testing.T) {
 		reasonMatch string
 	}{
 		{"kobold text ready", FamilyKobold, LaneText, koboldReadyTranscript, Ready, ""},
-		{"kobold aborted load", FamilyKobold, LaneText, koboldAbortedTranscript, Failed, "Inactive Modules: TextGeneration"},
+		{"kobold aborted load is left to the idle watchdog", FamilyKobold, LaneText, koboldAbortedTranscript, Undecided, ""},
 		{"native ready", FamilyNative, LaneText, nativeReadyTranscript, Ready, ""},
-		{"native cuda oom", FamilyNative, LaneText, nativeOOMTranscript, Failed, "cudaMalloc failed: out of memory"},
+		{"native cuda oom", FamilyNative, LaneText, nativeOOMTranscript, Failed, "exiting due to model loading error"},
 	}
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
@@ -73,25 +73,48 @@ func TestScannerVerdicts(t *testing.T) {
 	}
 }
 
-// The aborted-load transcript must fail rather than hang, because the HTTP probe cannot
-// distinguish it from a slow load. This is the 628-second stall in miniature.
-func TestAbortedKoboldLoadIsFailedNotUndecided(t *testing.T) {
+// The router starts KoboldCpp with no model, so a healthy start prints every module as
+// inactive moments before the admin reload loads the model. That banner is a startup
+// state, not a load verdict — the text is identical in both cases — so it must never
+// abort a load. Reading it as failure aborted loads that were about to succeed, which is
+// precisely the seam the router exists to hide.
+func TestKoboldStartupBannerIsNotALoadFailure(t *testing.T) {
 	scanner := NewScanner(FamilyKobold, LaneText)
-	if result := scanner.Write([]byte(koboldAbortedTranscript)); result.Verdict != Failed {
-		t.Fatalf("aborted load verdict = %v, want Failed", result.Verdict)
+	banner := "Inactive Modules: TextGeneration ImageGeneration VoiceRecognition MultimodalVision VectorEmbeddings MusicGen RouterMode\n"
+	if result := scanner.Write([]byte(banner)); result.Verdict != Undecided {
+		t.Fatalf("no-model startup banner produced verdict %v; it must not abort a load", result.Verdict)
+	}
+
+	// KoboldCpp restarts to apply a reload, so the banner also follows a "Loading ..."
+	// line on the healthy path. No ordering makes it a failure signal.
+	scanner.Write([]byte("Loading Text Model: sha256:abc\n"))
+	if result := scanner.Write([]byte(banner)); result.Verdict != Undecided {
+		t.Fatalf("banner after a load began = %v; a normal restart looks identical", result.Verdict)
 	}
 }
 
-// A ready banner for a different capability must not satisfy the lane we asked for.
+// A healthy switch prints the startup banner and then loads. It must end Ready, never
+// Failed — this is the sequence that was aborting live loads.
+func TestKoboldHealthySwitchAfterNoModelStartIsNotAFailure(t *testing.T) {
+	scanner := NewScanner(FamilyKobold, LaneText)
+	transcript := "Welcome to KoboldCpp - Version 1.119\n" +
+		"Active Modules: AdminControl\n" +
+		"Inactive Modules: TextGeneration ImageGeneration VoiceRecognition RouterMode\n" +
+		"Loading Text Model: sha256:abc\n" +
+		"Load Text Model OK: True\n"
+	if result := scanner.Write([]byte(transcript)); result.Verdict != Ready {
+		t.Fatalf("healthy no-model start then load = %v (reason %q), want Ready", result.Verdict, result.Reason)
+	}
+}
+
+// A verdict for one capability must not satisfy a watcher waiting on another.
 func TestKoboldLaneIsolation(t *testing.T) {
 	scanner := NewScanner(FamilyKobold, LaneImage)
-	result := scanner.Write([]byte("Load Text Model OK: True\nActive Modules: TextGeneration AdminControl\n"))
-	if result.Verdict != Undecided {
-		t.Fatalf("image lane verdict = %v, want Undecided for a text-only banner", result.Verdict)
+	if result := scanner.Write([]byte("Load Text Model OK: False\n")); result.Verdict != Undecided {
+		t.Fatalf("image lane verdict = %v, want Undecided for a text-model line", result.Verdict)
 	}
-	result = scanner.Write([]byte("Inactive Modules: ImageGeneration VectorEmbeddings\n"))
-	if result.Verdict != Failed {
-		t.Fatalf("image lane verdict = %v, want Failed once ImageGeneration is listed inactive", result.Verdict)
+	if result := scanner.Write([]byte("Load Image Model OK: False\n")); result.Verdict != Failed {
+		t.Fatalf("image lane verdict = %v, want Failed once the image model reports failure", result.Verdict)
 	}
 }
 

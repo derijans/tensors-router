@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -185,6 +186,125 @@ func (service *Service) ensureModelConfigHash(filename string) error {
 	return nil
 }
 
+// loadModelConfig applies a config and waits for the backend to serve it, re-issuing the
+// reload if the backend comes up without the model.
+//
+// KoboldCpp restarts itself to apply an admin reload, and a reload issued while it is
+// still coming up is accepted — it answers success — but lost: the process returns in
+// no-model mode and sits at "inactive" indefinitely. Nothing about that is distinguishable
+// from a slow load at the moment it happens, and the backend never corrects itself. Only
+// another reload does. Observed directly: with a single attempt, five KoboldCpp starts
+// produced zero completed loads; the load only ever landed once a later request happened
+// to issue a fresh reload.
+//
+// So a lost reload is treated as what it is — a step that needs repeating — rather than a
+// failure to report to the client.
+func (service *Service) loadModelConfig(runtime *backendRuntime, ctx context.Context, modelID string, configFilename string, readiness backendReadiness) error {
+	var lastErr error
+	for attempt := 1; attempt <= modelLoadAttempts; attempt++ {
+		// Watch from before the reload so the load's own output cannot be missed.
+		watch := service.watchBackendReadiness(runtime, readiness)
+		err := service.reloadModelConfig(runtime, ctx, modelID, configFilename)
+		if err == nil {
+			err = service.waitForBackendEndpointWatching(runtime, ctx, readiness, modelID, configFilename, watch)
+		}
+		watch.close()
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if ctx.Err() != nil {
+			return err
+		}
+		// Only a lost reload is worth repeating. Anything else — a dead process, a
+		// capability the config does not enable — repeats the same failure and multiplies
+		// the work, so it is returned as-is.
+		if !errors.Is(err, errBackendServingNoModel) {
+			return err
+		}
+		if attempt < modelLoadAttempts {
+			service.logger.Printf("backend did not come up with the model; reissuing config load model=%q config=%q attempt=%d error=%v", modelID, configFilename, attempt, err)
+		}
+	}
+	return lastErr
+}
+
+// reloadHeldModelConfig reloads the config the caller already holds a lease on, without
+// ever giving the runtime up.
+//
+// Recovery used to release the lease and re-acquire. Dropping to zero users is the signal
+// other waiters are blocked on, so a request wanting a different model would take the
+// runtime in that gap and switch it — severing the in-flight request this recovery was
+// trying to rescue, and leaving the two models trading the runtime. Holding the lease
+// keeps competitors waiting: the caller waits until it is the *only* user rather than
+// until there are none.
+func (service *Service) reloadHeldModelConfig(runtime *backendRuntime, ctx context.Context, modelID string, configFilename string, readiness backendReadiness) error {
+	state := runtime.state
+	profile := service.chatTemplateProfileForConfig(configFilename)
+	waitingSwitch := false
+	for {
+		state.mu.Lock()
+		if !waitingSwitch && state.switchWaiters > 0 {
+			changed := state.changed
+			state.mu.Unlock()
+			if err := waitForActiveConfigChange(ctx, changed); err != nil {
+				return err
+			}
+			continue
+		}
+		if !waitingSwitch {
+			state.switchWaiters++
+			waitingSwitch = true
+		}
+		// Our own lease is the one user we expect; anything more means another request is
+		// still on the backend and must finish first.
+		if state.switching || state.users > 1 {
+			changed := state.changed
+			state.mu.Unlock()
+			if err := waitForActiveConfigChange(ctx, changed); err != nil {
+				cancelConfigSwitchWaiter(state)
+				return err
+			}
+			continue
+		}
+		state.switchWaiters--
+		state.switching = true
+		state.pendingFilename = configFilename
+		state.pendingProfile = profile
+		state.mu.Unlock()
+
+		vramLoad := service.beginVRAMLoad(ctx)
+		err := service.loadModelConfig(runtime, ctx, modelID, configFilename, readiness)
+		service.finishVRAMLoad(ctx, vramLoad)
+
+		state.mu.Lock()
+		state.switching = false
+		state.pendingFilename = ""
+		state.pendingProfile = catalog.ChatTemplateProfile{}
+		if err != nil {
+			state.filename = ""
+			state.modelID = ""
+			state.physicalAttemptID = ""
+			clearPhysicalLoadProfileLocked(state)
+			clearVRAMLoadStateLocked(state)
+			notifyActiveConfigLocked(state)
+			state.mu.Unlock()
+			service.invalidateWebUIRoutes()
+			return err
+		}
+		state.filename = configFilename
+		state.modelID = modelID
+		state.generation++
+		applyPhysicalLoadProfileLocked(state, configFilename, profile)
+		applyVRAMLoadStateLocked(state, vramLoad)
+		notifyActiveConfigLocked(state)
+		state.mu.Unlock()
+		service.recordVRAMLoad(modelID, configFilename, readiness, runtime.mode, vramLoad)
+		service.invalidateWebUIRoutes()
+		return nil
+	}
+}
+
 func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (func(), bool, error) {
 	return service.acquireModelConfigWithOptions(runtime, ctx, modelID, configFilename, readiness, modelConfigAcquireOptions{forceReload: force})
 }
@@ -265,10 +385,7 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 			return nil, false, err
 		}
 		vramLoad := service.beginVRAMLoad(ctx)
-		err = service.reloadModelConfig(runtime, ctx, modelID, configFilename)
-		if err == nil {
-			err = service.waitForBackendEndpoint(runtime, ctx, readiness, modelID, configFilename)
-		}
+		err = service.loadModelConfig(runtime, ctx, modelID, configFilename, readiness)
 		service.finishVRAMLoad(ctx, vramLoad)
 		service.finishPhysicalLoadCapture(capture, err)
 

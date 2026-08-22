@@ -1,10 +1,25 @@
-// Package backendreadiness decides whether a backend finished loading a model by
-// reading the backend's own stdout/stderr, rather than inferring it from an HTTP probe.
+// Package backendreadiness reads a backend's own stdout/stderr to tell apart the load
+// states an HTTP probe cannot distinguish.
 //
-// An HTTP probe cannot tell "still loading" apart from "the process died and came back
-// with no model": both surface as KoboldCpp reporting a model id of "inactive". The
-// backends announce both states unambiguously on their output, so watching the output
-// yields an immediate and specific verdict where polling yields a timeout.
+// A readiness probe reports "no model" identically whether the backend is midway through
+// a load, sitting idle because a reload was lost, or about to exit. Waiting is right for
+// the first, re-issuing the reload is right for the second, and failing is right for the
+// third, so the probe alone cannot drive the decision.
+//
+// The markers below were derived by launching each backend directly against deliberately
+// broken configs (missing file, empty file, truncated file, non-model file, bad magic,
+// unsatisfiable context) and recording what each printed and did:
+//
+//   - Every broken config makes BOTH backends exit. Process exit is the reliable failure
+//     signal; llama.cpp names the cause first, KoboldCpp exits silently.
+//   - KoboldCpp prints "Loading <lane> Model:" when a load starts and
+//     "Load <lane> Model OK: True/False" when it finishes. Between those it is working,
+//     however long it takes — a cold multi-gigabyte load exceeded two minutes.
+//   - With no model, KoboldCpp prints neither line and serves "inactive" indefinitely.
+//     That is what a lost reload looks like, and only another reload clears it.
+//   - The module banner is NOT usable: KoboldCpp restarts to apply a reload and every
+//     start prints "Inactive Modules: TextGeneration ...", so it appears on the healthy
+//     path too.
 package backendreadiness
 
 import (
@@ -59,10 +74,19 @@ type Result struct {
 // verdict. It is safe for a single producer; callers that share it across goroutines
 // must serialize access themselves.
 type Scanner struct {
-	family  Family
-	lane    Lane
+	family Family
+	lane   Lane
+	// loading records that the backend announced a load in progress. A backend that is
+	// loading is making progress no matter how long it takes; one that never announced a
+	// load and reports no model is idle, which is the lost-reload case.
+	loading bool
 	pending []byte
 	result  Result
+}
+
+// Loading reports whether the backend announced that a load is under way.
+func (scanner *Scanner) Loading() bool {
+	return scanner.loading
 }
 
 func NewScanner(family Family, lane Lane) *Scanner {
@@ -115,9 +139,9 @@ func (scanner *Scanner) classify(line string) (Result, bool) {
 	}
 	switch scanner.family {
 	case FamilyKobold:
-		return classifyKobold(trimmed, scanner.lane)
+		return scanner.classifyKobold(trimmed)
 	case FamilyNative:
-		return classifyNative(trimmed)
+		return scanner.classifyNative(trimmed)
 	default:
 		return Result{}, false
 	}
@@ -143,10 +167,16 @@ func koboldLoadLabel(lane Lane) (string, string) {
 	}
 }
 
-func classifyKobold(line string, lane Lane) (Result, bool) {
-	label, module := koboldLoadLabel(lane)
+func (scanner *Scanner) classifyKobold(line string) (Result, bool) {
+	label, module := koboldLoadLabel(scanner.lane)
 
-	// "Load Text Model OK: True" / "... : False" is the most direct signal.
+	// "Loading <lane> Model: <ref>" means a load is under way for this lane.
+	if strings.HasPrefix(line, "Loading "+label+" Model:") {
+		scanner.loading = true
+		return Result{}, false
+	}
+
+	// The per-load verdict, when KoboldCpp prints one, is decisive on its own.
 	if prefix := "Load " + label + " Model OK: "; strings.HasPrefix(line, prefix) {
 		value := strings.TrimSpace(strings.TrimPrefix(line, prefix))
 		if strings.EqualFold(value, "True") {
@@ -155,13 +185,18 @@ func classifyKobold(line string, lane Lane) (Result, bool) {
 		return Result{Verdict: Failed, Reason: line}, true
 	}
 
-	// The module banner is printed once the server is up. If our capability is listed as
-	// inactive here, the process is serving without the model we asked for — which is
-	// what an aborted load leaves behind, and is never going to resolve by waiting.
-	if rest, ok := strings.CutPrefix(line, "Inactive Modules: "); ok {
-		if moduleListed(rest, module) {
-			return Result{Verdict: Failed, Reason: line}, true
-		}
+	// The module banner is never a failure signal for KoboldCpp, in any sequence.
+	//
+	// KoboldCpp restarts itself to apply an admin reload, and every start prints the
+	// no-model banner "Inactive Modules: TextGeneration ..." before loading. So the banner
+	// appears on the healthy path; and because a restart also follows a "Loading ..." line
+	// from the config being replaced, even "a load began and then the module was inactive"
+	// describes a normal switch. There is no ordering that separates it from an
+	// interrupted load, so using it aborts switches that were about to succeed.
+	//
+	// A load that truly stops making progress is caught by the caller's idle watchdog
+	// instead, which needs no guess about what the text means.
+	if strings.HasPrefix(line, "Inactive Modules: ") {
 		return Result{}, false
 	}
 	if rest, ok := strings.CutPrefix(line, "Active Modules: "); ok {
@@ -183,14 +218,31 @@ func moduleListed(list string, module string) bool {
 	return false
 }
 
-// nativeFailureMarkers are substrings that appear on the decisive line when a
-// llama.cpp / stable-diffusion.cpp / whisper.cpp server cannot bring a model up.
+// nativeFailureMarkers are lines that mean the load is over and will not recover. Each
+// one is printed by llama.cpp / stable-diffusion.cpp / whisper.cpp at the point it gives
+// up on the model.
+//
+// Symptoms are deliberately excluded. An allocation failure such as "cudaMalloc failed"
+// or a bare "out of memory" can be printed while the server retries a smaller allocation
+// or falls back to another device, and can also appear in ordinary memory reporting.
+// Treating a symptom as a verdict aborts loads that would have succeeded — the same
+// mistake the KoboldCpp module banner caused. Symptoms are still used to explain a
+// failure after the fact; see nativeDiagnosticMarkers.
 var nativeFailureMarkers = []string{
 	"exiting due to model loading error",
 	"failed to create_context with model",
 	"failed to load model",
-	"cudaMalloc failed",
+}
+
+// nativeDiagnosticMarkers name the cause of a failure that has already happened. They are
+// only consulted once the process has exited, so a symptom line here cannot abort a live
+// load — it just makes the resulting error say why. Ordered least to most specific.
+var nativeDiagnosticMarkers = []string{
+	"exiting due to model loading error",
+	"failed to create_context with model",
+	"failed to load model",
 	"failed to allocate compute buffers",
+	"cudaMalloc failed",
 	"out of memory",
 }
 
@@ -218,7 +270,7 @@ func DecisiveFailureLine(output string) string {
 			continue
 		}
 		rank := -1
-		for index, marker := range nativeFailureMarkers {
+		for index, marker := range nativeDiagnosticMarkers {
 			if strings.Contains(line, marker) && index > rank {
 				rank = index
 			}
@@ -230,6 +282,22 @@ func DecisiveFailureLine(output string) string {
 		}
 	}
 	return best
+}
+
+// nativeLoadingMarkers are printed when a load begins.
+var nativeLoadingMarkers = []string{
+	"load_model: loading model",
+	"loading model from",
+}
+
+func (scanner *Scanner) classifyNative(line string) (Result, bool) {
+	for _, marker := range nativeLoadingMarkers {
+		if strings.Contains(line, marker) {
+			scanner.loading = true
+			return Result{}, false
+		}
+	}
+	return classifyNative(line)
 }
 
 func classifyNative(line string) (Result, bool) {

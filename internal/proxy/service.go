@@ -194,6 +194,7 @@ type Service struct {
 
 	backendRetryAttempts          int
 	backendInferenceRetryAttempts int
+	backendReadinessWait          time.Duration
 	backendRetryDelay             time.Duration
 	backendRetryMaxDelay          time.Duration
 }
@@ -204,15 +205,33 @@ const (
 	// the retry budget for a request that already produced a response is small. The large
 	// budget above is for waiting on a model load, not for regenerating.
 	defaultBackendInferenceRetryAttempts = 3
-	defaultBackendRetryDelay             = 1 * time.Second
-	defaultBackendRetryMaxDelay          = 2 * time.Second
-	backendErrorBodyLimit                = 1024
-	backendResponseMetadataLimit         = 1 << 20
-	modelOperationTimeout                = 15 * time.Minute
-	assetLookupTimeout                   = 30 * time.Second
-	BackendModeKobold                    = backendmode.Kobold
-	BackendModeLlamaSDCPP                = backendmode.LlamaSDCPP
-	BackendModeVLLM                      = backendmode.VLLM
+	// defaultBackendReadinessWait is how long a backend may sit with no model and no load
+	// under way before the router concludes the reload was lost and re-issues it. It is
+	// not a bound on load duration — a load that has announced itself is left alone for as
+	// long as it needs — so this can be short.
+	defaultBackendReadinessWait = 20 * time.Second
+	// modelLoadAttempts is how many times a config load is issued before giving up. A lost
+	// reload is recovered by repeating it, so this is the difference between a switch that
+	// self-heals and one the client sees as a failure.
+	modelLoadAttempts = 3
+	// backendOutputGraceWait is how long to let the backend announce itself before probing
+	// anyway. It is deliberately short: if the announcement is missed — the process was
+	// already past it, or this backend words it differently — the cost must be a brief
+	// pause, not a stalled load. Failure markers are still honoured throughout the probe
+	// loop, so failing fast does not depend on this window.
+	backendOutputGraceWait = 5 * time.Second
+	// backendSelfRestartWait bounds how long to wait for a backend that restarts itself to
+	// apply a config reload before concluding it needs a restart from us.
+	backendSelfRestartWait       = 60 * time.Second
+	defaultBackendRetryDelay     = 1 * time.Second
+	defaultBackendRetryMaxDelay  = 2 * time.Second
+	backendErrorBodyLimit        = 1024
+	backendResponseMetadataLimit = 1 << 20
+	modelOperationTimeout        = 15 * time.Minute
+	assetLookupTimeout           = 30 * time.Second
+	BackendModeKobold            = backendmode.Kobold
+	BackendModeLlamaSDCPP        = backendmode.LlamaSDCPP
+	BackendModeVLLM              = backendmode.VLLM
 )
 
 type backendRetryResult struct {
@@ -406,6 +425,7 @@ func NewService(config ServiceConfig) *Service {
 		},
 		backendRetryAttempts:          defaultBackendRetryAttempts,
 		backendInferenceRetryAttempts: defaultBackendInferenceRetryAttempts,
+		backendReadinessWait:          defaultBackendReadinessWait,
 		backendRetryDelay:             defaultBackendRetryDelay,
 		backendRetryMaxDelay:          defaultBackendRetryMaxDelay,
 	}
@@ -1398,12 +1418,14 @@ func (service *Service) forwardWithFallbackObserved(ctx context.Context, origina
 		}
 		recoveredBackend = true
 	} else if !loadedFresh && !isBackendWaitingResponse(lastStatus, lastBody) {
-		releaseModel()
-		var reloadErr error
-		releaseModel, loadedFresh, reloadErr = service.acquireModelConfig(runtime, modelContext, modelID, configFilename, readiness, true)
-		if reloadErr != nil {
-			return nil, workFinalizer, reloadErr
-		}
+		// Retry against the runtime we already hold. Reloading here used to mean
+		// releasing the lease first, which opened a window for a request wanting a
+		// different model to take the runtime and switch it. The retry then had to switch
+		// it back, and under two competing models the pair could trade the runtime until
+		// the budget ran out — which is how a long request, in flight long enough to
+		// overlap someone else's switch, ends as a 502. The backend being genuinely
+		// unhealthy is handled above, where a reload is actually warranted.
+		service.logger.Printf("backend returned a retryable response; retrying without reload model=%q config=%q status=%d", modelID, configFilename, lastStatus)
 	} else if !loadedFresh {
 		service.logger.Printf("backend unavailable while config already active; retrying without reload model=%q config=%q", modelID, configFilename)
 	} else {
@@ -1528,13 +1550,15 @@ func (service *Service) recoverBackendForModel(runtime *backendRuntime, ctx cont
 		}
 		service.embeddingSelection.runtime = runtime
 	}
-	releaseModel()
-	release, loadedFresh, err := service.acquireModelConfig(runtime, ctx, modelID, configFilename, readiness, true)
-	if err != nil {
+	// Keep the lease. Releasing it here let a request for another model take the runtime
+	// mid-recovery and switch it away, which is how the model this request needs ended up
+	// being swapped out from under it.
+	if err := service.reloadHeldModelConfig(runtime, ctx, modelID, configFilename, readiness); err != nil {
+		releaseModel()
 		return nil, false, err
 	}
-	service.logger.Printf("backend transport recovery succeeded path=%s model=%q config=%q reloaded=%t", path, modelID, configFilename, loadedFresh)
-	return release, loadedFresh, nil
+	service.logger.Printf("backend transport recovery succeeded path=%s model=%q config=%q reloaded=true", path, modelID, configFilename)
+	return releaseModel, true, nil
 }
 
 func (service *Service) waitForInactiveBackend(runtime *backendRuntime, ctx context.Context, readiness backendReadiness, modelID string, configFilename string, path string) error {
@@ -1829,24 +1853,6 @@ func waitForRetry(ctx context.Context, delay time.Duration) error {
 	}
 }
 
-// waitForBackendSignal waits out the retry delay, returning early when the backend's
-// output settles on a verdict so a decided load is not made to sit through the backoff.
-func waitForBackendSignal(ctx context.Context, delay time.Duration, settled <-chan struct{}) error {
-	if delay <= 0 {
-		return nil
-	}
-	timer := time.NewTimer(delay)
-	defer timer.Stop()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-settled:
-		return nil
-	case <-timer.C:
-		return nil
-	}
-}
-
 func nextRetryDelay(delay time.Duration, maxDelay time.Duration) time.Duration {
 	if delay <= 0 {
 		return delay
@@ -2134,12 +2140,64 @@ func responseWithRelease(response *http.Response, release func()) *http.Response
 	return response
 }
 
+// backendProcessAlive reports whether the managed backend process is still running. A
+// backend that cannot report its exit state is treated as not alive, so the caller keeps
+// its existing restart behaviour.
+func (service *Service) backendProcessAlive(runtime *backendRuntime) bool {
+	reporter, ok := runtime.backend.(backendExitReporter)
+	if !ok {
+		return false
+	}
+	return reporter.BackendExitError() == nil
+}
+
+// waitForBackendProcess waits for a backend that is restarting itself to start answering
+// again. It gives up as soon as the process exits, so a genuinely dead backend still
+// falls through to a restart instead of being waited on.
+func (service *Service) waitForBackendProcess(runtime *backendRuntime, ctx context.Context) error {
+	deadline := time.Now().Add(backendSelfRestartWait)
+	for {
+		if runtime.backend.Healthy(ctx) {
+			return nil
+		}
+		if !service.backendProcessAlive(runtime) {
+			return fmt.Errorf("backend process exited while restarting")
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("backend did not come back within %s", backendSelfRestartWait)
+		}
+		if err := waitForRetry(ctx, service.backendRetryDelay); err != nil {
+			return err
+		}
+	}
+}
+
 func (service *Service) reloadModelConfig(runtime *backendRuntime, ctx context.Context, modelID string, configFilename string) error {
 	service.logger.Printf("config switch reload attempt model=%q config=%q", modelID, configFilename)
 	if reloadErr := runtime.backend.ReloadConfig(ctx, configFilename); reloadErr != nil {
 		service.logger.Printf("config switch reload failed model=%q config=%q error=%v", modelID, configFilename, reloadErr)
 		if runtime.backend.Healthy(ctx) {
 			return reloadErr
+		}
+
+		// An unreachable backend is not necessarily a dead one. KoboldCpp restarts itself
+		// to apply an admin reload, so its port is closed for several seconds afterwards —
+		// and a reload arriving in that window fails with "connection refused" while the
+		// process is perfectly fine. Restarting it here kills the load already in progress
+		// and starts another, which is how one switch turned into two process starts and,
+		// when it overlapped again, a load that never finished at all.
+		//
+		// The managed process tells us which case this is: if it has not exited, wait for
+		// it to finish coming back and reload again rather than restarting it.
+		if service.backendProcessAlive(runtime) {
+			service.logger.Printf("backend restarting itself after config switch; waiting model=%q config=%q", modelID, configFilename)
+			if waitErr := service.waitForBackendProcess(runtime, ctx); waitErr == nil {
+				service.logger.Printf("config switch reload retry after backend restart model=%q config=%q", modelID, configFilename)
+				if retryErr := runtime.backend.ReloadConfig(ctx, configFilename); retryErr == nil {
+					service.logger.Printf("config switch reload succeeded model=%q config=%q", modelID, configFilename)
+					return nil
+				}
+			}
 		}
 
 		service.logger.Printf("backend unhealthy after config switch failure model=%q config=%q", modelID, configFilename)
@@ -2162,12 +2220,38 @@ func (service *Service) reloadModelConfig(runtime *backendRuntime, ctx context.C
 }
 
 func (service *Service) waitForBackendEndpoint(runtime *backendRuntime, ctx context.Context, readiness backendReadiness, modelID string, configFilename string) error {
-	// The backend's own output is the authoritative signal: an HTTP probe cannot tell a
-	// slow load apart from a process that died mid-load and restarted with no model, and
-	// both report a model id of "inactive". Watch the output and keep probing as the
-	// fallback for backends that cannot stream it.
+	// No watch was started before the load, so anything the backend printed while it was
+	// loading is already gone. Start one now and rely on the bounded gate.
 	watch := service.watchBackendReadiness(runtime, readiness)
 	defer watch.close()
+	return service.waitForBackendEndpointWatching(runtime, ctx, readiness, modelID, configFilename, watch)
+}
+
+// waitForBackendEndpointWatching takes a watch registered before the load began, so no
+// startup output is missed. A watch started after the reload can miss the very line it is
+// waiting for, and then the gate just burns its timeout.
+func (service *Service) waitForBackendEndpointWatching(runtime *backendRuntime, ctx context.Context, readiness backendReadiness, modelID string, configFilename string, watch *readinessWatch) error {
+	// Readiness is decided by the HTTP probe, which reflects current state. The backend's
+	// output runs alongside it to catch definitive failures early, because a probe alone
+	// cannot tell a slow load from a dead one — both report a model id of "inactive" —
+	// and waiting out a failed launch is exactly the stall this is here to avoid.
+	// A wedged load must give up in bounded time — the attempt budget is sized for probing,
+	// not waiting, and at 300 attempts it is effectively forever. But the bound has to be
+	// on being *stuck*, not on being slow: a cold 3 GiB model can take minutes to read from
+	// disk, and failing that load would be the router breaking a switch that was working.
+	//
+	// So the clock is idle time, not elapsed time. While the backend is still printing, it
+	// is still loading and the wait continues; once it goes quiet without becoming ready,
+	// it has stopped making progress and the wait ends.
+	idleLimit := service.backendReadinessTimeout()
+	lastProgress := time.Now()
+
+	// Wait for the backend to say it is ready before probing it. Probing through a load
+	// answers "inactive" over and over and tells us nothing; the output says when there is
+	// something to confirm, and a failure marker ends the wait immediately.
+	if err := service.awaitOutputGate(watch, ctx, backendOutputGraceWait, modelID, configFilename); err != nil {
+		return err
+	}
 
 	retryDelay := service.backendRetryDelay
 	var lastStatus int
@@ -2197,9 +2281,21 @@ func (service *Service) waitForBackendEndpoint(runtime *backendRuntime, ctx cont
 		if attempt == 1 || attempt%30 == 0 {
 			service.logger.Printf("waiting for backend model endpoint model=%q config=%q attempt=%d status=%d error=%v body=%q", modelID, configFilename, attempt, status, err, body)
 		}
+		if seen := watch.lastActivity(); seen.After(lastProgress) {
+			lastProgress = seen
+		}
+		// A backend that announced a load is working, however long it takes — a cold
+		// multi-gigabyte load measured here ran well past two minutes with long silent
+		// stretches. Only a backend that never announced one, and is answering that it
+		// holds nothing, has actually stopped: that is a reload that was accepted and
+		// lost, and it is reported so the caller can re-issue it.
+		if !watch.loading() && probeReportsNoModel(status, body) && time.Since(lastProgress) > idleLimit {
+			service.logger.Printf("backend is serving no model and no load is in progress model=%q config=%q attempt=%d", modelID, configFilename, attempt)
+			break
+		}
 
 		if attempt < service.backendRetryAttempts {
-			if err := waitForBackendSignal(ctx, retryDelay, watch.settledChannel()); err != nil {
+			if err := waitForRetry(ctx, retryDelay); err != nil {
 				return err
 			}
 			retryDelay = nextRetryDelay(retryDelay, service.backendRetryMaxDelay)
@@ -2209,7 +2305,51 @@ func (service *Service) waitForBackendEndpoint(runtime *backendRuntime, ctx cont
 		return err
 	}
 
+	if probeReportsNoModel(lastStatus, lastBody) {
+		return fmt.Errorf("%w: status %d body=%q", errBackendServingNoModel, lastStatus, lastBody)
+	}
 	return fmt.Errorf("backend model endpoint unavailable after retries: status %d error=%v body=%q", lastStatus, lastErr, lastBody)
+}
+
+// backendReadinessTimeout bounds how long a single load may sit un-ready before the
+// router stops waiting on it.
+func (service *Service) backendReadinessTimeout() time.Duration {
+	if service.backendReadinessWait > 0 {
+		return service.backendReadinessWait
+	}
+	return defaultBackendReadinessWait
+}
+
+// errBackendServingNoModel marks the one readiness failure worth repeating the reload
+// for: the backend is up and answering, but reports it is holding no model at all. That
+// is the signature of a reload that was accepted and then lost, which only another reload
+// fixes. Every other readiness failure — unreachable, exited, capability disabled — is
+// reported as-is so recovery stays bounded.
+var errBackendServingNoModel = errors.New("backend is serving no model")
+
+// probeReportsNoModel reports whether a readiness probe body says the backend holds
+// nothing, as opposed to holding something that is not ready yet.
+func probeReportsNoModel(status int, body string) bool {
+	if status < 200 || status >= 300 {
+		return false
+	}
+	var parsed struct {
+		Data []struct {
+			ID string `json:"id"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(body)), &parsed); err != nil {
+		return false
+	}
+	if len(parsed.Data) == 0 {
+		return false
+	}
+	for _, model := range parsed.Data {
+		if !strings.EqualFold(strings.TrimSpace(model.ID), "inactive") {
+			return false
+		}
+	}
+	return true
 }
 
 func backendEndpointReady(readiness backendReadiness, backendMode string, status int, body string) bool {
