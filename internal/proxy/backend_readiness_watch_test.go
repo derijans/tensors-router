@@ -31,10 +31,12 @@ func (backend *watchableBackend) emit(text string) {
 	_, _ = backend.hub.Stdout().Write([]byte(text))
 }
 
-// This is the 628-second stall in miniature. KoboldCpp was interrupted mid-load and came
-// back serving no model, so /v1/models answers "inactive" forever. The HTTP probe cannot
-// tell that apart from a slow load and would burn the entire retry budget; the process
-// output says so outright on the first line.
+// When the backend reports a genuine per-load failure, the wait ends there instead of
+// burning the retry budget against a process that will never become ready.
+//
+// Only KoboldCpp's own per-load verdict counts. The module banner is not usable for this:
+// a healthy no-model start prints the same "Inactive Modules: TextGeneration" line, so
+// reading it as failure aborts loads that were about to succeed.
 func TestLoadFailsImmediatelyWhenOutputReportsNoModel(t *testing.T) {
 	var probes atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -71,7 +73,7 @@ func TestLoadFailsImmediatelyWhenOutputReportsNoModel(t *testing.T) {
 
 	go func() {
 		time.Sleep(50 * time.Millisecond)
-		backend.emit("Active Modules: AdminControl\nInactive Modules: TextGeneration ImageGeneration\n")
+		backend.emit("Load Text Model OK: False\n")
 	}()
 
 	started := time.Now()
@@ -81,7 +83,7 @@ func TestLoadFailsImmediatelyWhenOutputReportsNoModel(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected the load to fail once the backend reported no text model")
 	}
-	if !strings.Contains(err.Error(), "Inactive Modules") {
+	if !strings.Contains(err.Error(), "Load Text Model OK: False") {
 		t.Fatalf("error must name the reason from the backend output, got %v", err)
 	}
 	// The full budget would be 300 attempts; failing fast is the whole point.
@@ -175,7 +177,10 @@ func TestLoadSucceedsWhenProbeReportsModelLoaded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	backend.emit("Load Text Model OK: True\nActive Modules: TextGeneration AdminControl\n")
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		backend.emit("Load Text Model OK: True\nActive Modules: TextGeneration AdminControl\n")
+	}()
 	if err := service.waitForBackendEndpoint(runtime, context.Background(), readinessText, "text", "text.kcpps"); err != nil {
 		t.Fatalf("expected readiness once the probe agrees, got %v", err)
 	}

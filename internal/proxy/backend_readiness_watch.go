@@ -1,8 +1,10 @@
 package proxy
 
 import (
+	"context"
 	"fmt"
 	"sync"
+	"time"
 
 	"tensors-router/internal/backendreadiness"
 	"tensors-router/internal/loadcapture"
@@ -16,14 +18,16 @@ type backendOutputWatcher interface {
 	WatchOutput(observe func(loadcapture.Stream, []byte)) func()
 }
 
-// readinessWatch reports the first definitive verdict found in a backend's output.
+// readinessWatch reports the first definitive verdict found in a backend's output, and
+// tracks when that output last arrived.
 type readinessWatch struct {
-	mu      sync.Mutex
-	scanner *backendreadiness.Scanner
-	settled chan struct{}
-	once    sync.Once
-	stop    func()
-	result  backendreadiness.Result
+	mu       sync.Mutex
+	scanner  *backendreadiness.Scanner
+	settled  chan struct{}
+	once     sync.Once
+	stop     func()
+	result   backendreadiness.Result
+	lastSeen time.Time
 }
 
 // watchBackendReadiness begins watching runtime's output for load markers. It returns nil
@@ -53,16 +57,15 @@ func (watch *readinessWatch) observe(_ loadcapture.Stream, payload []byte) {
 	watch.mu.Lock()
 	result := watch.scanner.Write(payload)
 	watch.result = result
+	watch.lastSeen = time.Now()
 	watch.mu.Unlock()
-	// Only a failure cuts the wait short. The channel latches open once closed, so
-	// signalling on readiness too would make every subsequent backoff return instantly
-	// and turn the retry loop into a busy poll.
-	if result.Verdict == backendreadiness.Failed {
+	if result.Verdict != backendreadiness.Undecided {
 		watch.once.Do(func() { close(watch.settled) })
 	}
 }
 
-// settledChannel closes as soon as the output reports a load failure.
+// settledChannel closes as soon as the output reaches any definitive verdict. It latches,
+// so it is only useful as a one-shot gate — see awaitOutputGate.
 func (watch *readinessWatch) settledChannel() <-chan struct{} {
 	if watch == nil {
 		return nil
@@ -77,6 +80,29 @@ func (watch *readinessWatch) verdict() backendreadiness.Result {
 	watch.mu.Lock()
 	defer watch.mu.Unlock()
 	return watch.result
+}
+
+// loading reports whether the backend has announced a load in progress. Measured: while
+// loading, both backends print progress and eventually a completion marker; with no model
+// they print neither and serve "no model" forever.
+func (watch *readinessWatch) loading() bool {
+	if watch == nil {
+		return false
+	}
+	watch.mu.Lock()
+	defer watch.mu.Unlock()
+	return watch.scanner.Loading()
+}
+
+// lastActivity reports when the backend last produced output, or the zero time if it has
+// produced none. A load that is still printing is still working, however slowly.
+func (watch *readinessWatch) lastActivity() time.Time {
+	if watch == nil {
+		return time.Time{}
+	}
+	watch.mu.Lock()
+	defer watch.mu.Unlock()
+	return watch.lastSeen
 }
 
 func (watch *readinessWatch) close() {
@@ -105,6 +131,38 @@ func (service *Service) backendOutputFailure(watch *readinessWatch, modelID stri
 	}
 	service.logger.Printf("backend reported load failure model=%q config=%q reason=%q", modelID, configFilename, result.Reason)
 	return fmt.Errorf("backend reported load failure: %s", result.Reason)
+}
+
+// awaitOutputGate holds off probing until the backend's own output says it is worth
+// probing. The router captures that output in memory regardless of logging settings, so
+// this costs nothing extra to read.
+//
+// The output opens the gate; it never answers the question. An early or stale marker only
+// means probing starts sooner, and the probe still has to agree — which is what keeps a
+// lane-scoped banner from declaring some other model's load complete. A failure marker
+// ends the wait outright, so a backend that cannot come up is not polled to death.
+//
+// The gate is bounded: a backend that prints nothing recognisable must not stop the
+// router from probing at all.
+func (service *Service) awaitOutputGate(watch *readinessWatch, ctx context.Context, gate time.Duration, modelID string, configFilename string) error {
+	if watch == nil {
+		return nil
+	}
+	timer := time.NewTimer(gate)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-watch.settledChannel():
+		if err := service.backendOutputFailure(watch, modelID, configFilename); err != nil {
+			return err
+		}
+		service.logger.Printf("backend output reports load complete; probing model=%q config=%q", modelID, configFilename)
+		return nil
+	case <-timer.C:
+		// Nothing recognisable was printed in time. Fall through and probe anyway.
+		return nil
+	}
 }
 
 func readinessOutputLane(readiness backendReadiness) backendreadiness.Lane {
