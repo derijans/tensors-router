@@ -429,6 +429,11 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	if metadata.ExplicitTextModelPath() != "" && strings.TrimSpace(metadata.TTSModel) != "" {
 		return nil, fmt.Errorf("llama config cannot combine a text model with standalone ttsmodel")
 	}
+	vocoder := firstNonEmpty(metadata.Code2WAVModel, metadata.TTSWAVTokenizer)
+	standaloneTTS := metadata.ExplicitTextModelPath() == "" && strings.TrimSpace(metadata.TTSModel) != ""
+	if vocoder != "" || strings.TrimSpace(metadata.TalkerModel) != "" || standaloneTTS {
+		return nil, fmt.Errorf("llama.cpp removed --model-vocoder and --model-talker and llama-server has no text-to-speech endpoint; talkermodel/ttsmodel/ttswavtokenizer/code2wavmodel are not supported by the llama_sdcpp backend, use kobold or vllm for text-to-speech")
+	}
 	modelPath := metadata.TextModelPath()
 	if modelPath == "" {
 		return nil, fmt.Errorf("llama config has no text, embedding, or multimodal model path")
@@ -491,12 +496,11 @@ func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	appendOptionalBoolArg(&args, "--mmproj-auto", "--no-mmproj-auto", metadata.MMProjAuto)
 	appendIntArg(&args, "--image-min-tokens", positive(metadata.VisionMinTokens))
 	appendIntArg(&args, "--image-max-tokens", positive(metadata.VisionMaxTokens))
-	if talker := strings.TrimSpace(metadata.TalkerModel); talker != "" && talker != modelPath {
-		appendStringArg(&args, "--model-talker", talker)
-	}
-	appendStringArg(&args, "--model-vocoder", firstNonEmpty(metadata.Code2WAVModel, metadata.TTSWAVTokenizer))
+	appendStringArg(&args, "--mmproj-device", metadata.MMProjDevice)
 	appendStringArg(&args, "--api-key-file", metadata.APIKeyFile)
 	appendStringArg(&args, "--log-prompts-dir", metadata.LogPromptsDir)
+	appendStringArg(&args, "--reasoning-effort", metadata.ReasoningEffort)
+	appendStringArg(&args, "--tools-runtime", metadata.ToolsRuntime)
 	if metadata.Agent {
 		args = append(args, "--agent")
 	}
@@ -696,6 +700,8 @@ func sdcppArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 		"--model", modelPath,
 	}
 	appendStringArg(&args, "--vae", metadata.SDVAE)
+	appendStringArg(&args, "--audio-vae", metadata.SDAudioVAE)
+	appendStringArg(&args, "--photo-maker", metadata.SDPhotoMaker)
 	appendStringArg(&args, "--diffusion-model", metadata.SDDiffusionModel)
 	appendStringArg(&args, "--high-noise-diffusion-model", metadata.SDHighNoiseDiffusionModel)
 	appendStringArg(&args, "--uncond-diffusion-model", metadata.SDUncondDiffusionModel)
@@ -765,6 +771,16 @@ func sdcppArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 		tileSize := strconv.Itoa(metadata.SDTiledVAE) + "x" + strconv.Itoa(metadata.SDTiledVAE)
 		args = append(args, "--vae-tiling", "--vae-tile-size", tileSize)
 	}
+	appendStringArg(&args, "--sampling-method", metadata.SDSamplingMethod)
+	appendStringArg(&args, "--high-noise-sampling-method", metadata.SDHighNoiseSamplingMethod)
+	appendStringArg(&args, "--scheduler", metadata.SDScheduler)
+	appendStringArg(&args, "--type", metadata.SDType)
+	appendStringArg(&args, "--rng", metadata.SDRNG)
+	appendStringArg(&args, "--sampler-rng", metadata.SDSamplerRNG)
+	appendStringArg(&args, "--prediction", metadata.SDPrediction)
+	appendStringArg(&args, "--lora-apply-mode", metadata.SDLoRAApplyMode)
+	appendStringArg(&args, "--cache-mode", metadata.SDCacheMode)
+	appendStringArg(&args, "--cache-option", metadata.SDCacheOption)
 	return args, nil
 }
 

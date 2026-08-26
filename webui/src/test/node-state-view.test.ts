@@ -193,6 +193,42 @@ describe("node state view", () => {
     expect(html).not.toContain(">available</span>");
     expect(html).toContain('aria-expanded="false"');
   });
+
+  it("shows the resolved ffmpeg path when the node reports one", () => {
+    const html = renderNodeStateSnapshot("node-a", {
+      ...snapshot(),
+      ffmpeg_available: true,
+      ffmpeg_path: "/usr/bin/ffmpeg"
+    }, "");
+
+    expect(html).toContain("<code>/usr/bin/ffmpeg</code>");
+  });
+
+  it("warns which features break when the node reports no ffmpeg", () => {
+    const html = renderNodeStateSnapshot("node-a", {...snapshot(), ffmpeg_available: false}, "");
+
+    expect(html).toContain("Not available.");
+    expect(html).toContain("Video generation");
+  });
+
+  // A node from before ffmpeg reporting must not be shown as missing it: a
+  // cluster can contain one part-way through a rolling upgrade.
+  it("says nothing when the node does not report ffmpeg at all", () => {
+    const html = renderNodeStateSnapshot("node-a", snapshot(), "");
+
+    expect(html).not.toContain("ffmpeg");
+  });
+
+  it("escapes an ffmpeg path so a hostile value cannot inject markup", () => {
+    const html = renderNodeStateSnapshot("node-a", {
+      ...snapshot(),
+      ffmpeg_available: true,
+      ffmpeg_path: "/opt/<img src=x onerror=alert(1)>/ffmpeg"
+    }, "");
+
+    expect(html).not.toContain("<img src=x");
+    expect(html).toContain("&lt;img src=x");
+  });
 });
 
 function renderVLLMBackend(lifecycleState: BackendLifecycleState, values: Partial<NodeStateBackend> = {}): string {

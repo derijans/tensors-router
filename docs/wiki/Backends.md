@@ -28,15 +28,17 @@ The router removes the backend's router-mode argument because model selection is
 
 `llama_sdcpp` mode manages three independent processes:
 
-- [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server` for text, embeddings, multimodal input, and compatible text-to-speech
+- [llama.cpp](https://github.com/ggml-org/llama.cpp) `llama-server` for text, embeddings, and multimodal input
 - [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) `sd-server` for image and video routes
 - [whisper.cpp](https://github.com/ggml-org/whisper.cpp) `whisper-server` for transcription and translation
 
 For `llama_sdcpp`, `run_embed_separate: true` sends embedding requests to an on-demand `llama-server` at `llama.embeddings_backend_url`, whose port may be pinned or router-allocated the same way as `kobold.embeddings_backend_url`. CPU configurations force `--device none` and zero GPU layers; GPU configurations fully offload the embedding model and inherit configured device placement.
 
-All processes start lazily and drain independently. Speech uses the llama runtime, while transcription uses the Whisper runtime. A `voice` unload drains both; `all` drains every runtime.
+All processes start lazily and drain independently. Transcription uses the Whisper runtime. Text-to-speech is not available under `llama_sdcpp`: llama.cpp removed `--model-vocoder` and `--model-talker`, and llama-server has no `/v1/audio/speech` endpoint. Use `kobold` or `vllm` for text-to-speech.
 
-The selected binaries must expose the endpoints requested by clients. `sd-server` does not implement the ComfyUI queue and history endpoints recognized by the router.
+The selected binaries must expose the endpoints requested by clients. `sd-server` does not implement the ComfyUI queue and history endpoints recognized by the router; the router answers those itself for video-producing workflows only, using `sd-server`'s or KoboldCpp's native video generation underneath — see [API Reference](API-Reference).
+
+`sd-server`'s and KoboldCpp's video output is never MP4: `sd-server` emits WebM, animated WebP, or MJPG-AVI, and KoboldCpp emits GIF or MJPG-AVI. The router's ComfyUI video emulation transcodes every finished job to H.264/AAC MP4 with ffmpeg, which must be reachable via `ffmpeg.binary_path` or `PATH`. ffmpeg is also used to convert non-WAV transcription input on the buffered whisper request path. Missing ffmpeg is not a startup failure; it fails only the requests that need it. See [Deployment](Deployment).
 
 ## vLLM companion backend
 

@@ -45,6 +45,12 @@ func TestApplyRequestExtractsImageMetadata(t *testing.T) {
 	if event.ImageWidth != 768 || event.ImageHeight != 512 || event.ImageCount != 6 {
 		t.Fatalf("unexpected image metadata %#v", event)
 	}
+
+	videoEvent := Event{Section: SectionImage}
+	ApplyRequest(&videoEvent, "/sdcpp/v1/vid_gen", []byte(`{"width":832,"height":480}`), "application/json")
+	if videoEvent.ImageType != "video" {
+		t.Fatalf("unexpected image type for vid_gen %q", videoEvent.ImageType)
+	}
 }
 
 func TestApplyResponseExtractsAudioMetadata(t *testing.T) {

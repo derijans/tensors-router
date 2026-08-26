@@ -9,6 +9,7 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"strconv"
 	"strings"
 	"time"
@@ -16,7 +17,7 @@ import (
 	"tensors-router/internal/transportbody"
 )
 
-func adaptBufferedWhisperRequest(request *http.Request, body []byte) ([]byte, error) {
+func (service *Service) adaptBufferedWhisperRequest(request *http.Request, body []byte) ([]byte, error) {
 	if request.URL.Path == "/api/extra/transcribe" && transportRequestIsJSON(request) {
 		return adaptKoboldTranscriptionRequest(request, body)
 	}
@@ -68,27 +69,19 @@ func adaptBufferedWhisperRequest(request *http.Request, body []byte) ([]byte, er
 			writtenTranslate = true
 			continue
 		}
+		if name == "file" {
+			if err := service.writeWhisperFilePart(request, writer, part); err != nil {
+				_ = part.Close()
+				return nil, err
+			}
+			hasFile = true
+			_ = part.Close()
+			continue
+		}
 		target, createErr := writer.CreatePart(part.Header)
 		if createErr != nil {
 			_ = part.Close()
 			return nil, createErr
-		}
-		if name == "file" {
-			header := make([]byte, 12)
-			read, readErr := io.ReadFull(part, header)
-			if readErr != nil && readErr != io.ErrUnexpectedEOF {
-				_ = part.Close()
-				return nil, readErr
-			}
-			if !isWAVHeader(header[:read]) {
-				_ = part.Close()
-				return nil, fmt.Errorf("only native WAV transcription input is supported")
-			}
-			hasFile = true
-			if _, err := target.Write(header[:read]); err != nil {
-				_ = part.Close()
-				return nil, err
-			}
 		}
 		if _, err := transportbody.Copy(target, part); err != nil {
 			_ = part.Close()
@@ -116,6 +109,57 @@ func adaptBufferedWhisperRequest(request *http.Request, body []byte) ([]byte, er
 	request.Header.Set("X-Tensors-Whisper-Response-Format", format)
 	request.ContentLength = int64(output.Len())
 	return output.Bytes(), nil
+}
+
+// writeWhisperFilePart copies a native WAV file part unchanged. A non-WAV
+// part is converted with ffmpeg when available; whisper.cpp's transcription
+// endpoint only ever accepts WAV, and ffmpeg conversion is only available on
+// this buffered path — the streaming (large-body) whisper path still
+// requires native WAV input.
+func (service *Service) writeWhisperFilePart(request *http.Request, writer *multipart.Writer, part *multipart.Part) error {
+	header := make([]byte, 12)
+	read, readErr := io.ReadFull(part, header)
+	if readErr != nil && readErr != io.ErrUnexpectedEOF {
+		return readErr
+	}
+	if isWAVHeader(header[:read]) {
+		target, err := writer.CreatePart(part.Header)
+		if err != nil {
+			return err
+		}
+		if _, err := target.Write(header[:read]); err != nil {
+			return err
+		}
+		_, err = transportbody.Copy(target, part)
+		return err
+	}
+	if !service.ffmpeg.Available() {
+		return fmt.Errorf("only native WAV transcription input is supported, and ffmpeg is not available on this router to convert other formats")
+	}
+	rest, err := io.ReadAll(part)
+	if err != nil {
+		return err
+	}
+	var wav bytes.Buffer
+	source := io.MultiReader(bytes.NewReader(header[:read]), bytes.NewReader(rest))
+	if err := service.ffmpeg.ConvertToWAV(request.Context(), source, &wav); err != nil {
+		return fmt.Errorf("ffmpeg could not convert transcription input to WAV: %w", err)
+	}
+	target, err := writer.CreatePart(wavPartHeader(part.Header))
+	if err != nil {
+		return err
+	}
+	_, err = target.Write(wav.Bytes())
+	return err
+}
+
+func wavPartHeader(original textproto.MIMEHeader) textproto.MIMEHeader {
+	cloned := make(textproto.MIMEHeader, len(original))
+	for key, values := range original {
+		cloned[key] = append([]string{}, values...)
+	}
+	cloned.Set("Content-Type", "audio/wav")
+	return cloned
 }
 
 func adaptKoboldTranscriptionRequest(request *http.Request, body []byte) ([]byte, error) {

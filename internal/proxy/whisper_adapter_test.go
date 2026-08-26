@@ -7,8 +7,11 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"os/exec"
 	"strings"
 	"testing"
+
+	"tensors-router/internal/ffmpeg"
 )
 
 func TestAdaptBufferedWhisperRequestForcesVerboseTranslationAndWAV(t *testing.T) {
@@ -29,7 +32,7 @@ func TestAdaptBufferedWhisperRequestForcesVerboseTranslationAndWAV(t *testing.T)
 		t.Fatal(err)
 	}
 	request.Header.Set("Content-Type", writer.FormDataContentType())
-	adapted, err := adaptBufferedWhisperRequest(request, body.Bytes())
+	adapted, err := (&Service{}).adaptBufferedWhisperRequest(request, body.Bytes())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,11 +48,81 @@ func TestAdaptBufferedWhisperRequestForcesVerboseTranslationAndWAV(t *testing.T)
 	}
 }
 
+func TestAdaptBufferedWhisperRequestConvertsNonWAVInputWithFFmpeg(t *testing.T) {
+	tool, err := ffmpeg.Locate("")
+	if err != nil {
+		t.Skip("ffmpeg not installed on this machine")
+	}
+	mp3 := synthTestToneMP3(t)
+
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	file, err := writer.CreateFormFile("file", "sample.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = file.Write(mp3)
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	request, err := http.NewRequest(http.MethodPost, "/v1/audio/transcriptions", bytes.NewReader(body.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+
+	service := &Service{ffmpeg: tool}
+	adapted, err := service.adaptBufferedWhisperRequest(request, body.Bytes())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	values := readMultipartValues(t, adapted, request.Header.Get("Content-Type"))
+	converted := []byte(values["file"])
+	if len(converted) < 12 || string(converted[:4]) != "RIFF" || string(converted[8:12]) != "WAVE" {
+		t.Fatalf("expected the converted file part to be a WAV file, got %d bytes", len(converted))
+	}
+}
+
+func TestAdaptBufferedWhisperRequestRejectsNonWAVWithoutFFmpeg(t *testing.T) {
+	var body bytes.Buffer
+	writer := multipart.NewWriter(&body)
+	file, err := writer.CreateFormFile("file", "sample.mp3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = file.Write([]byte("not a wav file"))
+	if err := writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	request, err := http.NewRequest(http.MethodPost, "/v1/audio/transcriptions", bytes.NewReader(body.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.Header.Set("Content-Type", writer.FormDataContentType())
+
+	if _, err := (&Service{}).adaptBufferedWhisperRequest(request, body.Bytes()); err == nil {
+		t.Fatal("expected an error for non-WAV input without ffmpeg available")
+	}
+}
+
+func synthTestToneMP3(t *testing.T) []byte {
+	t.Helper()
+	cmd := exec.Command("ffmpeg", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:a", "libmp3lame", "-f", "mp3", "pipe:1")
+	output, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("failed to synthesize test tone: %v", err)
+	}
+	return output
+}
+
 func TestAdaptKoboldTranscriptionStreamsBase64AndRejectsInvalidAudio(t *testing.T) {
 	audio := base64.StdEncoding.EncodeToString(testWAVBytes())
 	request, _ := http.NewRequest(http.MethodPost, "/api/extra/transcribe", nil)
 	request.Header.Set("Content-Type", "application/json")
-	adapted, err := adaptBufferedWhisperRequest(request, []byte(`{"audio_data":"`+audio+`","prompt":"hello","langcode":"lv","suppress_non_speech":true}`))
+	adapted, err := (&Service{}).adaptBufferedWhisperRequest(request, []byte(`{"audio_data":"`+audio+`","prompt":"hello","langcode":"lv","suppress_non_speech":true}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,7 +132,7 @@ func TestAdaptKoboldTranscriptionStreamsBase64AndRejectsInvalidAudio(t *testing.
 	}
 	invalidRequest, _ := http.NewRequest(http.MethodPost, "/api/extra/transcribe", nil)
 	invalidRequest.Header.Set("Content-Type", "application/json")
-	if _, err := adaptBufferedWhisperRequest(invalidRequest, []byte(`{"audio_data":"not-base64!"}`)); err == nil {
+	if _, err := (&Service{}).adaptBufferedWhisperRequest(invalidRequest, []byte(`{"audio_data":"not-base64!"}`)); err == nil {
 		t.Fatal("expected malformed base64 rejection")
 	}
 }

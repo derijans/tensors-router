@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"tensors-router/internal/catalog"
+	"tensors-router/internal/cook"
 	"tensors-router/internal/portalloc"
 )
 
@@ -46,11 +47,13 @@ func TestLlamaLaunchArgumentsFromKcpps(t *testing.T) {
 		"spec_draft_type_v":"q4_0",
 		"mmproj":"C:/models/mmproj.gguf",
 		"mmprojcpu":true,
+		"mmproj_device":"CUDA0",
 		"visionmintokens":32,
 		"visionmaxtokens":512,
-		"code2wavmodel":"C:/models/code2wav.gguf",
 		"api_key_file":"C:/router/keys.txt",
 		"log_prompts_dir":"C:/router/prompts",
+		"reasoning_effort":"high",
+		"tools_runtime":"docker:python:3.12",
 		"agent":true,
 		"models_dir":"C:/models/router",
 		"models_preset":"C:/models/presets.ini",
@@ -107,9 +110,11 @@ func TestLlamaLaunchArgumentsFromKcpps(t *testing.T) {
 		"--no-mmproj-offload",
 		"--image-min-tokens", "32",
 		"--image-max-tokens", "512",
-		"--model-vocoder", "C:/models/code2wav.gguf",
+		"--mmproj-device", "CUDA0",
 		"--api-key-file", "C:/router/keys.txt",
 		"--log-prompts-dir", "C:/router/prompts",
+		"--reasoning-effort", "high",
+		"--tools-runtime", "docker:python:3.12",
 		"--agent",
 		"--models-dir", "C:/models/router",
 		"--models-preset", "C:/models/presets.ini",
@@ -518,23 +523,24 @@ func TestWhisperCPPMapsCompleteServerOptions(t *testing.T) {
 	}
 }
 
-func TestLlamaTTSLaunchModesAndConflictValidation(t *testing.T) {
-	ttsOnly, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{TTSModel: "tts.gguf", TTSWAVTokenizer: "vocoder.gguf"}, "llama")
-	if err != nil {
-		t.Fatal(err)
+func TestLlamaRejectsRemovedTTSFlagCombinations(t *testing.T) {
+	if _, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{TTSModel: "tts.gguf", TTSWAVTokenizer: "vocoder.gguf"}, "llama"); err == nil {
+		t.Fatal("expected standalone ttsmodel+wavtokenizer rejection: llama.cpp removed --model-vocoder")
 	}
-	if !containsAdjacentArguments(ttsOnly, "--model", "tts.gguf") || !containsAdjacentArguments(ttsOnly, "--model-vocoder", "vocoder.gguf") {
-		t.Fatalf("unexpected TTS-only arguments %#v", ttsOnly)
-	}
-	supplemental, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{ModelParam: "text.gguf", TalkerModel: "talker.gguf", Code2WAVModel: "code2wav.gguf"}, "llama")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !containsAdjacentArguments(supplemental, "--model-talker", "talker.gguf") || !containsAdjacentArguments(supplemental, "--model-vocoder", "code2wav.gguf") {
-		t.Fatalf("unexpected supplemental TTS arguments %#v", supplemental)
+	if _, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{ModelParam: "text.gguf", TalkerModel: "talker.gguf", Code2WAVModel: "code2wav.gguf"}, "llama"); err == nil {
+		t.Fatal("expected talkermodel+code2wavmodel rejection: llama.cpp removed --model-talker and --model-vocoder")
 	}
 	if _, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{ModelParam: "text.gguf", TTSModel: "tts.gguf"}, "llama"); err == nil {
 		t.Fatal("expected text plus standalone TTS rejection")
+	}
+	args, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{ModelParam: "text.gguf"}, "llama")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, removed := range []string{"--model-vocoder", "--model-talker"} {
+		if containsArgument(args, removed) {
+			t.Fatalf("removed llama.cpp flag %q must never be emitted, got %#v", removed, args)
+		}
 	}
 }
 
@@ -576,6 +582,61 @@ func TestCurrentReleaseArgumentsPreserveOptionalAndAssignmentValues(t *testing.T
 	}
 }
 
+// TestSDCPPCatalogNativeFlagsAreEmitted guards against the option catalog advertising a
+// sd-server flag that sdcppArguments never emits, which silently discards whatever the
+// Cook UI writes for that field.
+func TestSDCPPCatalogNativeFlagsAreEmitted(t *testing.T) {
+	for _, definition := range cook.OptionCatalog() {
+		if definition.Lane != cook.LaneImage || definition.NativeFlag == "" {
+			continue
+		}
+		if !containsString(definition.Backends, "llama_sdcpp") {
+			continue
+		}
+		key := definition.Key
+		t.Run(key, func(t *testing.T) {
+			metadata := catalog.RuntimeConfig{SDModel: "C:/models/probe.safetensors"}
+			field := reflect.ValueOf(&metadata).Elem().FieldByNameFunc(func(name string) bool {
+				fieldType, _ := reflect.TypeOf(metadata).FieldByName(name)
+				return fieldType.Tag.Get("json") == key
+			})
+			if !field.IsValid() {
+				t.Fatalf("catalog key %q has no matching catalog.RuntimeConfig field", key)
+			}
+			switch field.Kind() {
+			case reflect.String:
+				field.SetString("regression-test-value")
+			case reflect.Int:
+				field.SetInt(7)
+			case reflect.Float64:
+				field.SetFloat(1.5)
+			case reflect.Bool:
+				field.SetBool(true)
+			case reflect.Interface:
+				field.Set(reflect.ValueOf("regression-test-value"))
+			default:
+				t.Fatalf("catalog key %q maps to unsupported field kind %s", key, field.Kind())
+			}
+			args, err := RuntimeArgumentsForTest(metadata, "sdcpp")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !containsArgument(args, definition.NativeFlag) {
+				t.Fatalf("option %q declares native flag %q but sdcppArguments never emits it: %#v", key, definition.NativeFlag, args)
+			}
+		})
+	}
+}
+
+func containsString(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
 func containsArgument(args []string, expected string) bool {
 	for _, arg := range args {
 		if arg == expected {
@@ -599,6 +660,8 @@ func TestSDCPPLaunchArgumentsFromKcpps(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "image.kcpps"), []byte(`{
 		"sdmodel":"C:/models/dream.safetensors",
 		"sdvae":"C:/models/vae.safetensors",
+		"sdaudiovae":"C:/models/audio-vae.safetensors",
+		"sdphotomaker":"C:/models/photomaker.safetensors",
 		"sddiffusionmodel":"C:/models/diffusion.safetensors",
 		"sdhighnoisediffusionmodel":"C:/models/high-noise.safetensors",
 		"sdunconddiffusionmodel":"C:/models/uncond.safetensors",
@@ -630,7 +693,17 @@ func TestSDCPPLaunchArgumentsFromKcpps(t *testing.T) {
 		"sdvaeconvdirect":true,
 		"sdoffloadcpu":true,
 		"sdvaecpu":true,
-		"sdtiledvae":768
+		"sdtiledvae":768,
+		"sampling_method":"euler",
+		"high_noise_sampling_method":"euler_a",
+		"scheduler":"karras",
+		"type":"q8_0",
+		"rng":"cuda",
+		"sampler_rng":"cpu",
+		"prediction":"v",
+		"lora_apply_mode":"at_runtime",
+		"cache_mode":"easycache",
+		"cache_option":"0.2"
 	}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -655,6 +728,8 @@ func TestSDCPPLaunchArgumentsFromKcpps(t *testing.T) {
 		"--listen-port", "7861",
 		"--model", "C:/models/dream.safetensors",
 		"--vae", "C:/models/vae.safetensors",
+		"--audio-vae", "C:/models/audio-vae.safetensors",
+		"--photo-maker", "C:/models/photomaker.safetensors",
 		"--diffusion-model", "C:/models/diffusion.safetensors",
 		"--high-noise-diffusion-model", "C:/models/high-noise.safetensors",
 		"--uncond-diffusion-model", "C:/models/uncond.safetensors",
@@ -688,6 +763,16 @@ func TestSDCPPLaunchArgumentsFromKcpps(t *testing.T) {
 		"--vae-on-cpu",
 		"--vae-tiling",
 		"--vae-tile-size", "768x768",
+		"--sampling-method", "euler",
+		"--high-noise-sampling-method", "euler_a",
+		"--scheduler", "karras",
+		"--type", "q8_0",
+		"--rng", "cuda",
+		"--sampler-rng", "cpu",
+		"--prediction", "v",
+		"--lora-apply-mode", "at_runtime",
+		"--cache-mode", "easycache",
+		"--cache-option", "0.2",
 		"--verbose",
 	}
 	if !reflect.DeepEqual(args, expected) {

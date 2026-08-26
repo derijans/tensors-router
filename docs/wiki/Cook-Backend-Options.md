@@ -40,6 +40,7 @@ Runtime fields cover:
 - logging and debugging
 - RPC and device selection
 - llama.cpp model presets and autoload settings
+- sandboxed tool execution (`tools_runtime`, llama.cpp only)
 
 The router owns managed backend host and port arguments. Cooked values cannot bypass the loopback validation applied when a backend manager is created.
 
@@ -57,6 +58,7 @@ Text fields cover:
 - Jinja templates, thinking behavior, and kwargs
 - parallel request and continuous batching settings
 - model metadata and tensor overrides
+- reasoning effort (llama.cpp only)
 
 Some fields apply only to KoboldCpp or only to `llama-server`. The catalog records that backend ownership and the WebUI filters incompatible choices.
 
@@ -70,7 +72,7 @@ The generated file is never a portable field. Literal environment values and hea
 
 These fields cover:
 
-- multimodal projector paths and projector placement
+- multimodal projector paths, projector placement, and projector device selection
 - vision resolution and token limits
 - embedding model paths and context size
 - embedding GPU placement
@@ -83,7 +85,7 @@ The selected model files must be present on the node that will run the generated
 
 Image fields cover:
 
-- diffusion, VAE, encoder, vision, ControlNet, PuLID, and upscaler files
+- diffusion, VAE, audio VAE, encoder, vision, ControlNet, PuLID, PhotoMaker, and upscaler files
 - LoRA files and model directories
 - image threads, device placement, offload, and VRAM limits
 - quantization, tensor types, and tensor rules

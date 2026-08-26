@@ -96,6 +96,27 @@ The router itself provides model selection behavior for `/sdapi/v1/options`, ref
 
 ComfyUI-style paths are classified as image requests. They are not implemented by `sd-server` in the split llama.cpp and stable-diffusion.cpp backend. Stable-diffusion.cpp asynchronous submissions under `/sdcpp/v1/...` retain their selected route for later job polling.
 
+### ComfyUI video generation
+
+`POST /prompt` is inspected before being classified: a workflow that produces video (a known video sink node, or a frame-count input above one) is answered by the router itself rather than forwarded to KoboldCpp's image-only ComfyUI emulation. Everything else — including every still-image workflow — is unaffected and keeps going to the backend exactly as before.
+
+A video workflow always targets whichever image-lane model is currently active, the same convention KoboldCpp's own emulation uses; it is not addressed by model ID and does not route across cluster nodes. The sampler node is found structurally (any node with both a `positive` and a `negative` input) rather than by class name, so it works across the different node names each video model family uses.
+
+Once accepted, the router returns `{"prompt_id", "number", "node_errors"}` and generates in the background:
+
+- `backend_mode: llama_sdcpp` submits an `/sdcpp/v1/vid_gen` job and polls it to completion.
+- `backend_mode: kobold` issues a single `/sdapi/v1/txt2img` call with `frames`, `fps`, and `video_output_type: 1` (KoboldCpp's MJPG-AVI encoder, the only one of its two video containers that carries a MiniMax-H3 audio track).
+
+`GET /history/{prompt_id}` and `GET /view?filename=...` answer only for a prompt ID or filename the router minted; anything else falls through to KoboldCpp's own `/history` and `/view`. A completed job's `/history` entry carries a `gifs` output whose `filename` ends in `.mp4` — matching the shape a generic ComfyUI video client expects, even though neither backend emits MP4 natively. `/view` supports range requests, so a player can seek without downloading the whole file. Every finished job is transcoded to H.264/AAC MP4 with ffmpeg before it is served; without a working ffmpeg, `POST /prompt` on a video workflow fails immediately with an explicit error rather than accepting a job it cannot finish. See [Deployment](Deployment) for the ffmpeg requirement and the scratch-space setting.
+
+Because a job runs on the node that accepted it and its output stays on that node, `/history` and `/view` for a router-minted ID are answered only by that node and are never forwarded across the cluster.
+
+### ComfyUI reference-image uploads
+
+`POST /upload/image` is teed rather than diverted: the upload still reaches the backend unchanged, so image workflows that reference the returned name keep working, and the router additionally keeps its own copy keyed by the name the backend assigned. The backend's response is returned verbatim.
+
+A video workflow whose `LoadImage`-shaped node names an uploaded image is then generated as image-to-video from that copy, since the router never forwards the workflow itself. This is supported on `backend_mode: kobold`, where the reference is sent as `init_images` on `/sdapi/v1/img2img`. On `llama_sdcpp` the submission is refused with an explicit error rather than silently producing text-to-video; use the native `/sdcpp/v1/vid_gen` route there. A workflow naming an image the router never stored is refused at submission.
+
 ## Voice APIs
 
 The router recognizes:
@@ -108,9 +129,9 @@ The router recognizes:
 - `POST /api/extra/tts`
 - `POST /api/extra/transcribe`
 
-Availability depends on the selected backend and `.kcpps` voice fields. In split mode, compatible TTS uses the llama runtime and configurations containing `whispermodel` use the independent Whisper runtime for all three STT routes. A TTS-only `ttsmodel` can be llama-server's primary model; a standalone `ttsmodel` cannot coexist with a text primary model. Supplemental `talkermodel` and `code2wavmodel` configurations remain valid.
+Availability depends on the selected backend and `.kcpps` voice fields. Configurations containing `whispermodel` use the independent Whisper runtime for all three STT routes. Text-to-speech under `backend_mode: llama_sdcpp` is not supported: llama.cpp removed `--model-vocoder` and `--model-talker`, and current llama-server has no `/v1/audio/speech` endpoint at all. `ttsmodel`, `ttswavtokenizer`, `talkermodel`, and `code2wavmodel` remain valid only under `kobold` and `vllm`.
 
-OpenAI transcription and translation accept multipart WAV input and `json`, `verbose_json`, `text`, `srt`, or `vtt` output. Translation is forced to English by route. Kobold transcription accepts JSON `audio_data`, `prompt`, `langcode` or `language`, and `suppress_non_speech`, returning `{"text":"..."}`. ffmpeg conversion is not enabled; non-WAV input returns HTTP 400.
+OpenAI transcription and translation accept multipart audio input and `json`, `verbose_json`, `text`, `srt`, or `vtt` output. Translation is forced to English by route. Kobold transcription accepts JSON `audio_data`, `prompt`, `langcode` or `language`, and `suppress_non_speech`, returning `{"text":"..."}`. Split-mode transcription requires native WAV input; on the buffered request path, non-WAV input is converted with ffmpeg when it is available, and rejected with an explicit error when it is not. The streaming (large-body) path always requires native WAV — ffmpeg conversion there is not implemented. See [Deployment](Deployment) for the ffmpeg requirement.
 
 The model selector can be supplied in the multipart field, query, or `X-Tensors-Model` header. STT requests without a selector use automatic loaded/idle/queue-aware cluster scheduling described in [Cluster Routing](Cluster-Routing).
 

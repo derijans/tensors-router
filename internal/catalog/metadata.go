@@ -56,6 +56,9 @@ type RuntimeConfig struct {
 	SpecDraftPMin             float64           `json:"spec_draft_p_min"`
 	APIKeyFile                string            `json:"api_key_file"`
 	LogPromptsDir             string            `json:"log_prompts_dir"`
+	MMProjDevice              string            `json:"mmproj_device"`
+	ReasoningEffort           string            `json:"reasoning_effort"`
+	ToolsRuntime              string            `json:"tools_runtime"`
 	Agent                     bool              `json:"agent"`
 	ModelsDir                 string            `json:"models_dir"`
 	ModelsPreset              string            `json:"models_preset"`
@@ -97,6 +100,8 @@ type RuntimeConfig struct {
 	SDUpscaler                string            `json:"sdupscaler"`
 	SDVAE                     string            `json:"sdvae"`
 	SDVAEAuto                 bool              `json:"sdvaeauto"`
+	SDAudioVAE                string            `json:"sdaudiovae"`
+	SDPhotoMaker              string            `json:"sdphotomaker"`
 	SDT5XXL                   string            `json:"sdt5xxl"`
 	SDClip1                   string            `json:"sdclip1"`
 	SDClip2                   string            `json:"sdclip2"`
@@ -110,6 +115,16 @@ type RuntimeConfig struct {
 	SDVAECPU                  bool              `json:"sdvaecpu"`
 	SDClipGPU                 bool              `json:"sdclipgpu"`
 	SDThreads                 int               `json:"sdthreads"`
+	SDSamplingMethod          string            `json:"sampling_method"`
+	SDHighNoiseSamplingMethod string            `json:"high_noise_sampling_method"`
+	SDScheduler               string            `json:"scheduler"`
+	SDType                    string            `json:"type"`
+	SDRNG                     string            `json:"rng"`
+	SDSamplerRNG              string            `json:"sampler_rng"`
+	SDPrediction              string            `json:"prediction"`
+	SDLoRAApplyMode           string            `json:"lora_apply_mode"`
+	SDCacheMode               string            `json:"cache_mode"`
+	SDCacheOption             string            `json:"cache_option"`
 	ContextSize               int               `json:"contextsize"`
 	EmbeddingsModel           string            `json:"embeddingsmodel"`
 	EmbeddingsMaxCtx          int               `json:"embeddingsmaxctx"`
@@ -162,6 +177,7 @@ type ImageCapabilities struct {
 	Model          string   `json:"model,omitempty"`
 	Upscaler       string   `json:"upscaler,omitempty"`
 	VAE            string   `json:"vae,omitempty"`
+	AudioVAE       string   `json:"audio_vae,omitempty"`
 	VAEAuto        bool     `json:"vae_auto,omitempty"`
 	T5XXL          string   `json:"t5xxl,omitempty"`
 	Clip1          string   `json:"clip1,omitempty"`
@@ -313,6 +329,7 @@ func capabilitiesFromMetadata(metadata configMetadata, hasLLM bool, hasImage boo
 			Model:          metadata.ImageModelPath(),
 			Upscaler:       strings.TrimSpace(metadata.SDUpscaler),
 			VAE:            strings.TrimSpace(metadata.SDVAE),
+			AudioVAE:       strings.TrimSpace(metadata.SDAudioVAE),
 			VAEAuto:        metadata.SDVAEAuto,
 			T5XXL:          strings.TrimSpace(metadata.SDT5XXL),
 			Clip1:          strings.TrimSpace(metadata.SDClip1),

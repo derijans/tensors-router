@@ -408,7 +408,11 @@ func TestSplitModeRejectsAudioRoutes(t *testing.T) {
 	}
 }
 
-func TestSplitModeRoutesLlamaAudioAssetsToTextBackend(t *testing.T) {
+// Split-mode text-to-speech is gone rather than merely unconfigured: llama.cpp
+// removed --model-vocoder and --model-talker, and llama-server exposes no
+// speech endpoint, so even a fully specified voice config must be rejected
+// without starting or reloading a backend.
+func TestSplitModeRejectsTextToSpeechRegardlessOfVoiceAssets(t *testing.T) {
 	tests := []struct {
 		name   string
 		path   string
@@ -416,30 +420,31 @@ func TestSplitModeRoutesLlamaAudioAssetsToTextBackend(t *testing.T) {
 		body   string
 	}{
 		{
-			name:   "speech",
+			name:   "speech with complete talker assets",
 			path:   "/v1/audio/speech",
 			config: `{"talkermodel":"C:\\models\\talker.gguf","code2wavmodel":"C:\\models\\code2wav.gguf"}`,
 			body:   `{"model":"voice","input":"hello","voice":"alloy"}`,
+		},
+		{
+			name:   "speech with incomplete assets",
+			path:   "/v1/audio/speech",
+			config: `{"code2wavmodel":"C:\\models\\code2wav.gguf"}`,
+			body:   `{"model":"voice","input":"hello","voice":"alloy"}`,
+		},
+		{
+			name:   "kobold tts route",
+			path:   "/api/extra/tts",
+			config: `{"ttsmodel":"C:\\models\\tts.gguf","ttswavtokenizer":"C:\\models\\vocoder.gguf"}`,
+			body:   `{"model":"voice","input":"hello"}`,
 		},
 	}
 
 	for _, testCase := range tests {
 		t.Run(testCase.name, func(t *testing.T) {
-			var sawTextAudio bool
 			service, textBackend, imageBackend := newSplitTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
-					w.Header().Set("Content-Type", "application/json")
-					_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"voice"}]}`))
-					return
-				}
-				if r.URL.Path != testCase.path {
-					t.Fatalf("unexpected text path %s", r.URL.Path)
-				}
-				sawTextAudio = true
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"ok":true}`))
+				t.Fatalf("text backend must not receive split-mode speech route %s", r.URL.Path)
 			}), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				t.Fatalf("image backend should not receive split audio route %s", r.URL.Path)
+				t.Fatalf("image backend must not receive split-mode speech route %s", r.URL.Path)
 			}), map[string]string{
 				"voice": testCase.config,
 			})
@@ -449,41 +454,16 @@ func TestSplitModeRoutesLlamaAudioAssetsToTextBackend(t *testing.T) {
 			request.Header.Set("Content-Type", "application/json")
 			service.ServeHTTP(recorder, request)
 
-			if recorder.Code != http.StatusOK {
+			if recorder.Code != http.StatusNotImplemented {
 				t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
 			}
-			if !sawTextAudio {
-				t.Fatalf("text backend did not receive audio request")
+			if !strings.Contains(recorder.Body.String(), "text-to-speech is not supported by the split backend") {
+				t.Fatalf("rejection did not explain the removal: %s", recorder.Body.String())
 			}
-			if textBackend.lastReload != "voice.kcpps" {
-				t.Fatalf("unexpected text reload %q", textBackend.lastReload)
-			}
-			if imageBackend.reloads.Load() != 0 {
-				t.Fatalf("image backend should not reload for audio, got %d", imageBackend.reloads.Load())
+			if textBackend.reloads.Load() != 0 || imageBackend.reloads.Load() != 0 {
+				t.Fatalf("split-mode speech must not reload backends text=%d image=%d", textBackend.reloads.Load(), imageBackend.reloads.Load())
 			}
 		})
-	}
-}
-
-func TestSplitModeRejectsSpeechWithoutTalkerModel(t *testing.T) {
-	service, textBackend, imageBackend := newSplitTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatalf("text backend should not receive incomplete speech config")
-	}), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Fatalf("image backend should not receive incomplete speech config")
-	}), map[string]string{
-		"voice": `{"code2wavmodel":"C:\\models\\code2wav.gguf"}`,
-	})
-
-	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(http.MethodPost, "/v1/audio/speech", strings.NewReader(`{"model":"voice","input":"hello","voice":"alloy"}`))
-	request.Header.Set("Content-Type", "application/json")
-	service.ServeHTTP(recorder, request)
-
-	if recorder.Code != http.StatusNotImplemented {
-		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
-	}
-	if textBackend.reloads.Load() != 0 || imageBackend.reloads.Load() != 0 {
-		t.Fatalf("incomplete speech config should not reload backends text=%d image=%d", textBackend.reloads.Load(), imageBackend.reloads.Load())
 	}
 }
 
@@ -1990,7 +1970,7 @@ func TestImageRequestLoadsImageOnlyConfig(t *testing.T) {
 }
 
 func TestImageDiscoveryEndpointsForwardWithoutModel(t *testing.T) {
-	endpoints := []string{"/sdapi/v1/loras", "/sdapi/v1/upscalers", "/sdapi/v1/schedulers", "/sdcpp/v1/capabilities"}
+	endpoints := []string{"/sdapi/v1/loras", "/sdapi/v1/upscalers", "/sdapi/v1/schedulers", "/sdapi/v1/progress", "/sdcpp/v1/capabilities"}
 	for _, endpoint := range endpoints {
 		t.Run(endpoint, func(t *testing.T) {
 			var sawImageBackend bool
@@ -2089,6 +2069,67 @@ func TestSdcppJobsRouteBackToSubmittingImageConfig(t *testing.T) {
 	}
 	if imageBackend.lastReload != "first.kcpps" {
 		t.Fatalf("job route did not restore original config, got %q", imageBackend.lastReload)
+	}
+}
+
+func TestSdcppJobCancelRoutesBackToSubmittingImageConfig(t *testing.T) {
+	var imageBackend *fakeBackend
+	service, _, createdImageBackend := newSplitTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("text backend should not receive image path %s", r.URL.Path)
+	}), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/sdapi/v1/sd-models" {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`[{"model_name":"ready"}]`))
+			return
+		}
+		switch r.URL.Path {
+		case "/sdcpp/v1/img_gen":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"job_id":"job-a"}`))
+		case "/v1/images/generations":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"model":"backend","data":[]}`))
+		case "/sdcpp/v1/jobs/job-a/cancel":
+			if imageBackend == nil || imageBackend.lastReload != "first.kcpps" {
+				t.Fatalf("job cancel did not reload original config, got %q", imageBackend.lastReload)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"id":"job-a","status":"cancelled"}`))
+		default:
+			t.Fatalf("unexpected image path %s", r.URL.Path)
+		}
+	}), map[string]string{
+		"first":  `{"nomodel":true,"sdmodel":"C:\\models\\first.safetensors"}`,
+		"second": `{"nomodel":true,"sdmodel":"C:\\models\\second.safetensors"}`,
+	})
+	imageBackend = createdImageBackend
+	useTinyTransportLimits(service)
+
+	submitRecorder := httptest.NewRecorder()
+	submitRequest := httptest.NewRequest(http.MethodPost, "/sdcpp/v1/img_gen", strings.NewReader(`{"model":"first-first","prompt":"cat"}`))
+	submitRequest.Header.Set("Content-Type", "application/json")
+	submitRequest.Header.Set("X-Tensors-Model", "first-first")
+	service.ServeHTTP(submitRecorder, submitRequest)
+	if submitRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected submit status %d body %s", submitRecorder.Code, submitRecorder.Body.String())
+	}
+
+	switchRecorder := httptest.NewRecorder()
+	switchRequest := httptest.NewRequest(http.MethodPost, "/v1/images/generations", strings.NewReader(`{"model":"second-second","prompt":"dog"}`))
+	switchRequest.Header.Set("Content-Type", "application/json")
+	switchRequest.Header.Set("X-Tensors-Model", "second-second")
+	service.ServeHTTP(switchRecorder, switchRequest)
+	if switchRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected switch status %d body %s", switchRecorder.Code, switchRecorder.Body.String())
+	}
+
+	cancelRecorder := httptest.NewRecorder()
+	service.ServeHTTP(cancelRecorder, httptest.NewRequest(http.MethodPost, "/sdcpp/v1/jobs/job-a/cancel", nil))
+	if cancelRecorder.Code != http.StatusOK {
+		t.Fatalf("unexpected cancel status %d body %s", cancelRecorder.Code, cancelRecorder.Body.String())
+	}
+	if imageBackend.lastReload != "first.kcpps" {
+		t.Fatalf("job cancel did not restore original config, got %q", imageBackend.lastReload)
 	}
 }
 

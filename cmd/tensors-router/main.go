@@ -23,6 +23,7 @@ import (
 	routercluster "tensors-router/internal/cluster"
 	"tensors-router/internal/config"
 	"tensors-router/internal/downloader"
+	"tensors-router/internal/ffmpeg"
 	"tensors-router/internal/kobold"
 	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/mcp"
@@ -237,6 +238,13 @@ func runServe(args []string) error {
 	}
 	shutdownBackends = backendShutdowns
 
+	ffmpegTool, err := ffmpeg.Locate(cfg.FFmpeg.BinaryPath)
+	if err != nil {
+		serveLogger.Printf("ffmpeg not available, video remuxing and non-WAV audio conversion are disabled: %v", err)
+	} else {
+		serveLogger.Printf("ffmpeg located at %s", ffmpegTool.Path())
+	}
+
 	authPolicy, err := auth.NewPolicy(auth.PolicyConfig{
 		AllowedCIDRs:  cfg.Server.AllowedCIDRs,
 		Profile:       cfg.Security.Profile,
@@ -287,6 +295,8 @@ func runServe(args []string) error {
 		VLLMUnavailableReason:     vllmUnavailableReason,
 		VLLMDynamicLoRAEnabled:    cfg.VLLM.DynamicLoRAEnabled,
 		VLLMEEPEnabled:            cfg.VLLM.EEPEnabled,
+		FFmpeg:                    ffmpegTool,
+		FFmpegScratchDir:          cfg.FFmpeg.ScratchDir,
 		Logger:                    serveLogger,
 		Shutdown:                  routerShutdownFunc(cfg, shutdownRequested),
 		TransportLimits: transportbody.Limits{

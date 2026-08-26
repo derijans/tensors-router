@@ -53,6 +53,8 @@ func ImageType(path string) string {
 		return "txt2img"
 	case strings.Contains(lower, "img_gen"):
 		return "txt2img"
+	case strings.Contains(lower, "vid_gen"):
+		return "video"
 	default:
 		return ""
 	}

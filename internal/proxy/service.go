@@ -26,6 +26,7 @@ import (
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/downloader"
+	"tensors-router/internal/ffmpeg"
 	"tensors-router/internal/hardware"
 	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/mcp"
@@ -119,6 +120,8 @@ type ServiceConfig struct {
 	VLLMUnavailableReason     string
 	VLLMDynamicLoRAEnabled    bool
 	VLLMEEPEnabled            bool
+	FFmpeg                    ffmpeg.Tool
+	FFmpegScratchDir          string
 }
 
 type Service struct {
@@ -190,6 +193,8 @@ type Service struct {
 	vllmUnavailableReason     string
 	vllmDynamicLoRAEnabled    bool
 	vllmEEPEnabled            bool
+	ffmpeg                    ffmpeg.Tool
+	comfyVideoJobs            *comfyVideoJobStore
 	nextRuntimeLease          atomic.Uint64
 
 	backendRetryAttempts          int
@@ -233,6 +238,12 @@ const (
 	BackendModeLlamaSDCPP        = backendmode.LlamaSDCPP
 	BackendModeVLLM              = backendmode.VLLM
 )
+
+// llamaTextToSpeechUnsupportedMessage is the single wording for the split
+// backend losing speech: llama.cpp removed --model-vocoder and --model-talker,
+// and current llama-server exposes no speech endpoint at all, so this is a
+// capability removal rather than a flag rename.
+const llamaTextToSpeechUnsupportedMessage = "text-to-speech is not supported by the split backend: llama.cpp removed --model-vocoder and --model-talker, and llama-server has no /v1/audio/speech endpoint; use backend_mode kobold or vllm for text-to-speech"
 
 type backendRetryResult struct {
 	retry    bool
@@ -420,6 +431,8 @@ func NewService(config ServiceConfig) *Service {
 		vllmUnavailableReason:     strings.TrimSpace(config.VLLMUnavailableReason),
 		vllmDynamicLoRAEnabled:    config.VLLMDynamicLoRAEnabled,
 		vllmEEPEnabled:            config.VLLMEEPEnabled,
+		ffmpeg:                    config.FFmpeg,
+		comfyVideoJobs:            newComfyVideoJobStore(config.FFmpegScratchDir),
 		client: &http.Client{
 			Timeout: 0,
 		},
@@ -652,6 +665,26 @@ func (service *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	if isVoicePath(r.URL.Path) || isMusicPath(r.URL.Path) {
 		service.handleAudioRequest(w, r)
 		return
+	}
+
+	if r.Method == http.MethodPost && r.URL.Path == "/prompt" {
+		service.handleComfyPrompt(w, r)
+		return
+	}
+	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/history/") {
+		if service.handleComfyHistory(w, r) {
+			return
+		}
+	}
+	if r.Method == http.MethodGet && r.URL.Path == "/view" {
+		if service.handleComfyView(w, r) {
+			return
+		}
+	}
+	if r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/upload/image") {
+		if service.handleComfyUploadImage(w, r) {
+			return
+		}
 	}
 
 	if isImagePath(r.URL.Path) {
@@ -993,6 +1026,10 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 			selectedModel = model
 		}
 	}
+	if selectedBackendMode == BackendModeLlamaSDCPP && isTextToSpeechPath(r.URL.Path) {
+		openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", llamaTextToSpeechUnsupportedMessage)
+		return
+	}
 	if selectedBackendMode == BackendModeLlamaSDCPP {
 		if !hasModel || !modelSupportsLlamaAudioPath(selectedModel, r.URL.Path) {
 			openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", "audio route is not supported by the selected split backend config")
@@ -1016,7 +1053,7 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 	analyticsEvent := service.newAnalyticsEvent(started, r, requestBody, analyticsModelID, audioAnalyticsSection(lane), selectedBackendMode)
 	readiness := audioReadiness(r.URL.Path, lane, selectedBackendMode)
 	if selectedBackendMode == BackendModeLlamaSDCPP && readiness == readinessTranscription {
-		requestBody, err = adaptBufferedWhisperRequest(r, requestBody)
+		requestBody, err = service.adaptBufferedWhisperRequest(r, requestBody)
 		if err != nil {
 			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 			return
@@ -3002,6 +3039,10 @@ func isSTTPath(path string) bool {
 	return path == "/v1/audio/transcriptions" || path == "/v1/audio/translations" || path == "/api/extra/transcribe"
 }
 
+func isTextToSpeechPath(path string) bool {
+	return path == "/v1/audio/speech" || path == "/api/extra/tts"
+}
+
 func isMusicPath(path string) bool {
 	return path == "/musicui" ||
 		strings.HasPrefix(path, "/musicui/") ||
@@ -3073,6 +3114,7 @@ func isImageDiscoveryPath(path string) bool {
 	case "/sdapi/v1/loras",
 		"/sdapi/v1/upscalers",
 		"/sdapi/v1/schedulers",
+		"/sdapi/v1/progress",
 		"/sdcpp/v1/capabilities":
 		return true
 	default:
@@ -3080,13 +3122,14 @@ func isImageDiscoveryPath(path string) bool {
 	}
 }
 
+// modelSupportsLlamaAudioPath deliberately has no text-to-speech case:
+// llama.cpp removed --model-vocoder and --model-talker, and llama-server has
+// no speech endpoint, so those routes are rejected before they reach here.
 func modelSupportsLlamaAudioPath(model catalog.Model, path string) bool {
 	if model.Capabilities.Voice == nil {
 		return false
 	}
 	switch path {
-	case "/v1/audio/speech":
-		return strings.TrimSpace(model.Capabilities.Voice.TalkerModel) != "" || strings.TrimSpace(model.Capabilities.Voice.TTSModel) != ""
 	case "/v1/audio/transcriptions", "/v1/audio/translations", "/api/extra/transcribe":
 		return strings.TrimSpace(model.Capabilities.Voice.WhisperModel) != ""
 	default:

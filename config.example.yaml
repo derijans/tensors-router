@@ -30,6 +30,17 @@ mcp:
   enabled: false
   directory: "./mcp"
 
+# Optional. Used to remux backend video output into MP4 for ComfyUI-compatible
+# video clients, and to convert non-WAV audio for transcription. Falls back to
+# "ffmpeg" on PATH when empty. Missing ffmpeg is never a startup failure;
+# requests that need it fail with an explicit error instead.
+ffmpeg:
+  binary_path: ""
+  # Where finished ComfyUI-emulated videos are held until a client collects
+  # them. Empty uses the system temporary directory. Container deployments run
+  # read-only with a small /tmp, so point this at the data volume there.
+  scratch_dir: ""
+
 kobold:
   # backend_url and embeddings_backend_url: the port may be pinned (as
   # below), set to 0 to let the router allocate a free loopback port at

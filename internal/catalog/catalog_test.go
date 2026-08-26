@@ -314,6 +314,7 @@ func TestCapabilitiesIncludeImageEmbeddingsMultimodalAndContext(t *testing.T) {
 		"sdmodel":"C:/models/dream.safetensors",
 		"sdupscaler":"C:/models/upscale.pth",
 		"sdvae":"C:/models/vae.safetensors",
+		"sdaudiovae":"C:/models/audio-vae.safetensors",
 		"sdvaeauto":true,
 		"sdt5xxl":"C:/models/t5.safetensors",
 		"sdclip1":"C:/models/clip-l.safetensors",
@@ -358,7 +359,7 @@ func TestCapabilitiesIncludeImageEmbeddingsMultimodalAndContext(t *testing.T) {
 	if model.Capabilities.Context != 8192 {
 		t.Fatalf("unexpected context %d", model.Capabilities.Context)
 	}
-	if model.Capabilities.Image == nil || model.Capabilities.Image.Upscaler == "" || model.Capabilities.Image.VAE == "" {
+	if model.Capabilities.Image == nil || model.Capabilities.Image.Upscaler == "" || model.Capabilities.Image.VAE == "" || model.Capabilities.Image.AudioVAE == "" {
 		t.Fatalf("missing image details %#v", model.Capabilities.Image)
 	}
 	if model.Capabilities.Embeddings == nil || model.Capabilities.Embeddings.MaxCtx != 2048 || !model.Capabilities.Embeddings.GPU || !model.Capabilities.Embeddings.Separate {

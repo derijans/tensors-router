@@ -52,6 +52,17 @@ The parsers reject unknown sections and fields. Relative paths are resolved from
 
 MCP server definitions remain embedded in the `.kcpps` source. When active, the router writes a private, generated `servers.json` at `<mcp.directory>/<config-stem>/servers.json`. Disabling the global setting or a model's `mcp_enabled` removes that generated directory while retaining the embedded definition. Treat any configuration that contains `mcp_servers` as secret-bearing, including disabled definitions.
 
+## ffmpeg
+
+| Key | Type | Default | Meaning |
+|---|---|---:|---|
+| `ffmpeg.binary_path` | Path string | `""` | ffmpeg binary to use. Empty resolves `ffmpeg` from `PATH`. |
+| `ffmpeg.scratch_dir` | Path string | `""` | Directory holding finished ComfyUI-emulated videos until collected. Empty uses the system temporary directory. |
+
+Optional. Used to transcode ComfyUI-emulated video generation output into MP4 and to convert non-WAV transcription input on the buffered whisper request path. Probed once at startup; a missing or non-functional binary is logged and never fails startup, only the requests that need it.
+
+Finished videos are written to `<scratch_dir>/tensors-router-comfy-video`, not held in memory. A job's output is capped at 2 GiB, the directory as a whole at 8 GiB, and an uploaded reference image at 32 MiB; jobs and uploads expire 24 hours after they are created, and at most 256 jobs are retained. Container deployments run with a read-only root and a small `/tmp`, so set `scratch_dir` to a path on the data volume there — see [Deployment](Deployment).
+
 ### KoboldCpp process
 
 | Field | Type or options | Example or default | Description |

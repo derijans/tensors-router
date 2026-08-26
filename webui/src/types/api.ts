@@ -227,6 +227,7 @@ export interface ImageCapabilities {
   model?: string;
   upscaler?: string;
   vae?: string;
+  audio_vae?: string;
   vae_auto?: boolean;
   t5xxl?: string;
   clip1?: string;
@@ -387,6 +388,10 @@ export interface NodeState {
   node_id: string;
   backends: NodeStateBackend[];
   active_requests: string[];
+  // Absent when the node runs a build from before ffmpeg was reported, which
+  // a cluster can contain part-way through a rolling upgrade.
+  ffmpeg_available?: boolean;
+  ffmpeg_path?: string;
 }
 
 export interface NodeUnloadRequest {

@@ -82,9 +82,11 @@ type NodeInventory struct {
 }
 
 type NodeState struct {
-	NodeID         string             `json:"node_id"`
-	Backends       []NodeStateBackend `json:"backends"`
-	ActiveRequests []string           `json:"active_requests"`
+	NodeID          string             `json:"node_id"`
+	Backends        []NodeStateBackend `json:"backends"`
+	ActiveRequests  []string           `json:"active_requests"`
+	FFmpegAvailable bool               `json:"ffmpeg_available"`
+	FFmpegPath      string             `json:"ffmpeg_path,omitempty"`
 }
 
 type NodeStateBackend struct {

@@ -19,6 +19,19 @@ The WebUI needs `webui.yaml`, a writable state directory, and either an external
 
 Keep all managed backend listeners on loopback addresses.
 
+### ffmpeg
+
+An `ffmpeg` binary is optional but required for two features: transcoding ComfyUI-emulated video generation output into MP4 (see [API Reference](API-Reference)), and converting non-WAV audio on the buffered transcription path. Set `ffmpeg.binary_path` in `config.yaml`, or leave it empty to resolve `ffmpeg` from `PATH`. The router probes it once at startup and logs the resolved path or its absence; a missing binary never fails startup, only the requests that need it. Release container images include `ffmpeg`; a native install must provide its own.
+
+Finished videos are written to disk rather than held in memory, under `ffmpeg.scratch_dir`. The container node service runs with a read-only root filesystem and only a 64 MiB `/tmp`, which a generated video will exceed, so set `scratch_dir` to a path on the mounted `node-data` volume:
+
+```yaml
+ffmpeg:
+  scratch_dir: "/data/video-cache"
+```
+
+The volume's size then governs how much video can be cached, rather than the tmpfs. The router still enforces its own caps (2 GiB per video, 8 GiB per directory, 24-hour expiry) — see [Configuration](Configuration).
+
 ## systemd user service
 
 Install the user service:

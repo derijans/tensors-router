@@ -47,6 +47,31 @@ export function renderNodeStateSnapshot(nodeID: string, snapshot: NodeState, pen
       <h4>Active requests</h4>
       ${snapshot.active_requests.length > 0 ? `<ul>${snapshot.active_requests.map(modelID => `<li>${escapeHTML(modelID)}</li>`).join("")}</ul>` : `<p class="muted node-state-empty">No active requests.</p>`}
     </section>
+    ${renderFFmpegAvailability(snapshot)}
+  `;
+}
+
+// A node that reports nothing predates ffmpeg reporting, which a cluster can
+// contain part-way through a rolling upgrade; saying so beats claiming the
+// tool is missing.
+function renderFFmpegAvailability(snapshot: NodeState): string {
+  if (snapshot.ffmpeg_available === undefined) {
+    return "";
+  }
+  if (!snapshot.ffmpeg_available) {
+    return `
+    <section class="node-ffmpeg" aria-label="ffmpeg">
+      <h4>ffmpeg</h4>
+      <p class="muted node-state-empty">Not available. Video generation and non-WAV transcription will fail on this node.</p>
+    </section>
+  `;
+  }
+  const path = snapshot.ffmpeg_path ? `<code>${escapeHTML(snapshot.ffmpeg_path)}</code>` : "Available";
+  return `
+    <section class="node-ffmpeg" aria-label="ffmpeg">
+      <h4>ffmpeg</h4>
+      <p class="muted">${path}</p>
+    </section>
   `;
 }
 

@@ -83,19 +83,22 @@ func validateSeparateEmbeddingRuntime(group cookGroup, fact cookNodeFacts, optio
 }
 
 func validateNativeTTSMix(group cookGroup, fact cookNodeFacts, options cook.Options) []cook.ValidationIssue {
-	if fact.backendMode != BackendModeLlamaSDCPP || !groupHasKind(group, cook.KindText) {
+	if fact.backendMode != BackendModeLlamaSDCPP {
 		return nil
 	}
-	if !rawTruthy(selectedOptions(group, fact, options)["ttsmodel"]) {
-		return nil
+	selected := selectedOptions(group, fact, options)
+	for _, field := range []string{"talkermodel", "ttswavtokenizer", "code2wavmodel", "ttsmodel"} {
+		if rawTruthy(selected[field]) {
+			return []cook.ValidationIssue{{
+				Severity: "error",
+				Code:     "llama_tts_unsupported",
+				Message:  "llama.cpp removed --model-vocoder and --model-talker and llama-server has no text-to-speech endpoint; talkermodel/ttsmodel/ttswavtokenizer/code2wavmodel are not supported by the llama_sdcpp backend, use kobold or vllm for text-to-speech.",
+				NodeID:   group.nodeID,
+				Field:    field,
+			}}
+		}
 	}
-	return []cook.ValidationIssue{{
-		Severity: "error",
-		Code:     "llama_text_standalone_tts_mix",
-		Message:  "llama-server cannot combine a text model with standalone ttsmodel; use talkermodel and code2wavmodel as supplemental speech assets.",
-		NodeID:   group.nodeID,
-		Field:    "ttsmodel",
-	}}
+	return nil
 }
 
 func effectiveGroupBackendMode(group cookGroup, fact cookNodeFacts, options cook.Options) (string, error) {

@@ -53,6 +53,7 @@ var pathValueKeys = map[string]struct{}{
 	"sdmodel":         {},
 	"sdupscaler":      {},
 	"sdvae":           {},
+	"sdaudiovae":      {},
 	"sdt5xxl":         {},
 	"sdclip1":         {},
 	"sdclip2":         {},

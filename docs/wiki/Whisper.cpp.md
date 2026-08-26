@@ -2,7 +2,7 @@
 
 The llama_sdcpp backend manages whisper-server as a third lazy native process for speech-to-text. It is independent from llama-server and sd-server, starts only for a transcription configuration, probes /health, writes whisper-server.log when backend disk logging is enabled, and stops during voice/all unloads, backend switches, and shutdown.
 
-The compatibility baseline is [whisper.cpp v1.9.1](https://github.com/ggml-org/whisper.cpp/releases/tag/v1.9.1). Configure a direct archive or executable with updates.whispercpp_binary_url and its SHA-256 field, or use the default GitHub repository with an optional exact asset glob. Archives are normalized and installed with runtime libraries beside whisper-server.
+The compatibility baseline is [whisper.cpp v1.9.3](https://github.com/ggml-org/whisper.cpp/releases/tag/v1.9.3). Configure a direct archive or executable with updates.whispercpp_binary_url and its SHA-256 field, or use the default GitHub repository with an optional exact asset glob. Archives are normalized and installed with runtime libraries beside whisper-server.
 
 ## Router configuration
 
@@ -13,7 +13,7 @@ The compatibility baseline is [whisper.cpp v1.9.1](https://github.com/ggml-org/w
       hide_window: true
       extra_args: []
 
-The router owns bind, port, public/request/inference paths, conversion, and temporary-directory behavior. Conflicting extra arguments are rejected. ffmpeg conversion is deliberately unavailable; requests must contain native RIFF/WAVE input.
+The router owns bind, port, public/request/inference paths, conversion, and temporary-directory behavior. Conflicting extra arguments are rejected. whisper-server itself still only accepts native RIFF/WAVE input; the router converts non-WAV uploads with ffmpeg on the buffered request path when `ffmpeg.binary_path` (or `PATH`) resolves a working binary, and rejects them explicitly otherwise. The streaming (large-body) request path still requires native WAV regardless of ffmpeg availability.
 
 ## KCPPS configuration
 
@@ -48,7 +48,7 @@ The native UI is available at /router/webuis/whispercpp/ after enabling its WebU
 
 ## Troubleshooting
 
-- A 400 WAV error means the upload is not RIFF/WAVE.
+- A 400 WAV error means the upload is not RIFF/WAVE and either ffmpeg is unavailable or the request came in on the streaming (large-body) path, which does not convert.
 - A readiness timeout means whisper-server did not answer /health; inspect whisper-server.log.
 - An automatic-routing 503 means no healthy runtime-status-capable node advertised a whispermodel configuration.
 - Change models through router load controls, never upstream /load.

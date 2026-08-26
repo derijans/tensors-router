@@ -412,7 +412,7 @@ func transformTransportRequestBody(r *http.Request, body transportbody.Body, pub
 				return nil, fmt.Errorf("transcription file is required")
 			}
 			if len(header) < 12 || string(header[:4]) != "RIFF" || string(header[8:12]) != "WAVE" {
-				return nil, fmt.Errorf("only native WAV transcription input is supported")
+				return nil, fmt.Errorf("only native WAV transcription input is supported for uploads this large; ffmpeg conversion is only available on the buffered (smaller) transcription path")
 			}
 			format, present, inspectErr := transportbody.InspectMultipartField(body, boundary, "response_format")
 			if inspectErr != nil && inspectErr != transportbody.ErrSelectorRequired {

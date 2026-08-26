@@ -396,7 +396,13 @@ func (service *Service) localNodeState() siteapi.NodeState {
 			activeRequests = append(activeRequests, request.modelID)
 		}
 	}
-	return siteapi.NodeState{NodeID: service.nodeID, Backends: backends, ActiveRequests: activeRequests}
+	return siteapi.NodeState{
+		NodeID:          service.nodeID,
+		Backends:        backends,
+		ActiveRequests:  activeRequests,
+		FFmpegAvailable: service.ffmpeg.Available(),
+		FFmpegPath:      service.ffmpeg.Path(),
+	}
 }
 
 func (service *Service) vllmNodeState(backend siteapi.NodeStateBackend) siteapi.NodeStateBackend {

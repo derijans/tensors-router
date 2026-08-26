@@ -33,6 +33,7 @@ type Config struct {
 	Analytics  AnalyticsConfig
 	Limits     LimitsConfig
 	MCP        MCPConfig
+	FFmpeg     FFmpegConfig
 	Warnings   []string
 }
 
@@ -63,6 +64,19 @@ type BackendConfig struct {
 type MCPConfig struct {
 	Enabled   bool
 	Directory string
+}
+
+// FFmpegConfig locates an optional ffmpeg binary used to remux backend video
+// output into MP4 and to convert non-WAV audio for transcription. Missing
+// ffmpeg is never a startup failure; requests that need it fail explicitly.
+//
+// ScratchDir holds finished videos until a client collects them. It is
+// operator-controlled because container deployments run read-only with a
+// small /tmp: pointing it at the data volume is what makes the router's size
+// caps the effective limit rather than the tmpfs size.
+type FFmpegConfig struct {
+	BinaryPath string
+	ScratchDir string
 }
 
 type KoboldConfig struct {
@@ -1037,6 +1051,15 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			return nil
 		case "directory":
 			cfg.MCP.Directory = value
+			return nil
+		}
+	case "ffmpeg":
+		switch key {
+		case "binary_path":
+			cfg.FFmpeg.BinaryPath = value
+			return nil
+		case "scratch_dir":
+			cfg.FFmpeg.ScratchDir = value
 			return nil
 		}
 	case "backend":
