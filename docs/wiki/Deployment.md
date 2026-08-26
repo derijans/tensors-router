@@ -30,7 +30,7 @@ ffmpeg:
   scratch_dir: "/data/video-cache"
 ```
 
-The volume's size then governs how much video can be cached, rather than the tmpfs. The router still enforces its own caps (2 GiB per video, 8 GiB per directory, 24-hour expiry) — see [Configuration](Configuration).
+The volume's size then governs how much video can be cached, rather than the tmpfs. The router still enforces its own caps (2 GiB per video, 8 GiB per directory, 24-hour expiry). See [Configuration](Configuration).
 
 ## systemd user service
 

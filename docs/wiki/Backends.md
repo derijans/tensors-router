@@ -36,7 +36,7 @@ For `llama_sdcpp`, `run_embed_separate: true` sends embedding requests to an on-
 
 All processes start lazily and drain independently. Transcription uses the Whisper runtime. Text-to-speech is not available under `llama_sdcpp`: llama.cpp removed `--model-vocoder` and `--model-talker`, and llama-server has no `/v1/audio/speech` endpoint. Use `kobold` or `vllm` for text-to-speech.
 
-The selected binaries must expose the endpoints requested by clients. `sd-server` does not implement the ComfyUI queue and history endpoints recognized by the router; the router answers those itself for video-producing workflows only, using `sd-server`'s or KoboldCpp's native video generation underneath — see [API Reference](API-Reference).
+The selected binaries must expose the endpoints requested by clients. `sd-server` does not implement the ComfyUI queue and history endpoints recognized by the router; the router answers those itself for video-producing workflows only, using `sd-server`'s or KoboldCpp's native video generation underneath. See [API Reference](API-Reference).
 
 `sd-server`'s and KoboldCpp's video output is never MP4: `sd-server` emits WebM, animated WebP, or MJPG-AVI, and KoboldCpp emits GIF or MJPG-AVI. The router's ComfyUI video emulation transcodes every finished job to H.264/AAC MP4 with ffmpeg, which must be reachable via `ffmpeg.binary_path` or `PATH`. ffmpeg is also used to convert non-WAV transcription input on the buffered whisper request path. Missing ffmpeg is not a startup failure; it fails only the requests that need it. See [Deployment](Deployment).
 
