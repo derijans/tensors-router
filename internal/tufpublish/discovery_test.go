@@ -2,8 +2,11 @@ package tufpublish
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -150,5 +153,32 @@ func TestSelectReleaseAssetRejectsAnEmptyAsset(t *testing.T) {
 
 	if _, _, err := selectReleaseAsset(releases, llamaSource()); err == nil {
 		t.Fatal("expected a zero-size asset to be rejected")
+	}
+}
+
+// llama.cpp marks every per-build release a prerelease and keeps a single
+// stable marker release that carries no binaries, so llama-server can only be
+// discovered with prereleases enabled. Every other upstream publishes real
+// stable releases and must stay on the stable channel.
+func TestUpstreamConfigEnablesPrereleasesOnlyWhereTheUpstreamRequiresThem(t *testing.T) {
+	body, err := os.ReadFile(filepath.Join("..", "..", "tuf", "upstreams.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var config Config
+	if err := json.Unmarshal(body, &config); err != nil {
+		t.Fatal(err)
+	}
+	if len(config.Sources) == 0 {
+		t.Fatal("upstreams.json declares no sources")
+	}
+	for _, source := range config.Sources {
+		wantPrereleases := source.Backend == "llama-server"
+		if source.IncludePrereleases != wantPrereleases {
+			t.Errorf("%s/%s include_prereleases = %t, want %t", source.Backend, source.Platform, source.IncludePrereleases, wantPrereleases)
+		}
+		if source.Backend == "" || source.Platform == "" || source.AssetGlob == "" {
+			t.Errorf("%s/%s has an incomplete source definition", source.Backend, source.Platform)
+		}
 	}
 }

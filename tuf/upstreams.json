@@ -1,8 +1,8 @@
 {"sources":[
   {"backend":"koboldcpp","repository":"https://github.com/LostRuins/koboldcpp","platform":"windows-amd64","asset_glob":"koboldcpp.exe"},
   {"backend":"koboldcpp","repository":"https://github.com/LostRuins/koboldcpp","platform":"linux-amd64","asset_glob":"koboldcpp-linux-x64-nocuda"},
-  {"backend":"llama-server","repository":"https://github.com/ggml-org/llama.cpp","platform":"windows-amd64","asset_glob":"llama-*-bin-win-cpu-x64.zip"},
-  {"backend":"llama-server","repository":"https://github.com/ggml-org/llama.cpp","platform":"linux-amd64","asset_glob":"llama-*-bin-ubuntu-x64.tar.gz"},
+  {"backend":"llama-server","repository":"https://github.com/ggml-org/llama.cpp","platform":"windows-amd64","asset_glob":"llama-*-bin-win-cpu-x64.zip","include_prereleases":true},
+  {"backend":"llama-server","repository":"https://github.com/ggml-org/llama.cpp","platform":"linux-amd64","asset_glob":"llama-*-bin-ubuntu-x64.tar.gz","include_prereleases":true},
   {"backend":"sd-server","repository":"https://github.com/leejet/stable-diffusion.cpp","platform":"windows-amd64","asset_glob":"sd-*-bin-win-cpu-x64.zip"},
   {"backend":"sd-server","repository":"https://github.com/leejet/stable-diffusion.cpp","platform":"linux-amd64","asset_glob":"sd-*-bin-Linux-Ubuntu-24.04-x86_64.zip"},
   {"backend":"whisper-server","repository":"https://github.com/ggml-org/whisper.cpp","platform":"windows-amd64","asset_glob":"whisper-bin-x64.zip"},
