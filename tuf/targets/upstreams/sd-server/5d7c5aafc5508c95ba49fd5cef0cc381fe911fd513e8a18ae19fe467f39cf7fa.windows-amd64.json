@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "376636289",
+      "tag": "master-830-50d6405",
+      "published_at": "2026-08-25T18:57:24Z",
+      "payloads": [
+        {
+          "name": "sd-master-50d6405-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-830-50d6405/sd-master-50d6405-bin-win-cpu-x64.zip",
+          "length": 24054111,
+          "sha256": "a51eaf6b5e779142ef58a0a983fd629589d6a8e76ce2779ed12721c9686b26ce"
+        }
+      ]
+    }
+  ]
+}

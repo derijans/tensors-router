@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "376636289",
+      "tag": "master-830-50d6405",
+      "published_at": "2026-08-25T18:57:24Z",
+      "payloads": [
+        {
+          "name": "sd-master-50d6405-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-830-50d6405/sd-master-50d6405-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 32899329,
+          "sha256": "4206c2ae11eac381ad5202d1f9968e546f6b524c36e43d741acbaf122a14c4d6"
+        }
+      ]
+    }
+  ]
+}
