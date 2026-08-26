@@ -162,6 +162,19 @@ func discoverAsset(ctx context.Context, client *http.Client, source Source) (rel
 	if err := json.NewDecoder(io.LimitReader(response.Body, 8<<20)).Decode(&releases); err != nil {
 		return release{}, asset{}, err
 	}
+	return selectReleaseAsset(releases, source)
+}
+
+// selectReleaseAsset picks the newest release that actually carries the
+// configured asset.
+//
+// Upstreams publish releases holding no build output at all: llama.cpp tags a
+// marker release carrying only nightly-tag.txt alongside its real per-build
+// releases. Such a release is simply not a candidate, so keep looking rather
+// than failing the whole publication on it. Matching more than one asset stays
+// fatal, because that means the configured glob is too loose to identify a
+// single download.
+func selectReleaseAsset(releases []release, source Source) (release, asset, error) {
 	for _, candidate := range releases {
 		if candidate.Draft || candidate.Prerelease && !source.IncludePrereleases {
 			continue
@@ -176,15 +189,18 @@ func discoverAsset(ctx context.Context, client *http.Client, source Source) (rel
 				matches = append(matches, candidateAsset)
 			}
 		}
-		if len(matches) != 1 {
+		if len(matches) > 1 {
 			return release{}, asset{}, fmt.Errorf("%s release %s asset glob %q matched %d assets", source.Backend, candidate.Tag, source.AssetGlob, len(matches))
+		}
+		if len(matches) == 0 {
+			continue
 		}
 		if matches[0].Size <= 0 {
 			return release{}, asset{}, fmt.Errorf("%s asset has invalid size", matches[0].Name)
 		}
 		return candidate, matches[0], nil
 	}
-	return release{}, asset{}, fmt.Errorf("%s has no eligible release", source.Repository)
+	return release{}, asset{}, fmt.Errorf("%s has no release carrying an asset matching %q", source.Repository, source.AssetGlob)
 }
 
 func hashAsset(ctx context.Context, client *http.Client, selected asset) (string, int64, error) {
