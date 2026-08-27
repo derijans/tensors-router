@@ -40,12 +40,12 @@ RUN CGO_ENABLED=0 go build -tags vllm_embedded_uv -buildvcs=false -trimpath -ldf
 RUN /output/tensor-router-vllm bootstrap-info | grep -E '^uv sha256:[0-9a-f]{64}$'
 
 FROM alpine:3.22@sha256:14358309a308569c32bdc37e2e0e9694be33a9d99e68afb0f5ff33cc1f695dce AS runtime-cpu
-RUN apk add --no-cache ca-certificates tzdata ffmpeg && addgroup -g 10001 tensors && adduser -D -H -u 10001 -G tensors tensors && mkdir -p /config /models /data && chown -R tensors:tensors /data /models
+RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata ffmpeg && addgroup -g 10001 tensors && adduser -D -H -u 10001 -G tensors tensors && mkdir -p /config /models /data && chown -R tensors:tensors /data /models
 WORKDIR /data
 STOPSIGNAL SIGTERM
 
 FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS runtime-vllm
-RUN apt-get update && apt-get install --yes --no-install-recommends ca-certificates libgomp1 tzdata ffmpeg && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get dist-upgrade --yes && apt-get install --yes --no-install-recommends ca-certificates libgomp1 tzdata ffmpeg && rm -rf /var/lib/apt/lists/*
 RUN getent group video >/dev/null || groupadd --system video
 RUN getent group render >/dev/null || groupadd --system render
 RUN groupadd --gid 10001 tensors && useradd --no-create-home --uid 10001 --gid tensors tensors && install -d -o tensors -g tensors /config /models /data /data/vllm
