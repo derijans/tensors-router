@@ -17,6 +17,8 @@ import (
 	"tensors-router/internal/siteapi"
 )
 
+const configFileExtension = ".kcpps"
+
 type configNodeTarget struct {
 	nodeID  string
 	nodeURL string
@@ -299,9 +301,14 @@ func (service *Service) refreshRemoteConfigNode(ctx context.Context, nodeURL str
 }
 
 func configFileIdentity(request siteapi.ConfigFileRequest) (string, string, error) {
-	id := strings.TrimSpace(request.ID)
+	requestedID := strings.TrimSpace(request.ID)
+	requestedFilename := strings.TrimSpace(request.Filename)
+	if stem, ok := existingConfigStem(requestedFilename); ok && (requestedID == "" || requestedID == stem) {
+		return stem, requestedFilename, nil
+	}
+	id := requestedID
 	if id == "" {
-		id = strings.TrimSuffix(strings.TrimSpace(request.Filename), filepath.Ext(request.Filename))
+		id = strings.TrimSuffix(requestedFilename, filepath.Ext(requestedFilename))
 	}
 	id, err := cook.SanitizedID(id)
 	if err != nil {
@@ -311,12 +318,30 @@ func configFileIdentity(request siteapi.ConfigFileRequest) (string, string, erro
 	return id, filename, nil
 }
 
+// existingConfigStem reports the id of a config the caller named by its actual
+// filename. Rebuilding the name from the id instead would rewrite its case and
+// miss the file on a case-sensitive filesystem.
+func existingConfigStem(filename string) (string, bool) {
+	if filename == "" || filename != filepath.Base(filename) || !filepath.IsLocal(filename) {
+		return "", false
+	}
+	if !strings.EqualFold(filepath.Ext(filename), configFileExtension) {
+		return "", false
+	}
+	stem := strings.TrimSuffix(filename, filepath.Ext(filename))
+	sanitized, err := cook.SanitizedID(stem)
+	if err != nil || sanitized != stem {
+		return "", false
+	}
+	return stem, true
+}
+
 func (service *Service) localConfigFileTarget(filename string) (string, error) {
 	if strings.TrimSpace(service.configDir) == "" {
 		return "", fmt.Errorf("config dir is required")
 	}
 	filename = strings.TrimSpace(filename)
-	if filename == "" || filename != filepath.Base(filename) || filepath.Ext(filename) != ".kcpps" || !filepath.IsLocal(filename) {
+	if filename == "" || filename != filepath.Base(filename) || !strings.EqualFold(filepath.Ext(filename), configFileExtension) || !filepath.IsLocal(filename) {
 		return "", fmt.Errorf("config filename is invalid")
 	}
 	configDir, err := filepath.Abs(service.configDir)

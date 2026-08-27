@@ -202,7 +202,7 @@ When updates are enabled, each selected backend needs either a direct binary URL
 | `cluster.store_dir` | Path string | `./router-store` | Stores registry, asset index, recipes, benchmarks, and default analytics data. |
 | `cluster.sync_interval` | Positive duration string | `60s` | Interval between slave registry synchronization attempts. |
 | `cluster.health_interval` | Positive duration string | `15s` | Interval between cluster health checks. |
-| `cluster.control_timeout` | Positive duration string | `30s` | Total deadline for buffered cluster control requests and responses. |
+| `cluster.control_timeout` | Positive duration string | `30s` | Total deadline for buffered cluster control requests and responses. Model load and unload are exempt: their remote work can include a peer asset transfer, so they follow the receiving node model operation deadline instead. |
 | `cluster.sync_concurrency` | Integer, `1`–`128` | `4` | Maximum number of slave health snapshots fetched concurrently. |
 
 ### Analytics

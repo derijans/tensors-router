@@ -1,6 +1,7 @@
 import { createModelAssetResolutionJob, getModelAssetResolutionJob, loadModelConfig } from "./api";
 import type { ModelAssetResolutionJob } from "./api";
 import { filterInventoryModels, inventoryModels } from "./model-inventory-data";
+import { modelAssetHandoff } from "./model-asset-handoff";
 import { elements } from "./elements";
 import { state } from "./state";
 import { escapeAttribute, escapeHTML } from "./utils";
@@ -17,39 +18,19 @@ export async function loadSelectedConfig(modelID: string, refreshInventory: () =
     await refreshInventory();
   } catch (error) {
     setModelActionStatus(error instanceof Error ? error.message : String(error), true);
-    handoffUnresolvedModel(id);
+    await handoffUnresolvedModel(id, refreshInventory);
     throw error;
   }
 }
 
-function handoffUnresolvedModel(id: string): void {
+async function handoffUnresolvedModel(id: string, refreshInventory: () => Promise<void>): Promise<void> {
+  await refreshInventory().catch(() => undefined);
   const model = state.inventory?.models.find(value => value.public_id === id || value.local_id === id);
-  const options = model?.options || {};
-  for (const [key, value] of Object.entries(options)) {
-    if (!key.endsWith("_hash")) {
-      continue;
-    }
-    const field = key.slice(0, -5);
-    const filenameValue = options[`${field}_filename`];
-    const hashes = Array.isArray(value) ? value : [value];
-    const filenames = Array.isArray(filenameValue) ? filenameValue : [filenameValue];
-    const position = hashes.findIndex(hash => typeof hash === "string" && /^[0-9a-f]{64}$/.test(hash));
-    const hash = hashes[position];
-    const filename = filenames[position];
-    if (position >= 0 && typeof hash === "string" && typeof filename === "string" && filename.length > 0 && model) {
-      window.dispatchEvent(new CustomEvent("model-asset-handoff", {detail: {
-        nodeID: model.node_id || "",
-        publicID: model.public_id || model.local_id,
-        configID: model.local_id,
-        configFilename: model.filename,
-        field,
-        ...(Array.isArray(value) ? {position} : {}),
-        filename,
-        hash
-      }}));
-      return;
-    }
+  const detail = modelAssetHandoff(model);
+  if (!detail) {
+    return;
   }
+  window.dispatchEvent(new CustomEvent("model-asset-handoff", {detail}));
 }
 
 export async function resolveFilteredModels(refreshInventory: () => Promise<void>): Promise<void> {

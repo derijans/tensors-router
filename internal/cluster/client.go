@@ -95,7 +95,7 @@ func (client *Client) Register(ctx context.Context, masterURL string, snapshot S
 
 func (client *Client) Load(ctx context.Context, nodeURL string, modelID string) error {
 	body := map[string]string{"model": modelID}
-	return client.JSON(ctx, http.MethodPost, nodeURL, "/router/v1/node/load", body, nil)
+	return client.JSONOperation(ctx, http.MethodPost, nodeURL, "/router/v1/node/load", body, nil)
 }
 
 func (client *Client) Unload(ctx context.Context, nodeURL string, modelID string, target string) error {
@@ -106,7 +106,7 @@ func (client *Client) Unload(ctx context.Context, nodeURL string, modelID string
 	if strings.TrimSpace(target) != "" {
 		body["target"] = strings.TrimSpace(target)
 	}
-	return client.JSON(ctx, http.MethodPost, nodeURL, "/router/v1/node/unload", body, nil)
+	return client.JSONOperation(ctx, http.MethodPost, nodeURL, "/router/v1/node/unload", body, nil)
 }
 
 func (client *Client) SetModelEnabled(ctx context.Context, nodeURL string, request ModelStateRequest) (Snapshot, error) {
@@ -116,6 +116,19 @@ func (client *Client) SetModelEnabled(ctx context.Context, nodeURL string, reque
 }
 
 func (client *Client) JSON(ctx context.Context, method string, baseURL string, path string, requestBody any, responseBody any) error {
+	return client.json(ctx, client.client, method, baseURL, path, requestBody, responseBody)
+}
+
+// JSONOperation issues a control-plane request whose remote work may outlast
+// cluster.control_timeout, such as loading a model that first has to fetch its
+// assets from a peer. The deadline comes from ctx instead.
+func (client *Client) JSONOperation(ctx context.Context, method string, baseURL string, path string, requestBody any, responseBody any) error {
+	operationClient := *client.client
+	operationClient.Timeout = 0
+	return client.json(ctx, &operationClient, method, baseURL, path, requestBody, responseBody)
+}
+
+func (client *Client) json(ctx context.Context, httpClient *http.Client, method string, baseURL string, path string, requestBody any, responseBody any) error {
 	target, err := client.joinedAllowedURL(baseURL, path)
 	if err != nil {
 		return err
@@ -144,7 +157,7 @@ func (client *Client) JSON(ctx context.Context, method string, baseURL string, p
 		request.Header.Set("Authorization", "Bearer "+client.token)
 	}
 
-	response, err := client.client.Do(request)
+	response, err := httpClient.Do(request)
 	if err != nil {
 		return err
 	}

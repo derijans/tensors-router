@@ -54,6 +54,7 @@ Local and peer files are accepted only after SHA-256 verification. A Hugging Fac
 - A portable field cannot contain both a local path and portable metadata.
 - Hashes must be 64 lowercase hexadecimal characters.
 - Filenames must be local file names without directory components or unsafe platform characters.
+- Filenames and hashes are matched exactly, including letter case, so an export made on one platform resolves the same way on a case-sensitive filesystem.
 - Hugging Face origins must name a repository, a hexadecimal commit, and a repository-relative path.
 - If an asset cannot be verified or retrieved, the field stays unresolved and model loading fails before the backend starts.
 - Sharing a `.kcpps` file does not redistribute model files. The receiving user remains responsible for repository access and model license terms.
