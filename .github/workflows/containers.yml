@@ -125,6 +125,8 @@ jobs:
     permissions:
       contents: read
       packages: read
+    env:
+      TRIVY_IMAGE: aquasec/trivy@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436
     strategy:
       fail-fast: false
       matrix:
@@ -165,6 +167,23 @@ jobs:
         with:
           name: container-digest-${{ matrix.target }}
           path: container-digests
+
+      # Docker Hub rate limits anonymous pulls per source address, and twelve
+      # verify jobs start together on a shared runner pool, so the scanner
+      # download is the first thing to be throttled. Fetching it here, with
+      # backoff, keeps a throttled download out of the scan step, where a failed
+      # pull would otherwise be indistinguishable from a scan result.
+      - name: Fetch image scanner
+        run: |
+          for attempt in 1 2 3 4 5; do
+            if docker pull "$TRIVY_IMAGE"; then
+              exit 0
+            fi
+            echo "image scanner pull attempt $attempt failed, retrying" >&2
+            sleep $((attempt * 15))
+          done
+          echo "could not pull the image scanner $TRIVY_IMAGE after 5 attempts" >&2
+          exit 1
 
       - name: Verify boundaries and accelerator linkage
         env:
@@ -224,7 +243,13 @@ jobs:
             if [[ "$TARGET" == *-rocm ]]; then
               docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c "ldconfig -p | grep -q 'libamdhip64\.so' && ldconfig -p | grep -q 'librocblas\.so'" || fail "libamdhip64.so/librocblas.so not registered with ldconfig"
             fi
-            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.docker:/root/.docker:ro" aquasec/trivy@sha256:a22415a38938a56c379387a8163fcb0ce38b10ace73e593475d3658d578b2436 image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "$image" || fail "Trivy found fixed HIGH/CRITICAL vulnerabilities"
+            scan_status=0
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.docker:/root/.docker:ro" "$TRIVY_IMAGE" image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "$image" || scan_status=$?
+            case "$scan_status" in
+              0) ;;
+              1) fail "Trivy found fixed HIGH/CRITICAL vulnerabilities" ;;
+              *) fail "Trivy could not complete the scan (exit $scan_status)" ;;
+            esac
           done
 
   promote:
