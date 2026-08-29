@@ -179,6 +179,7 @@ Standalone and master routers expose administration routes in these groups:
 - `/router/v1/site/nodes/backends/launch-options`
 - `/router/v1/site/download/...`
 - `/router/v1/site/webuis/...`
+- `/router/v1/site/routing-groups`
 - `/router/v1/site/analytics`
 - `/router/v1/site/load-captures`
 - `/router/v1/site/cook/...` and `/router/v1/site/config-file/...`
@@ -197,7 +198,7 @@ Details contain the sanitized KCPPS snapshot and asset hashes. Output payloads a
 
 The WebUI catalog, session toggle, model load, and proxied browser routes are described in [Backend WebUI Interfaces](Backend-WebUI-Interfaces).
 
-Slave nodes expose cluster-authenticated routes under `/router/v1/node/...` for registration, inference forwarding, model loading, inventory, configuration, assets, downloads, benchmarks, analytics, and backend WebUI access. These are internal coordination interfaces used by the master and `tensor-router-webui`, not stable inference APIs for normal clients.
+Slave nodes expose cluster-authenticated routes under `/router/v1/node/...` for registration, inference forwarding, model loading, inventory, configuration, assets, downloads, benchmarks, analytics, image backlog offloading, and backend WebUI access. These are internal coordination interfaces used by the master and `tensor-router-webui`, not stable inference APIs for normal clients.
 
 ## Authentication
 

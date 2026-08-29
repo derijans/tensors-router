@@ -3,9 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>tensor-router-webui</title>
-  <script type="module" crossorigin src="/assets/index-DC_EmiV5.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-DFktx7T_.css">
+  <title>tensor-router-webui</title>
+
+  <script type="module" crossorigin src="/assets/index-elDjmXuQ.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-CLbxKNGd.css">
 </head>
 <body>
   <main class="shell">
@@ -165,7 +166,7 @@
           <div id="modelsRowCount" class="inventory-row-count"></div>
           <div class="table-wrap inventory-table-wrap">
             <table class="inventory-table models-inventory-table">
-              <thead><tr><th>ID</th><th>Node</th><th>Enabled</th><th>Backend</th><th>Capabilities</th><th>Options</th><th>Benchmark</th><th>Available</th><th>Actions</th></tr></thead>
+              <thead><tr><th>ID</th><th>Node</th><th>Enabled</th><th>Backend</th><th>Capabilities</th><th>Options</th><th>Benchmark</th><th>Available</th><th>Routing</th><th>Actions</th></tr></thead>
               <tbody id="modelsTable"></tbody>
             </table>
           </div>
@@ -501,9 +502,14 @@
     <div id="webuiDialogBody" class="field-dialog-body"></div>
   </dialog>
 
-  <dialog id="safetyDialog" class="field-dialog safety-dialog">
+  <dialog id="routingDialog" class="routing-dialog">
+      <div id="routingDialogBody"></div>
+      <p id="routingDialogStatus" class="dialog-status"></p>
+    </dialog>
+    <dialog id="safetyDialog" class="field-dialog safety-dialog">
     <div id="safetyDialogBody" class="field-dialog-body"></div>
   </dialog>
-
+
+
 </body>
 </html>

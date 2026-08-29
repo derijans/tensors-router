@@ -33,6 +33,7 @@ export function emptyLaneOptions(): Record<LaneKind, Options> {
 export const state: AppState = {
   csrf: "",
   inventory: null,
+  routingGroups: null,
   router: null,
   nodes: {
     expanded: [],

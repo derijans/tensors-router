@@ -1,6 +1,7 @@
 import {
   deleteRecipe,
   forceKillRouter,
+  fetchRoutingGroups,
   getInventory,
   getRouterStatus,
   getSession,
@@ -59,6 +60,7 @@ import { bootstrapApplication } from "./bootstrap";
 import { elements } from "./elements";
 import { state } from "./state";
 import { confirmDestructive, registerSafetyDialog } from "./dialogs";
+import { openRoutingGroupDialog, registerRoutingGroupDialog } from "./routing-groups-dialog";
 import { confirmDiscardDirtyWork, markConstructorClean, markSimpleCookClean, registerDirtyStateGuard } from "./dirty-state";
 import { registerOperationRetry, runOperation } from "./operations";
 import { clearConversionWarnings, invalidateAcceptedConversions } from "./conversions";
@@ -159,6 +161,10 @@ async function refreshRouterStatus(): Promise<void> {
 
 async function refreshInventory(includeFiles = state.activeTab === "models"): Promise<void> {
   state.inventory = await getInventory(includeFiles);
+  // Routing groups decide what the models table shows in its routing column, so
+  // they are refreshed alongside it. A router with none configured reports an
+  // empty list, which leaves every row showing no peers.
+  state.routingGroups = await fetchRoutingGroups().catch(() => null);
   renderInventory();
 }
 
@@ -377,9 +383,21 @@ elements.modelsActionStatus.addEventListener("click", event => {
   }
 });
 elements.modelsTable.addEventListener("click", event => {
-  const modelID = elementTarget(event)?.dataset.loadConfig;
+  const target = elementTarget(event);
+  const modelID = target?.dataset.loadConfig;
   if (modelID) {
     runTask(() => loadSelectedConfig(modelID, refreshInventory), `model-load-${modelID}`, "webui", "Loading model…");
+    return;
+  }
+  const routingNode = target?.dataset.routingNode;
+  const routingImage = target?.dataset.routingImage;
+  if (routingNode && routingImage) {
+    runTask(
+      () => openRoutingGroupDialog({node_id: routingNode, image_id: routingImage}),
+      `routing-group-${routingNode}-${routingImage}`,
+      "models",
+      "Loading routing group"
+    );
   }
 });
 elements.modelsTable.addEventListener("change", event => {
@@ -692,6 +710,7 @@ elements.recipesList.addEventListener("click", event => {
 });
 
 registerSafetyDialog();
+registerRoutingGroupDialog(refreshInventory);
 registerOperationRetry();
 registerDirtyStateGuard();
 markConstructorClean();

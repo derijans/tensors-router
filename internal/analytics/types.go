@@ -41,6 +41,7 @@ type Event struct {
 	ImageCount      int64     `json:"image_count,omitempty"`
 	ImageWidth      int64     `json:"image_width,omitempty"`
 	ImageHeight     int64     `json:"image_height,omitempty"`
+	ImageSteps      int64     `json:"image_steps,omitempty"`
 	ImageType       string    `json:"image_type,omitempty"`
 	AudioSeconds    float64   `json:"audio_seconds,omitempty"`
 	AudioTokens     int64     `json:"audio_tokens,omitempty"`
@@ -182,6 +183,7 @@ type RecentEvent struct {
 	ImageCount      int64   `json:"image_count,omitempty"`
 	ImageWidth      int64   `json:"image_width,omitempty"`
 	ImageHeight     int64   `json:"image_height,omitempty"`
+	ImageSteps      int64   `json:"image_steps,omitempty"`
 	ImageType       string  `json:"image_type,omitempty"`
 	AudioSeconds    float64 `json:"audio_seconds,omitempty"`
 	AudioTokens     int64   `json:"audio_tokens,omitempty"`

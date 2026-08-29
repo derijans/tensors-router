@@ -8,6 +8,7 @@ import (
 
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
+	"tensors-router/internal/schedulingcost"
 )
 
 type NodeRuntimeStatus struct {
@@ -18,6 +19,13 @@ type NodeRuntimeStatus struct {
 	ActiveSTTBackendMode    string `json:"active_stt_backend_mode,omitempty"`
 	ActiveRequests          int    `json:"active_requests"`
 	QueuedRequests          int    `json:"queued_requests"`
+
+	// AcceptingBorrowed is false while this node has image work of its own, which
+	// is what stops the master lending it more.
+	AcceptingBorrowed bool                     `json:"accepting_borrowed"`
+	ImageQueue        []offloadGroupStats      `json:"image_queue,omitempty"`
+	Costs             schedulingcost.NodeCosts `json:"costs,omitempty"`
+	ActiveImageConfig string                   `json:"active_image_config,omitempty"`
 }
 
 type sttCandidate struct {
@@ -29,6 +37,7 @@ type sttCandidate struct {
 func (service *Service) localRuntimeStatus() NodeRuntimeStatus {
 	mode := service.currentBackendMode()
 	status := NodeRuntimeStatus{NodeID: service.nodeID, BackendMode: mode}
+	service.applyImageSchedulingStatus(&status)
 	family := service.backendFamilies[mode]
 	for _, runtime := range uniqueBackendRuntimes(family) {
 		runtime.state.mu.Lock()

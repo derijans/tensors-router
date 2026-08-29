@@ -21,6 +21,8 @@ type Registry struct {
 	next      map[string]int
 	view      []Model
 	revision  uint64
+	groups    RouteGroupSource
+	costs     RouteCostSource
 }
 
 func NewRegistry(role string, localID string, localURL string) *Registry {
@@ -332,14 +334,19 @@ func (registry *Registry) AcquireSpecificEmbedding(nodeID string, filename strin
 	return Route{}, func() {}, false
 }
 
-func (registry *Registry) AcquireImage(publicImageID string, localHealthy bool, activeConfigFilename string) (Route, func(), bool) {
+func (registry *Registry) AcquireImage(publicImageID string, localHealthy bool, activeConfigFilename string, hint RouteHint) (Route, func(), bool) {
 	registry.mu.Lock()
-	route, ok := registry.selectRouteLocked(publicImageID, registry.imageReplicasLocked(publicImageID, activeConfigFilename), localHealthy, RouteLaneImage)
+	replicas := registry.imageReplicasLocked(publicImageID, activeConfigFilename)
+	groupID, replicas := registry.groupExpandedImageReplicasLocked(publicImageID, replicas, activeConfigFilename)
+	route, ok := registry.selectGroupImageRouteLocked(groupID, replicas, localHealthy, hint)
+	if !ok {
+		route, ok = registry.selectRouteLocked(publicImageID, replicas, localHealthy, RouteLaneImage)
+	}
 	if !ok {
 		registry.mu.Unlock()
 		return Route{}, func() {}, false
 	}
-	return registry.acquireRouteLocked(route)
+	return registry.acquireRouteLocked(withRequestedImageID(route, publicImageID))
 }
 
 func (registry *Registry) AcquireVoice(publicID string, localHealthy bool) (Route, func(), bool) {

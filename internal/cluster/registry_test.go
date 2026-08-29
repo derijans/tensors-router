@@ -59,7 +59,7 @@ func TestRegistryExcludesDisabledReplicasAndUsesEnabledFallback(t *testing.T) {
 	if _, _, ok := registry.AcquireEmbedding("shared", true); ok {
 		t.Fatal("disabled embedding replicas remained routable")
 	}
-	if _, _, ok := registry.AcquireImage("shared-image", true, "*"); ok {
+	if _, _, ok := registry.AcquireImage("shared-image", true, "*", RouteHint{}); ok {
 		t.Fatal("disabled image replicas remained routable")
 	}
 	if _, _, ok := registry.AcquireVoice("shared", true); ok {
@@ -184,7 +184,7 @@ func TestRegistryKeepsSplitImageLaneLocalWhenTextLaneBusy(t *testing.T) {
 	}
 	defer releaseText()
 
-	imageRoute, releaseImage, ok := registry.AcquireImage("combo-dream", true, "*")
+	imageRoute, releaseImage, ok := registry.AcquireImage("combo-dream", true, "*", RouteHint{})
 	if !ok || imageRoute.Remote || imageRoute.Lane != RouteLaneImage {
 		t.Fatalf("expected local image route while text lane busy %#v ok=%t", imageRoute, ok)
 	}

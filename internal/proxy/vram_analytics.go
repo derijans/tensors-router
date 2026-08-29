@@ -41,12 +41,18 @@ func (service *Service) vramAnalyticsActive() bool {
 	return service.analyticsStore != nil && service.vramAnalyticsEnabled && service.vramSource != nil
 }
 
+// beginVRAMLoad times every model load whenever analytics is on, because the
+// load duration is what a scheduler needs to weigh a model switch. VRAM sampling
+// is a separate, optional enrichment: a node without a VRAM source still records
+// how long its loads take.
 func (service *Service) beginVRAMLoad(ctx context.Context) *vramLoadMeasurement {
-	if !service.vramAnalyticsActive() {
+	if service.analyticsStore == nil {
 		return nil
 	}
 	measurement := &vramLoadMeasurement{startedAt: time.Now()}
-	measurement.before, measurement.hasBefore = service.sampleVRAM(ctx)
+	if service.vramAnalyticsActive() {
+		measurement.before, measurement.hasBefore = service.sampleVRAM(ctx)
+	}
 	return measurement
 }
 
@@ -55,7 +61,9 @@ func (service *Service) finishVRAMLoad(ctx context.Context, measurement *vramLoa
 		return
 	}
 	measurement.finishedAt = time.Now()
-	measurement.after, measurement.hasAfter = service.sampleVRAM(ctx)
+	if service.vramAnalyticsActive() {
+		measurement.after, measurement.hasAfter = service.sampleVRAM(ctx)
+	}
 }
 
 func (service *Service) recordVRAMLoad(modelID string, configFilename string, readiness backendReadiness, backendMode string, measurement *vramLoadMeasurement) {

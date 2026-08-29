@@ -209,6 +209,11 @@ When updates are enabled, each selected backend needs either a direct binary URL
 
 | Field | Type or options | Example or default | Description |
 | --- | --- | --- | --- |
+| `cluster.scheduling_refresh_interval` | Positive duration string | `60s` | How often the master refits node costs and reconsiders offload leases. |
+| `cluster.scheduling_sample_window` | Positive duration string | `24h` | History window used to fit request duration. Must stay inside `analytics.raw_retention`. |
+| `cluster.scheduling_min_samples` | Integer, at least 2 | `20` | Measured requests a node needs before it can be scheduled predictively. Below this it is never offloaded to. |
+| `cluster.scheduling_backend_depth` | Integer, at least 1 | `2` | Image requests admitted to the backend at once on a grouped model. One running plus one queued keeps the backend busy while the rest stay recallable. |
+| `cluster.scheduling_grant_ttl` | Positive duration string | `30s` | Lifetime of an offload lease. A lease that is not renewed expires on its own. |
 | `analytics.enabled` | Boolean | `false` | Enables persisted request and runtime analytics. |
 | `analytics.vram_enabled` | Boolean | `true` | Enables VRAM sampling when analytics is active. |
 | `analytics.load_capture_enabled` | Boolean | `false` | Independently records backend load attempts and reuse metadata on each enabled node. |

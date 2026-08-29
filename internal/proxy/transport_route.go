@@ -244,7 +244,7 @@ func (service *Service) resolveTransportImageRoute(r *http.Request, publicID str
 			if err != nil {
 				return transportRoute{}, err
 			}
-			route, release, acquired := service.registry.AcquireImage(publicID, service.localBackendAvailableForRoute(r.Context(), mode, readinessImage), activeConfig)
+			route, release, acquired := service.registry.AcquireImage(publicID, service.localBackendAvailableForRoute(r.Context(), mode, readinessImage), activeConfig, cluster.RouteHint{})
 			if !acquired {
 				return transportRoute{}, transportRouteError{http.StatusBadGateway, "backend_error", fmt.Sprintf("image model %q has no available replicas", publicID)}
 			}

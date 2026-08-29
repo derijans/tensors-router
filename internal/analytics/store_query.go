@@ -301,7 +301,7 @@ func (store *Store) queryRecent(ctx context.Context, query Query) ([]RecentEvent
 	rows, err := store.db.QueryContext(ctx, `SELECT
 		node_id, model_id, section, backend_mode, event_type, route, config_filename, status_code, success,
 		started_at, finished_at, duration_ms, request_bytes, response_bytes, input_tokens, output_tokens,
-		total_tokens, tokens_per_second, image_count, image_width, image_height,
+		total_tokens, tokens_per_second, image_count, image_width, image_height, image_steps,
 		image_type, audio_seconds, audio_tokens, audio_language, audio_task, load_vram_before_mb, load_vram_after_mb,
 		load_vram_delta_mb, work_vram_start_mb, work_vram_max_mb, work_vram_end_mb,
 		model_vram_estimate_mb, vram_total_mb, vram_peak_percent
@@ -338,6 +338,7 @@ func (store *Store) queryRecent(ctx context.Context, query Query) ([]RecentEvent
 			&item.ImageCount,
 			&item.ImageWidth,
 			&item.ImageHeight,
+			&item.ImageSteps,
 			&item.ImageType,
 			&item.AudioSeconds,
 			&item.AudioTokens,

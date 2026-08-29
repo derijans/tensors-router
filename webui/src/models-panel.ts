@@ -1,6 +1,7 @@
 import { benchmarkCompactLabel } from "./benchmark-data";
 import { elements } from "./elements";
 import { filterInventoryModels, modelBackends, modelCapabilities } from "./model-inventory-data";
+import { peerCountForModel, routingButtonLabel } from "./routing-groups-data";
 import { state } from "./state";
 import type { Model, NodeInventory } from "./types";
 import { capabilities, escapeAttribute, escapeHTML, optionSummary } from "./utils";
@@ -17,7 +18,7 @@ export function renderModelsPanel(models: Model[], nodes: NodeInventory[]): void
   });
   elements.modelsRowCount.textContent = `${filtered.length} of ${models.length} models`;
   elements.modelsScanNotices.innerHTML = scanNotices(nodes);
-  elements.modelsTable.innerHTML = filtered.length > 0 ? filtered.map(modelRow).join("") : `<tr><td class="inventory-empty" colspan="9">No models match the current filters.</td></tr>`;
+  elements.modelsTable.innerHTML = filtered.length > 0 ? filtered.map(modelRow).join("") : `<tr><td class="inventory-empty" colspan="10">No models match the current filters.</td></tr>`;
 }
 
 function modelRow(model: Model): string {
@@ -33,8 +34,20 @@ function modelRow(model: Model): string {
       <td>${escapeHTML(optionSummary(model.options))}</td>
       <td>${escapeHTML(benchmarkCompactLabel(model))}</td>
       <td>${modelAssetAvailability(model)}</td>
+      <td>${routingCell(model)}</td>
       <td><button type="button" data-operation-group="${escapeAttribute(operationGroup)}" data-load-config="${escapeAttribute(model.public_id || model.local_id)}" ${enabled ? "" : "disabled"}>Load</button></td>
     </tr>`;
+}
+
+// Only image models can be grouped today, so other rows leave the cell empty
+// rather than offering a control that would do nothing.
+function routingCell(model: Model): string {
+  const imageID = model.image_id;
+  if (!imageID || !model.node_id) {
+    return "";
+  }
+  const peers = peerCountForModel(state.routingGroups, {node_id: model.node_id, image_id: imageID});
+  return `<button type="button" data-routing-node="${escapeAttribute(model.node_id)}" data-routing-image="${escapeAttribute(imageID)}">${escapeHTML(routingButtonLabel(peers))}</button>`;
 }
 
 function modelAssetAvailability(model: Model): string {

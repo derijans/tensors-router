@@ -45,7 +45,8 @@ func TestAnalyticsRecordsTextRequest(t *testing.T) {
 	if response.Summary.RequestCount != 1 || response.Summary.TotalTokens != 20 {
 		t.Fatalf("unexpected analytics summary %#v", response.Summary)
 	}
-	if len(response.Recent) != 1 || response.Recent[0].ModelID != "llm" || response.Recent[0].Section != routeranalytics.SectionLLM {
+	requestEvent := recentEventOfType(t, response, routeranalytics.EventTypeRequest)
+	if requestEvent.ModelID != "llm" || requestEvent.Section != routeranalytics.SectionLLM {
 		t.Fatalf("unexpected recent analytics %#v", response.Recent)
 	}
 }
@@ -92,7 +93,8 @@ func TestAnalyticsRecordsImageMetadata(t *testing.T) {
 	if response.Summary.ImageCount != 2 {
 		t.Fatalf("unexpected image count %#v", response.Summary)
 	}
-	if len(response.Recent) != 1 || response.Recent[0].ImageWidth != 640 || response.Recent[0].ImageType != "txt2img" {
+	requestEvent := recentEventOfType(t, response, routeranalytics.EventTypeRequest)
+	if requestEvent.ImageWidth != 640 || requestEvent.ImageType != "txt2img" {
 		t.Fatalf("unexpected image metadata %#v", response.Recent)
 	}
 }
@@ -162,8 +164,46 @@ func TestAnalyticsVRAMToggleLeavesRequestAnalyticsEnabled(t *testing.T) {
 	if response.Summary.RequestCount != 1 || response.Summary.TotalTokens != 7 {
 		t.Fatalf("request analytics should remain enabled %#v", response.Summary)
 	}
-	if response.Summary.LoadCount != 0 || response.Summary.VRAMPeakMB != 0 {
-		t.Fatalf("vram analytics should be disabled %#v", response.Summary)
+	if response.Summary.VRAMPeakMB != 0 || response.Summary.ModelVRAMMB != 0 || response.Summary.VRAMTotalMB != 0 {
+		t.Fatalf("vram sampling should be disabled %#v", response.Summary)
+	}
+	// vram_enabled gates VRAM sampling, not load timing. How long a model takes
+	// to load is what a scheduler weighs against a queue, so it is recorded
+	// whenever analytics is on, with or without a VRAM source.
+	if response.Summary.LoadCount != 1 {
+		t.Fatalf("load timing should survive the vram toggle %#v", response.Summary)
+	}
+}
+
+// A node with no VRAM source at all still has to report how long its model
+// loads take, because that duration is the cost a scheduler weighs when deciding
+// whether an idle node is worth switching.
+func TestAnalyticsRecordsLoadTimingWithoutAVRAMSource(t *testing.T) {
+	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"backend","usage":{"total_tokens":7}}`))
+	}), map[string]string{
+		"llm": `{"model_param":"llm.gguf"}`,
+	})
+	service.analyticsStore = newProxyAnalyticsStore(t, "local")
+	service.vramAnalyticsEnabled = true
+	service.vramSource = nil
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"llm","messages":[]}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	response := queryProxyAnalytics(t, service.analyticsStore)
+	if response.Summary.LoadCount != 1 {
+		t.Fatalf("load timing was not recorded without a vram source %#v", response.Summary)
+	}
+	loadEvent := recentEventOfType(t, response, routeranalytics.EventTypeModelLoad)
+	if loadEvent.ConfigFilename != "llm.kcpps" {
+		t.Fatalf("load event did not name the config it loaded %#v", loadEvent)
+	}
+	if response.Summary.VRAMPeakMB != 0 {
+		t.Fatalf("vram values appeared without a source %#v", response.Summary)
 	}
 }
 
@@ -380,4 +420,18 @@ func (source *sequenceVRAMSource) VRAM(context.Context) (hardware.VRAMInfo, bool
 		return source.last, true
 	}
 	return hardware.VRAMInfo{}, false
+}
+
+func recentEventOfType(t *testing.T, response routeranalytics.Response, eventType string) routeranalytics.RecentEvent {
+	t.Helper()
+	var found []routeranalytics.RecentEvent
+	for _, event := range response.Recent {
+		if event.EventType == eventType {
+			found = append(found, event)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("expected exactly one %q event, got %d in %#v", eventType, len(found), response.Recent)
+	}
+	return found[0]
 }

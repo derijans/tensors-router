@@ -166,6 +166,17 @@ cluster:
   health_interval: "15s"
   control_timeout: "30s"
   sync_concurrency: 4
+  # Image backlog offloading. A node in a routing group holds its own image queue
+  # instead of pushing it all at the backend, so surplus work can still be lent to
+  # an idle peer. scheduling_backend_depth is how many requests reach the backend
+  # at once: 2 keeps one running and one queued so the backend never idles between
+  # jobs. Offloading only engages once every member of a group has at least
+  # scheduling_min_samples measured requests inside scheduling_sample_window.
+  scheduling_refresh_interval: "60s"
+  scheduling_sample_window: "24h"
+  scheduling_min_samples: 20
+  scheduling_backend_depth: 2
+  scheduling_grant_ttl: "30s"
 
 analytics:
   enabled: false

@@ -150,6 +150,44 @@ type InventoryResponse struct {
 	ObservedOptions []cook.OptionDefinition `json:"observed_options"`
 }
 
+// RoutingGroupMember names one image model on one node. Members are declared by
+// an operator, not derived from hashes, so they need not share a name or a config.
+type RoutingGroupMember struct {
+	NodeID  string `json:"node_id"`
+	ImageID string `json:"image_id"`
+}
+
+type RoutingGroup struct {
+	ID      string               `json:"id"`
+	Members []RoutingGroupMember `json:"members"`
+}
+
+// RoutingGroupCandidate is an image model that could join the anchor's group.
+// WeightsMatch reports whether it is the same checkpoint under a different config,
+// which is the case worth grouping. A candidate where it is false will answer
+// requests for the anchor with genuinely different images, and the router has no
+// way to detect that, so the UI has to say so before it is chosen.
+type RoutingGroupCandidate struct {
+	NodeID       string `json:"node_id"`
+	ImageID      string `json:"image_id"`
+	Filename     string `json:"filename"`
+	ModelHash    string `json:"model_hash,omitempty"`
+	ConfigHash   string `json:"config_hash,omitempty"`
+	WeightsMatch bool   `json:"weights_match"`
+	Selected     bool   `json:"selected"`
+}
+
+type RoutingGroupsResponse struct {
+	Groups     []RoutingGroup          `json:"groups"`
+	Anchor     *RoutingGroupMember     `json:"anchor,omitempty"`
+	Candidates []RoutingGroupCandidate `json:"candidates,omitempty"`
+}
+
+type RoutingGroupRequest struct {
+	Anchor  RoutingGroupMember   `json:"anchor"`
+	Members []RoutingGroupMember `json:"members"`
+}
+
 type ModelStateRequest struct {
 	NodeID  string `json:"node_id"`
 	LocalID string `json:"local_id"`

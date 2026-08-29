@@ -35,6 +35,7 @@ import (
 	"tensors-router/internal/ollama"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/recipes"
+	"tensors-router/internal/routinggroups"
 	"tensors-router/internal/transportbody"
 	"tensors-router/internal/vllm"
 )
@@ -102,6 +103,12 @@ type ServiceConfig struct {
 	BenchmarkStore            *routerbenchmark.Store
 	ModelStateStore           *modelstate.Store
 	AnalyticsStore            *routeranalytics.Store
+	RoutingGroups             *routinggroups.Store
+	SchedulingSampleWindow    time.Duration
+	SchedulingMinSamples      int
+	SchedulingBackendDepth    int
+	SchedulingRefreshInterval time.Duration
+	SchedulingGrantTTL        time.Duration
 	LoadCaptureStore          *loadcapture.Store
 	LoadCaptureMaxOutputBytes int64
 	VRAMAnalyticsEnabled      bool
@@ -165,6 +172,18 @@ type Service struct {
 	modelStateMu              sync.Mutex
 	pendingModelUnloads       map[string]context.CancelFunc
 	analyticsStore            *routeranalytics.Store
+	routingGroups             *routinggroups.Store
+	imageQueue                *offloadQueue
+	costSource                *schedulingCostSource
+	leaseBook                 *offloadLeaseBook
+	offloadLeases             sync.Map
+	offloadInFlight           sync.Map
+	localCosts                atomic.Value
+	schedulingSampleWindow    time.Duration
+	schedulingMinSamples      int
+	schedulingBackendDepth    int
+	schedulingRefreshInterval time.Duration
+	schedulingGrantTTL        time.Duration
 	loadCaptureStore          *loadcapture.Store
 	loadCaptureMaxOutputBytes int64
 	vramAnalyticsEnabled      bool
@@ -411,6 +430,14 @@ func NewService(config ServiceConfig) *Service {
 		modelStateStore:           config.ModelStateStore,
 		pendingModelUnloads:       map[string]context.CancelFunc{},
 		analyticsStore:            config.AnalyticsStore,
+		routingGroups:             config.RoutingGroups,
+		costSource:                newSchedulingCostSource(),
+		leaseBook:                 newOffloadLeaseBook(),
+		schedulingSampleWindow:    config.SchedulingSampleWindow,
+		schedulingMinSamples:      config.SchedulingMinSamples,
+		schedulingBackendDepth:    config.SchedulingBackendDepth,
+		schedulingRefreshInterval: config.SchedulingRefreshInterval,
+		schedulingGrantTTL:        config.SchedulingGrantTTL,
 		loadCaptureStore:          config.LoadCaptureStore,
 		loadCaptureMaxOutputBytes: config.LoadCaptureMaxOutputBytes,
 		vramAnalyticsEnabled:      config.VRAMAnalyticsEnabled,
@@ -458,7 +485,33 @@ func NewService(config ServiceConfig) *Service {
 	if err := service.clusterClient.AllowBaseURLs(service.knownClusterTargets()...); err != nil {
 		service.logger.Printf("cluster target setup failed: %v", err)
 	}
+	service.applySchedulingDefaults()
+	service.imageQueue = newOffloadQueue(service.schedulingBackendDepth)
+	if service.registry != nil {
+		service.registry.SetCostSource(service.costSource)
+	}
+	service.loadRoutingGroupSource()
 	return service
+}
+
+// applySchedulingDefaults keeps a Service constructed without scheduling settings
+// working, which is what every existing test does.
+func (service *Service) applySchedulingDefaults() {
+	if service.schedulingSampleWindow <= 0 {
+		service.schedulingSampleWindow = 24 * time.Hour
+	}
+	if service.schedulingMinSamples < 2 {
+		service.schedulingMinSamples = 20
+	}
+	if service.schedulingBackendDepth < 1 {
+		service.schedulingBackendDepth = 2
+	}
+	if service.schedulingRefreshInterval <= 0 {
+		service.schedulingRefreshInterval = time.Minute
+	}
+	if service.schedulingGrantTTL <= 0 {
+		service.schedulingGrantTTL = 30 * time.Second
+	}
 }
 
 func backendFamiliesFromConfig(config ServiceConfig, defaultMode string) map[string]*backendFamily {

@@ -312,6 +312,37 @@ export interface Model {
   disabled?: boolean;
 }
 
+export interface RoutingGroupMember {
+  node_id: string;
+  image_id: string;
+}
+
+export interface RoutingGroup {
+  id: string;
+  members: RoutingGroupMember[];
+}
+
+export interface RoutingGroupCandidate {
+  node_id: string;
+  image_id: string;
+  filename: string;
+  model_hash?: string;
+  config_hash?: string;
+  weights_match: boolean;
+  selected: boolean;
+}
+
+export interface RoutingGroupsResponse {
+  groups: RoutingGroup[];
+  anchor?: RoutingGroupMember;
+  candidates?: RoutingGroupCandidate[];
+}
+
+export interface RoutingGroupRequest {
+  anchor: RoutingGroupMember;
+  members: RoutingGroupMember[];
+}
+
 export interface ModelStateRequest {
   node_id: string;
   local_id: string;

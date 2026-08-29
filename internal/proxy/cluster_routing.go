@@ -161,7 +161,7 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 		return true
 	}
 	jobBackendMode := modelBackendMode
-	route, release, ok := service.registry.AcquireImage(publicImageID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readinessImage), activeConfigFilename)
+	route, release, ok := service.registry.AcquireImage(publicImageID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readinessImage), activeConfigFilename, imageRouteHint(r, body))
 	if !ok {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("image model %q has no available replicas", publicImageID))
 		return true
@@ -184,6 +184,39 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 			return true
 		}
 		jobBackendMode = routeBackendMode
+
+		// A grouped image model queues in the router instead of going straight to
+		// the backend, which is what keeps its backlog recallable and lendable.
+		if groupID, grouped := service.imageGroupID(route.NodeID, route.LocalImageID); grouped {
+			admission, queueErr := service.enterImageQueue(r.Context(), groupID, imageRouteHint(r, body).Work, requestIsBorrowed(r))
+			if queueErr != nil {
+				release()
+				openai.WriteError(w, http.StatusBadGateway, "backend_error", queueErr.Error())
+				return true
+			}
+			switch {
+			case admission.returned:
+				release()
+				writeOffloadReturned(w)
+				return true
+			case admission.offload:
+				handled := service.forwardOffloadedImageRequest(w, r, request, requestBody, groupID, publicImageID, release)
+				if handled {
+					return true
+				}
+				// The helper could not take it after all, so this node runs it.
+				requeued := service.imageQueue.Requeue(groupID, imageRouteHint(r, body).Work, time.Now())
+				if outcome, waitErr := service.imageQueue.Await(r.Context(), requeued); waitErr != nil || outcome != offloadAdmitted {
+					release()
+					openai.WriteError(w, http.StatusBadGateway, "backend_error", "returned request could not be re-queued")
+					return true
+				}
+				defer service.completeImageQueueEntry(groupID, requeued)
+			default:
+				defer service.completeImageQueueEntry(groupID, admission.entry)
+			}
+		}
+
 		if routeBackendMode == BackendModeLlamaSDCPP && clusterModelNeedsPrimaryTextRuntime(model) {
 			if err := service.loadLocalRuntimeForRequest(r.Context(), routeBackendMode, route.PublicID, route.Filename, readinessText); err != nil {
 				release()
@@ -236,7 +269,7 @@ func (service *Service) handleRegistryImageOptions(w http.ResponseWriter, r *htt
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return true
 	}
-	route, release, ok := service.registry.AcquireImage(publicImageID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readinessImage), activeConfigFilename)
+	route, release, ok := service.registry.AcquireImage(publicImageID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readinessImage), activeConfigFilename, imageRouteHint(r, body))
 	if !ok {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("image model %q has no available replicas", publicImageID))
 		return true

@@ -132,6 +132,13 @@ func applyImageRequest(event *Event, root map[string]any) {
 	if event.ImageCount == 0 {
 		event.ImageCount = imageRequestCount(root)
 	}
+	if event.ImageSteps == 0 {
+		event.ImageSteps = int64(firstNumber(root,
+			[]string{"steps"},
+			[]string{"num_inference_steps"},
+			[]string{"sample_steps"},
+		))
+	}
 }
 
 func applyImageResponse(event *Event, root map[string]any) {

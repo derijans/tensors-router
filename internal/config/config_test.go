@@ -791,3 +791,52 @@ func TestValidateRejectsUnverifiedInstallDisabledWithNoManifest(t *testing.T) {
 		t.Fatal("expected rejection with no TUF, no pin, and unverified install disabled")
 	}
 }
+
+func TestLoadExampleConfigParsesSchedulingKeys(t *testing.T) {
+	cfg, err := Load(filepath.Join("..", "..", "config.example.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Cluster.SchedulingRefreshInterval != time.Minute {
+		t.Fatalf("refresh interval = %v, want 1m", cfg.Cluster.SchedulingRefreshInterval)
+	}
+	if cfg.Cluster.SchedulingSampleWindow != 24*time.Hour {
+		t.Fatalf("sample window = %v, want 24h", cfg.Cluster.SchedulingSampleWindow)
+	}
+	if cfg.Cluster.SchedulingMinSamples != 20 || cfg.Cluster.SchedulingBackendDepth != 2 {
+		t.Fatalf("unexpected scheduling sizing %#v", cfg.Cluster)
+	}
+	if cfg.Cluster.SchedulingGrantTTL != 30*time.Second {
+		t.Fatalf("grant ttl = %v, want 30s", cfg.Cluster.SchedulingGrantTTL)
+	}
+}
+
+// The fit window has to stay inside the raw retention, because rollups keep totals
+// but discard the per-request pairing the fit needs.
+func TestSchedulingSampleWindowFitsInsideRawRetention(t *testing.T) {
+	cfg := Defaults()
+	if cfg.Cluster.SchedulingSampleWindow > cfg.Analytics.RawRetention {
+		t.Fatalf("sample window %v exceeds raw retention %v", cfg.Cluster.SchedulingSampleWindow, cfg.Analytics.RawRetention)
+	}
+}
+
+func TestSchedulingValuesAreValidated(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{"zero refresh interval", func(cfg *Config) { cfg.Cluster.SchedulingRefreshInterval = 0 }},
+		{"zero sample window", func(cfg *Config) { cfg.Cluster.SchedulingSampleWindow = 0 }},
+		{"one sample floor", func(cfg *Config) { cfg.Cluster.SchedulingMinSamples = 1 }},
+		{"zero backend depth", func(cfg *Config) { cfg.Cluster.SchedulingBackendDepth = 0 }},
+		{"zero grant ttl", func(cfg *Config) { cfg.Cluster.SchedulingGrantTTL = 0 }},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			cfg := Defaults()
+			testCase.mutate(&cfg)
+			if err := validate(&cfg); err == nil {
+				t.Fatal("invalid scheduling value was accepted")
+			}
+		})
+	}
+}

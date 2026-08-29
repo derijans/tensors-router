@@ -32,6 +32,7 @@ import (
 	"tensors-router/internal/native"
 	"tensors-router/internal/proxy"
 	"tensors-router/internal/recipes"
+	"tensors-router/internal/routinggroups"
 	"tensors-router/internal/transportbody"
 	routerupdate "tensors-router/internal/update"
 	"tensors-router/internal/vllm"
@@ -165,6 +166,15 @@ func runServe(args []string) error {
 			_ = modelStateStore.Close()
 		}
 	}()
+	routingGroupStore, err := routinggroups.NewStore(cfg.Cluster.StoreDir)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if routerService == nil {
+			_ = routingGroupStore.Close()
+		}
+	}()
 	analyticsStore, err = newAnalyticsStore(cfg, serveLogger)
 	if err != nil {
 		return err
@@ -284,6 +294,12 @@ func runServe(args []string) error {
 		RecipeStore:               recipeStore,
 		BenchmarkStore:            benchmarkStore,
 		ModelStateStore:           modelStateStore,
+		RoutingGroups:             routingGroupStore,
+		SchedulingSampleWindow:    cfg.Cluster.SchedulingSampleWindow,
+		SchedulingMinSamples:      cfg.Cluster.SchedulingMinSamples,
+		SchedulingBackendDepth:    cfg.Cluster.SchedulingBackendDepth,
+		SchedulingRefreshInterval: cfg.Cluster.SchedulingRefreshInterval,
+		SchedulingGrantTTL:        cfg.Cluster.SchedulingGrantTTL,
 		AnalyticsStore:            analyticsStore,
 		LoadCaptureStore:          loadCaptureStore,
 		LoadCaptureMaxOutputBytes: cfg.Analytics.LoadCaptureMaxOutputMB * 1024 * 1024,
@@ -313,6 +329,7 @@ func runServe(args []string) error {
 		router.BeginDrain()
 		return err
 	}
+	router.StartSchedulingRefresh(ctx)
 	syncErrors := routercluster.StartSync(ctx, syncConfig, registry, clusterProbeClient, serveLogger)
 	startupModel := strings.TrimSpace(cfg.Models.StartupModel)
 	if startupModel != "" {

@@ -34,6 +34,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			image_count INTEGER NOT NULL DEFAULT 0,
 			image_width INTEGER NOT NULL DEFAULT 0,
 			image_height INTEGER NOT NULL DEFAULT 0,
+			image_steps INTEGER NOT NULL DEFAULT 0,
 			image_type TEXT NOT NULL DEFAULT '',
 			audio_seconds REAL NOT NULL DEFAULT 0,
 			audio_tokens INTEGER NOT NULL DEFAULT 0,
@@ -94,7 +95,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 	}
-	_, err := db.ExecContext(ctx, `PRAGMA user_version = 4`)
+	_, err := db.ExecContext(ctx, `PRAGMA user_version = 5`)
 	return err
 }
 
@@ -110,6 +111,7 @@ func migrationColumns() []migrationColumn {
 		{"analytics_events", "config_filename", "TEXT NOT NULL DEFAULT ''"},
 		{"analytics_events", "request_bytes", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_events", "response_bytes", "INTEGER NOT NULL DEFAULT 0"},
+		{"analytics_events", "image_steps", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_events", "audio_language", "TEXT NOT NULL DEFAULT ''"},
 		{"analytics_events", "audio_task", "TEXT NOT NULL DEFAULT ''"},
 		{"analytics_events", "load_vram_before_mb", "INTEGER NOT NULL DEFAULT 0"},

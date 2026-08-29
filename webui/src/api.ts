@@ -21,6 +21,10 @@ import type {
   NodeUnloadRequest,
   LoadConfigRequest,
   RouterProcessStatus,
+  RoutingGroup,
+  RoutingGroupMember,
+  RoutingGroupRequest,
+  RoutingGroupsResponse,
   SessionResponse,
   ValidationIssue,
   WebUICatalogResponse,
@@ -120,6 +124,20 @@ export function applyNodeBackendLaunchOptions(request: BackendLaunchOptionsReque
 
 export function updateModelState(request: ModelStateRequest): Promise<unknown> {
   return api("/api/models/state", {method: "POST", body: JSON.stringify(request)});
+}
+
+export function fetchRoutingGroups(member?: RoutingGroupMember): Promise<RoutingGroupsResponse> {
+  const query = member ? `?node_id=${encodeURIComponent(member.node_id)}&image_id=${encodeURIComponent(member.image_id)}` : "";
+  return api<RoutingGroupsResponse>(`/api/routing-groups${query}`);
+}
+
+export function saveRoutingGroup(request: RoutingGroupRequest): Promise<RoutingGroup> {
+  return api<RoutingGroup>("/api/routing-groups", {method: "POST", body: JSON.stringify(request)});
+}
+
+export function deleteRoutingGroup(member: RoutingGroupMember): Promise<unknown> {
+  const query = `?node_id=${encodeURIComponent(member.node_id)}&image_id=${encodeURIComponent(member.image_id)}`;
+  return api(`/api/routing-groups${query}`, {method: "DELETE"});
 }
 
 export function resolveModelAssets(request: {id: string}): Promise<{id: string; filename: string; results: {field: string; hash: string; resolved: boolean; failure?: string}[]}> {

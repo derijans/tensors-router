@@ -200,6 +200,12 @@ type ClusterConfig struct {
 	HealthInterval  time.Duration
 	ControlTimeout  time.Duration
 	SyncConcurrency int
+
+	SchedulingRefreshInterval time.Duration
+	SchedulingSampleWindow    time.Duration
+	SchedulingMinSamples      int
+	SchedulingBackendDepth    int
+	SchedulingGrantTTL        time.Duration
 }
 
 type AnalyticsConfig struct {
@@ -315,6 +321,12 @@ func Defaults() Config {
 			HealthInterval:  15 * time.Second,
 			ControlTimeout:  30 * time.Second,
 			SyncConcurrency: 4,
+
+			SchedulingRefreshInterval: 60 * time.Second,
+			SchedulingSampleWindow:    24 * time.Hour,
+			SchedulingMinSamples:      20,
+			SchedulingBackendDepth:    2,
+			SchedulingGrantTTL:        30 * time.Second,
 		},
 		Analytics: AnalyticsConfig{
 			Enabled:                false,
@@ -512,6 +524,21 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Cluster.SyncConcurrency <= 0 || cfg.Cluster.SyncConcurrency > 128 {
 		return fmt.Errorf("cluster.sync_concurrency must be between 1 and 128")
+	}
+	if cfg.Cluster.SchedulingRefreshInterval <= 0 {
+		return fmt.Errorf("cluster.scheduling_refresh_interval must be positive")
+	}
+	if cfg.Cluster.SchedulingSampleWindow <= 0 {
+		return fmt.Errorf("cluster.scheduling_sample_window must be positive")
+	}
+	if cfg.Cluster.SchedulingMinSamples < 2 {
+		return fmt.Errorf("cluster.scheduling_min_samples must be at least 2")
+	}
+	if cfg.Cluster.SchedulingBackendDepth < 1 {
+		return fmt.Errorf("cluster.scheduling_backend_depth must be at least 1")
+	}
+	if cfg.Cluster.SchedulingGrantTTL <= 0 {
+		return fmt.Errorf("cluster.scheduling_grant_ttl must be positive")
 	}
 	if cfg.Analytics.FlushInterval <= 0 {
 		return fmt.Errorf("analytics.flush_interval must be positive")
@@ -1369,6 +1396,41 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 				return err
 			}
 			cfg.Cluster.SyncConcurrency = parsed
+			return nil
+		case "scheduling_refresh_interval":
+			parsed, err := time.ParseDuration(value)
+			if err != nil {
+				return err
+			}
+			cfg.Cluster.SchedulingRefreshInterval = parsed
+			return nil
+		case "scheduling_sample_window":
+			parsed, err := time.ParseDuration(value)
+			if err != nil {
+				return err
+			}
+			cfg.Cluster.SchedulingSampleWindow = parsed
+			return nil
+		case "scheduling_min_samples":
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				return err
+			}
+			cfg.Cluster.SchedulingMinSamples = parsed
+			return nil
+		case "scheduling_backend_depth":
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				return err
+			}
+			cfg.Cluster.SchedulingBackendDepth = parsed
+			return nil
+		case "scheduling_grant_ttl":
+			parsed, err := time.ParseDuration(value)
+			if err != nil {
+				return err
+			}
+			cfg.Cluster.SchedulingGrantTTL = parsed
 			return nil
 		}
 	case "analytics":

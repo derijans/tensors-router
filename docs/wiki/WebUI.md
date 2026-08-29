@@ -42,6 +42,8 @@ Cooking can create a normal `.kcpps` file on one node or a split recipe on the m
 
 Portable export replaces local model paths with verified asset references for sharing. See [KCPPS Sharing](KCPPS-Sharing).
 
+The Routing column on each image model opens its routing group. The dialog lists every image model on the other nodes, unfiltered, because the models worth grouping are usually the ones a name or hash filter would hide. Each candidate is labelled as the same weights or different weights, compared against the anchor by model hash. Selecting a candidate with different weights requires an explicit acknowledgement before the group can be saved, since the router cannot detect that it returns different images. Clearing every candidate deletes the group. See [Cluster Routing](Cluster-Routing) for what a group changes about scheduling.
+
 ## Load captures
 
 The Load Captures tab appears when at least one selected node has `analytics.load_capture_enabled`. It can filter and merge attempt summaries across nodes, inspect sanitized KCPPS and asset identities, and fetch bounded stdout/stderr output incrementally. Reused loads link back to their physical attempt output.

@@ -143,6 +143,9 @@ export const elements = {
   constructorFieldDialogBody: getRequiredElement("constructorFieldDialogBody", HTMLElement),
   webuiDialog: getRequiredElement("webuiDialog", HTMLDialogElement),
   webuiDialogBody: getRequiredElement("webuiDialogBody", HTMLElement),
+  routingDialog: getRequiredElement("routingDialog", HTMLDialogElement),
+  routingDialogBody: getRequiredElement("routingDialogBody", HTMLElement),
+  routingDialogStatus: getRequiredElement("routingDialogStatus", HTMLElement),
   safetyDialog: getRequiredElement("safetyDialog", HTMLDialogElement),
   safetyDialogBody: getRequiredElement("safetyDialogBody", HTMLElement)
 };
