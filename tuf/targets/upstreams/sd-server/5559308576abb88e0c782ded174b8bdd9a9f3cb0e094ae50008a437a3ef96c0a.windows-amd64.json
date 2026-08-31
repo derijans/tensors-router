@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "379366329",
+      "tag": "master-841-6b3edaa",
+      "published_at": "2026-08-30T18:29:03Z",
+      "payloads": [
+        {
+          "name": "sd-master-6b3edaa-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-841-6b3edaa/sd-master-6b3edaa-bin-win-cpu-x64.zip",
+          "length": 24084786,
+          "sha256": "a36edb067de09fc9f70fcd193e519ff62592f860744558d7918762c7c3401050"
+        }
+      ]
+    }
+  ]
+}
