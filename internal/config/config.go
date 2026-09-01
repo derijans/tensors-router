@@ -80,25 +80,27 @@ type FFmpegConfig struct {
 }
 
 type KoboldConfig struct {
-	BackendURL           string
-	EmbeddingsBackendURL string
-	BinaryPath           string
-	DataDir              string
-	Multiuser            int
-	ExtraArgs            []string
-	Quiet                bool
-	SkipLauncher         bool
-	NoModel              bool
-	HideWindow           bool
+	BackendURL              string
+	EmbeddingsBackendURL    string
+	embeddingsBackendURLSet bool
+	BinaryPath              string
+	DataDir                 string
+	Multiuser               int
+	ExtraArgs               []string
+	Quiet                   bool
+	SkipLauncher            bool
+	NoModel                 bool
+	HideWindow              bool
 }
 
 type NativeServerConfig struct {
-	BackendURL           string
-	EmbeddingsBackendURL string
-	BinaryPath           string
-	DataDir              string
-	ExtraArgs            []string
-	HideWindow           bool
+	BackendURL              string
+	EmbeddingsBackendURL    string
+	embeddingsBackendURLSet bool
+	BinaryPath              string
+	DataDir                 string
+	ExtraArgs               []string
+	HideWindow              bool
 }
 
 type LoggingConfig struct {
@@ -344,6 +346,7 @@ func Defaults() Config {
 			MaxStreamRequestGB:  32,
 			MaxStreamResponseGB: 32,
 			SelectorScanMB:      64,
+			SeparateRuntimes:    5,
 			DrainTimeout:        15 * time.Minute,
 		},
 		MCP: MCPConfig{
@@ -1102,6 +1105,7 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			return nil
 		case "embeddings_backend_url":
 			cfg.Kobold.EmbeddingsBackendURL = value
+			cfg.Kobold.embeddingsBackendURLSet = true
 			return nil
 		case "binary_path":
 			cfg.Kobold.BinaryPath = value
@@ -1500,6 +1504,8 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			return setPositiveInt64(&cfg.Limits.MaxStreamResponseGB, value)
 		case "selector_scan_mb":
 			return setPositiveInt64(&cfg.Limits.SelectorScanMB, value)
+		case "separate_runtimes":
+			return setPositiveInt(&cfg.Limits.SeparateRuntimes, value)
 		case "drain_timeout":
 			parsed, err := time.ParseDuration(value)
 			if err != nil {
@@ -1521,6 +1527,15 @@ func setPositiveInt64(target *int64, value string) error {
 	return nil
 }
 
+func setPositiveInt(target *int, value string) error {
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return err
+	}
+	*target = parsed
+	return nil
+}
+
 func setNativeServerScalar(server *NativeServerConfig, section string, key string, value string) error {
 	switch key {
 	case "backend_url":
@@ -1531,6 +1546,7 @@ func setNativeServerScalar(server *NativeServerConfig, section string, key strin
 			return fmt.Errorf("unknown key %s.%s", section, key)
 		}
 		server.EmbeddingsBackendURL = value
+		server.embeddingsBackendURLSet = true
 		return nil
 	case "binary_path":
 		server.BinaryPath = value

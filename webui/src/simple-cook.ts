@@ -15,8 +15,7 @@ import {
   unloadPolicies,
   unloadPolicyKey,
   unloadPolicyLabels,
-  type BackendMode,
-  type UnloadPolicy
+  type BackendMode
 } from "./constants";
 import { allOptionDefinitions, optionDefinition, optionValue } from "./data";
 import {
@@ -42,6 +41,7 @@ import {
 import {
   escapeAttribute,
   escapeHTML,
+  optionInputList,
   optionInputValue,
   optionValueLabel,
   parseOptionInput
@@ -178,6 +178,12 @@ export function updateSimpleField(target: EventTarget | null): void {
   }
   const key = target.dataset.simpleField;
   if (!key) {
+    return;
+  }
+  if (target instanceof HTMLSelectElement && target.multiple) {
+    state.simpleCook.fields[key] = [...target.selectedOptions].map(option => option.value);
+    discardConversion("quick", key);
+    renderSimpleCook();
     return;
   }
   const parsed = parseOptionInput(optionDefinition(key), target.value);
@@ -395,7 +401,7 @@ function simpleFieldInput(key: string, value: JsonValue | undefined, datalistID:
     return backendModeSelect(simpleBackendModeValue(), virtual);
   }
   if (key === unloadPolicyKey) {
-    return unloadPolicySelect(optionInputValue(value), virtual);
+    return unloadPolicySelect(optionInputList(value), virtual);
   }
   if (key === jinjaKwargsPrecedenceKey) {
     return jinjaKwargsPrecedenceSelect(optionInputValue(value), virtual);
@@ -417,15 +423,17 @@ function backendModeSelect(value: string, virtual: boolean): string {
   `;
 }
 
-function unloadPolicySelect(value: string, virtual: boolean): string {
-  const selectedValue = unloadPolicies.includes(value as UnloadPolicy) ? value : "none";
-  const customOption = value && value !== selectedValue
-    ? `<option value="${escapeAttribute(value)}" selected>${escapeHTML(value)}</option>`
-    : "";
+function unloadPolicySelect(values: string[], virtual: boolean): string {
+  const selected = new Set(values);
+  const known = new Set<string>(unloadPolicies);
+  const customOptions = values
+    .filter(value => !known.has(value))
+    .map(value => `<option value="${escapeAttribute(value)}" selected>${escapeHTML(value)}</option>`)
+    .join("");
   return `
-    <select data-simple-field="${escapeAttribute(unloadPolicyKey)}" class="${virtual ? "virtual-runtime-select" : ""}">
-      ${customOption}
-      ${unloadPolicies.map(policy => `<option value="${escapeAttribute(policy)}"${policy === selectedValue && !customOption ? " selected" : ""}>${escapeHTML(unloadPolicyLabels[policy])}</option>`).join("")}
+    <select multiple data-simple-field="${escapeAttribute(unloadPolicyKey)}" class="${virtual ? "virtual-runtime-select" : ""}">
+      ${customOptions}
+      ${unloadPolicies.map(policy => `<option value="${escapeAttribute(policy)}"${selected.has(policy) ? " selected" : ""}>${escapeHTML(unloadPolicyLabels[policy])}</option>`).join("")}
     </select>
   `;
 }

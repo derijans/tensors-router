@@ -19,23 +19,17 @@ func (service *Service) enforceUnloadPolicy(ctx context.Context, mode string, fi
 	if err != nil {
 		return err
 	}
-	if policy == unloadpolicy.None {
+	if policy.IsNone() {
 		return nil
 	}
-	runtimes, err := service.runtimesForUnloadTarget(resolvedMode, policy)
+	runtimes, err := service.runtimesForUnloadPolicy(resolvedMode, policy)
 	if err != nil {
 		return err
 	}
 	different := make([]*backendRuntime, 0, len(runtimes))
 	profile := service.chatTemplateProfileForConfig(filename)
-	service.embeddingSelection.mu.Lock()
-	activeEmbedding := service.embeddingSelection.runtime
-	service.embeddingSelection.mu.Unlock()
 	for _, runtime := range uniqueRuntimeList(runtimes) {
-		if readiness != readinessEmbeddings && runtime == activeEmbedding {
-			continue
-		}
-		if runtime == service.backendFamilies[resolvedMode].embeddingsRuntime && readiness != readinessEmbeddings && service.embeddingRuntimeUsesCPU(runtime) {
+		if service.separatePoolOwns(runtime) {
 			continue
 		}
 		if currentRuntimeConfigFilename(runtime) == "" || activeRuntimeSupportsConfig(runtime, filename, profile) {
@@ -46,27 +40,84 @@ func (service *Service) enforceUnloadPolicy(ctx context.Context, mode string, fi
 	return service.unloadRuntimes(ctx, different)
 }
 
-func (service *Service) embeddingRuntimeUsesCPU(runtime *backendRuntime) bool {
-	filename := currentRuntimeConfigFilename(runtime)
-	if filename == "" {
+// separatePoolOwns is checked to skip pool runtimes here: they answer only to
+// their own triggers, never another config's unload policy.
+func (service *Service) separatePoolOwns(runtime *backendRuntime) bool {
+	if service.separatePool == nil || runtime == nil {
 		return false
 	}
-	metadata, err := catalog.LoadRuntimeConfig(filepath.Join(service.configDir, filename))
-	return err == nil && metadata.RunEmbedSeparate && !metadata.EmbeddingsGPU
+	for _, entry := range service.separatePool.snapshot() {
+		if entry.runtime == runtime {
+			return true
+		}
+	}
+	return false
 }
 
-func (service *Service) resolveUnloadPolicy(filename string) (string, error) {
+func (service *Service) resolveUnloadPolicy(filename string) (unloadpolicy.Selection, error) {
 	if strings.TrimSpace(service.configDir) == "" || strings.TrimSpace(filename) == "" {
-		return unloadpolicy.None, nil
+		return unloadpolicy.Selection{unloadpolicy.None}, nil
 	}
 	if filename != filepath.Base(filename) {
-		return "", fmt.Errorf("config filename %q is invalid", filename)
+		return nil, fmt.Errorf("config filename %q is invalid", filename)
 	}
 	metadata, err := catalog.LoadRuntimeConfig(filepath.Join(service.configDir, filename))
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-	return unloadpolicy.Resolve(metadata.RouterUnloadPolicy)
+	return unloadpolicy.ResolveSelection(metadata.RouterUnloadPolicy)
+}
+
+// runtimesForUnloadPolicy is the union of the shared runtimes every trigger names.
+func (service *Service) runtimesForUnloadPolicy(mode string, policy unloadpolicy.Selection) ([]*backendRuntime, error) {
+	resolvedMode, err := service.resolveBackendMode(mode)
+	if err != nil {
+		return nil, err
+	}
+	family := service.backendFamilies[resolvedMode]
+	if family == nil {
+		return nil, fmt.Errorf("backend mode %q is not configured", resolvedMode)
+	}
+	runtimes := make([]*backendRuntime, 0, 4)
+	for _, trigger := range policy {
+		switch {
+		case trigger == unloadpolicy.None:
+			continue
+		case unloadpolicy.ValidLane(trigger) || trigger == unloadpolicy.All:
+			laneRuntimes, err := service.runtimesForUnloadTarget(resolvedMode, trigger)
+			if err != nil {
+				return nil, err
+			}
+			runtimes = append(runtimes, laneRuntimes...)
+		default:
+			if familyMode, ok := unloadpolicy.FamilyTarget(trigger); ok {
+				if familyMode == resolvedMode {
+					runtimes = append(runtimes, uniqueBackendRuntimes(family)...)
+				}
+				continue
+			}
+			if configID, ok := unloadpolicy.ConfigTarget(trigger); ok {
+				runtimes = append(runtimes, service.sharedRuntimesHoldingConfig(family, configID)...)
+			}
+		}
+	}
+	return runtimes, nil
+}
+
+func (service *Service) sharedRuntimesHoldingConfig(family *backendFamily, configID string) []*backendRuntime {
+	holders := make([]*backendRuntime, 0, 1)
+	for _, runtime := range uniqueBackendRuntimes(family) {
+		filename := currentRuntimeConfigFilename(runtime)
+		if filename == "" {
+			continue
+		}
+		base := filepath.Base(filename)
+		stem := strings.TrimSuffix(base, filepath.Ext(base))
+		if base == configID || stem == configID {
+			holders = append(holders, runtime)
+		}
+	}
+	return holders
 }
 
 func (service *Service) runtimesForUnloadTarget(mode string, target string) ([]*backendRuntime, error) {

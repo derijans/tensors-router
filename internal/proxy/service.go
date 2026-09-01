@@ -61,6 +61,7 @@ type BackendFamilyConfig struct {
 	EmbeddingsBackend    Backend
 	ImageBackend         Backend
 	TranscriptionBackend Backend
+	SeparateBackend      separateBackendFactory
 	Start                func(context.Context) error
 	Stop                 func(context.Context) error
 	StopPrimary          func(context.Context) error
@@ -129,6 +130,7 @@ type ServiceConfig struct {
 	VLLMEEPEnabled            bool
 	FFmpeg                    ffmpeg.Tool
 	FFmpegScratchDir          string
+	SeparateRuntimeLimit      int
 }
 
 type Service struct {
@@ -140,7 +142,7 @@ type Service struct {
 	backendMode               string
 	backendFamilies           map[string]*backendFamily
 	backendSwitch             *backendFamilySwitchState
-	embeddingSelection        embeddingSelection
+	separatePool              *separateRuntimePool
 	webUISession              *webUISession
 	webUIRouteMu              sync.Mutex
 	webUIRoutes               atomic.Pointer[webUIRouteSnapshot]
@@ -283,14 +285,10 @@ type backendFamily struct {
 	embeddingsRuntime    *backendRuntime
 	imageRuntime         *backendRuntime
 	transcriptionRuntime *backendRuntime
+	separateBackend      separateBackendFactory
 	start                func(context.Context) error
 	stop                 func(context.Context) error
 	stopPrimary          func(context.Context) error
-}
-
-type embeddingSelection struct {
-	mu      sync.Mutex
-	runtime *backendRuntime
 }
 
 type backendFamilySwitchState struct {
@@ -485,6 +483,7 @@ func NewService(config ServiceConfig) *Service {
 	if err := service.clusterClient.AllowBaseURLs(service.knownClusterTargets()...); err != nil {
 		service.logger.Printf("cluster target setup failed: %v", err)
 	}
+	service.separatePool = newSeparateRuntimePool(config.SeparateRuntimeLimit)
 	service.applySchedulingDefaults()
 	service.imageQueue = newOffloadQueue(service.schedulingBackendDepth)
 	if service.registry != nil {
@@ -579,6 +578,7 @@ func newBackendFamily(mode string, config BackendFamilyConfig) *backendFamily {
 		embeddingsRuntime:    embeddingsRuntime,
 		imageRuntime:         imageRuntime,
 		transcriptionRuntime: transcriptionRuntime,
+		separateBackend:      config.SeparateBackend,
 		start:                config.Start,
 		stop:                 config.Stop,
 		stopPrimary:          config.StopPrimary,
@@ -769,6 +769,7 @@ func (service *Service) Close(ctx context.Context) error {
 	}
 	service.pendingModelUnloads = map[string]context.CancelFunc{}
 	service.modelStateMu.Unlock()
+	service.closeSeparateRuntimes(ctx)
 	var err error
 	if service.vramSampler != nil {
 		err = service.vramSampler.Close(ctx)
@@ -1630,16 +1631,6 @@ func (service *Service) shouldRecoverBackend(runtime *backendRuntime, ctx contex
 
 func (service *Service) recoverBackendForModel(runtime *backendRuntime, ctx context.Context, releaseModel func(), modelID string, configFilename string, readiness backendReadiness, path string, cause error) (func(), bool, error) {
 	service.logger.Printf("backend transport recovery attempt path=%s model=%q config=%q error=%v", path, modelID, configFilename, cause)
-	if readiness == readinessEmbeddings {
-		service.embeddingSelection.mu.Lock()
-		defer service.embeddingSelection.mu.Unlock()
-		if previous := service.embeddingSelection.runtime; previous != nil && previous != runtime {
-			if err := service.unloadRuntime(ctx, previous); err != nil {
-				return nil, false, err
-			}
-		}
-		service.embeddingSelection.runtime = runtime
-	}
 	// Keep the lease. Releasing it here let a request for another model take the runtime
 	// mid-recovery and switch it away, which is how the model this request needs ended up
 	// being swapped out from under it.

@@ -23,7 +23,7 @@ vLLM configurations use the typed nested `vllm` section documented in [vLLM](vLL
 
 ### `router_unload_policy`
 
-Accepts `none`, `text`, `image`, `embeddings`, `voice`, `music`, or `all`. The router applies the selected target before loading a different configuration.
+A set of unload triggers, entered as one value or several. Each entry is `none`, `all`, a lane (`text`, `image`, `embeddings`, `voice`, `music`), a backend family (`family:kobold`, `family:llama_sdcpp`, `family:vllm`), or `config:<model-id>`. `none` and `all` cannot be combined with anything else. The router applies the matching triggers before loading a different configuration. See [Model Configs and Routing](Model-Configs-and-Routing#load-and-unload).
 
 ### `router_jinja_kwargs_precedence`
 

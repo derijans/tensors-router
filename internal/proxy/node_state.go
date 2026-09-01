@@ -464,7 +464,7 @@ func (service *Service) runtimeBindings() []runtimeBinding {
 	if family := service.backendFamilies[backendmode.VLLM]; family != nil {
 		bindings = appendFamilyRuntimeBindings(bindings, family, backendIDVLLM, backendIDVLLM, backendIDVLLM)
 	}
-	return bindings
+	return service.separateRuntimeBindings(bindings)
 }
 
 func appendFamilyRuntimeBindings(bindings []runtimeBinding, family *backendFamily, textBackendID string, imageBackendID string, transcriptionBackendID string) []runtimeBinding {
@@ -497,15 +497,7 @@ func (service *Service) unloadLocalRuntime(ctx context.Context, request siteapi.
 	if selected == nil {
 		return fmt.Errorf("backend %q and runtime %q are invalid", request.BackendID, request.RuntimeID)
 	}
-	service.embeddingSelection.mu.Lock()
-	defer service.embeddingSelection.mu.Unlock()
-	if err := service.unloadRuntimeGeneration(ctx, selected, request.ExpectedGeneration); err != nil {
-		return err
-	}
-	if service.embeddingSelection.runtime == selected {
-		service.embeddingSelection.runtime = nil
-	}
-	return nil
+	return service.unloadRuntimeGeneration(ctx, selected, request.ExpectedGeneration)
 }
 
 func (service *Service) unloadRuntimeGeneration(ctx context.Context, runtime *backendRuntime, expectedGeneration uint64) error {

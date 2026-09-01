@@ -146,6 +146,9 @@ export const elements = {
   routingDialog: getRequiredElement("routingDialog", HTMLDialogElement),
   routingDialogBody: getRequiredElement("routingDialogBody", HTMLElement),
   routingDialogStatus: getRequiredElement("routingDialogStatus", HTMLElement),
+  separateRuntimeDialog: getRequiredElement("separateRuntimeDialog", HTMLDialogElement),
+  separateRuntimeDialogBody: getRequiredElement("separateRuntimeDialogBody", HTMLElement),
+  separateRuntimeDialogStatus: getRequiredElement("separateRuntimeDialogStatus", HTMLElement),
   safetyDialog: getRequiredElement("safetyDialog", HTMLDialogElement),
   safetyDialogBody: getRequiredElement("safetyDialogBody", HTMLElement)
 };

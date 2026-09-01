@@ -68,7 +68,7 @@ Finished videos are written to `<scratch_dir>/tensors-router-comfy-video`, not h
 | Field | Type or options | Example or default | Description |
 | --- | --- | --- | --- |
 | `kobold.backend_url` | Loopback HTTP URL string | `http://127.0.0.1:5001` | Managed KoboldCpp endpoint. |
-| `kobold.embeddings_backend_url` | Loopback HTTP URL string | `http://127.0.0.1:0` | On-demand managed KoboldCpp embeddings endpoint. |
+| `kobold.embeddings_backend_url` | Loopback HTTP URL string | `http://127.0.0.1:0` | Deprecated. Embeddings configs now join the [separate-runtime pool](Backends#separate-runtimes) on a router-allocated port; a value set here logs a deprecation warning. |
 | `kobold.binary_path` | Path string | `./bin/kobold/koboldcpp` | KoboldCpp executable. |
 | `kobold.data_dir` | Path string | `./data` | Working and data directory for the process. |
 | `kobold.multiuser` | Integer, at least `1` | `1` | Value supplied to KoboldCpp multiuser handling. |
@@ -83,7 +83,7 @@ Finished videos are written to `<scratch_dir>/tensors-router-comfy-video`, not h
 | Field | Type or options | Example or default | Description |
 | --- | --- | --- | --- |
 | `llama.backend_url` | Loopback HTTP URL string | `http://127.0.0.1:5002` | Managed `llama-server` endpoint. |
-| `llama.embeddings_backend_url` | Loopback HTTP URL string | `http://127.0.0.1:0` | On-demand managed `llama-server` embeddings endpoint. |
+| `llama.embeddings_backend_url` | Loopback HTTP URL string | `http://127.0.0.1:0` | Deprecated; see `kobold.embeddings_backend_url`. |
 | `llama.binary_path` | Path string | `./bin/llama/llama-server` | `llama-server` executable. |
 | `llama.data_dir` | Path string | `./data/llama` | Working and data directory for the text process. |
 | `llama.hide_window` | Boolean | `true` | Hides the child process window on supported platforms. |
@@ -238,6 +238,7 @@ All size fields are positive integers. Replay and selector scan limits cannot ex
 | `limits.max_stream_request_gb` | Positive integer, GiB | `32` | Maximum streamed request body. |
 | `limits.max_stream_response_gb` | Positive integer, GiB | `32` | Maximum streamed backend response. |
 | `limits.selector_scan_mb` | Positive integer, MiB | `64` | Maximum prefix scanned to locate a model selector. |
+| `limits.separate_runtimes` | Integer ≥ 1 | `5` | Maximum co-resident separate backend processes per node. At the cap the least-recently-used one is unloaded. See [Separate runtimes](Backends#separate-runtimes). |
 | `limits.drain_timeout` | Positive duration string | `15m` | Maximum graceful drain time during unload, restart, or shutdown. |
 
 ## WebUI configuration

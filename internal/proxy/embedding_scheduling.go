@@ -175,6 +175,20 @@ func (service *Service) nextEmbeddingCandidate(count int) int {
 }
 
 func (service *Service) localEmbeddingModelLoaded(ctx context.Context, mode string, filename string) bool {
+	if service.separatePool != nil {
+		for _, entry := range service.separatePool.snapshot() {
+			if entry.lane != "embeddings" || entry.filename != filename {
+				continue
+			}
+			if entry.runtime.backend == nil || !entry.runtime.backend.Healthy(ctx) {
+				return false
+			}
+			entry.runtime.state.mu.Lock()
+			loaded := !entry.runtime.state.switching && entry.runtime.state.filename == filename
+			entry.runtime.state.mu.Unlock()
+			return loaded
+		}
+	}
 	runtime, err := service.runtimeForBackendMode(mode, readinessEmbeddings)
 	if err != nil || runtime == nil || runtime.backend == nil || !runtime.backend.Healthy(ctx) {
 		return false

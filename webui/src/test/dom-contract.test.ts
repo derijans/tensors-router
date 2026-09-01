@@ -20,4 +20,11 @@ describe("models dashboard DOM contract", () => {
     expect(page).toContain('data-model-inventory-panel="files"');
     expect(page).not.toMatch(/\sstyle=/i);
   });
+
+  it("carries a Separate column and its dialog scaffold", () => {
+    expect(page).toMatch(/<th>Routing<\/th>\s*<th>Separate<\/th>/);
+    expect(tagNameForID("separateRuntimeDialog")).toBe("dialog");
+    expect(tagNameForID("separateRuntimeDialogBody")).toBe("div");
+    expect(tagNameForID("separateRuntimeDialogStatus")).toBe("p");
+  });
 });

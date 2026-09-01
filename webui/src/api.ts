@@ -25,6 +25,8 @@ import type {
   RoutingGroupMember,
   RoutingGroupRequest,
   RoutingGroupsResponse,
+  SeparateRuntimeRequest,
+  SeparateRuntimeResponse,
   SessionResponse,
   ValidationIssue,
   WebUICatalogResponse,
@@ -138,6 +140,15 @@ export function saveRoutingGroup(request: RoutingGroupRequest): Promise<RoutingG
 export function deleteRoutingGroup(member: RoutingGroupMember): Promise<unknown> {
   const query = `?node_id=${encodeURIComponent(member.node_id)}&image_id=${encodeURIComponent(member.image_id)}`;
   return api(`/api/routing-groups${query}`, {method: "DELETE"});
+}
+
+export function fetchSeparateRuntime(nodeId: string, localId: string): Promise<SeparateRuntimeResponse> {
+  const query = `?node_id=${encodeURIComponent(nodeId)}&local_id=${encodeURIComponent(localId)}`;
+  return api<SeparateRuntimeResponse>(`/api/separate-runtimes${query}`);
+}
+
+export function saveSeparateRuntime(request: SeparateRuntimeRequest): Promise<SeparateRuntimeResponse> {
+  return api<SeparateRuntimeResponse>("/api/separate-runtimes", {method: "POST", body: JSON.stringify(request)});
 }
 
 export function resolveModelAssets(request: {id: string}): Promise<{id: string; filename: string; results: {field: string; hash: string; resolved: boolean; failure?: string}[]}> {

@@ -54,19 +54,19 @@ The selected model record includes its effective backend family, so a cluster ma
 
 An implicit model selection or `POST /router/v1/load` loads the complete configuration or the required split lane.
 
-`router_unload_policy` in `.kcpps` controls which active runtimes are unloaded before a different configuration loads. Accepted values are:
+`router_unload_policy` in `.kcpps` controls which active runtimes are unloaded before a different configuration loads. It is a set: either one bare value (the legacy shape, still accepted) or a JSON array. Entries:
 
-- `none`
-- `text`
-- `image`
-- `embeddings`
-- `voice`
-- `music`
-- `all`
+- `none` — do not unload anything. Absorbing: cannot be combined with other triggers.
+- `all` — unload every lane. Absorbing.
+- `text` · `image` · `embeddings` · `voice` · `music` — the capability lane.
+- `family:kobold` · `family:llama_sdcpp` · `family:vllm` — any config loading on that backend family.
+- `config:<model-id>` — one named sibling config.
 
 Current runtimes map image to the image backend. Text, embeddings, voice, and music map to the text backend. `all` targets every current lane.
 
-The load API can supply an unload policy. The unload API accepts a target and uses `all` when no body is provided.
+For a config that runs in the [separate-runtime pool](Backends#separate-runtimes), the same trigger set decides which loads on the shared runtime evict the pooled runtime. Pool runtimes are never evicted by another config's `router_unload_policy`.
+
+The load API can supply an unload target. The unload API accepts one target or a list and uses `all` when no body is provided.
 
 ## Jinja kwargs profiles
 

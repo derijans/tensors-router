@@ -28,6 +28,7 @@ type LimitsConfig struct {
 	MaxStreamRequestGB  int64
 	MaxStreamResponseGB int64
 	SelectorScanMB      int64
+	SeparateRuntimes    int
 	DrainTimeout        time.Duration
 }
 
@@ -61,6 +62,12 @@ func finalizeCompatibility(cfg *Config) {
 		cfg.Warnings = append(cfg.Warnings, "logging.enabled is deprecated; use logging.mode")
 	}
 	cfg.Logging.Enabled = cfg.Logging.Mode == LoggingModeNormal
+	if cfg.Kobold.embeddingsBackendURLSet {
+		cfg.Warnings = append(cfg.Warnings, "kobold.embeddings_backend_url is deprecated; mark the embeddings config separate in the WebUI and let the pool pick a port")
+	}
+	if cfg.Llama.embeddingsBackendURLSet {
+		cfg.Warnings = append(cfg.Warnings, "llama.embeddings_backend_url is deprecated; mark the embeddings config separate in the WebUI and let the pool pick a port")
+	}
 }
 
 func validateSecurity(cfg *Config) error {
@@ -160,6 +167,9 @@ func validateLimits(limits LimitsConfig) error {
 	}
 	if limits.DrainTimeout <= 0 {
 		return fmt.Errorf("limits.drain_timeout must be positive")
+	}
+	if limits.SeparateRuntimes < 1 {
+		return fmt.Errorf("limits.separate_runtimes must be at least 1")
 	}
 	return nil
 }

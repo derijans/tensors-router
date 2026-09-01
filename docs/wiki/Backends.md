@@ -10,9 +10,18 @@ Valid values are `kobold`, `llama_sdcpp`, and `vllm`.
 
 At router startup, the process starts in no-model mode when `kobold.no_model` is enabled. Model selection reloads the complete `.kcpps` file through the backend administration interface. Text, image, embedding, voice, and music requests share that process and its model gate.
 
-Configurations with `run_embed_separate: true` are the exception: embedding requests lazily start a second KoboldCpp process on `kobold.embeddings_backend_url`. That endpoint's port may be pinned or, by default, router-allocated at process start (see [Configuration](Configuration)); a router-allocated endpoint is not addressable until the embedding process has started at least once. The router writes private role-specific runtime configurations below the model configuration directory so the primary process never receives embedding fields and the embedding process receives no unrelated model components.
+Configs that run separately (see [Separate runtimes](#separate-runtimes)) are the exception: their requests lazily start a second KoboldCpp process on a router-allocated loopback port. An embeddings-lane config is hosted `--nomodel` with a private role-specific runtime configuration written below the model configuration directory, so the primary process never receives embedding fields and the embedding process receives no unrelated model components.
 
-Standalone embeddings use one router-wide embedding slot. They can run beside any primary backend family, and switching text, image, or voice families leaves them running. Loading another embedding configuration replaces the current embedding owner. Replacing a shared-process embedding may unload that process's other lanes.
+## Separate runtimes
+
+Any kobold or `llama_sdcpp` config can be marked **Separate** in the WebUI (per node, stored in the model-state database; `.kcpps` files are not rewritten). A config marked separate — or a legacy embeddings config with `run_embed_separate: true` — runs in its own backend process from a pooled set, with its own model gate. Another config's load, switch, or unload on the shared runtime never touches it.
+
+- The pool is capped by `limits.separate_runtimes` (default 5). When it is full, the least-recently-used entry is unloaded and its port returned to the allocator — including an entry whose triggers say "do not unload".
+- Each separate config carries its own `router_unload_policy` trigger set, which decides which loads elsewhere evict it. `none` means no trigger evicts it (it can still be evicted by pool pressure). Pool runtimes are never evicted by another config's `router_unload_policy`.
+- Placement (CPU vs GPU) stays whatever the `.kcpps` says; the toggle only decides process isolation.
+- Each entry appears in the Nodes tab as a `<mode>-separate-<id>` runtime and is individually unloadable.
+
+`kobold.embeddings_backend_url` and `llama.embeddings_backend_url` are deprecated: an embeddings config now joins this pool on a router-allocated port. A pinned value still loads but logs a deprecation warning.
 
 A configuration switch waits for active requests using the current configuration to finish. Requests that use the same active configuration can run together.
 
@@ -32,7 +41,7 @@ The router removes the backend's router-mode argument because model selection is
 - [stable-diffusion.cpp](https://github.com/leejet/stable-diffusion.cpp) `sd-server` for image and video routes
 - [whisper.cpp](https://github.com/ggml-org/whisper.cpp) `whisper-server` for transcription and translation
 
-For `llama_sdcpp`, `run_embed_separate: true` sends embedding requests to an on-demand `llama-server` at `llama.embeddings_backend_url`, whose port may be pinned or router-allocated the same way as `kobold.embeddings_backend_url`. CPU configurations force `--device none` and zero GPU layers; GPU configurations fully offload the embedding model and inherit configured device placement.
+For `llama_sdcpp`, `run_embed_separate: true` (or the WebUI Separate toggle) sends embedding requests to an on-demand `llama-server` from the [separate-runtime pool](#separate-runtimes) on a router-allocated port. CPU configurations force `--device none` and zero GPU layers; GPU configurations fully offload the embedding model and inherit configured device placement.
 
 All processes start lazily and drain independently. Transcription uses the Whisper runtime. Text-to-speech is not available under `llama_sdcpp`: llama.cpp removed `--model-vocoder` and `--model-talker`, and llama-server has no `/v1/audio/speech` endpoint. Use `kobold` or `vllm` for text-to-speech.
 

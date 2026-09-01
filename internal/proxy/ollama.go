@@ -272,6 +272,16 @@ func (service *Service) modelsWithRuntimeState(ctx context.Context, models []clu
 			}
 		}
 	}
+	if service.separatePool != nil {
+		for _, entry := range service.separatePool.snapshot() {
+			if entry.lane != "embeddings" || entry.runtime.backend == nil || !entry.runtime.backend.Healthy(ctx) {
+				continue
+			}
+			if filename := currentRuntimeConfigFilename(entry.runtime); filename != "" {
+				loadedEmbeddingFiles[filename] = true
+			}
+		}
+	}
 	result := make([]cluster.Model, len(models))
 	copy(result, models)
 	for index := range result {

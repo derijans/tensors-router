@@ -44,6 +44,56 @@ func TestStorePersistsIdempotentModelState(t *testing.T) {
 	}
 }
 
+func TestSeparateRuntimeOverrideRoundTripsAndReportsAbsence(t *testing.T) {
+	directory := t.TempDir()
+	store, err := NewStore(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+
+	if _, present, err := store.SeparateRuntime(ctx, "embed-model"); err != nil || present {
+		t.Fatalf("absent row must report no override: present=%t err=%v", present, err)
+	}
+
+	want := SeparateRuntimeSettings{RunSeparate: true, UnloadTriggers: []string{"text", "family:kobold"}}
+	if err := store.SetSeparateRuntime(ctx, "embed-model", want); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := NewStore(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reopened.Close()
+
+	got, present, err := reopened.SeparateRuntime(ctx, "embed-model")
+	if err != nil || !present {
+		t.Fatalf("override was not persisted: present=%t err=%v", present, err)
+	}
+	if !got.RunSeparate || len(got.UnloadTriggers) != 2 {
+		t.Fatalf("unexpected settings %+v", got)
+	}
+	if got.UnloadTriggers[0] != "family:kobold" || got.UnloadTriggers[1] != "text" {
+		t.Fatalf("triggers were not stored sorted+deduped: %v", got.UnloadTriggers)
+	}
+
+	all, err := reopened.AllSeparateRuntimes(ctx)
+	if err != nil || len(all) != 1 {
+		t.Fatalf("AllSeparateRuntimes: len=%d err=%v", len(all), err)
+	}
+
+	if err := reopened.ClearSeparateRuntime(ctx, "embed-model"); err != nil {
+		t.Fatal(err)
+	}
+	if _, present, err := reopened.SeparateRuntime(ctx, "embed-model"); err != nil || present {
+		t.Fatalf("cleared override must report no override: present=%t err=%v", present, err)
+	}
+}
+
 func TestStoreSupportsConcurrentAccess(t *testing.T) {
 	store, err := NewStore(t.TempDir())
 	if err != nil {

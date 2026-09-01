@@ -42,12 +42,14 @@ ffmpeg:
   scratch_dir: ""
 
 kobold:
-  # backend_url and embeddings_backend_url: the port may be pinned (as
-  # below), set to 0 to let the router allocate a free loopback port at
-  # startup (the built-in default for embeddings_backend_url), or omitted
-  # to fail fast at startup instead of silently colliding with another
-  # backend.
+  # backend_url: the port may be pinned (as below), set to 0 to let the
+  # router allocate a free loopback port at startup, or omitted to fail
+  # fast at startup instead of silently colliding with another backend.
   backend_url: "http://127.0.0.1:5001"
+  # embeddings_backend_url is deprecated. Mark an embeddings config
+  # "Separate" in the WebUI instead: it joins the separate-runtime pool
+  # and the router picks a free loopback port. A value set here is still
+  # honoured as a pinned pool slot but logs a deprecation warning.
   embeddings_backend_url: "http://127.0.0.1:5004"
   binary_path: "./bin/kobold/koboldcpp"
   data_dir: "./data"
@@ -59,8 +61,9 @@ kobold:
   extra_args: []
 
 llama:
-  # See kobold.embeddings_backend_url above for the port-0/omitted-port rules.
+  # See kobold.backend_url above for the port-0/omitted-port rules.
   backend_url: "http://127.0.0.1:5002"
+  # Deprecated; see kobold.embeddings_backend_url above.
   embeddings_backend_url: "http://127.0.0.1:5005"
   binary_path: "./bin/llama/llama-server"
   data_dir: "./data/llama"
@@ -196,4 +199,9 @@ limits:
   max_stream_request_gb: 32
   max_stream_response_gb: 32
   selector_scan_mb: 64
+  # Maximum number of co-resident separate-runtime backend processes per
+  # node. A config marked "Separate" in the WebUI runs in its own process;
+  # when the pool is full the least-recently-used entry is unloaded to make
+  # room. Must be at least 1.
+  separate_runtimes: 5
   drain_timeout: "15m"

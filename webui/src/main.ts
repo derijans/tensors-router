@@ -61,6 +61,7 @@ import { elements } from "./elements";
 import { state } from "./state";
 import { confirmDestructive, registerSafetyDialog } from "./dialogs";
 import { openRoutingGroupDialog, registerRoutingGroupDialog } from "./routing-groups-dialog";
+import { openSeparateRuntimeDialog, registerSeparateRuntimeDialog } from "./separate-runtime-dialog";
 import { confirmDiscardDirtyWork, markConstructorClean, markSimpleCookClean, registerDirtyStateGuard } from "./dirty-state";
 import { registerOperationRetry, runOperation } from "./operations";
 import { clearConversionWarnings, invalidateAcceptedConversions } from "./conversions";
@@ -398,6 +399,17 @@ elements.modelsTable.addEventListener("click", event => {
       "models",
       "Loading routing group"
     );
+    return;
+  }
+  const separateNode = target?.dataset.separateNode;
+  const separateId = target?.dataset.separateId;
+  if (separateNode && separateId) {
+    runTask(
+      () => openSeparateRuntimeDialog(separateNode, separateId),
+      `separate-runtime-${separateNode}-${separateId}`,
+      "models",
+      "Loading separate runtime settings"
+    );
   }
 });
 elements.modelsTable.addEventListener("change", event => {
@@ -711,6 +723,7 @@ elements.recipesList.addEventListener("click", event => {
 
 registerSafetyDialog();
 registerRoutingGroupDialog(refreshInventory);
+registerSeparateRuntimeDialog(refreshInventory);
 registerOperationRetry();
 registerDirtyStateGuard();
 markConstructorClean();

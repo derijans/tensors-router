@@ -201,8 +201,22 @@ func TestRuntimeConfigParsesRouterUnloadPolicy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if metadata.RouterUnloadPolicy != "image" {
-		t.Fatalf("unexpected unload policy %q", metadata.RouterUnloadPolicy)
+	if len(metadata.RouterUnloadPolicy) != 1 || metadata.RouterUnloadPolicy[0] != "image" {
+		t.Fatalf("unexpected unload policy %v", metadata.RouterUnloadPolicy)
+	}
+}
+
+func TestRuntimeConfigParsesRouterUnloadPolicyArray(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "multi.kcpps")
+	writeCatalogFile(t, dir, "multi.kcpps", `{"router_unload_policy":["image","family:kobold"],"model_param":"text.gguf"}`)
+
+	metadata, err := LoadRuntimeConfig(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(metadata.RouterUnloadPolicy) != 2 {
+		t.Fatalf("unexpected unload policy %v", metadata.RouterUnloadPolicy)
 	}
 }
 

@@ -188,6 +188,35 @@ type RoutingGroupRequest struct {
 	Members []RoutingGroupMember `json:"members"`
 }
 
+type SeparateRuntimeSettings struct {
+	RunSeparate bool     `json:"run_separate"`
+	Triggers    []string `json:"triggers"`
+}
+
+type SeparateRuntimeRequest struct {
+	NodeID   string                  `json:"node_id"`
+	LocalID  string                  `json:"local_id"`
+	Settings SeparateRuntimeSettings `json:"settings"`
+}
+
+// SeparateRuntimeResponse carries the effective settings for a config on a node
+// plus the vocabulary the dialog offers. HasOverride is false when Settings is the
+// inherited default rather than a saved per-node row.
+type SeparateRuntimeResponse struct {
+	NodeID      string                    `json:"node_id"`
+	LocalID     string                    `json:"local_id"`
+	Settings    SeparateRuntimeSettings   `json:"settings"`
+	HasOverride bool                      `json:"has_override"`
+	Inherited   SeparateRuntimeSettings   `json:"inherited"`
+	Candidates  SeparateRuntimeCandidates `json:"candidates"`
+}
+
+type SeparateRuntimeCandidates struct {
+	Lanes    []string `json:"lanes"`
+	Families []string `json:"families"`
+	Configs  []string `json:"configs"`
+}
+
 type ModelStateRequest struct {
 	NodeID  string `json:"node_id"`
 	LocalID string `json:"local_id"`

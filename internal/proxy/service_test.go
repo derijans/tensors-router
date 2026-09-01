@@ -3532,7 +3532,7 @@ func TestSeparateEmbeddingRuntimeIsLazyAndIndependentlyUnloadable(t *testing.T) 
 	}
 }
 
-func TestStandaloneEmbeddingsSurvivePrimarySwitchAndReplaceAcrossFamilies(t *testing.T) {
+func TestStandaloneEmbeddingsCoexistAcrossFamiliesAndSurvivePrimarySwitch(t *testing.T) {
 	dir := t.TempDir()
 	writeProxyTestConfig(t, dir, "kobold-text", `{"backend_mode":"kobold","model_param":"C:/models/text.gguf"}`)
 	writeProxyTestConfig(t, dir, "llama-text", `{"backend_mode":"llama_sdcpp","model_param":"C:/models/text.gguf"}`)
@@ -3559,8 +3559,8 @@ func TestStandaloneEmbeddingsSurvivePrimarySwitchAndReplaceAcrossFamilies(t *tes
 	service := NewService(ServiceConfig{
 		BackendMode: BackendModeKobold,
 		BackendFamilies: map[string]BackendFamilyConfig{
-			BackendModeKobold:     {TextBackend: koboldText, EmbeddingsBackend: koboldEmbeddings, StopPrimary: koboldText.Unload},
-			BackendModeLlamaSDCPP: {TextBackend: llamaText, EmbeddingsBackend: llamaEmbeddings, StopPrimary: llamaText.Unload},
+			BackendModeKobold:     {TextBackend: koboldText, SeparateBackend: staticSeparateBackend(koboldEmbeddings), StopPrimary: koboldText.Unload},
+			BackendModeLlamaSDCPP: {TextBackend: llamaText, SeparateBackend: staticSeparateBackend(llamaEmbeddings), StopPrimary: llamaText.Unload},
 		},
 		Catalog:   catalog.New(dir),
 		ConfigDir: dir,
@@ -3570,17 +3570,17 @@ func TestStandaloneEmbeddingsSurvivePrimarySwitchAndReplaceAcrossFamilies(t *tes
 	postProxyModelRequest(t, service, "/v1/embeddings", `{"model":"kobold-embed","input":"one"}`)
 	postProxyModelRequest(t, service, "/v1/chat/completions", `{"model":"llama-text","messages":[]}`)
 	if koboldEmbeddings.unloads.Load() != 0 {
-		t.Fatalf("primary switch unloaded standalone embeddings %d times", koboldEmbeddings.unloads.Load())
+		t.Fatalf("primary switch unloaded the pooled embeddings %d times", koboldEmbeddings.unloads.Load())
 	}
 	postProxyModelRequest(t, service, "/v1/embeddings", `{"model":"llama-embed","input":"two"}`)
-	if koboldEmbeddings.unloads.Load() != 1 || llamaEmbeddings.reloads.Load() != 1 {
-		t.Fatalf("embedding replacement wrong kobold unloads=%d llama reloads=%d", koboldEmbeddings.unloads.Load(), llamaEmbeddings.reloads.Load())
+	if koboldEmbeddings.unloads.Load() != 0 || llamaEmbeddings.reloads.Load() != 1 {
+		t.Fatalf("second family's embeddings did not coexist kobold unloads=%d llama reloads=%d", koboldEmbeddings.unloads.Load(), llamaEmbeddings.reloads.Load())
 	}
 	if err := service.unloadLocal(context.Background(), "embeddings"); err != nil {
 		t.Fatal(err)
 	}
-	if llamaEmbeddings.unloads.Load() != 1 {
-		t.Fatalf("manual embedding unload selected wrong owner %d", llamaEmbeddings.unloads.Load())
+	if koboldEmbeddings.unloads.Load() != 1 || llamaEmbeddings.unloads.Load() != 1 {
+		t.Fatalf("manual embedding unload missed a pool entry kobold=%d llama=%d", koboldEmbeddings.unloads.Load(), llamaEmbeddings.unloads.Load())
 	}
 }
 
@@ -3793,9 +3793,9 @@ func newExplicitEmbeddingLoadService(t *testing.T, configContent string) (*Servi
 		BackendMode: BackendModeLlamaSDCPP,
 		BackendFamilies: map[string]BackendFamilyConfig{
 			BackendModeLlamaSDCPP: {
-				TextBackend:       textBackend,
-				EmbeddingsBackend: embeddingsBackend,
-				ImageBackend:      imageBackend,
+				TextBackend:     textBackend,
+				ImageBackend:    imageBackend,
+				SeparateBackend: staticSeparateBackend(embeddingsBackend),
 			},
 		},
 		Catalog:   catalog.New(dir),
@@ -3842,9 +3842,9 @@ func newSeparateEmbeddingTestService(t *testing.T, gpu bool) (*Service, *fakeBac
 		BackendMode: BackendModeKobold,
 		BackendFamilies: map[string]BackendFamilyConfig{
 			BackendModeKobold: {
-				TextBackend:       textBackend,
-				EmbeddingsBackend: embeddingsBackend,
-				ImageBackend:      textBackend,
+				TextBackend:     textBackend,
+				ImageBackend:    textBackend,
+				SeparateBackend: staticSeparateBackend(embeddingsBackend),
 			},
 		},
 		Catalog:   catalog.New(dir),
@@ -3852,6 +3852,10 @@ func newSeparateEmbeddingTestService(t *testing.T, gpu bool) (*Service, *fakeBac
 		Logger:    log.New(io.Discard, "", 0),
 	})
 	return service, textBackend, embeddingsBackend
+}
+
+func staticSeparateBackend(backend Backend) separateBackendFactory {
+	return func(string, string) (Backend, error) { return backend, nil }
 }
 
 func testClusterImageEmbeddingModel(id string, nodeID string, modelHash string, configHash string, source string, imageName string) cluster.Model {

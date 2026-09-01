@@ -62,14 +62,21 @@ func TestUnloadPolicyOptionAllowsCurrentTargets(t *testing.T) {
 		if err != nil {
 			t.Fatalf("expected %q to resolve: %v", value, err)
 		}
-		if !ok || policy != value {
-			t.Fatalf("unexpected unload policy result policy=%q ok=%t", policy, ok)
+		if !ok || len(policy) != 1 || policy[0] != value {
+			t.Fatalf("unexpected unload policy result policy=%v ok=%t", policy, ok)
 		}
 	}
 
-	_, _, err := UnloadPolicyOption(Options{unloadpolicy.Key: rawJSON(t, "gpu")})
-	if err == nil {
+	multi, ok, err := UnloadPolicyOption(Options{unloadpolicy.Key: json.RawMessage(`["image","family:kobold"]`)})
+	if err != nil || !ok || len(multi) != 2 {
+		t.Fatalf("array unload policy did not resolve: policy=%v ok=%t err=%v", multi, ok, err)
+	}
+
+	if _, _, err := UnloadPolicyOption(Options{unloadpolicy.Key: rawJSON(t, "gpu")}); err == nil {
 		t.Fatal("expected invalid unload policy error")
+	}
+	if _, _, err := UnloadPolicyOption(Options{unloadpolicy.Key: json.RawMessage(`["none","image"]`)}); err == nil {
+		t.Fatal("expected none combined with a lane to fail")
 	}
 }
 

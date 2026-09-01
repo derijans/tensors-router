@@ -40,6 +40,8 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		service.handleSiteModelState(w, r)
 	case r.URL.Path == "/router/v1/site/routing-groups":
 		service.handleSiteRoutingGroups(w, r)
+	case r.URL.Path == "/router/v1/site/separate-runtimes":
+		service.handleSiteSeparateRuntimes(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/download/capabilities":
 		service.handleSiteDownloadCapabilities(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/download/search":
@@ -127,6 +129,10 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/models/state":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeModelState(w, r)
+		}
+	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && r.URL.Path == nodeSeparateRuntimesPath:
+		if service.requireClusterToken(w, r) {
+			service.handleNodeSeparateRuntimes(w, r)
 		}
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/state":
 		if service.requireClusterToken(w, r) {
@@ -698,32 +704,33 @@ func (service *Service) loadLocalRuntimeForRequest(ctx context.Context, mode str
 }
 
 func (service *Service) unloadLocal(ctx context.Context, target string) error {
-	if target == unloadpolicy.Embeddings {
-		return service.unloadActiveEmbedding(ctx)
-	}
 	family := service.backendFamilies[service.currentBackendMode()]
 	if family == nil {
-		return nil
+		return service.unloadSeparateLane(ctx, target)
 	}
 	runtimes, err := service.runtimesForUnloadTarget(family.mode, target)
 	if err != nil {
 		return err
 	}
-	return service.unloadRuntimes(ctx, runtimes)
-}
-
-func (service *Service) unloadActiveEmbedding(ctx context.Context) error {
-	service.embeddingSelection.mu.Lock()
-	defer service.embeddingSelection.mu.Unlock()
-	runtime := service.embeddingSelection.runtime
-	if runtime == nil {
-		return nil
+	if target == unloadpolicy.Embeddings {
+		// Kobold and llama serve non-separate embeddings inline on the text runtime;
+		// only a dedicated embeddings runtime (vLLM) and the pool should be unloaded.
+		runtimes = distinctFromTextRuntime(family, runtimes)
 	}
-	if err := service.unloadRuntime(ctx, runtime); err != nil {
+	if err := service.unloadRuntimes(ctx, runtimes); err != nil {
 		return err
 	}
-	service.embeddingSelection.runtime = nil
-	return nil
+	return service.unloadSeparateLane(ctx, target)
+}
+
+func distinctFromTextRuntime(family *backendFamily, runtimes []*backendRuntime) []*backendRuntime {
+	filtered := make([]*backendRuntime, 0, len(runtimes))
+	for _, runtime := range runtimes {
+		if runtime != nil && runtime != family.textRuntime {
+			filtered = append(filtered, runtime)
+		}
+	}
+	return filtered
 }
 
 func readModelControlRequest(r *http.Request, requireModel bool) (modelControlRequest, error) {

@@ -128,6 +128,16 @@ export function optionInputValue(value: JsonValue | undefined): string {
   return JSON.stringify(value) ?? "";
 }
 
+export function optionInputList(value: JsonValue | undefined): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((item): item is string => typeof item === "string" && item.trim() !== "");
+  }
+  if (typeof value === "string" && value.trim() !== "") {
+    return value.split(/[\s,]+/).filter(Boolean);
+  }
+  return [];
+}
+
 export function optionValueLabel(value: JsonValue | undefined): string {
   if (typeof value === "string") {
     return value;
@@ -169,6 +179,12 @@ export function parseOptionInput(definition: OptionDefinition | undefined, value
       } catch {
         return conversionResult(definition.key, value, value, "Invalid JSON is kept as a string.");
       }
+    case "string_list": {
+      if (!trimmed) {
+        return {value: [], warnings: []};
+      }
+      return {value: trimmed.split(/[\s,]+/).filter(Boolean), warnings: []};
+    }
     default:
       return {value, warnings: []};
   }

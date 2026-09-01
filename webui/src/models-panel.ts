@@ -18,7 +18,7 @@ export function renderModelsPanel(models: Model[], nodes: NodeInventory[]): void
   });
   elements.modelsRowCount.textContent = `${filtered.length} of ${models.length} models`;
   elements.modelsScanNotices.innerHTML = scanNotices(nodes);
-  elements.modelsTable.innerHTML = filtered.length > 0 ? filtered.map(modelRow).join("") : `<tr><td class="inventory-empty" colspan="10">No models match the current filters.</td></tr>`;
+  elements.modelsTable.innerHTML = filtered.length > 0 ? filtered.map(modelRow).join("") : `<tr><td class="inventory-empty" colspan="11">No models match the current filters.</td></tr>`;
 }
 
 function modelRow(model: Model): string {
@@ -35,6 +35,7 @@ function modelRow(model: Model): string {
       <td>${escapeHTML(benchmarkCompactLabel(model))}</td>
       <td>${modelAssetAvailability(model)}</td>
       <td>${routingCell(model)}</td>
+      <td>${separateCell(model, operationGroup)}</td>
       <td><button type="button" data-operation-group="${escapeAttribute(operationGroup)}" data-load-config="${escapeAttribute(model.public_id || model.local_id)}" ${enabled ? "" : "disabled"}>Load</button></td>
     </tr>`;
 }
@@ -48,6 +49,15 @@ function routingCell(model: Model): string {
   }
   const peers = peerCountForModel(state.routingGroups, {node_id: model.node_id, image_id: imageID});
   return `<button type="button" data-routing-node="${escapeAttribute(model.node_id)}" data-routing-image="${escapeAttribute(imageID)}">${escapeHTML(routingButtonLabel(peers))}</button>`;
+}
+
+// Only kobold and llama configs can run in a separate process; vLLM rows leave the
+// cell empty rather than offer a control that would do nothing.
+function separateCell(model: Model, operationGroup: string): string {
+  if (!model.node_id || model.backend_mode === "vllm") {
+    return "";
+  }
+  return `<button type="button" data-operation-group="${escapeAttribute(operationGroup)}" data-separate-node="${escapeAttribute(model.node_id)}" data-separate-id="${escapeAttribute(model.local_id)}">Separate</button>`;
 }
 
 function modelAssetAvailability(model: Model): string {

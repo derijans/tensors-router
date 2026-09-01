@@ -175,6 +175,8 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		server.proxyRouter(w, r, http.MethodPost, "/router/v1/site/models/state")
 	case r.URL.Path == "/api/routing-groups" && (r.Method == http.MethodGet || r.Method == http.MethodPost || r.Method == http.MethodDelete):
 		server.proxyRouter(w, r, r.Method, "/router/v1/site/routing-groups")
+	case r.URL.Path == "/api/separate-runtimes" && (r.Method == http.MethodGet || r.Method == http.MethodPost):
+		server.proxyRouter(w, r, r.Method, "/router/v1/site/separate-runtimes")
 	case r.URL.Path == "/api/download/capabilities" && r.Method == http.MethodGet:
 		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/download/capabilities")
 	case r.URL.Path == "/api/download/search" && r.Method == http.MethodPost:

@@ -22,10 +22,11 @@ const (
 )
 
 const (
-	ValueString = "string"
-	ValueNumber = "number"
-	ValueBool   = "bool"
-	ValueJSON   = "json"
+	ValueString     = "string"
+	ValueStringList = "string_list"
+	ValueNumber     = "number"
+	ValueBool       = "bool"
+	ValueJSON       = "json"
 
 	jinjaPrecedenceKey = catalog.RouterJinjaKwargsPrecedenceKey
 )
@@ -52,7 +53,7 @@ const (
 
 var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option(backendmode.Key, "Backend", LaneRuntime, ValueString, "", false, backendmode.Kobold, backendmode.LlamaSDCPP, backendmode.VLLM),
-	option(unloadpolicy.Key, "Unload Policy", LaneRuntime, ValueString, "", false, backendmode.Kobold, backendmode.LlamaSDCPP, backendmode.VLLM),
+	option(unloadpolicy.Key, "Unload Policy", LaneRuntime, ValueStringList, "", false, backendmode.Kobold, backendmode.LlamaSDCPP, backendmode.VLLM),
 	option("vllm", "vLLM Runtime", LaneRuntime, ValueJSON, "", false, backendmode.VLLM),
 	option("baseconfig", "Base Config", LaneRuntime, ValueString, "", false, "kobold"),
 	option("config", "Config", LaneRuntime, ValueString, "", false, "kobold", "llama_sdcpp"),
@@ -431,8 +432,8 @@ func BackendModeOption(options Options) (string, bool, error) {
 	return mode, true, nil
 }
 
-func UnloadPolicyOption(options Options) (string, bool, error) {
-	return unloadpolicy.ResolveRaw(options)
+func UnloadPolicyOption(options Options) (unloadpolicy.Selection, bool, error) {
+	return unloadpolicy.ResolveSelectionRaw(options)
 }
 
 func lanesForComponents(components []Component) map[string]bool {
@@ -510,7 +511,7 @@ func enrichOptionCatalog(values []OptionDefinition) []OptionDefinition {
 var optionMetadataByKey = map[string]optionMetadata{
 	"backend_mode":               meta(values(backendmode.Kobold, backendmode.LlamaSDCPP, backendmode.VLLM), "", "", "", ""),
 	"vllm":                       meta(nil, "", "", SourceVLLMOnlineServing, SectionRuntime),
-	"router_unload_policy":       meta(unloadpolicy.Values(), "", unloadpolicy.None, "", ""),
+	"router_unload_policy":       meta(unloadpolicy.Triggers(), "", unloadpolicy.None, "", ""),
 	"baseconfig":                 meta(nil, "config", "", SourceKoboldCPP, ""),
 	"config":                     meta(nil, "config", "", SourceLlamaCPPServer, ""),
 	"host":                       meta(nil, "", "127.0.0.1", SourceLlamaCPPServer, ""),

@@ -11,8 +11,9 @@ export interface LaneMetadata {
 export const laneKinds: LaneKind[] = ["text", "image", "embeddings", "voice", "music"];
 
 export type BackendMode = "kobold" | "llama_sdcpp" | "vllm";
-export type UnloadPolicy = "none" | LaneKind | "all";
-export type UnloadTarget = Exclude<UnloadPolicy, "none">;
+export type FamilyTrigger = "family:kobold" | "family:llama_sdcpp" | "family:vllm";
+export type UnloadPolicy = "none" | LaneKind | "all" | FamilyTrigger;
+export type UnloadTarget = Exclude<UnloadPolicy, "none" | FamilyTrigger>;
 
 export const backendModeKey = "backend_mode";
 export const unloadPolicyKey = "router_unload_policy";
@@ -20,7 +21,8 @@ export const jinjaKwargsKey = "jinja_kwargs";
 export const jinjaKwargsPrecedenceKey = "router_jinja_kwargs_precedence";
 
 export const backendModes: BackendMode[] = ["kobold", "llama_sdcpp", "vllm"];
-export const unloadPolicies: UnloadPolicy[] = ["none", ...laneKinds, "all"];
+export const familyTriggers: FamilyTrigger[] = ["family:kobold", "family:llama_sdcpp", "family:vllm"];
+export const unloadPolicies: UnloadPolicy[] = ["none", ...laneKinds, "all", ...familyTriggers];
 export const unloadTargets: UnloadTarget[] = [...laneKinds, "all"];
 
 export const backendModeLabels: Record<BackendMode, string> = {
@@ -36,7 +38,10 @@ export const unloadPolicyLabels: Record<UnloadPolicy, string> = {
   embeddings: "Embeddings",
   voice: "Voice",
   music: "Music",
-  all: "All"
+  all: "All",
+  "family:kobold": "Any Kobold config",
+  "family:llama_sdcpp": "Any llama/sd.cpp config",
+  "family:vllm": "Any vLLM config"
 };
 
 export const jinjaKwargsPrecedenceLabels: Record<"config" | "client", string> = {
