@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/ggml-org/llama.cpp",
+  "releases": [
+    {
+      "id": "380234052",
+      "tag": "b10731",
+      "published_at": "2026-09-01T05:34:08Z",
+      "prerelease": true,
+      "payloads": [
+        {
+          "name": "llama-b10731-bin-ubuntu-x64.tar.gz",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10731/llama-b10731-bin-ubuntu-x64.tar.gz",
+          "length": 16703598,
+          "sha256": "98bd209935b27c305a996959545cb1da3975478ccd317c09dafbb2ed1c0ce41f"
+        }
+      ]
+    }
+  ]
+}
