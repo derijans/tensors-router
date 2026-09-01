@@ -2,14 +2,20 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"log"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"tensors-router/internal/catalog"
+	"tensors-router/internal/cluster"
+	"tensors-router/internal/modelstate"
+	"tensors-router/internal/siteapi"
 	"tensors-router/internal/unloadpolicy"
 )
 
@@ -156,5 +162,114 @@ func TestSeparateEntryTriggeredBy(t *testing.T) {
 	}
 	if !separateEntryTriggeredBy(unloadpolicy.Selection{"all"}, "kobold", lanes, ids) {
 		t.Fatal("all always evicts")
+	}
+}
+
+func newSeparateRuntimeClusterPair(t *testing.T) (master *Service, remoteNodeID string, localModelID string) {
+	t.Helper()
+	remoteNodeID = "slave-a"
+	localModelID = "llm"
+
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, localModelID+".kcpps"), []byte(`{"model_param":"model.gguf"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	slaveCatalog := catalog.New(configDir)
+	slaveModels, err := slaveCatalog.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	slaveRegistry := cluster.NewRegistry(cluster.RoleStandalone, remoteNodeID, "http://slave-a.invalid")
+	if err := slaveRegistry.UpdateLocal(cluster.LocalModels(slaveModels, remoteNodeID, "http://slave-a.invalid", cluster.SourceLocal)); err != nil {
+		t.Fatal(err)
+	}
+	store, err := modelstate.NewStore(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	slaveBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"object":"list","data":[]}`))
+	}))
+	t.Cleanup(slaveBackend.Close)
+	slaveBackendURL := mustParseURL(t, slaveBackend.URL)
+	slaveService := NewService(ServiceConfig{
+		Backend:         &fakeBackend{url: slaveBackendURL, healthy: true},
+		Catalog:         slaveCatalog,
+		ConfigDir:       configDir,
+		Registry:        slaveRegistry,
+		ModelStateStore: store,
+		ClusterRole:     cluster.RoleStandalone,
+		ClusterToken:    "secret",
+		NodeID:          remoteNodeID,
+		NodeURL:         "http://slave-a.invalid",
+		Logger:          log.New(io.Discard, "", 0),
+	})
+	t.Cleanup(func() { _ = slaveService.Close(context.Background()) })
+	slave := httptest.NewServer(http.HandlerFunc(slaveService.ServeHTTP))
+	t.Cleanup(slave.Close)
+
+	masterRegistry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master.invalid")
+	if err := masterRegistry.UpdateNode(cluster.Snapshot{NodeID: remoteNodeID, NodeURL: slave.URL}); err != nil {
+		t.Fatal(err)
+	}
+	master = NewService(ServiceConfig{
+		Catalog:      catalog.New(t.TempDir()),
+		Registry:     masterRegistry,
+		ClusterRole:  cluster.RoleMaster,
+		ClusterToken: "secret",
+		NodeID:       "master",
+		NodeURL:      "http://master.invalid",
+		Logger:       log.New(io.Discard, "", 0),
+	})
+	return master, remoteNodeID, localModelID
+}
+
+func TestSiteSeparateRuntimesStatusFetchReachesRemoteNode(t *testing.T) {
+	master, remoteNodeID, localModelID := newSeparateRuntimeClusterPair(t)
+
+	recorder := httptest.NewRecorder()
+	target := "/router/v1/site/separate-runtimes?node_id=" + remoteNodeID + "&local_id=" + localModelID
+	master.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, target, nil))
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("remote status fetch failed with %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response siteapi.SeparateRuntimeResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if response.NodeID != remoteNodeID || response.LocalID != localModelID {
+		t.Fatalf("unexpected response %#v", response)
+	}
+}
+
+func TestSiteSeparateRuntimesUpdateReachesRemoteNode(t *testing.T) {
+	master, remoteNodeID, localModelID := newSeparateRuntimeClusterPair(t)
+
+	requestBody, err := json.Marshal(siteapi.SeparateRuntimeRequest{
+		NodeID:  remoteNodeID,
+		LocalID: localModelID,
+		Settings: siteapi.SeparateRuntimeSettings{
+			RunSeparate: true,
+			Triggers:    []string{"none"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/router/v1/site/separate-runtimes", strings.NewReader(string(requestBody)))
+	master.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("remote update failed with %d: %s", recorder.Code, recorder.Body.String())
+	}
+	var response siteapi.SeparateRuntimeResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if !response.HasOverride || !response.Settings.RunSeparate {
+		t.Fatalf("update did not persist on the remote node: %#v", response)
 	}
 }

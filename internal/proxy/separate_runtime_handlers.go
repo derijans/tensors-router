@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -83,18 +84,21 @@ func (service *Service) writeSeparateRuntime(w http.ResponseWriter, r *http.Requ
 		openai.WriteError(w, http.StatusNotFound, "not_found", fmt.Sprintf("node %q was not found", nodeID))
 		return
 	}
-	method := http.MethodGet
-	request := siteapi.SeparateRuntimeRequest{NodeID: nodeID, LocalID: localID}
-	if settings != nil {
-		method = http.MethodPost
-		request.Settings = *settings
-	}
+	method, path, body := remoteSeparateRuntimeRequest(nodeID, localID, settings)
 	var response siteapi.SeparateRuntimeResponse
-	if err := service.clusterClient.JSON(r.Context(), method, nodeURL, nodeSeparateRuntimesPath, request, &response); err != nil {
+	if err := service.clusterClient.JSON(r.Context(), method, nodeURL, path, body, &response); err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "separate_runtime_error", err.Error())
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, response)
+}
+
+func remoteSeparateRuntimeRequest(nodeID string, localID string, settings *siteapi.SeparateRuntimeSettings) (method string, path string, body any) {
+	if settings != nil {
+		return http.MethodPost, nodeSeparateRuntimesPath, siteapi.SeparateRuntimeRequest{NodeID: nodeID, LocalID: localID, Settings: *settings}
+	}
+	statusQuery := url.Values{"node_id": {nodeID}, "local_id": {localID}}
+	return http.MethodGet, nodeSeparateRuntimesPath + "?" + statusQuery.Encode(), nil
 }
 
 func (service *Service) applyLocalSeparateRuntime(ctx context.Context, localID string, settings *siteapi.SeparateRuntimeSettings) (siteapi.SeparateRuntimeResponse, error) {
