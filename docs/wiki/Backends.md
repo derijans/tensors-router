@@ -14,9 +14,9 @@ Configs that run separately (see [Separate runtimes](#separate-runtimes)) are th
 
 ## Separate runtimes
 
-Any kobold or `llama_sdcpp` config can be marked **Separate** in the WebUI (per node, stored in the model-state database; `.kcpps` files are not rewritten). A config marked separate — or a legacy embeddings config with `run_embed_separate: true` — runs in its own backend process from a pooled set, with its own model gate. Another config's load, switch, or unload on the shared runtime never touches it.
+Any kobold or `llama_sdcpp` config can be marked **Separate** in the WebUI (per node, stored in the model-state database; `.kcpps` files are not rewritten). A config marked separate, or a legacy embeddings config with `run_embed_separate: true`, runs in its own backend process from a pooled set, with its own model gate. Another config's load, switch, or unload on the shared runtime never touches it.
 
-- The pool is capped by `limits.separate_runtimes` (default 5). When it is full, the least-recently-used entry is unloaded and its port returned to the allocator — including an entry whose triggers say "do not unload".
+- The pool is capped by `limits.separate_runtimes` (default 5). When it is full, the least-recently-used entry is unloaded and its port returned to the allocator, including an entry whose triggers say "do not unload".
 - Each separate config carries its own `router_unload_policy` trigger set, which decides which loads elsewhere evict it. `none` means no trigger evicts it (it can still be evicted by pool pressure). Pool runtimes are never evicted by another config's `router_unload_policy`.
 - Placement (CPU vs GPU) stays whatever the `.kcpps` says; the toggle only decides process isolation.
 - Each entry appears in the Nodes tab as a `<mode>-separate-<id>` runtime and is individually unloadable.
