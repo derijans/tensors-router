@@ -11,6 +11,7 @@ import (
 
 	"tensors-router/internal/backenddiagnostic"
 	"tensors-router/internal/catalog"
+	"tensors-router/internal/loaderrors"
 )
 
 type backendRuntime struct {
@@ -65,13 +66,16 @@ type modelConfigAcquireOptions struct {
 func (service *Service) acquireModelConfigForBackendModeWithOptions(mode string, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, options modelConfigAcquireOptions) (*backendRuntime, func(), bool, error) {
 	resolvedReadiness, err := service.readinessForConfig(configFilename, readiness)
 	if err != nil {
+		service.recordLoadErrorFromErr(loaderrors.PhaseConfigParse, "proxy.readinessForConfig", configFilename, err)
 		return nil, nil, false, err
 	}
 	readiness = resolvedReadiness
 	if err := service.ensureModelConfigHash(configFilename); err != nil {
+		service.recordLoadErrorFromErr(loaderrors.PhaseConfigParse, "proxy.ensureModelConfigHash", configFilename, err)
 		return nil, nil, false, err
 	}
 	if err := service.ensureModelAssets(ctx, configFilename); err != nil {
+		service.recordLoadErrorFromErr(loaderrors.PhaseAssetResolve, "proxy.ensureModelAssets", configFilename, err)
 		return nil, nil, false, err
 	}
 
@@ -427,7 +431,19 @@ func (service *Service) backendLoadDiagnosticError(err error, runtime *backendRu
 	diagnostic := finish(false)
 	diagnostic.NodeID = service.nodeID
 	diagnostic.Backend = runtime.name
-	return backenddiagnostic.WithDiagnostic(err, diagnostic)
+	wrapped := backenddiagnostic.WithDiagnostic(err, diagnostic)
+	service.recordLoadError(loaderrors.RecordInput{
+		Phase:       loaderrors.PhasePreload,
+		Severity:    loaderrors.SeverityError,
+		Source:      "proxy.backendLoadDiagnosticError",
+		Backend:     runtime.name,
+		BackendMode: runtime.mode,
+		Message:     err.Error(),
+		Output:      diagnostic.Output,
+		ExitError:   diagnostic.ExitError,
+		Truncated:   diagnostic.Truncated,
+	})
+	return wrapped
 }
 
 func (service *Service) unloadRuntime(ctx context.Context, runtime *backendRuntime) error {
@@ -644,6 +660,12 @@ func (service *Service) chatTemplateProfileForConfig(filename string) catalog.Ch
 	}
 	models, err := service.catalog.List()
 	if err != nil {
+		service.recordLoadError(loaderrors.RecordInput{
+			Phase:    loaderrors.PhaseConfigParse,
+			Severity: loaderrors.SeverityWarning,
+			Source:   "proxy.chatTemplateProfileForConfig",
+			Message:  "catalog list failed while resolving the chat-template profile: " + err.Error(),
+		})
 		return catalog.ChatTemplateProfile{}
 	}
 	for _, model := range models {

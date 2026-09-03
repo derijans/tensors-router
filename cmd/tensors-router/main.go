@@ -26,6 +26,7 @@ import (
 	"tensors-router/internal/ffmpeg"
 	"tensors-router/internal/kobold"
 	"tensors-router/internal/loadcapture"
+	"tensors-router/internal/loaderrors"
 	"tensors-router/internal/mcp"
 	"tensors-router/internal/modelassets"
 	"tensors-router/internal/modelstate"
@@ -135,6 +136,7 @@ func runServe(args []string) error {
 	defer assetIndex.Close()
 	var analyticsStore *routeranalytics.Store
 	var loadCaptureStore *loadcapture.Store
+	var loadErrorStore *loaderrors.Store
 	var downloaderManager downloader.Service
 	var vllmManager vllm.Service
 	var vllmUnavailableReason string
@@ -146,7 +148,7 @@ func runServe(args []string) error {
 			return nil
 		}
 		runtimeCleaned = true
-		return errors.Join(closeRouterRuntime(routerService, modelCatalog, analyticsStore, shutdownBackends, serveLogger), loadCaptureStore.Close(), closeDownloader(downloaderManager), closeVLLM(vllmManager))
+		return errors.Join(closeRouterRuntime(routerService, modelCatalog, analyticsStore, shutdownBackends, serveLogger), loadCaptureStore.Close(), loadErrorStore.Close(), closeDownloader(downloaderManager), closeVLLM(vllmManager))
 	}
 	defer func() {
 		if err := cleanupRuntime(); err != nil {
@@ -180,6 +182,10 @@ func runServe(args []string) error {
 		return err
 	}
 	loadCaptureStore, err = newLoadCaptureStore(cfg, serveLogger)
+	if err != nil {
+		return err
+	}
+	loadErrorStore, err = newLoadErrorStore(cfg)
 	if err != nil {
 		return err
 	}
@@ -302,6 +308,7 @@ func runServe(args []string) error {
 		SchedulingGrantTTL:        cfg.Cluster.SchedulingGrantTTL,
 		AnalyticsStore:            analyticsStore,
 		LoadCaptureStore:          loadCaptureStore,
+		LoadErrorStore:            loadErrorStore,
 		LoadCaptureMaxOutputBytes: cfg.Analytics.LoadCaptureMaxOutputMB * 1024 * 1024,
 		VRAMAnalyticsEnabled:      cfg.Analytics.Enabled && cfg.Analytics.VRAMEnabled,
 		VRAMSampleInterval:        cfg.Analytics.VRAMSampleInterval,
@@ -326,6 +333,7 @@ func runServe(args []string) error {
 		SeparateRuntimeLimit: cfg.Limits.SeparateRuntimes,
 	})
 	routerService = router
+	router.RecordConfigWarnings(cfg.Warnings)
 	if err := routercluster.RegisterInitial(ctx, syncConfig, registry, clusterProbeClient, serveLogger); err != nil {
 		router.BeginDrain()
 		return err
@@ -482,6 +490,22 @@ func newLoadCaptureStore(cfg config.Config, logger *log.Logger) (*loadcapture.St
 		databasePath = filepath.Join(cfg.Cluster.StoreDir, "load-captures.sqlite")
 	}
 	return loadcapture.NewStore(loadcapture.StoreConfig{NodeID: cfg.Cluster.NodeID, DatabasePath: databasePath, Logger: logger})
+}
+
+func newLoadErrorStore(cfg config.Config) (*loaderrors.Store, error) {
+	if !cfg.Diagnostics.Enabled {
+		return nil, nil
+	}
+	databasePath := strings.TrimSpace(cfg.Diagnostics.DatabasePath)
+	if databasePath == "" {
+		databasePath = filepath.Join(cfg.Cluster.StoreDir, "load-errors.sqlite")
+	}
+	return loaderrors.NewStore(loaderrors.StoreConfig{
+		NodeID:         cfg.Cluster.NodeID,
+		DatabasePath:   databasePath,
+		Retention:      cfg.Diagnostics.Retention,
+		MaxOutputBytes: int(cfg.Diagnostics.MaxOutputKB) << 10,
+	})
 }
 
 func clusterProbeTargets(cfg config.Config) []string {

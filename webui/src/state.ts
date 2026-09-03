@@ -81,6 +81,14 @@ export const state: AppState = {
     loading: false,
     error: ""
   },
+  loadErrors: {
+    records: [],
+    enabled: false,
+    selectedID: "",
+    nodeErrors: [],
+    loading: false,
+    error: ""
+  },
   webuis: {
     data: null,
     filter: "",
@@ -96,6 +104,10 @@ export const state: AppState = {
     selectedPlanFiles: [],
     library: null,
     search: [],
+    searchStatus: "idle",
+    searchError: "",
+    searchQuery: "",
+    selectedRepository: "",
     nextCursor: "",
     filterTab: "main",
     filters: [],

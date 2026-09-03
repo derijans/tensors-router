@@ -40,7 +40,11 @@ import {
   togglePlannedDownloadFile,
   updateDownloadFilterSearch,
   updateDownloadSearchMode,
-  clearDownloadFilter
+  clearDownloadFilter,
+  clearAllDownloadFilters,
+  setPlannedDownloadSelection,
+  syncDownloadJobPolling,
+  stopDownloadJobPolling
 } from "./downloads";
 import {
   loadAnalytics,
@@ -55,6 +59,7 @@ import {
   selectLoadCapture,
   updateLoadCaptureFilters
 } from "./load-captures";
+import { loadLoadErrors, selectLoadError } from "./load-errors";
 import { closestElement, elementTarget, queryElements } from "./dom";
 import { bootstrapApplication } from "./bootstrap";
 import { elements } from "./elements";
@@ -153,6 +158,7 @@ async function refreshAll(): Promise<void> {
   await loadAnalytics();
   await loadDownloads();
   await loadLoadCaptures();
+  await loadLoadErrors();
 }
 
 async function refreshRouterStatus(): Promise<void> {
@@ -174,6 +180,11 @@ function activateTab(name: string): void {
   queryElements("[data-tab]", HTMLButtonElement).forEach(tab => tab.classList.toggle("active", tab.dataset.tab === name));
   queryElements("[data-panel]", HTMLElement).forEach(panel => panel.classList.toggle("active", panel.dataset.panel === name));
   setNodesTabActive(name === "nodes");
+  if (name === "download") {
+    syncDownloadJobPolling();
+  } else {
+    stopDownloadJobPolling();
+  }
 }
 
 function activateCookMode(name: string | undefined): void {
@@ -234,6 +245,7 @@ elements.logoutButton.addEventListener("click", () => runTask(async () => {
 
 elements.refreshButton.addEventListener("click", () => runTask(refreshAll, "refresh-all", "refresh", "Refreshing data…"));
 elements.nodesGrid.addEventListener("click", handleNodesClick);
+elements.nodesDetail.addEventListener("click", handleNodesClick);
 elements.nodesRefreshButton.addEventListener("click", () => runTask(() => refreshInventory(false), "nodes-refresh", "nodes", "Refreshing nodes…"));
 elements.webuiFilterInput.addEventListener("input", () => updateWebUIFilter(elements.webuiFilterInput.value));
 elements.webuiGrid.addEventListener("click", event => {
@@ -271,6 +283,12 @@ elements.downloadPlanOutput.addEventListener("change", event => {
     togglePlannedDownloadFile(path);
   }
 });
+elements.downloadPlanOutput.addEventListener("click", event => {
+  const mode = elementTarget(event)?.dataset.downloadPlanSelect;
+  if (mode === "all" || mode === "none" || mode === "required") {
+    setPlannedDownloadSelection(mode);
+  }
+});
 elements.downloadStartButton.addEventListener("click", () => runTask(async () => {
   const unsafe = state.downloads.plan?.unsafe_warning || false;
   if (unsafe && !await confirmDestructive("Unsafe repository status", "Hugging Face reported an unsafe or pending security status. Download anyway?", "Download")) {
@@ -287,6 +305,7 @@ elements.downloadSearchResults.addEventListener("click", event => {
   const repository = target?.dataset.downloadRepository;
   if (repository) {
     chooseDownloadSearchResult(repository);
+    runTask(previewDownloadPlan, "download-plan", "download", "Preparing download plan…");
   }
   const candidateIndex = target?.dataset.downloadCandidateBind;
   if (candidateIndex !== undefined) {
@@ -323,7 +342,12 @@ elements.downloadFilterOptions.addEventListener("click", event => {
   }
 });
 elements.downloadFilterSummary.addEventListener("click", event => {
-  const filter = elementTarget(event)?.dataset.downloadFilterClear;
+  const target = elementTarget(event);
+  if (target?.dataset.downloadFilterClearAll !== undefined) {
+    clearAllDownloadFilters();
+    return;
+  }
+  const filter = target?.dataset.downloadFilterClear;
   if (filter) {
     clearDownloadFilter(filter);
   }
@@ -485,6 +509,15 @@ elements.loadCaptureRows.addEventListener("click", event => {
   const attemptID = target?.dataset.loadCaptureId;
   if (nodeID && attemptID) {
     runTask(() => selectLoadCapture(nodeID, attemptID), `load-capture-${attemptID}`, "load-captures", "Loading capture…");
+  }
+});
+elements.loadErrorsRefreshButton.addEventListener("click", () => runTask(loadLoadErrors, "load-errors-refresh", "load-errors", "Loading errors…"));
+elements.loadErrorPhaseSelect.addEventListener("change", () => runTask(loadLoadErrors, "load-errors-filter", "load-errors", "Loading errors…"));
+elements.loadErrorSeveritySelect.addEventListener("change", () => runTask(loadLoadErrors, "load-errors-filter", "load-errors", "Loading errors…"));
+elements.loadErrorRows.addEventListener("click", event => {
+  const id = elementTarget(event)?.closest<HTMLElement>("[data-load-error-id]")?.dataset.loadErrorId;
+  if (id) {
+    selectLoadError(id);
   }
 });
 

@@ -103,6 +103,9 @@ func (manager *Manager) downloadFileAttempt(ctx context.Context, repository stri
 	if expectedSize > 0 && actualSize != expectedSize {
 		return fmt.Errorf("downloaded size is %d bytes, expected %d", actualSize, expectedSize)
 	}
+	if expectedSize <= 0 && actualSize == 0 {
+		return fmt.Errorf("Hugging Face returned an empty body and no expected size for %q", repositoryPath)
+	}
 	return nil
 }
 

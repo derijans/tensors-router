@@ -1863,8 +1863,18 @@ td {
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04), 0 0 0 1px rgba(33, 240, 208, .2);
 }
 
+.node-detail-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.node-detail-stack:empty {
+  margin-top: 0;
+}
+
 .node-state-panel {
-  grid-column: 1 / -1;
   display: grid;
   gap: 14px;
   padding: 16px;

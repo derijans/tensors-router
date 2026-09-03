@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { selectedDownloadBytes, selectedDownloadFiles, toggleDownloadPath } from "../download-plan-data";
+import { planSelectionForMode, selectedDownloadBytes, selectedDownloadFiles, toggleDownloadPath } from "../download-plan-data";
 import type { DownloadPlan } from "../types";
 
 const plan: DownloadPlan = {
@@ -25,5 +25,11 @@ describe("download plan selection", () => {
   it("supports an empty selection so the UI can disable Start", () => {
     expect(selectedDownloadFiles(plan, [])).toEqual([]);
     expect(selectedDownloadBytes(plan, [])).toBe(0);
+  });
+
+  it("computes select all, none, and required-only selections", () => {
+    expect(planSelectionForMode(plan, "all")).toEqual(["model.gguf", "mmproj.gguf"]);
+    expect(planSelectionForMode(plan, "none")).toEqual([]);
+    expect(planSelectionForMode(plan, "required")).toEqual(["mmproj.gguf"]);
   });
 });

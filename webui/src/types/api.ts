@@ -800,6 +800,33 @@ export interface LoadCaptureDetailResponse {
   assets: {role: string; position: number; sha256: string}[];
 }
 
+export interface LoadErrorRecord {
+  id: string;
+  fingerprint: string;
+  first_seen_at: string;
+  last_seen_at: string;
+  occurrences: number;
+  node_id?: string;
+  model_id?: string;
+  config_name?: string;
+  backend?: string;
+  backend_mode?: string;
+  phase: string;
+  severity: string;
+  source?: string;
+  message: string;
+  exit_error?: string;
+  output?: string;
+  truncated?: boolean;
+}
+
+export interface LoadErrorListResponse {
+  enabled: boolean;
+  nodes: {node_id: string; enabled: boolean}[];
+  records: LoadErrorRecord[];
+  node_errors?: {node_id: string; error: string}[];
+}
+
 export interface LoadCaptureOutputChunk {
   sequence: number;
   stream: "stdout" | "stderr";

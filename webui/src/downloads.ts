@@ -15,7 +15,7 @@ import {
 import { elements } from "./elements";
 import { downloadNodeStatus, enabledDownloadNodes, preferredDownloadNodeID } from "./download-capability-data";
 import { normalizeModelHash, normalizeParameterRange, parseOfficialHFURL, splitSearchFilters } from "./download-finder-data";
-import { selectedDownloadBytes, selectedDownloadFiles, toggleDownloadPath } from "./download-plan-data";
+import { planSelectionForMode, selectedDownloadBytes, selectedDownloadFiles, toggleDownloadPath } from "./download-plan-data";
 import { hfFilterCatalog, hfFilterCatalogVersion } from "./hf-filter-catalog";
 import { state } from "./state";
 import { escapeAttribute, escapeHTML, formatBytes } from "./utils";
@@ -62,6 +62,46 @@ export async function loadDownloadLibrary(): Promise<void> {
   }
   state.downloads.library = await getDownloadLibrary(state.downloads.nodeID);
   renderDownloads();
+  syncDownloadJobPolling();
+}
+
+const jobProgressIntervalMilliseconds = 1500;
+let jobPollTimer: number | undefined;
+let jobPollNodeID = "";
+
+function hasActiveDownloadJob(): boolean {
+  return (state.downloads.library?.jobs || []).some(job => job.state === "queued" || job.state === "running");
+}
+
+export function syncDownloadJobPolling(): void {
+  const shouldPoll = state.activeTab === "download" && state.downloads.available && hasActiveDownloadJob();
+  if (!shouldPoll) {
+    stopDownloadJobPolling();
+    return;
+  }
+  jobPollNodeID = state.downloads.nodeID;
+  if (jobPollTimer !== undefined) {
+    return;
+  }
+  jobPollTimer = window.setTimeout(() => void runDownloadJobPoll(), jobProgressIntervalMilliseconds);
+}
+
+export function stopDownloadJobPolling(): void {
+  if (jobPollTimer !== undefined) {
+    window.clearTimeout(jobPollTimer);
+    jobPollTimer = undefined;
+  }
+}
+
+async function runDownloadJobPoll(): Promise<void> {
+  jobPollTimer = undefined;
+  if (state.activeTab !== "download" || state.downloads.nodeID !== jobPollNodeID || !hasActiveDownloadJob()) {
+    return;
+  }
+  const refreshed = await getDownloadLibrary(state.downloads.nodeID).catch(() => state.downloads.library);
+  state.downloads.library = refreshed;
+  renderDownloads();
+  syncDownloadJobPolling();
 }
 
 let searchController: AbortController | null = null;
@@ -77,6 +117,8 @@ export async function searchDownloadRepositories(append = false): Promise<void> 
   if (mode !== "text") {
     searchController?.abort();
     searchController = new AbortController();
+    state.downloads.searchStatus = "idle";
+    state.downloads.searchError = "";
     await runSpecialFinderMode(mode, query, token, searchController.signal);
     renderDownloads();
     return;
@@ -86,31 +128,50 @@ export async function searchDownloadRepositories(append = false): Promise<void> 
   const searchFilters = splitSearchFilters([...state.downloads.filters, ...rawTags]);
   searchController?.abort();
   searchController = new AbortController();
-  const page = await searchDownloadPage({
-    node_id: state.downloads.nodeID,
-    query,
-    ...(elements.downloadAuthorInput.value.trim() ? {author: elements.downloadAuthorInput.value.trim()} : {}),
-    ...(elements.downloadPipelineInput.value.trim() ? {pipeline_tag: elements.downloadPipelineInput.value.trim()} : {}),
-    filters: searchFilters.filters,
-    apps: searchFilters.apps,
-    inference_providers: searchFilters.providers,
-    trained_datasets: searchFilters.datasets,
-    ...(searchFilters.inference ? {inference: "true"} : {}),
-    sort: elements.downloadSortSelect.value,
-    direction: elements.downloadDirectionSelect.value,
-    ...(append && state.downloads.nextCursor ? {cursor: state.downloads.nextCursor} : {}),
-    limit: 20,
-    ...(elements.downloadGatedSelect.value ? {gated: elements.downloadGatedSelect.value} : {}),
-    ...(parameters ? {num_parameters: parameters} : {}),
-    ...(token ? {token} : {})
-  }, searchController.signal);
-  state.downloads.search = append ? [...state.downloads.search, ...page.results] : page.results;
-  state.downloads.observedFilters = [...new Set([
-    ...state.downloads.observedFilters,
-    ...page.results.flatMap(result => result.tags || []).filter(validObservedFilter)
-  ])].slice(-160);
-  state.downloads.nextCursor = page.next_cursor || "";
+  state.downloads.searchStatus = "searching";
+  state.downloads.searchError = "";
+  state.downloads.searchQuery = query;
+  if (!append) {
+    state.downloads.search = [];
+  }
   renderDownloads();
+  try {
+    const page = await searchDownloadPage({
+      node_id: state.downloads.nodeID,
+      query,
+      ...(elements.downloadAuthorInput.value.trim() ? {author: elements.downloadAuthorInput.value.trim()} : {}),
+      ...(elements.downloadPipelineInput.value.trim() ? {pipeline_tag: elements.downloadPipelineInput.value.trim()} : {}),
+      filters: searchFilters.filters,
+      apps: searchFilters.apps,
+      inference_providers: searchFilters.providers,
+      trained_datasets: searchFilters.datasets,
+      ...(searchFilters.inference ? {inference: "true"} : {}),
+      sort: elements.downloadSortSelect.value,
+      direction: elements.downloadDirectionSelect.value,
+      ...(append && state.downloads.nextCursor ? {cursor: state.downloads.nextCursor} : {}),
+      limit: 20,
+      ...(elements.downloadGatedSelect.value ? {gated: elements.downloadGatedSelect.value} : {}),
+      ...(parameters ? {num_parameters: parameters} : {}),
+      ...(token ? {token} : {})
+    }, searchController.signal);
+    state.downloads.search = append ? [...state.downloads.search, ...page.results] : page.results;
+    state.downloads.observedFilters = [...new Set([
+      ...state.downloads.observedFilters,
+      ...page.results.flatMap(result => result.tags || []).filter(validObservedFilter)
+    ])].slice(-160);
+    state.downloads.nextCursor = page.next_cursor || "";
+    state.downloads.searchStatus = state.downloads.search.length === 0 ? "empty" : "ok";
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      state.downloads.searchStatus = state.downloads.search.length === 0 ? "idle" : "ok";
+      return;
+    }
+    state.downloads.searchStatus = "error";
+    state.downloads.searchError = error instanceof Error ? error.message : String(error);
+    throw error;
+  } finally {
+    renderDownloads();
+  }
 }
 
 export function updateDownloadSearchMode(): void {
@@ -194,13 +255,7 @@ export function debounceDownloadSearch(): void {
     window.clearTimeout(searchDebounce);
   }
   searchDebounce = window.setTimeout(() => {
-    void searchDownloadRepositories(false).catch(error => {
-      if (error instanceof DOMException && error.name === "AbortError") {
-        return;
-      }
-      state.downloads.error = error instanceof Error ? error.message : String(error);
-      renderDownloads();
-    });
+    void searchDownloadRepositories(false).catch(() => undefined);
   }, 300);
 }
 
@@ -235,6 +290,20 @@ export function updateDownloadFilterSearch(): void {
 
 export function clearDownloadFilter(filter: string): void {
   state.downloads.filters = state.downloads.filters.filter(value => value !== filter);
+  renderDownloads();
+}
+
+export function clearAllDownloadFilters(): void {
+  state.downloads.filters = [];
+  renderDownloads();
+}
+
+export function setPlannedDownloadSelection(mode: "all" | "none" | "required"): void {
+  const plan = state.downloads.plan;
+  if (!plan) {
+    return;
+  }
+  state.downloads.selectedPlanFiles = planSelectionForMode(plan, mode);
   renderDownloads();
 }
 
@@ -351,7 +420,10 @@ export async function changeDownloadJob(jobID: string, action: "pause" | "resume
 
 export function chooseDownloadSearchResult(repository: string): void {
   elements.downloadRepositoryInput.value = repository;
-  elements.downloadSearchResults.innerHTML = "";
+  elements.downloadRevisionInput.value = "";
+  elements.downloadFilesInput.value = "";
+  state.downloads.selectedRepository = repository;
+  renderDownloads();
 }
 
 export function togglePlannedDownloadFile(path: string): void {
@@ -364,9 +436,18 @@ export function togglePlannedDownloadFile(path: string): void {
 }
 
 export function renderDownloads(): void {
-  elements.downloadTab.hidden = !state.downloads.available;
-  elements.downloadPanel.hidden = !state.downloads.available;
-  if (!state.downloads.available) {
+  const available = state.downloads.available;
+  elements.downloadTab.hidden = false;
+  elements.downloadPanel.hidden = false;
+  if (!available) {
+    elements.downloadStatus.textContent = state.downloads.error || "No node on this cluster has the downloader enabled.";
+    elements.downloadSearchResults.innerHTML = "";
+    elements.downloadNextPageButton.hidden = true;
+    elements.downloadPlanOutput.innerHTML = "";
+    elements.downloadJobs.innerHTML = "";
+    elements.downloadLibrary.innerHTML = "";
+    setDownloadControlsWorking(false);
+    elements.downloadStartButton.disabled = true;
     return;
   }
   const nodes = enabledDownloadNodes(state.downloads.capabilities?.nodes || []);
@@ -379,19 +460,8 @@ export function renderDownloads(): void {
   const configuredToken = node?.capability.configured_token ? "configured fallback token is available" : "anonymous access unless a temporary token is entered";
   elements.downloadStatus.textContent = state.downloads.error || (node && !working ? downloadNodeStatus(node) : configuredToken);
   renderDownloadFilters();
-  elements.downloadSearchResults.innerHTML = `${state.downloads.finderMessage ? `<p class="action-status">${escapeHTML(state.downloads.finderMessage)}</p>` : ""}${state.downloads.search.map(result => `
-    <button class="download-entry" type="button" data-download-repository="${escapeAttribute(result.id)}">
-      <strong>${escapeHTML(result.id)}</strong><span>${result.downloads} downloads · ${result.likes} likes${result.gated ? " · gated" : ""}</span>
-    </button>
-  `).join("")}${state.downloads.candidates.map((candidate, index) => `
-    <div class="download-entry candidate-${escapeAttribute(candidate.state)}">
-      <strong>${escapeHTML(candidate.repository)} / ${escapeHTML(candidate.repository_path)}</strong>
-      <span>${escapeHTML(candidate.state)} · ${escapeHTML(candidate.sha256 || "no verifiable LFS SHA-256")}</span>
-      ${candidate.state === "exact" ? `<button type="button" data-download-candidate-bind="${index}">Bind verified origin</button>` : ""}
-      ${candidate.state === "mismatched" && state.downloads.modelHandoff && candidate.sha256 ? `<button type="button" class="danger" data-download-candidate-replace="${index}">Replace expected model</button>` : ""}
-    </div>
-  `).join("")}`;
-  elements.downloadNextPageButton.hidden = !state.downloads.nextCursor;
+  elements.downloadSearchResults.innerHTML = renderSearchResults();
+  elements.downloadNextPageButton.hidden = !state.downloads.nextCursor || state.downloads.searchStatus === "searching";
   elements.downloadPlanOutput.innerHTML = state.downloads.plan ? renderPlan(state.downloads.plan) : "";
   elements.downloadJobs.innerHTML = (state.downloads.library?.jobs || []).map(renderJob).join("") || "<p class=\"muted\">No download jobs on this node.</p>";
   elements.downloadLibrary.innerHTML = (state.downloads.library?.artifacts || []).map(artifact => `
@@ -399,6 +469,51 @@ export function renderDownloads(): void {
   `).join("") || "<p class=\"muted\">No indexed artifacts on this node.</p>";
   setDownloadControlsWorking(working);
   elements.downloadStartButton.disabled = !working || state.downloads.plan === null || state.downloads.selectedPlanFiles.length === 0;
+  syncDownloadJobPolling();
+}
+
+function renderSearchResults(): string {
+  const finder = state.downloads.finderMessage ? `<p class="action-status">${escapeHTML(state.downloads.finderMessage)}</p>` : "";
+  const candidates = state.downloads.candidates.map((candidate, index) => `
+    <div class="download-entry candidate-${escapeAttribute(candidate.state)}">
+      <strong>${escapeHTML(candidate.repository)} / ${escapeHTML(candidate.repository_path)}</strong>
+      <span>${escapeHTML(candidate.state)} · ${escapeHTML(candidate.sha256 || "no verifiable LFS SHA-256")}</span>
+      ${candidate.state === "exact" ? `<button type="button" data-download-candidate-bind="${index}">Bind verified origin</button>` : ""}
+      ${candidate.state === "mismatched" && state.downloads.modelHandoff && candidate.sha256 ? `<button type="button" class="danger" data-download-candidate-replace="${index}">Replace expected model</button>` : ""}
+    </div>
+  `).join("");
+  const status = state.downloads.searchStatus;
+  let notice = "";
+  if (status === "searching") {
+    notice = `<p class="action-status">Searching Hugging Face…</p>`;
+  } else if (status === "error") {
+    notice = `<p class="error-text">Search failed: ${escapeHTML(state.downloads.searchError || "unknown error")}</p>`;
+  } else if (status === "empty") {
+    notice = `<p class="muted">No models match ${state.downloads.searchQuery ? `"${escapeHTML(state.downloads.searchQuery)}"` : "the current filters"}.</p>`;
+  }
+  const rows = state.downloads.search.map(result => {
+    const meta = [`${result.downloads.toLocaleString()} downloads`, `${result.likes.toLocaleString()} likes`];
+    if (result.updated_at) {
+      meta.push(`updated ${formatSearchDate(result.updated_at)}`);
+    }
+    if (result.gated) {
+      meta.push("gated");
+    }
+    const tags = (result.tags || []).filter(tag => !tag.includes(":") || /^(license|pipeline_tag|library):/.test(tag)).slice(0, 6);
+    const selected = state.downloads.selectedRepository === result.id ? " selected" : "";
+    return `
+      <button class="download-entry${selected}" type="button" data-download-repository="${escapeAttribute(result.id)}">
+        <strong>${escapeHTML(result.id)}</strong>
+        <span>${escapeHTML(meta.join(" · "))}</span>
+        ${tags.length > 0 ? `<span class="download-tags">${tags.map(tag => `<span class="chip">${escapeHTML(tag)}</span>`).join("")}</span>` : ""}
+      </button>`;
+  }).join("");
+  return `${finder}${notice}${rows}${candidates}`;
+}
+
+function formatSearchDate(value: string): string {
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString().slice(0, 10);
 }
 
 function setDownloadControlsWorking(working: boolean): void {
@@ -419,7 +534,9 @@ function renderDownloadFilters(): void {
   elements.downloadFilterTabs.innerHTML = Object.keys(hfFilterCatalog).map(tab => `<button type="button" data-download-filter-tab="${escapeAttribute(tab)}"${tab === activeTab ? " class=\"active\"" : ""}>${escapeHTML(tab)}</button>`).join("");
   elements.downloadFilterOptions.dataset.catalogVersion = String(hfFilterCatalogVersion);
   elements.downloadFilterOptions.innerHTML = groups.map(group => renderFilterGroup(activeTab, group.id, group.label, group.values, query)).join("") || "<span class=\"muted\">No filters match.</span>";
-  elements.downloadFilterSummary.innerHTML = state.downloads.filters.length === 0 ? "<span class=\"muted\">No metadata filters selected.</span>" : state.downloads.filters.map(filter => `<button type="button" class="chip" data-download-filter-clear="${escapeAttribute(filter)}">${escapeHTML(filter)} ×</button>`).join("");
+  elements.downloadFilterSummary.innerHTML = state.downloads.filters.length === 0
+    ? "<span class=\"muted\">No metadata filters selected.</span>"
+    : `${state.downloads.filters.map(filter => `<button type="button" class="chip" data-download-filter-clear="${escapeAttribute(filter)}">${escapeHTML(filter)} ×</button>`).join("")}<button type="button" class="chip" data-download-filter-clear-all>Clear all</button>`;
 }
 
 function renderFilterGroup(activeTab: string, groupID: string, label: string, values: string[], query: string): string {
@@ -461,6 +578,11 @@ function renderPlan(plan: DownloadPlan): string {
       <strong>${escapeHTML(plan.commit)}</strong>
       <span>${escapeHTML(plan.destination)} · ${formatBytes(selectedBytes)} selected of ${formatBytes(plan.total_bytes)}</span>
       ${plan.unsafe_warning ? "<p class=\"error-text\">Hugging Face reports unsafe or pending security status. Starting requires confirmation.</p>" : ""}
+      <div class="button-strip">
+        <button type="button" data-download-plan-select="all">Select all</button>
+        <button type="button" data-download-plan-select="none">Select none</button>
+        <button type="button" data-download-plan-select="required">Required only</button>
+      </div>
       <ul>${plan.files.map(file => `<li><label><input type="checkbox" data-download-plan-file="${escapeAttribute(file.path)}"${selected.has(file.path) ? " checked" : ""}> ${escapeHTML(file.path)} · ${formatBytes(file.size)} · ${escapeHTML(file.reason)}${file.required ? " · required" : ""}</label></li>`).join("")}</ul>
     </div>
   `;

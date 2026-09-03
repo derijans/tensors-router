@@ -1,4 +1,4 @@
-import type { AnalyticsQuery, AnalyticsResponse, LoadCaptureAttempt, LoadCaptureDetailResponse, LoadCaptureListResponse, LoadCaptureOutputChunk, LoadCaptureQuery, BenchmarkRecord, BenchmarkSection, BenchmarkType, CookComponent, DownloadCapabilitiesResponse, DownloadLibraryResponse, DownloadPlan, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, NodeState, RouterProcessStatus, RoutingGroupsResponse, WebUICatalogResponse } from "./api";
+import type { AnalyticsQuery, AnalyticsResponse, LoadCaptureAttempt, LoadCaptureDetailResponse, LoadCaptureListResponse, LoadCaptureOutputChunk, LoadCaptureQuery, LoadErrorRecord, BenchmarkRecord, BenchmarkSection, BenchmarkType, CookComponent, DownloadCapabilitiesResponse, DownloadLibraryResponse, DownloadPlan, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, NodeState, RouterProcessStatus, RoutingGroupsResponse, WebUICatalogResponse } from "./api";
 import type { JsonValue, Options } from "./json";
 
 export type CookMode = "quick" | "constructor";
@@ -159,6 +159,14 @@ export interface AppState {
     loading: boolean;
     error: string;
   };
+  loadErrors: {
+    records: LoadErrorRecord[];
+    enabled: boolean;
+    selectedID: string;
+    nodeErrors: {node_id: string; error: string}[];
+    loading: boolean;
+    error: string;
+  };
   webuis: {
     data: WebUICatalogResponse | null;
     filter: string;
@@ -173,7 +181,11 @@ export interface AppState {
     plan: DownloadPlan | null;
     selectedPlanFiles: string[];
     library: DownloadLibraryResponse | null;
-    search: {id: string; downloads: number; likes: number; gated?: string; tags?: string[]}[];
+    search: {id: string; downloads: number; likes: number; gated?: string; tags?: string[]; author?: string; updated_at?: string}[];
+    searchStatus: "idle" | "searching" | "ok" | "empty" | "error";
+    searchError: string;
+    searchQuery: string;
+    selectedRepository: string;
     nextCursor: string;
     filterTab: string;
     filters: string[];

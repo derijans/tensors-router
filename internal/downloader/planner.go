@@ -63,9 +63,9 @@ func BuildPlan(details RepositoryDetails, requested []string, mode string, stora
 		planned = append(planned, plannedFile)
 	}
 	sort.Slice(planned, func(left int, right int) bool { return planned[left].Path < planned[right].Path })
-	destination, err := RepositoryDirectory(storageRoot, details.Repository)
+	destination, err := repositoryDirectoryResolve(storageRoot, details.Repository)
 	if mode == "snapshot" {
-		destination, err = SnapshotDirectory(storageRoot, details.Repository, details.Commit)
+		destination, err = snapshotDirectoryResolve(storageRoot, details.Repository, details.Commit)
 	}
 	if err != nil {
 		return DownloadPlan{}, err

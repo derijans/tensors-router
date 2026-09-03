@@ -16,25 +16,26 @@ import (
 )
 
 type Config struct {
-	Security   SecurityConfig
-	Server     ServerConfig
-	Auth       AuthConfig
-	Models     ModelsConfig
-	Backend    BackendConfig
-	Kobold     KoboldConfig
-	Llama      NativeServerConfig
-	SDCPP      NativeServerConfig
-	WhisperCPP NativeServerConfig
-	VLLM       VLLMConfig
-	Logging    LoggingConfig
-	Updates    UpdatesConfig
-	Downloader DownloaderConfig
-	Cluster    ClusterConfig
-	Analytics  AnalyticsConfig
-	Limits     LimitsConfig
-	MCP        MCPConfig
-	FFmpeg     FFmpegConfig
-	Warnings   []string
+	Security    SecurityConfig
+	Server      ServerConfig
+	Auth        AuthConfig
+	Models      ModelsConfig
+	Backend     BackendConfig
+	Kobold      KoboldConfig
+	Llama       NativeServerConfig
+	SDCPP       NativeServerConfig
+	WhisperCPP  NativeServerConfig
+	VLLM        VLLMConfig
+	Logging     LoggingConfig
+	Updates     UpdatesConfig
+	Downloader  DownloaderConfig
+	Cluster     ClusterConfig
+	Analytics   AnalyticsConfig
+	Diagnostics DiagnosticsConfig
+	Limits      LimitsConfig
+	MCP         MCPConfig
+	FFmpeg      FFmpegConfig
+	Warnings    []string
 }
 
 type ServerConfig struct {
@@ -222,6 +223,16 @@ type AnalyticsConfig struct {
 	VRAMSampleInterval      time.Duration
 }
 
+// DiagnosticsConfig owns the pre-load error store, a standalone SQLite file
+// kept on by default so failures logged before a backend loads stay queryable
+// even where analytics is disabled.
+type DiagnosticsConfig struct {
+	Enabled      bool
+	DatabasePath string
+	Retention    time.Duration
+	MaxOutputKB  int64
+}
+
 func Defaults() Config {
 	return Config{
 		Security: SecurityConfig{
@@ -338,6 +349,11 @@ func Defaults() Config {
 			FlushInterval:          3 * time.Minute,
 			RawRetention:           30 * 24 * time.Hour,
 			VRAMSampleInterval:     time.Second,
+		},
+		Diagnostics: DiagnosticsConfig{
+			Enabled:     true,
+			Retention:   30 * 24 * time.Hour,
+			MaxOutputKB: 64,
 		},
 		Limits: LimitsConfig{
 			MaxControlBodyMB:    8,
@@ -554,6 +570,14 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Analytics.LoadCaptureMaxOutputMB <= 0 {
 		return fmt.Errorf("analytics.load_capture_max_output_mb must be positive")
+	}
+	if cfg.Diagnostics.Enabled {
+		if cfg.Diagnostics.Retention <= 0 {
+			return fmt.Errorf("diagnostics.retention must be positive")
+		}
+		if cfg.Diagnostics.MaxOutputKB <= 0 {
+			return fmt.Errorf("diagnostics.max_output_kb must be positive")
+		}
 	}
 	if err := validateLimits(cfg.Limits); err != nil {
 		return err
@@ -1489,6 +1513,28 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			}
 			cfg.Analytics.VRAMSampleInterval = parsed
 			return nil
+		}
+	case "diagnostics":
+		switch key {
+		case "enabled":
+			parsed, err := strconv.ParseBool(value)
+			if err != nil {
+				return err
+			}
+			cfg.Diagnostics.Enabled = parsed
+			return nil
+		case "database_path":
+			cfg.Diagnostics.DatabasePath = value
+			return nil
+		case "retention":
+			parsed, err := time.ParseDuration(value)
+			if err != nil {
+				return err
+			}
+			cfg.Diagnostics.Retention = parsed
+			return nil
+		case "max_output_kb":
+			return setPositiveInt64(&cfg.Diagnostics.MaxOutputKB, value)
 		}
 	case "limits":
 		switch key {

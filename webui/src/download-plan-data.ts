@@ -12,3 +12,13 @@ export function selectedDownloadBytes(plan: DownloadPlan, selectedPaths: string[
 export function toggleDownloadPath(selectedPaths: string[], path: string): string[] {
   return selectedPaths.includes(path) ? selectedPaths.filter(value => value !== path) : [...selectedPaths, path];
 }
+
+export function planSelectionForMode(plan: DownloadPlan, mode: "all" | "none" | "required"): string[] {
+  if (mode === "none") {
+    return [];
+  }
+  if (mode === "required") {
+    return plan.files.filter(file => file.required).map(file => file.path);
+  }
+  return plan.files.map(file => file.path);
+}

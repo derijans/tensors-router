@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>tensor-router-webui</title>
-  <script type="module" crossorigin src="/assets/index-CeDdajP3.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-CLbxKNGd.css">
+  <script type="module" crossorigin src="/assets/index-oIEjK1z8.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-D6BbyKcb.css">
 </head>
 <body>
   <main class="shell">
@@ -51,6 +51,7 @@
         <button class="tab-button" type="button" data-tab="benchmarks">Benchmarks</button>
         <button class="tab-button" type="button" data-tab="analytics">Analytics</button>
         <button id="loadCapturesTab" class="tab-button" type="button" data-tab="load-captures" hidden>Load captures</button>
+        <button id="loadErrorsTab" class="tab-button" type="button" data-tab="load-errors" hidden>Errors</button>
         <button class="tab-button" type="button" data-tab="cook">Cook</button>
         <button class="tab-button" type="button" data-tab="recipes">Recipes</button>
       </nav>
@@ -82,6 +83,7 @@
         </div>
         <div id="nodesScanNotices" class="inventory-notices"></div>
         <div id="nodesGrid" class="cards-grid"></div>
+        <div id="nodesDetail" class="node-detail-stack"></div>
       </section>
 
       <section class="tab-panel" data-panel="webuis">
@@ -346,6 +348,34 @@
           <section>
             <div class="panel-head"><h3>Console output</h3><button id="loadCaptureOutputMoreButton" type="button" data-operation-group="load-captures" hidden>Load more output</button></div>
             <pre id="loadCaptureOutput" class="load-capture-console"></pre>
+          </section>
+        </div>
+      </section>
+
+      <section id="loadErrorsPanel" class="tab-panel" data-panel="load-errors" hidden>
+        <div class="panel-head">
+          <div>
+            <h2>Errors</h2>
+            <p class="muted">failures seen before a backend load, usually only logged</p>
+          </div>
+          <button id="loadErrorsRefreshButton" type="button" data-operation-group="load-errors">Refresh</button>
+        </div>
+        <div class="load-capture-controls">
+          <label>Phase<select id="loadErrorPhaseSelect"><option value="">All</option></select></label>
+          <label>Severity<select id="loadErrorSeveritySelect"><option value="">All</option><option value="error">Error</option><option value="warning">Warning</option></select></label>
+        </div>
+        <div id="loadErrorStatus"></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Last seen</th><th>Node</th><th>Phase</th><th>Severity</th><th>Source</th><th>Count</th><th>Message</th></tr></thead>
+            <tbody id="loadErrorRows"></tbody>
+          </table>
+        </div>
+        <div class="load-capture-inspector">
+          <section id="loadErrorDetail"></section>
+          <section>
+            <div class="panel-head"><h3>Captured output</h3></div>
+            <pre id="loadErrorOutput" class="load-capture-console"></pre>
           </section>
         </div>
       </section>

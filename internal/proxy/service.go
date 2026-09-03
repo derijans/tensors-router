@@ -29,6 +29,7 @@ import (
 	"tensors-router/internal/ffmpeg"
 	"tensors-router/internal/hardware"
 	"tensors-router/internal/loadcapture"
+	"tensors-router/internal/loaderrors"
 	"tensors-router/internal/mcp"
 	"tensors-router/internal/modelassets"
 	"tensors-router/internal/modelstate"
@@ -112,6 +113,7 @@ type ServiceConfig struct {
 	SchedulingGrantTTL        time.Duration
 	LoadCaptureStore          *loadcapture.Store
 	LoadCaptureMaxOutputBytes int64
+	LoadErrorStore            *loaderrors.Store
 	VRAMAnalyticsEnabled      bool
 	VRAMSource                hardware.VRAMSource
 	VRAMSampleInterval        time.Duration
@@ -188,6 +190,7 @@ type Service struct {
 	schedulingGrantTTL        time.Duration
 	loadCaptureStore          *loadcapture.Store
 	loadCaptureMaxOutputBytes int64
+	loadErrorStore            *loaderrors.Store
 	vramAnalyticsEnabled      bool
 	vramSource                hardware.VRAMSource
 	vramSampler               *hardware.VRAMSampler
@@ -438,6 +441,7 @@ func NewService(config ServiceConfig) *Service {
 		schedulingGrantTTL:        config.SchedulingGrantTTL,
 		loadCaptureStore:          config.LoadCaptureStore,
 		loadCaptureMaxOutputBytes: config.LoadCaptureMaxOutputBytes,
+		loadErrorStore:            config.LoadErrorStore,
 		vramAnalyticsEnabled:      config.VRAMAnalyticsEnabled,
 		vramSource:                vramSource,
 		vramSampler:               vramSampler,

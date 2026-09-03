@@ -243,6 +243,26 @@ func (store *Store) Jobs() ([]DownloadJob, error) {
 	return jobs, rows.Err()
 }
 
+func (store *Store) RecoverInterrupted(reason string) (int64, error) {
+	transaction, err := store.db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer transaction.Rollback()
+	result, err := transaction.Exec(`UPDATE jobs SET state = ?, error = ?, updated_at = ? WHERE state IN (?, ?)`, JobFailed, reason, time.Now().UTC().Format(time.RFC3339Nano), JobQueued, JobRunning)
+	if err != nil {
+		return 0, err
+	}
+	if _, err := transaction.Exec(`UPDATE job_files SET state = ?, error = ? WHERE state IN (?, ?)`, JobFailed, reason, JobQueued, JobRunning); err != nil {
+		return 0, err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return affected, transaction.Commit()
+}
+
 func (store *Store) jobFiles(jobID string) ([]JobFile, error) {
 	rows, err := store.db.Query(`SELECT path, reason, expected_sha256, size, completed_bytes, state, error FROM job_files WHERE job_id = ? ORDER BY path`, jobID)
 	if err != nil {

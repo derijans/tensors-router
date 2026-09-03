@@ -133,6 +133,10 @@ const (
 	JobCompleted JobState = "completed"
 )
 
+func (state JobState) Terminal() bool {
+	return state == JobCancelled || state == JobFailed || state == JobCompleted
+}
+
 type DownloadJob struct {
 	ID             string    `json:"id"`
 	NodeID         string    `json:"node_id,omitempty"`

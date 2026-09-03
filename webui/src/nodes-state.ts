@@ -5,22 +5,39 @@ import { state } from "./state";
 import type { BackendInitializationJob, BackendInitializationRequest, BackendLaunchOptions, NodeInventory, NodeRuntimeSlice, NodeStateBackend } from "./types";
 import { escapeAttribute, escapeHTML } from "./utils";
 import { nodeStatePanelID, renderNodeCard, renderNodeStateSnapshot } from "./node-state-view";
+import { reportErrorToConsole } from "./console-report";
 
 const pollIntervalMilliseconds = 1000;
+const reportedNodeScanErrors = new Set<string>();
 
 export function renderNodesPanel(): void {
   const nodes = state.inventory?.nodes ?? [];
   reconcileNodeStateSelection(nodes);
   elements.nodeCount.textContent = `${nodes.length} node${nodes.length === 1 ? "" : "s"}`;
   elements.nodesScanNotices.innerHTML = scanNotices(nodes);
-  elements.nodesGrid.innerHTML = nodes.map(node => {
-    const expanded = state.nodes.expanded.includes(node.node_id);
-    return `${renderNodeCard(node, expanded)}${expanded ? nodeStatePanel(node.node_id) : ""}`;
-  }).join("");
+  elements.nodesGrid.innerHTML = nodes.map(node => renderNodeCard(node, state.nodes.expanded.includes(node.node_id))).join("");
+  elements.nodesDetail.innerHTML = nodes
+    .filter(node => state.nodes.expanded.includes(node.node_id))
+    .map(node => nodeStatePanel(node.node_id))
+    .join("");
 }
 
 function scanNotices(nodes: NodeInventory[]): string {
-  return nodes.filter(node => node.error)
+  const failing = nodes.filter(node => node.error);
+  const live = new Set(failing.map(node => `${node.node_id}:${node.error}`));
+  for (const key of reportedNodeScanErrors) {
+    if (!live.has(key)) {
+      reportedNodeScanErrors.delete(key);
+    }
+  }
+  for (const node of failing) {
+    const key = `${node.node_id}:${node.error}`;
+    if (!reportedNodeScanErrors.has(key)) {
+      reportedNodeScanErrors.add(key);
+      reportErrorToConsole(`node scan ${node.node_id || node.node_url || "unknown"}`, new Error(node.error || "scan failed"));
+    }
+  }
+  return failing
     .map(node => `<div class="inventory-notice error-text">${escapeHTML(node.node_id || node.node_url || "unknown node")}: ${escapeHTML(node.error || "scan failed")}</div>`)
     .join("");
 }

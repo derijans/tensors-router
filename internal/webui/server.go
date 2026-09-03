@@ -213,6 +213,8 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/load-captures")
 	case strings.HasPrefix(r.URL.Path, "/api/load-captures/") && r.Method == http.MethodGet:
 		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/load-captures/"+strings.TrimPrefix(r.URL.Path, "/api/load-captures/"))
+	case r.URL.Path == "/api/load-errors" && r.Method == http.MethodGet:
+		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/load-errors")
 	case r.URL.Path == "/api/load" && r.Method == http.MethodPost:
 		server.proxyRouter(w, r, http.MethodPost, "/router/v1/load")
 	case r.URL.Path == "/api/cook/preview" && r.Method == http.MethodPost:
@@ -346,36 +348,31 @@ func (server *Server) proxyWebUILoad(w http.ResponseWriter, r *http.Request) {
 		writeWebError(w, http.StatusBadGateway, "router response body too large")
 		return
 	}
-	content = reportAndDiscardBackendDiagnostic(content)
+	logBackendDiagnostic(content)
 	copyWebHeaders(w.Header(), response.Header)
 	w.Header().Set("Content-Length", "")
 	w.WriteHeader(response.StatusCode)
 	_, _ = w.Write(content)
 }
 
-func reportAndDiscardBackendDiagnostic(content []byte) []byte {
+func logBackendDiagnostic(content []byte) {
 	var response map[string]json.RawMessage
 	if json.Unmarshal(content, &response) != nil {
-		return content
+		return
 	}
 	rawDiagnostic, ok := response["backend_diagnostic"]
 	if !ok {
-		return content
+		return
 	}
 	var diagnostic backenddiagnostic.Diagnostic
-	if json.Unmarshal(rawDiagnostic, &diagnostic) == nil {
-		if diagnostic.ExitError != "" {
-			log.Printf("backend load failure node=%s backend=%s exit=%s\n%s", diagnostic.NodeID, diagnostic.Backend, diagnostic.ExitError, diagnostic.Output)
-		} else {
-			log.Printf("backend load failure node=%s backend=%s\n%s", diagnostic.NodeID, diagnostic.Backend, diagnostic.Output)
-		}
+	if json.Unmarshal(rawDiagnostic, &diagnostic) != nil {
+		return
 	}
-	delete(response, "backend_diagnostic")
-	filtered, err := json.Marshal(response)
-	if err != nil {
-		return content
+	if diagnostic.ExitError != "" {
+		log.Printf("backend load failure node=%s backend=%s exit=%s\n%s", diagnostic.NodeID, diagnostic.Backend, diagnostic.ExitError, diagnostic.Output)
+		return
 	}
-	return filtered
+	log.Printf("backend load failure node=%s backend=%s\n%s", diagnostic.NodeID, diagnostic.Backend, diagnostic.Output)
 }
 
 func (server *Server) proxyRouterWebUI(w http.ResponseWriter, r *http.Request) {

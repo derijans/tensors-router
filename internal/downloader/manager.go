@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 )
 
 type Manager struct {
@@ -51,6 +52,12 @@ func NewManager(config Config, _ string) (*Manager, error) {
 	if err != nil {
 		_ = closeManagerLog(logFile)
 		return nil, fmt.Errorf("initialize downloader database: %w", err)
+	}
+	recovered, recoverErr := store.RecoverInterrupted("downloader stopped before the download finished")
+	if recoverErr != nil {
+		logger.Printf("downloader could not recover interrupted jobs: %v", recoverErr)
+	} else if recovered > 0 {
+		logger.Printf("downloader marked %d interrupted job(s) as failed", recovered)
 	}
 	lifecycle, stopLifecycle := context.WithCancel(context.Background())
 	manager := &Manager{config: config, store: store, hub: NewHubClient(config.Downloads.Timeout), lifecycle: lifecycle, stopLifecycle: stopLifecycle, running: map[string]context.CancelFunc{}, tokens: map[string]string{}, subscribers: map[string]map[chan DownloadJob]struct{}{}, semaphore: make(chan struct{}, config.Downloads.ConcurrentJobs), logger: logger, logFile: logFile}
@@ -148,6 +155,9 @@ func (manager *Manager) CreatePlannedJob(plan DownloadPlan, operationToken strin
 	}
 	if err := manager.ensureReplacementAllowed(plan, confirmReplace); err != nil {
 		return DownloadJob{}, err
+	}
+	if len(plan.Files) == 0 {
+		return DownloadJob{}, fmt.Errorf("download plan resolved to zero files; the repository, revision, or file selection matched nothing on Hugging Face")
 	}
 	job := DownloadJob{ID: randomJobID(), Repository: plan.Repository, Revision: plan.Revision, Commit: plan.Commit, State: JobQueued, TotalBytes: plan.TotalBytes, Snapshot: plan.Snapshot, Files: make([]JobFile, 0, len(plan.Files))}
 	for _, file := range plan.Files {
@@ -344,9 +354,13 @@ func (manager *Manager) run(initial DownloadJob) {
 	defer func() { <-manager.semaphore }()
 	context, cancel := context.WithCancel(manager.lifecycle)
 	manager.mu.Lock()
-	if current, found, err := manager.store.Job(initial.ID); err != nil || !found || current.State != JobQueued {
+	current, found, err := manager.store.Job(initial.ID)
+	if err != nil || !found || current.State != JobQueued {
 		manager.mu.Unlock()
 		cancel()
+		if err != nil {
+			manager.failJob(initial.ID, fmt.Errorf("read queued job: %w", err))
+		}
 		return
 	}
 	manager.running[initial.ID] = cancel
@@ -354,17 +368,26 @@ func (manager *Manager) run(initial DownloadJob) {
 	defer manager.releaseFinishedJob(initial.ID)
 	job, _, err := manager.store.Job(initial.ID)
 	if err != nil {
+		manager.failJob(initial.ID, fmt.Errorf("read queued job before starting: %w", err))
 		return
 	}
 	job.State = JobRunning
 	if err := manager.store.SaveJob(job); err != nil {
+		manager.failJob(job.ID, fmt.Errorf("mark job running: %w", err))
 		return
 	}
 	manager.publish(job)
 	manager.logRuntime("download started job=%s repository=%q", job.ID, job.Repository)
 	if err := manager.transfer(context, job); err != nil {
+		if manager.lifecycle.Err() != nil {
+			return
+		}
 		current, found, readErr := manager.store.Job(job.ID)
-		if readErr != nil || !found || current.State == JobPaused || current.State == JobCancelled {
+		if readErr == nil && found && (current.State == JobPaused || current.State == JobCancelled) {
+			return
+		}
+		if readErr != nil || !found {
+			manager.failJob(job.ID, fmt.Errorf("transfer failed and job state could not be re-read: %w", err))
 			return
 		}
 		current.State, current.Error = JobFailed, redactSensitive(err.Error())
@@ -373,13 +396,19 @@ func (manager *Manager) run(initial DownloadJob) {
 				current.Files[index].State, current.Files[index].Error = string(JobFailed), current.Error
 			}
 		}
-		_ = manager.store.SaveJob(current)
+		if saveErr := manager.store.SaveJob(current); saveErr != nil {
+			manager.logRuntime("download failed job=%s repository=%q but the failure state could not be saved: %v", current.ID, current.Repository, saveErr)
+		}
 		manager.publish(current)
 		manager.logRuntime("download failed job=%s repository=%q error=%q", current.ID, current.Repository, current.Error)
 		return
 	}
 	completed, found, err := manager.store.Job(job.ID)
-	if err != nil || !found || completed.State != JobRunning {
+	if err != nil || !found {
+		manager.failJob(job.ID, fmt.Errorf("read job after a successful transfer: %w", errors.Join(err, boolError(!found, "job not found"))))
+		return
+	}
+	if completed.State != JobRunning {
 		return
 	}
 	completed.State, completed.Error, completed.CompletedBytes = JobCompleted, "", completed.TotalBytes
@@ -390,6 +419,34 @@ func (manager *Manager) run(initial DownloadJob) {
 		manager.publish(completed)
 		manager.logRuntime("download completed job=%s repository=%q bytes=%d", completed.ID, completed.Repository, completed.CompletedBytes)
 	}
+}
+
+func (manager *Manager) failJob(jobID string, cause error) {
+	message := redactSensitive(cause.Error())
+	job, found, err := manager.store.Job(jobID)
+	if err != nil || !found {
+		manager.logRuntime("download failed job=%s error=%q and no stored row could be updated (read error: %v)", jobID, message, err)
+		return
+	}
+	job.State, job.Error = JobFailed, message
+	for index := range job.Files {
+		if job.Files[index].State == string(JobQueued) || job.Files[index].State == string(JobRunning) {
+			job.Files[index].State, job.Files[index].Error = string(JobFailed), message
+		}
+	}
+	if saveErr := manager.store.SaveJob(job); saveErr != nil {
+		manager.logRuntime("download failed job=%s repository=%q error=%q and the failure state could not be saved: %v", job.ID, job.Repository, message, saveErr)
+		return
+	}
+	manager.publish(job)
+	manager.logRuntime("download failed job=%s repository=%q error=%q", job.ID, job.Repository, message)
+}
+
+func boolError(condition bool, message string) error {
+	if condition {
+		return fmt.Errorf("%s", message)
+	}
+	return nil
 }
 
 func (manager *Manager) startJob(job DownloadJob) error {
@@ -490,8 +547,11 @@ func (manager *Manager) transfer(ctx context.Context, job DownloadJob) error {
 		if err != nil {
 			return err
 		}
-		if size != file.Size && file.Size > 0 {
+		if file.Size > 0 && size != file.Size {
 			return fmt.Errorf("downloaded size for %q differs from the planned size", file.Path)
+		}
+		if file.Size <= 0 && size == 0 {
+			return fmt.Errorf("downloaded file %q is empty and Hugging Face reported no expected size", file.Path)
 		}
 		if expected := strings.TrimPrefix(file.ExpectedSHA256, "sha256:"); expected != "" && validSHA256(expected) && hash != expected {
 			_ = os.Remove(stagedPath)
@@ -696,7 +756,7 @@ func secureStagingPath(staging string, repositoryPath string) (string, error) {
 
 func (manager *Manager) ensureReplacementAllowed(plan DownloadPlan, confirmed bool) error {
 	for _, file := range plan.Files {
-		destination, err := downloadDestinationPath(manager.config.Storage.Root, plan.Repository, plan.Commit, plan.Snapshot, file.Path)
+		destination, err := downloadDestinationResolve(manager.config.Storage.Root, plan.Repository, plan.Commit, plan.Snapshot, file.Path)
 		if err != nil {
 			return err
 		}
@@ -776,6 +836,15 @@ func (manager *Manager) publish(job DownloadJob) {
 	}
 	manager.mu.Unlock()
 	for _, channel := range channels {
+		if job.State.Terminal() {
+			timer := time.NewTimer(2 * time.Second)
+			select {
+			case channel <- job:
+			case <-timer.C:
+			}
+			timer.Stop()
+			continue
+		}
 		select {
 		case channel <- job:
 		default:

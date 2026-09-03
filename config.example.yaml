@@ -192,6 +192,12 @@ analytics:
   raw_retention: "720h"
   vram_sample_interval: "1s"
 
+diagnostics:
+  enabled: true
+  database_path: ""
+  retention: "720h"
+  max_output_kb: 64
+
 limits:
   max_control_body_mb: 8
   replay_buffer_mb: 64

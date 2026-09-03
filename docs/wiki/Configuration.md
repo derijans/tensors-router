@@ -223,8 +223,14 @@ When updates are enabled, each selected backend needs either a direct binary URL
 | `analytics.database_path` | Path string | Empty | SQLite path. Empty uses `cluster.store_dir/analytics.sqlite`. |
 | `analytics.raw_retention` | Positive duration string | `720h` | Retention period for raw analytics samples. |
 | `analytics.vram_sample_interval` | Positive duration string | `1s` | Interval between VRAM samples. |
+| `diagnostics.enabled` | Boolean | `true` | Records failures seen before or during a backend load that are otherwise only logged, into a standalone SQLite file. On by default so this signal survives on nodes where analytics is off. |
+| `diagnostics.database_path` | Path string | Empty | SQLite path. Empty uses `cluster.store_dir/load-errors.sqlite` on that node. |
+| `diagnostics.retention` | Positive duration string | `720h` | Age after which a load-error row is pruned on the next write. Required when `diagnostics.enabled` is true. |
+| `diagnostics.max_output_kb` | Positive integer, KiB | `64` | Per-row cap for captured backend output. Overflow keeps the newest bytes and is marked truncated. Required when `diagnostics.enabled` is true. |
 
 Load captures are opt-in and independent from request analytics, VRAM analytics, and backend disk logging. Records are retained permanently until an operator removes the database. The capture database, WAL, and SHM files are owner-restricted; size grows with load attempts and reuse records.
+
+The diagnostics load-error store is separate again: identical rows are deduplicated by a phase, source, and normalized-message fingerprint, so a flapping backend rolls up into one row with an occurrence count rather than flooding the file. Rows carry the redacted message plus any captured child-process output. The `/router/v1/site/load-errors` endpoint and the WebUI Errors panel read it; a master fans out to every node and merges the results.
 
 ### Request and memory limits
 

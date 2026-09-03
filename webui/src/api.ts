@@ -1,6 +1,7 @@
 import { state } from "./state";
-import type { LoadCaptureDetailResponse, LoadCaptureListResponse, LoadCaptureOutputResponse, LoadCaptureQuery } from "./types";
+import type { LoadCaptureDetailResponse, LoadCaptureListResponse, LoadCaptureOutputResponse, LoadCaptureQuery, LoadErrorListResponse } from "./types";
 import { jsonRecord } from "./json";
+import { reportErrorToConsole } from "./console-report";
 import type {
   ConfigFileRequest,
   ConfigFileResponse,
@@ -53,7 +54,9 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   const text = await response.text();
   const data = parseResponse(text);
   if (!response.ok) {
-    throw webError(errorMessage(data, text, response.statusText), data);
+    const failure = webError(errorMessage(data, text, response.statusText), data);
+    reportErrorToConsole(`${options.method ?? "GET"} ${path}`, failure, {status: response.status});
+    throw failure;
   }
   return data as T;
 }
@@ -226,7 +229,7 @@ export function searchDownloads(request: {node_id: string; query: string; author
   return api<{id: string; downloads: number; likes: number; gated?: string}[]>("/api/download/search", {method: "POST", body: JSON.stringify(request)});
 }
 
-export function searchDownloadPage(request: {node_id: string; query: string; author?: string; pipeline_tag?: string; filters?: string[]; num_parameters?: string; gated?: string; inference?: string; apps?: string[]; inference_providers?: string[]; trained_datasets?: string[]; sort?: string; direction?: string; cursor?: string; limit?: number; token?: string}, signal?: AbortSignal): Promise<{results: {id: string; downloads: number; likes: number; gated?: string; tags?: string[]}[]; next_cursor?: string}> {
+export function searchDownloadPage(request: {node_id: string; query: string; author?: string; pipeline_tag?: string; filters?: string[]; num_parameters?: string; gated?: string; inference?: string; apps?: string[]; inference_providers?: string[]; trained_datasets?: string[]; sort?: string; direction?: string; cursor?: string; limit?: number; token?: string}, signal?: AbortSignal): Promise<{results: {id: string; downloads: number; likes: number; gated?: string; tags?: string[]; author?: string; updated_at?: string}[]; next_cursor?: string}> {
   return api("/api/download/search-page", {method: "POST", body: JSON.stringify(request), ...(signal ? {signal} : {})});
 }
 
@@ -421,4 +424,12 @@ export function getLoadCaptureDetail(nodeID: string, attemptID: string): Promise
 export function getLoadCaptureOutput(nodeID: string, attemptID: string, afterSequence: number): Promise<LoadCaptureOutputResponse> {
   const params = new URLSearchParams({node_id: nodeID, after_sequence: String(afterSequence)});
   return api<LoadCaptureOutputResponse>(`/api/load-captures/${encodeURIComponent(attemptID)}/output?${params.toString()}`);
+}
+
+export function getLoadErrors(query: {phase: string; severity: string}): Promise<LoadErrorListResponse> {
+  const params = new URLSearchParams();
+  if (query.phase) params.set("phase", query.phase);
+  if (query.severity) params.set("severity", query.severity);
+  params.set("limit", "200");
+  return api<LoadErrorListResponse>(`/api/load-errors?${params.toString()}`);
 }

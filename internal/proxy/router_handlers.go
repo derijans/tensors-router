@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"tensors-router/internal/backenddiagnostic"
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
@@ -84,6 +85,8 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		service.handleSiteLoadCaptures(w, r)
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/site/load-captures/"):
 		service.handleSiteLoadCaptureRecord(w, r)
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/load-errors":
+		service.handleSiteLoadErrors(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/cook/preview":
 		service.handleSiteCookPreview(w, r)
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/cook/apply":
@@ -302,6 +305,10 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		if service.requireClusterToken(w, r) {
 			service.handleNodeLoadCaptureRecord(w, r)
 		}
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/load-errors":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeLoadErrors(w, r)
+		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/configs":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeSiteConfigs(w, r)
@@ -474,10 +481,25 @@ func (service *Service) handleRouterLoad(w http.ResponseWriter, r *http.Request)
 	defer cancel()
 
 	if err := service.loadPublicModel(ctx, control.Model); err != nil {
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		writeRouterLoadError(w, err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+func writeRouterLoadError(w http.ResponseWriter, err error) {
+	diagnostic, ok := backenddiagnostic.FromError(err)
+	if !ok {
+		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		return
+	}
+	openai.WriteJSON(w, http.StatusBadGateway, struct {
+		Error             openai.ErrorDetail           `json:"error"`
+		BackendDiagnostic backenddiagnostic.Diagnostic `json:"backend_diagnostic"`
+	}{
+		Error:             openai.ErrorDetail{Message: err.Error(), Type: "backend_error"},
+		BackendDiagnostic: diagnostic,
+	})
 }
 
 func (service *Service) handleRouterUnload(w http.ResponseWriter, r *http.Request) {

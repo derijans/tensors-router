@@ -10,7 +10,7 @@ const apiMocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../api", () => apiMocks);
-vi.mock("../elements", () => ({elements: {nodeCount: {}, nodesGrid: {}, nodesScanNotices: {}}}));
+vi.mock("../elements", () => ({elements: {nodeCount: {}, nodesGrid: {}, nodesDetail: {}, nodesScanNotices: {}}}));
 
 import {
   cancelSelectedBackendInitialization,
@@ -20,10 +20,12 @@ import {
   nodeUnloadKey,
   pollNode,
   reconcileNodeStateSelection,
+  renderNodesPanel,
   setNodesTabActive,
   stopNodeStatePolling,
   unloadSelectedRuntime
 } from "../nodes-state";
+import { elements } from "../elements";
 
 function snapshot(modelID = "model-a", nodeID = "node-a"): NodeState {
   return {
@@ -141,6 +143,56 @@ afterEach(() => {
   stopNodeStatePolling();
   vi.useRealTimers();
   vi.unstubAllGlobals();
+});
+
+describe("renderNodesPanel layout", () => {
+  function orderedInventory(...nodeIDs: string[]): void {
+    state.inventory = {
+      role: "standalone",
+      node_id: nodeIDs[0] ?? "node-a",
+      nodes: nodeIDs.map(nodeInventory),
+      models: [],
+      recipes: [],
+      option_catalog: [],
+      observed_options: []
+    };
+  }
+
+  it("keeps every card in the grid in inventory order and renders panels in a separate stack", () => {
+    orderedInventory("node-a", "node-b", "node-c");
+    state.nodes.expanded = ["node-b"];
+    state.nodes.byNode = {"node-b": defaultSlice()};
+
+    renderNodesPanel();
+
+    const grid = (elements.nodesGrid as { innerHTML: string }).innerHTML;
+    const detail = (elements.nodesDetail as { innerHTML: string }).innerHTML;
+
+    const cardOrder = ["node-a", "node-b", "node-c"].map(id => grid.indexOf(`data-node-select="${id}"`));
+    expect(cardOrder).toEqual([...cardOrder].sort((left, right) => left - right));
+    expect(cardOrder.every(index => index >= 0)).toBe(true);
+
+    expect(detail).toContain('id="nodeStatePanel-node-b"');
+    expect(detail).not.toContain('id="nodeStatePanel-node-a"');
+    expect(grid).not.toContain("node-state-panel");
+  });
+
+  it("does not reorder the grid when a different node is expanded", () => {
+    orderedInventory("node-a", "node-b", "node-c");
+    state.nodes.expanded = [];
+    state.nodes.byNode = {};
+    renderNodesPanel();
+    const collapsedGrid = (elements.nodesGrid as { innerHTML: string }).innerHTML;
+
+    state.nodes.expanded = ["node-a"];
+    state.nodes.byNode = {"node-a": defaultSlice()};
+    renderNodesPanel();
+    const expandedGrid = (elements.nodesGrid as { innerHTML: string }).innerHTML;
+
+    const order = (markup: string): number[] => ["node-a", "node-b", "node-c"].map(id => markup.indexOf(`data-node-select="${id}"`));
+    expect(order(expandedGrid)).toEqual([...order(expandedGrid)].sort((left, right) => left - right));
+    expect(order(collapsedGrid).map(Math.sign)).toEqual(order(expandedGrid).map(Math.sign));
+  });
 });
 
 describe("node state polling", () => {

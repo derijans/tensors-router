@@ -9,16 +9,30 @@ import (
 	"strings"
 )
 
+type securePathJoiner func(root string, parts ...string) (string, error)
+
 func RepositoryDirectory(root string, repository string) (string, error) {
+	return repositoryDirectory(root, repository, secureJoin)
+}
+
+func repositoryDirectoryResolve(root string, repository string) (string, error) {
+	return repositoryDirectory(root, repository, secureResolve)
+}
+
+func repositoryDirectory(root string, repository string, join securePathJoiner) (string, error) {
 	owner, name, err := splitRepository(repository)
 	if err != nil {
 		return "", err
 	}
-	return secureJoin(root, owner, name)
+	return join(root, owner, name)
 }
 
 func DestinationPath(root string, repository string, repositoryPath string) (string, error) {
-	directory, err := RepositoryDirectory(root, repository)
+	return destinationPath(root, repository, repositoryPath, secureJoin)
+}
+
+func destinationPath(root string, repository string, repositoryPath string, join securePathJoiner) (string, error) {
+	directory, err := repositoryDirectory(root, repository, join)
 	if err != nil {
 		return "", err
 	}
@@ -26,10 +40,18 @@ func DestinationPath(root string, repository string, repositoryPath string) (str
 	if err != nil {
 		return "", err
 	}
-	return secureJoin(directory, parts...)
+	return join(directory, parts...)
 }
 
 func SnapshotDirectory(root string, repository string, commit string) (string, error) {
+	return snapshotDirectory(root, repository, commit, secureJoin)
+}
+
+func snapshotDirectoryResolve(root string, repository string, commit string) (string, error) {
+	return snapshotDirectory(root, repository, commit, secureResolve)
+}
+
+func snapshotDirectory(root string, repository string, commit string, join securePathJoiner) (string, error) {
 	owner, name, err := splitRepository(repository)
 	if err != nil {
 		return "", err
@@ -37,11 +59,15 @@ func SnapshotDirectory(root string, repository string, commit string) (string, e
 	if !safeRepositoryPart(commit) {
 		return "", fmt.Errorf("snapshot commit is invalid")
 	}
-	return secureJoin(root, ".snapshots", owner, name, commit)
+	return join(root, ".snapshots", owner, name, commit)
 }
 
 func snapshotDestinationPath(root string, repository string, commit string, repositoryPath string) (string, error) {
-	directory, err := SnapshotDirectory(root, repository, commit)
+	return snapshotDestination(root, repository, commit, repositoryPath, secureJoin)
+}
+
+func snapshotDestination(root string, repository string, commit string, repositoryPath string, join securePathJoiner) (string, error) {
+	directory, err := snapshotDirectory(root, repository, commit, join)
 	if err != nil {
 		return "", err
 	}
@@ -49,14 +75,22 @@ func snapshotDestinationPath(root string, repository string, commit string, repo
 	if err != nil {
 		return "", err
 	}
-	return secureJoin(directory, parts...)
+	return join(directory, parts...)
 }
 
 func downloadDestinationPath(root string, repository string, commit string, snapshot bool, repositoryPath string) (string, error) {
+	return downloadDestination(root, repository, commit, snapshot, repositoryPath, secureJoin)
+}
+
+func downloadDestinationResolve(root string, repository string, commit string, snapshot bool, repositoryPath string) (string, error) {
+	return downloadDestination(root, repository, commit, snapshot, repositoryPath, secureResolve)
+}
+
+func downloadDestination(root string, repository string, commit string, snapshot bool, repositoryPath string, join securePathJoiner) (string, error) {
 	if snapshot {
-		return snapshotDestinationPath(root, repository, commit, repositoryPath)
+		return snapshotDestination(root, repository, commit, repositoryPath, join)
 	}
-	return DestinationPath(root, repository, repositoryPath)
+	return destinationPath(root, repository, repositoryPath, join)
 }
 
 func ValidateRepository(repository string) error {
@@ -110,28 +144,40 @@ func safeRepositoryPath(repositoryPath string) ([]string, error) {
 }
 
 func secureJoin(root string, parts ...string) (string, error) {
+	return resolveSecurePath(root, parts, true)
+}
+
+func secureResolve(root string, parts ...string) (string, error) {
+	return resolveSecurePath(root, parts, false)
+}
+
+func resolveSecurePath(root string, parts []string, createDirectories bool) (string, error) {
 	root, err := filepath.Abs(filepath.Clean(root))
 	if err != nil {
 		return "", err
 	}
-	if err := ensureDirectory(root); err != nil {
-		return "", err
+	if createDirectories {
+		if err := ensureDirectory(root); err != nil {
+			return "", err
+		}
 	}
 	current := root
 	for index, part := range parts {
-		if part == "" || part == "." || part == ".." || strings.ContainsAny(part, `/\\`) {
+		if part == "" || part == "." || part == ".." || strings.ContainsAny(part, `/\`) {
 			return "", fmt.Errorf("path component is invalid")
 		}
 		current = filepath.Join(current, part)
-		if index < len(parts)-1 {
+		if index < len(parts)-1 && createDirectories {
 			if err := ensureDirectory(current); err != nil {
 				return "", err
 			}
 			continue
 		}
-		if info, err := os.Lstat(current); err == nil && info.Mode()&fs.ModeSymlink != 0 {
-			return "", fmt.Errorf("destination is a symbolic link")
-		} else if err != nil && !os.IsNotExist(err) {
+		if info, err := os.Lstat(current); err == nil {
+			if info.Mode()&fs.ModeSymlink != 0 {
+				return "", fmt.Errorf("path component is a symbolic link")
+			}
+		} else if !os.IsNotExist(err) {
 			return "", err
 		}
 	}
