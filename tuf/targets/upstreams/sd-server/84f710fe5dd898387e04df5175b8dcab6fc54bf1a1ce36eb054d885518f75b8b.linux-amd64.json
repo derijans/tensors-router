@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "383679680",
+      "tag": "master-846-d8fb10c",
+      "published_at": "2026-09-06T18:35:37Z",
+      "payloads": [
+        {
+          "name": "sd-master-d8fb10c-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-846-d8fb10c/sd-master-d8fb10c-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 33045729,
+          "sha256": "61e8a58187c2eb63c74e32d11196d83e5146fb7d973bc39e88ca893131aa5f84"
+        }
+      ]
+    }
+  ]
+}
