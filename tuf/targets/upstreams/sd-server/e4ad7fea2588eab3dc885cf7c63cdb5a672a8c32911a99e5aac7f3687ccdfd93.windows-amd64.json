@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "384280600",
+      "tag": "master-849-d04e895",
+      "published_at": "2026-09-07T19:23:01Z",
+      "payloads": [
+        {
+          "name": "sd-master-d04e895-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-849-d04e895/sd-master-d04e895-bin-win-cpu-x64.zip",
+          "length": 24112084,
+          "sha256": "731208e2cde69fcf2e69e6968d30a570d47f2629d5682f51b699b60f47019abf"
+        }
+      ]
+    }
+  ]
+}
