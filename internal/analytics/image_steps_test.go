@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"tensors-router/internal/routerstore/routerstoretest"
 )
 
 func TestApplyRequestExtractsStepsFromEverySpelling(t *testing.T) {
@@ -109,18 +111,10 @@ func TestMigrationAddsImageStepsToAnExistingDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	store, err := NewStore(StoreConfig{NodeID: "node-a", DatabasePath: path, FlushInterval: time.Hour})
-	if err != nil {
-		t.Fatalf("migration of an existing database failed: %v", err)
-	}
-	t.Cleanup(func() {
-		if err := store.Close(context.Background()); err != nil {
-			t.Fatal(err)
-		}
-	})
+	handle := routerstoretest.OpenAt(t, path, SchemaModule{})
 
 	var steps sql.NullInt64
-	if err := store.db.QueryRow(`SELECT image_steps FROM analytics_events WHERE model_id = 'sdxl'`).Scan(&steps); err != nil {
+	if err := handle.Reader().QueryRow(`SELECT image_steps FROM analytics_events WHERE model_id = 'sdxl'`).Scan(&steps); err != nil {
 		t.Fatalf("image_steps was not added to the existing table: %v", err)
 	}
 	if !steps.Valid || steps.Int64 != 0 {
@@ -128,11 +122,11 @@ func TestMigrationAddsImageStepsToAnExistingDatabase(t *testing.T) {
 	}
 
 	var version int
-	if err := store.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+	if err := handle.Reader().QueryRow(`SELECT version FROM routerstore_schema_versions WHERE module = 'analytics'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
 	if version != 5 {
-		t.Fatalf("user_version = %d, want 5", version)
+		t.Fatalf("analytics schema version = %d, want 5", version)
 	}
 }
 

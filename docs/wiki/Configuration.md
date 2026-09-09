@@ -199,7 +199,8 @@ When updates are enabled, each selected backend needs either a direct binary URL
 | `cluster.master_url` | Empty or absolute URL string | Empty | Master URL used by a slave. Required for a slave. |
 | `cluster.slave_urls` | List of absolute URL strings | `[]` | Slave URLs permitted and polled by a master. |
 | `cluster.token` | String | Empty | Shared cluster credential. Required for master and slave roles and rejected when it is a placeholder. |
-| `cluster.store_dir` | Path string | `./router-store` | Stores registry, asset index, recipes, benchmarks, and default analytics data. |
+| `cluster.store_dir` | Path string | `./router-store` | Stores registry, asset index, recipes, benchmarks, and the router database. |
+| `cluster.database_path` | Path string | Empty | SQLite path holding analytics, load captures, load errors, and routing groups. Empty uses `cluster.store_dir/analytics.sqlite`. Model assets and model state keep their own files and cannot be named here. |
 | `cluster.sync_interval` | Positive duration string | `60s` | Interval between slave registry synchronization attempts. |
 | `cluster.health_interval` | Positive duration string | `15s` | Interval between cluster health checks. |
 | `cluster.control_timeout` | Positive duration string | `30s` | Total deadline for buffered cluster control requests and responses. Model load and unload are exempt: their remote work can include a peer asset transfer, so they follow the receiving node model operation deadline instead. |
@@ -217,16 +218,30 @@ When updates are enabled, each selected backend needs either a direct binary URL
 | `analytics.enabled` | Boolean | `false` | Enables persisted request and runtime analytics. |
 | `analytics.vram_enabled` | Boolean | `true` | Enables VRAM sampling when analytics is active. |
 | `analytics.load_capture_enabled` | Boolean | `false` | Independently records backend load attempts and reuse metadata on each enabled node. |
-| `analytics.load_capture_database_path` | Path string | Empty | SQLite path. Empty uses `cluster.store_dir/load-captures.sqlite` on that node. |
+| `analytics.load_capture_database_path` | Path string | Empty | Deprecated. Names a capture database written before the databases were joined so its rows can be imported once. Set it only while that file still exists. |
 | `analytics.load_capture_max_output_mb` | Positive integer | `64` | Per-physical-load RAM cap for captured stdout and stderr. Overflow is marked and backend loading continues. |
 | `analytics.flush_interval` | Positive duration string | `3m` | Interval between analytics aggregation flushes. |
-| `analytics.database_path` | Path string | Empty | SQLite path. Empty uses `cluster.store_dir/analytics.sqlite`. |
+| `analytics.database_path` | Path string | Empty | Deprecated. Names an analytics database written before the databases were joined so its rows can be imported once. Set it only while that file still exists. |
 | `analytics.raw_retention` | Positive duration string | `720h` | Retention period for raw analytics samples. |
 | `analytics.vram_sample_interval` | Positive duration string | `1s` | Interval between VRAM samples. |
-| `diagnostics.enabled` | Boolean | `true` | Records failures seen before or during a backend load that are otherwise only logged, into a standalone SQLite file. On by default so this signal survives on nodes where analytics is off. |
-| `diagnostics.database_path` | Path string | Empty | SQLite path. Empty uses `cluster.store_dir/load-errors.sqlite` on that node. |
+| `diagnostics.enabled` | Boolean | `true` | Records failures seen before or during a backend load that are otherwise only logged. On by default so this signal survives on nodes where analytics is off. |
+| `diagnostics.database_path` | Path string | Empty | Deprecated. Names a diagnostics database written before the databases were joined so its rows can be imported once. Set it only while that file still exists. |
 | `diagnostics.retention` | Positive duration string | `720h` | Age after which a load-error row is pruned on the next write. Required when `diagnostics.enabled` is true. |
 | `diagnostics.max_output_kb` | Positive integer, KiB | `64` | Per-row cap for captured backend output. Overflow keeps the newest bytes and is marked truncated. Required when `diagnostics.enabled` is true. |
+
+### One router database
+
+Analytics, load captures, load errors, and routing groups share a single SQLite file at `cluster.database_path`. Model assets (`model-assets.sqlite`) and model state (`model-state.sqlite`) stay in their own files, and the standalone downloader keeps its own database.
+
+The schema is created whatever the feature flags say, so a node with analytics off still carries an empty analytics table. A flag decides whether the router writes, never whether the table exists.
+
+On the first start after upgrading, the router imports each database it used to keep separately and renames the original to `<name>.migrated`, along with its `-wal` and `-shm` files. It looks in two places per subsystem: the path the deprecated key names, and the old default under `cluster.store_dir`. The import is recorded inside the same transaction that copies the rows, so a second start does nothing even if the rename failed. A source that cannot be read is left untouched and reported as a startup warning; the rest of the import continues and the router starts.
+
+Analytics rollups covering the same bucket add their counters and keep the higher VRAM peak, so two files describing the same traffic still merge into one history rather than one overwriting the other.
+
+To go back to an older router, stop the router and rename the `.migrated` files back. The merged file keeps the extra tables; an older binary ignores them.
+
+The analytics tab has a **Flush to disk** button. It writes the in-memory event buffer out and folds the write-ahead log back into the database file, on this node and, from a master, on every reachable slave.
 
 Load captures are opt-in and independent from request analytics, VRAM analytics, and backend disk logging. Records are retained permanently until an operator removes the database. The capture database, WAL, and SHM files are owner-restricted; size grows with load attempts and reuse records.
 

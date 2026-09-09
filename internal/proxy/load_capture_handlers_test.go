@@ -5,19 +5,19 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	"tensors-router/internal/loadcapture"
+	"tensors-router/internal/routerstore/routerstoretest"
 )
 
 func TestSiteLoadCapturesListsDetailsAndRejectsUnknownNodes(t *testing.T) {
-	store, err := loadcapture.NewStore(loadcapture.StoreConfig{NodeID: "local", DatabasePath: filepath.Join(t.TempDir(), "captures.sqlite")})
+	handle := routerstoretest.Open(t, loadcapture.SchemaModule{})
+	store, err := loadcapture.NewStore(loadcapture.StoreConfig{NodeID: "local", DB: handle.DB(), ReadDB: handle.Reader()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer store.Close()
 	snapshot := loadcapture.Snapshot{SHA256: strings.Repeat("a", 64), JSON: []byte(`{"threads":8}`)}
 	attempt, err := store.BeginPhysical(context.Background(), snapshot, "kobold", "koboldcpp", "llm")
 	if err != nil {

@@ -1,0 +1,64 @@
+package routinggroups
+
+import (
+	"context"
+	"database/sql"
+
+	"tensors-router/internal/routerstore"
+)
+
+type SchemaModule struct{}
+
+var _ routerstore.Module = SchemaModule{}
+
+func (SchemaModule) Name() string { return "routinggroups" }
+
+func (SchemaModule) Version() int { return 1 }
+
+// The member primary key is the pair identifying a model rather than the group,
+// so the schema itself makes it impossible for one model to sit in two groups and
+// for routing to face a choice it has no way to resolve.
+func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS routing_groups (
+			id TEXT PRIMARY KEY NOT NULL,
+			created_at INTEGER NOT NULL DEFAULT (unixepoch())
+		)`,
+		`CREATE TABLE IF NOT EXISTS routing_group_members (
+			node_id TEXT NOT NULL,
+			image_id TEXT NOT NULL,
+			group_id TEXT NOT NULL,
+			PRIMARY KEY (node_id, image_id),
+			FOREIGN KEY (group_id) REFERENCES routing_groups(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS routing_group_members_group_idx ON routing_group_members (group_id)`,
+	}
+	for _, statement := range statements {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (SchemaModule) ImportLegacy(ctx context.Context, tx *sql.Tx, legacySchema string) (int64, error) {
+	groups, err := routerstore.CopyRows(ctx, tx, routerstore.CopySpec{
+		LegacySchema: legacySchema,
+		LegacyTable:  "routing_groups",
+		Table:        "routing_groups",
+		Columns:      []string{"id", "created_at"},
+	})
+	if err != nil {
+		return 0, err
+	}
+	members, err := routerstore.CopyRows(ctx, tx, routerstore.CopySpec{
+		LegacySchema: legacySchema,
+		LegacyTable:  "routing_group_members",
+		Table:        "routing_group_members",
+		Columns:      []string{"node_id", "image_id", "group_id"},
+	})
+	if err != nil {
+		return 0, err
+	}
+	return groups + members, nil
+}

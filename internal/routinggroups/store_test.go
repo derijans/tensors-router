@@ -2,21 +2,16 @@ package routinggroups
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
+
+	"tensors-router/internal/routerstore/routerstoretest"
 )
 
 func newTestStore(t *testing.T) *Store {
 	t.Helper()
-	store, err := NewStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := store.Close(); err != nil {
-			t.Fatal(err)
-		}
-	})
-	return store
+	handle := routerstoretest.Open(t, SchemaModule{})
+	return NewStore(handle.DB(), handle.Reader())
 }
 
 func anchorA() Member { return Member{NodeID: "node-a", ImageID: "sdxl-juggernautXL"} }
@@ -178,28 +173,17 @@ func TestSetGroupRejectsABlankAnchor(t *testing.T) {
 }
 
 func TestGroupsSurviveReopeningTheStore(t *testing.T) {
-	directory := t.TempDir()
-	store, err := NewStore(directory)
-	if err != nil {
+	path := filepath.Join(t.TempDir(), "analytics.sqlite")
+	handle := routerstoretest.OpenAt(t, path, SchemaModule{})
+	if _, err := NewStore(handle.DB(), handle.Reader()).SetGroup(context.Background(), anchorA(), []Member{memberB()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.SetGroup(context.Background(), anchorA(), []Member{memberB()}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.Close(); err != nil {
+	if err := handle.Close(); err != nil {
 		t.Fatal(err)
 	}
 
-	reopened, err := NewStore(directory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() {
-		if err := reopened.Close(); err != nil {
-			t.Fatal(err)
-		}
-	}()
-	group, found, err := reopened.Group(context.Background(), memberB())
+	reopened := routerstoretest.OpenAt(t, path, SchemaModule{})
+	group, found, err := NewStore(reopened.DB(), reopened.Reader()).Group(context.Background(), memberB())
 	if err != nil || !found {
 		t.Fatalf("found=%t err=%v, want the group to persist", found, err)
 	}

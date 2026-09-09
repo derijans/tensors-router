@@ -79,7 +79,7 @@ func (store *Store) queryFilters(ctx context.Context, query Query) (Filters, err
 }
 
 func (store *Store) queryDistinctValues(ctx context.Context, statement string, args []any) ([]string, error) {
-	rows, err := store.db.QueryContext(ctx, statement, args...)
+	rows, err := store.reader.QueryContext(ctx, statement, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +104,7 @@ func (store *Store) querySummary(ctx context.Context, query Query) (Summary, err
 		return store.queryRollupSummary(ctx, query)
 	}
 	where, args := eventWhere(query)
-	row := store.db.QueryRowContext(ctx, `SELECT
+	row := store.reader.QueryRowContext(ctx, `SELECT
 		COALESCE(SUM(CASE WHEN event_type = 'request' THEN 1 ELSE 0 END), 0),
 		COALESCE(SUM(CASE WHEN event_type = 'request' THEN success ELSE 0 END), 0),
 		COALESCE(SUM(input_tokens), 0),
@@ -149,7 +149,7 @@ func (store *Store) querySummary(ctx context.Context, query Query) (Summary, err
 
 func (store *Store) queryTimeline(ctx context.Context, query Query, granularity string) ([]Timeline, error) {
 	where, args := rollupWhere(query, granularity)
-	rows, err := store.db.QueryContext(ctx, `SELECT
+	rows, err := store.reader.QueryContext(ctx, `SELECT
 		bucket_start,
 		COALESCE(SUM(request_count), 0),
 		COALESCE(SUM(input_tokens), 0),
@@ -198,7 +198,7 @@ func (store *Store) querySections(ctx context.Context, query Query) ([]SectionUs
 		return store.queryRollupSections(ctx, query)
 	}
 	where, args := eventWhere(query)
-	rows, err := store.db.QueryContext(ctx, `SELECT
+	rows, err := store.reader.QueryContext(ctx, `SELECT
 		section,
 		COALESCE(SUM(CASE WHEN event_type = 'request' THEN 1 ELSE 0 END), 0),
 		COALESCE(SUM(total_tokens), 0),
@@ -231,7 +231,7 @@ func (store *Store) queryModels(ctx context.Context, query Query) ([]ModelUsage,
 		return store.queryRollupModels(ctx, query)
 	}
 	where, args := eventWhere(query)
-	rows, err := store.db.QueryContext(ctx, `SELECT
+	rows, err := store.reader.QueryContext(ctx, `SELECT
 		node_id,
 		model_id,
 		COALESCE(SUM(CASE WHEN event_type = 'request' THEN 1 ELSE 0 END), 0),
@@ -267,7 +267,7 @@ func (store *Store) queryNodes(ctx context.Context, query Query) ([]NodeUsage, e
 		return store.queryRollupNodes(ctx, query)
 	}
 	where, args := eventWhere(query)
-	rows, err := store.db.QueryContext(ctx, `SELECT
+	rows, err := store.reader.QueryContext(ctx, `SELECT
 		node_id,
 		COALESCE(SUM(CASE WHEN event_type = 'request' THEN 1 ELSE 0 END), 0),
 		COALESCE(SUM(total_tokens), 0),
@@ -298,7 +298,7 @@ func (store *Store) queryNodes(ctx context.Context, query Query) ([]NodeUsage, e
 
 func (store *Store) queryRecent(ctx context.Context, query Query) ([]RecentEvent, error) {
 	where, args := eventWhere(query)
-	rows, err := store.db.QueryContext(ctx, `SELECT
+	rows, err := store.reader.QueryContext(ctx, `SELECT
 		node_id, model_id, section, backend_mode, event_type, route, config_filename, status_code, success,
 		started_at, finished_at, duration_ms, request_bytes, response_bytes, input_tokens, output_tokens,
 		total_tokens, tokens_per_second, image_count, image_width, image_height, image_steps,

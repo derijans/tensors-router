@@ -395,6 +395,12 @@ td {
   gap: 14px;
 }
 
+.panel-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .table-section-head {
   display: flex;
   justify-content: space-between;

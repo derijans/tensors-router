@@ -3,33 +3,28 @@ package loadcapture
 import (
 	"context"
 	"errors"
-	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"tensors-router/internal/routerstore"
+	"tensors-router/internal/routerstore/routerstoretest"
 )
 
-func TestStoreCompletesReuseAndReconcilesInterruptedLoads(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "captures.sqlite")
-	store, err := NewStore(StoreConfig{NodeID: "node-a", DatabasePath: path})
+func newStoreOn(t *testing.T, handle *routerstore.Handle) *Store {
+	t.Helper()
+	store, err := NewStore(StoreConfig{NodeID: "node-a", DB: handle.DB(), ReadDB: handle.Reader()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if runtime.GOOS != "windows" {
-		directoryInfo, err := os.Stat(filepath.Dir(path))
-		if err != nil {
-			t.Fatal(err)
-		}
-		databaseInfo, err := os.Stat(path)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if directoryInfo.Mode().Perm() != 0o700 || databaseInfo.Mode().Perm() != 0o600 {
-			t.Fatalf("unexpected store permissions: directory=%o database=%o", directoryInfo.Mode().Perm(), databaseInfo.Mode().Perm())
-		}
-	}
+	return store
+}
+
+func TestStoreCompletesReuseAndReconcilesInterruptedLoads(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "analytics.sqlite")
+	handle := routerstoretest.OpenAt(t, path, SchemaModule{})
+	store := newStoreOn(t, handle)
 	snapshot := Snapshot{SHA256: strings.Repeat("a", 64), JSON: []byte(`{"model_param":"sha256:abc"}`), Assets: []Asset{{Role: "model_param", Position: 0, SHA256: strings.Repeat("b", 64)}}}
 	attempt, err := store.BeginPhysical(context.Background(), snapshot, "llama_sdcpp", "llama", "llm")
 	if err != nil {
@@ -75,14 +70,10 @@ func TestStoreCompletesReuseAndReconcilesInterruptedLoads(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := store.Close(); err != nil {
+	if err := handle.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := NewStore(StoreConfig{NodeID: "node-a", DatabasePath: path})
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reopened.Close()
+	reopened := newStoreOn(t, routerstoretest.OpenAt(t, path, SchemaModule{}))
 	interrupted, err := reopened.Detail(context.Background(), loading.ID)
 	if err != nil {
 		t.Fatal(err)

@@ -6,6 +6,7 @@ import type {
   ConfigFileRequest,
   ConfigFileResponse,
   AnalyticsQuery,
+  AnalyticsFlushResponse,
   AnalyticsResponse,
   BenchmarkRecord,
   BenchmarkRunRequest,
@@ -298,6 +299,10 @@ export function getAnalytics(query: AnalyticsQuery): Promise<AnalyticsResponse> 
     params.set("section", query.section);
   }
   return api<AnalyticsResponse>(`/api/analytics?${params.toString()}`);
+}
+
+export function flushAnalytics(): Promise<AnalyticsFlushResponse> {
+  return api<AnalyticsFlushResponse>("/api/analytics/flush", {method: "POST"});
 }
 
 export function loadModelConfig(request: LoadConfigRequest): Promise<{ ok: boolean }> {

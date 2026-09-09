@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"path/filepath"
 	"testing"
 	"time"
 
 	"tensors-router/internal/loadcapture"
+	"tensors-router/internal/routerstore/routerstoretest"
 )
 
 func TestConcurrentPreloadsCaptureLoadingSuccessAndReuse(t *testing.T) {
@@ -96,11 +96,11 @@ func enableLoadCaptureForTest(t *testing.T, service *Service) *loadcapture.Store
 	t.Helper()
 	configDir := t.TempDir()
 	writeProxyTestConfig(t, configDir, "a", "{}")
-	store, err := loadcapture.NewStore(loadcapture.StoreConfig{NodeID: "local", DatabasePath: filepath.Join(t.TempDir(), "captures.sqlite")})
+	handle := routerstoretest.Open(t, loadcapture.SchemaModule{})
+	store, err := loadcapture.NewStore(loadcapture.StoreConfig{NodeID: "local", DB: handle.DB(), ReadDB: handle.Reader()})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
 	service.configDir = configDir
 	service.loadCaptureStore = store
 	service.loadCaptureMaxOutputBytes = 1024

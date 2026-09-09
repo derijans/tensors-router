@@ -33,6 +33,7 @@ import (
 	"tensors-router/internal/native"
 	"tensors-router/internal/proxy"
 	"tensors-router/internal/recipes"
+	"tensors-router/internal/routerstore"
 	"tensors-router/internal/routinggroups"
 	"tensors-router/internal/transportbody"
 	routerupdate "tensors-router/internal/update"
@@ -134,6 +135,7 @@ func runServe(args []string) error {
 	}
 	assetIndex.SetHashWorkers(cfg.Models.HashWorkers)
 	defer assetIndex.Close()
+	var storeHandle *routerstore.Handle
 	var analyticsStore *routeranalytics.Store
 	var loadCaptureStore *loadcapture.Store
 	var loadErrorStore *loaderrors.Store
@@ -148,13 +150,32 @@ func runServe(args []string) error {
 			return nil
 		}
 		runtimeCleaned = true
-		return errors.Join(closeRouterRuntime(routerService, modelCatalog, analyticsStore, shutdownBackends, serveLogger), loadCaptureStore.Close(), loadErrorStore.Close(), closeDownloader(downloaderManager), closeVLLM(vllmManager))
+		runtimeErr := errors.Join(
+			closeRouterRuntime(routerService, modelCatalog, analyticsStore, shutdownBackends, serveLogger),
+			closeDownloader(downloaderManager),
+			closeVLLM(vllmManager),
+		)
+		return errors.Join(runtimeErr, storeHandle.Close())
 	}
 	defer func() {
 		if err := cleanupRuntime(); err != nil {
 			serveLogger.Printf("runtime cleanup failed: %v", err)
 		}
 	}()
+	storeHandle, err = routerstore.Open(ctx, routerstore.Config{
+		Path: cfg.Cluster.DatabasePath,
+		Modules: []routerstore.Module{
+			routeranalytics.SchemaModule{},
+			loadcapture.SchemaModule{},
+			loaderrors.SchemaModule{},
+			routinggroups.SchemaModule{},
+		},
+		LegacySources: legacySources(cfg),
+		Logger:        serveLogger,
+	})
+	if err != nil {
+		return err
+	}
 	benchmarkStore, err := routerbenchmark.NewStore(cfg.Cluster.StoreDir)
 	if err != nil {
 		return err
@@ -168,24 +189,16 @@ func runServe(args []string) error {
 			_ = modelStateStore.Close()
 		}
 	}()
-	routingGroupStore, err := routinggroups.NewStore(cfg.Cluster.StoreDir)
+	routingGroupStore := routinggroups.NewStore(storeHandle.DB(), storeHandle.Reader())
+	analyticsStore, err = newAnalyticsStore(cfg, storeHandle, serveLogger)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if routerService == nil {
-			_ = routingGroupStore.Close()
-		}
-	}()
-	analyticsStore, err = newAnalyticsStore(cfg, serveLogger)
+	loadCaptureStore, err = newLoadCaptureStore(cfg, storeHandle, serveLogger)
 	if err != nil {
 		return err
 	}
-	loadCaptureStore, err = newLoadCaptureStore(cfg, serveLogger)
-	if err != nil {
-		return err
-	}
-	loadErrorStore, err = newLoadErrorStore(cfg)
+	loadErrorStore, err = newLoadErrorStore(cfg, storeHandle)
 	if err != nil {
 		return err
 	}
@@ -333,7 +346,7 @@ func runServe(args []string) error {
 		SeparateRuntimeLimit: cfg.Limits.SeparateRuntimes,
 	})
 	routerService = router
-	router.RecordConfigWarnings(cfg.Warnings)
+	router.RecordConfigWarnings(append(append([]string{}, cfg.Warnings...), storeHandle.Warnings()...))
 	if err := routercluster.RegisterInitial(ctx, syncConfig, registry, clusterProbeClient, serveLogger); err != nil {
 		router.BeginDrain()
 		return err
@@ -464,48 +477,61 @@ func bearerAuthConfigured(keys []string) bool {
 	return false
 }
 
-func newAnalyticsStore(cfg config.Config, logger *log.Logger) (*routeranalytics.Store, error) {
+func newAnalyticsStore(cfg config.Config, handle *routerstore.Handle, logger *log.Logger) (*routeranalytics.Store, error) {
 	if !cfg.Analytics.Enabled {
 		return nil, nil
 	}
-	databasePath := strings.TrimSpace(cfg.Analytics.DatabasePath)
-	if databasePath == "" {
-		databasePath = filepath.Join(cfg.Cluster.StoreDir, "analytics.sqlite")
-	}
 	return routeranalytics.NewStore(routeranalytics.StoreConfig{
 		NodeID:        cfg.Cluster.NodeID,
-		DatabasePath:  databasePath,
+		DB:            handle.DB(),
+		ReadDB:        handle.Reader(),
 		FlushInterval: cfg.Analytics.FlushInterval,
 		RawRetention:  cfg.Analytics.RawRetention,
 		Logger:        logger,
 	})
 }
 
-func newLoadCaptureStore(cfg config.Config, logger *log.Logger) (*loadcapture.Store, error) {
+func newLoadCaptureStore(cfg config.Config, handle *routerstore.Handle, logger *log.Logger) (*loadcapture.Store, error) {
 	if !cfg.Analytics.LoadCaptureEnabled {
 		return nil, nil
 	}
-	databasePath := strings.TrimSpace(cfg.Analytics.LoadCaptureDatabasePath)
-	if databasePath == "" {
-		databasePath = filepath.Join(cfg.Cluster.StoreDir, "load-captures.sqlite")
-	}
-	return loadcapture.NewStore(loadcapture.StoreConfig{NodeID: cfg.Cluster.NodeID, DatabasePath: databasePath, Logger: logger})
+	return loadcapture.NewStore(loadcapture.StoreConfig{NodeID: cfg.Cluster.NodeID, DB: handle.DB(), ReadDB: handle.Reader(), Logger: logger})
 }
 
-func newLoadErrorStore(cfg config.Config) (*loaderrors.Store, error) {
+func newLoadErrorStore(cfg config.Config, handle *routerstore.Handle) (*loaderrors.Store, error) {
 	if !cfg.Diagnostics.Enabled {
 		return nil, nil
 	}
-	databasePath := strings.TrimSpace(cfg.Diagnostics.DatabasePath)
-	if databasePath == "" {
-		databasePath = filepath.Join(cfg.Cluster.StoreDir, "load-errors.sqlite")
-	}
 	return loaderrors.NewStore(loaderrors.StoreConfig{
 		NodeID:         cfg.Cluster.NodeID,
-		DatabasePath:   databasePath,
+		DB:             handle.DB(),
+		ReadDB:         handle.Reader(),
 		Retention:      cfg.Diagnostics.Retention,
 		MaxOutputBytes: int(cfg.Diagnostics.MaxOutputKB) << 10,
 	})
+}
+
+// A node that ran before the databases were joined still holds its rows in the
+// file the old key named, and in the file the old default named, so both are
+// offered to the importer.
+func legacySources(cfg config.Config) []routerstore.LegacySource {
+	candidates := []routerstore.LegacySource{
+		{Module: "analytics", Path: cfg.Analytics.DatabasePath},
+		{Module: "analytics", Path: filepath.Join(cfg.Cluster.StoreDir, "analytics.sqlite")},
+		{Module: "loadcapture", Path: cfg.Analytics.LoadCaptureDatabasePath},
+		{Module: "loadcapture", Path: filepath.Join(cfg.Cluster.StoreDir, "load-captures.sqlite")},
+		{Module: "loaderrors", Path: cfg.Diagnostics.DatabasePath},
+		{Module: "loaderrors", Path: filepath.Join(cfg.Cluster.StoreDir, "load-errors.sqlite")},
+		{Module: "routinggroups", Path: filepath.Join(cfg.Cluster.StoreDir, "routing-groups.sqlite")},
+	}
+	sources := make([]routerstore.LegacySource, 0, len(candidates))
+	for _, candidate := range candidates {
+		if strings.TrimSpace(candidate.Path) == "" {
+			continue
+		}
+		sources = append(sources, candidate)
+	}
+	return sources
 }
 
 func clusterProbeTargets(cfg config.Config) []string {

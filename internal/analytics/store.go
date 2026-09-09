@@ -5,8 +5,6 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -20,14 +18,16 @@ const (
 
 type StoreConfig struct {
 	NodeID        string
-	DatabasePath  string
+	DB            *sql.DB
+	ReadDB        *sql.DB
 	FlushInterval time.Duration
 	RawRetention  time.Duration
 	Logger        *log.Logger
 }
 
 type Store struct {
-	db            *sql.DB
+	writer        *sql.DB
+	reader        *sql.DB
 	nodeID        string
 	flushInterval time.Duration
 	rawRetention  time.Duration
@@ -46,9 +46,8 @@ func NewStore(config StoreConfig) (*Store, error) {
 	if nodeID == "" {
 		nodeID = "local"
 	}
-	databasePath := strings.TrimSpace(config.DatabasePath)
-	if databasePath == "" {
-		return nil, fmt.Errorf("analytics database path is required")
+	if config.DB == nil || config.ReadDB == nil {
+		return nil, fmt.Errorf("analytics database handles are required")
 	}
 	if config.FlushInterval <= 0 {
 		return nil, fmt.Errorf("analytics flush interval must be positive")
@@ -60,25 +59,13 @@ func NewStore(config StoreConfig) (*Store, error) {
 	if rawRetention < 0 {
 		return nil, fmt.Errorf("analytics raw retention must be positive")
 	}
-	if err := os.MkdirAll(filepath.Dir(databasePath), 0o755); err != nil {
-		return nil, err
-	}
-	db, err := sql.Open("sqlite", databasePath)
-	if err != nil {
-		return nil, err
-	}
-	db.SetMaxOpenConns(1)
-	db.SetMaxIdleConns(1)
-	if err := migrate(context.Background(), db); err != nil {
-		_ = db.Close()
-		return nil, err
-	}
 	logger := config.Logger
 	if logger == nil {
 		logger = log.Default()
 	}
 	store := &Store{
-		db:            db,
+		writer:        config.DB,
+		reader:        config.ReadDB,
 		nodeID:        nodeID,
 		flushInterval: config.FlushInterval,
 		rawRetention:  rawRetention,
@@ -131,7 +118,7 @@ func (store *Store) pruneRawEvents(ctx context.Context, now time.Time) error {
 		return nil
 	}
 	cutoff := rawRetentionCutoff(now, store.rawRetention)
-	_, err := store.db.ExecContext(ctx, `DELETE FROM analytics_events WHERE finished_at < ?`, cutoff)
+	_, err := store.writer.ExecContext(ctx, `DELETE FROM analytics_events WHERE finished_at < ?`, cutoff)
 	return err
 }
 
@@ -156,12 +143,20 @@ func (store *Store) Close(ctx context.Context) error {
 		close(store.closed)
 		<-store.done
 	})
-	flushErr := store.Flush(ctx)
-	closeErr := store.db.Close()
-	if flushErr != nil {
-		return flushErr
+	return store.Flush(ctx)
+}
+
+// Checkpoint puts everything the router holds in memory on disk: the buffered
+// events first, then the write-ahead log folded back into the database file.
+func (store *Store) Checkpoint(ctx context.Context) error {
+	if store == nil {
+		return nil
 	}
-	return closeErr
+	if err := store.Flush(ctx); err != nil {
+		return err
+	}
+	_, err := store.writer.ExecContext(ctx, `PRAGMA wal_checkpoint(TRUNCATE)`)
+	return err
 }
 
 func (store *Store) flushLoop() {
@@ -278,7 +273,7 @@ func (store *Store) normalizeEvent(event Event) Event {
 }
 
 func (store *Store) writeEvents(ctx context.Context, events []Event) error {
-	tx, err := store.db.BeginTx(ctx, nil)
+	tx, err := store.writer.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -402,35 +397,6 @@ func (store *Store) writeRollups(ctx context.Context, statement *sql.Stmt, event
 		}
 	}
 	return nil
-}
-
-func rollupInsertSQL() string {
-	return `INSERT INTO analytics_rollups (
-		period_kind, bucket_start, node_id, model_id, section, backend_mode, route,
-		request_count, success_count, duration_ms_total, input_tokens, output_tokens,
-		total_tokens, tokens_per_second_sum, tokens_per_second_count, image_count,
-		audio_seconds, audio_tokens, load_count, load_duration_ms_total, vram_peak_mb,
-		vram_peak_percent, vram_total_mb, model_vram_estimate_mb
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	ON CONFLICT(period_kind, bucket_start, node_id, model_id, section, backend_mode, route)
-	DO UPDATE SET
-		request_count = request_count + excluded.request_count,
-		success_count = success_count + excluded.success_count,
-		duration_ms_total = duration_ms_total + excluded.duration_ms_total,
-		input_tokens = input_tokens + excluded.input_tokens,
-		output_tokens = output_tokens + excluded.output_tokens,
-		total_tokens = total_tokens + excluded.total_tokens,
-		tokens_per_second_sum = tokens_per_second_sum + excluded.tokens_per_second_sum,
-		tokens_per_second_count = tokens_per_second_count + excluded.tokens_per_second_count,
-		image_count = image_count + excluded.image_count,
-		audio_seconds = audio_seconds + excluded.audio_seconds,
-		audio_tokens = audio_tokens + excluded.audio_tokens,
-		load_count = load_count + excluded.load_count,
-		load_duration_ms_total = load_duration_ms_total + excluded.load_duration_ms_total,
-		vram_peak_mb = MAX(vram_peak_mb, excluded.vram_peak_mb),
-		vram_peak_percent = MAX(vram_peak_percent, excluded.vram_peak_percent),
-		vram_total_mb = MAX(vram_total_mb, excluded.vram_total_mb),
-		model_vram_estimate_mb = MAX(model_vram_estimate_mb, excluded.model_vram_estimate_mb)`
 }
 
 func bucketStart(value time.Time, period string) int64 {

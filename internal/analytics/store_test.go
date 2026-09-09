@@ -8,6 +8,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"tensors-router/internal/routerstore/routerstoretest"
 )
 
 func TestStoreFlushesAndQueriesAnalytics(t *testing.T) {
@@ -229,9 +231,11 @@ func TestStoreMigratesOldAnalyticsDatabase(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	handle := routerstoretest.OpenAt(t, databasePath, SchemaModule{})
 	store, err := NewStore(StoreConfig{
 		NodeID:        "node-a",
-		DatabasePath:  databasePath,
+		DB:            handle.DB(),
+		ReadDB:        handle.Reader(),
 		FlushInterval: time.Hour,
 	})
 	if err != nil {
@@ -408,12 +412,13 @@ func TestStoreDoesNotPersistContentFields(t *testing.T) {
 }
 
 func TestStoreCloseFlushesBufferedEvents(t *testing.T) {
-	dir := t.TempDir()
-	databasePath := filepath.Join(dir, "analytics.sqlite")
+	databasePath := filepath.Join(t.TempDir(), "analytics.sqlite")
+	handle := routerstoretest.OpenAt(t, databasePath, SchemaModule{})
 	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
 	store, err := NewStore(StoreConfig{
 		NodeID:        "node-a",
-		DatabasePath:  databasePath,
+		DB:            handle.DB(),
+		ReadDB:        handle.Reader(),
 		FlushInterval: time.Hour,
 	})
 	if err != nil {
@@ -423,10 +428,15 @@ func TestStoreCloseFlushesBufferedEvents(t *testing.T) {
 	if err := store.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
+	if err := handle.Close(); err != nil {
+		t.Fatal(err)
+	}
 
+	reopenedHandle := routerstoretest.OpenAt(t, databasePath, SchemaModule{})
 	reopened, err := NewStore(StoreConfig{
 		NodeID:        "node-a",
-		DatabasePath:  databasePath,
+		DB:            reopenedHandle.DB(),
+		ReadDB:        reopenedHandle.Reader(),
 		FlushInterval: time.Hour,
 	})
 	if err != nil {
@@ -448,9 +458,11 @@ func TestStoreCloseFlushesBufferedEvents(t *testing.T) {
 
 func newTestStore(t *testing.T, nodeID string) *Store {
 	t.Helper()
+	handle := routerstoretest.Open(t, SchemaModule{})
 	store, err := NewStore(StoreConfig{
 		NodeID:        nodeID,
-		DatabasePath:  filepath.Join(t.TempDir(), "analytics.sqlite"),
+		DB:            handle.DB(),
+		ReadDB:        handle.Reader(),
 		FlushInterval: time.Hour,
 	})
 	if err != nil {
@@ -465,9 +477,11 @@ func newTestStore(t *testing.T, nodeID string) *Store {
 }
 
 func TestRawRetentionKeepsHistoricalRollupQueriesComplete(t *testing.T) {
+	handle := routerstoretest.Open(t, SchemaModule{})
 	store, err := NewStore(StoreConfig{
 		NodeID:        "node-a",
-		DatabasePath:  filepath.Join(t.TempDir(), "analytics.sqlite"),
+		DB:            handle.DB(),
+		ReadDB:        handle.Reader(),
 		FlushInterval: time.Hour,
 		RawRetention:  24 * time.Hour,
 	})
@@ -490,7 +504,7 @@ func TestRawRetentionKeepsHistoricalRollupQueriesComplete(t *testing.T) {
 	}
 
 	var rawCount int
-	if err := store.db.QueryRow(`SELECT COUNT(*) FROM analytics_events`).Scan(&rawCount); err != nil {
+	if err := store.reader.QueryRow(`SELECT COUNT(*) FROM analytics_events`).Scan(&rawCount); err != nil {
 		t.Fatal(err)
 	}
 	if rawCount != 1 {
@@ -513,8 +527,10 @@ func TestRawRetentionKeepsHistoricalRollupQueriesComplete(t *testing.T) {
 }
 
 func TestStoreRejectsNegativeRawRetention(t *testing.T) {
+	handle := routerstoretest.Open(t, SchemaModule{})
 	_, err := NewStore(StoreConfig{
-		DatabasePath:  filepath.Join(t.TempDir(), "analytics.sqlite"),
+		DB:            handle.DB(),
+		ReadDB:        handle.Reader(),
 		FlushInterval: time.Hour,
 		RawRetention:  -time.Hour,
 	})

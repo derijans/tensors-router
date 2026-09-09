@@ -199,6 +199,7 @@ type ClusterConfig struct {
 	SlaveURLs       []string
 	Token           string
 	StoreDir        string
+	DatabasePath    string
 	SyncInterval    time.Duration
 	HealthInterval  time.Duration
 	ControlTimeout  time.Duration
@@ -531,6 +532,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Cluster.StoreDir == "" {
 		return fmt.Errorf("cluster.store_dir is required")
+	}
+	if err := validateDatabasePath(cfg.Cluster); err != nil {
+		return err
 	}
 	if cfg.Cluster.SyncInterval <= 0 {
 		return fmt.Errorf("cluster.sync_interval must be positive")
@@ -1396,6 +1400,9 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			return nil
 		case "store_dir":
 			cfg.Cluster.StoreDir = value
+			return nil
+		case "database_path":
+			cfg.Cluster.DatabasePath = value
 			return nil
 		case "sync_interval":
 			parsed, err := time.ParseDuration(value)

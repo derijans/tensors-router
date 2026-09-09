@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"tensors-router/internal/cluster"
+	"tensors-router/internal/routerstore/routerstoretest"
 	"tensors-router/internal/routinggroups"
 	"tensors-router/internal/siteapi"
 )
@@ -44,16 +45,8 @@ func newRoutingGroupService(t *testing.T) *Service {
 	}
 
 	service, _ := newTestServiceWithRegistry(t, registry, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), "secret")
-	store, err := routinggroups.NewStore(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() {
-		if err := store.Close(); err != nil {
-			t.Fatal(err)
-		}
-	})
-	service.routingGroups = store
+	handle := routerstoretest.Open(t, routinggroups.SchemaModule{})
+	service.routingGroups = routinggroups.NewStore(handle.DB(), handle.Reader())
 	return service
 }
 

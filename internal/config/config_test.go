@@ -174,11 +174,14 @@ analytics:
 	if cfg.Logging.Enabled {
 		t.Fatalf("logging should be disabled")
 	}
-	if cfg.Logging.Mode != LoggingModeQuiet || len(cfg.Warnings) != 4 {
+	if cfg.Logging.Mode != LoggingModeQuiet || len(cfg.Warnings) != 5 {
 		t.Fatalf("unexpected compatibility result mode=%q warnings=%#v", cfg.Logging.Mode, cfg.Warnings)
 	}
 	if !anyContains(cfg.Warnings, "kobold.embeddings_backend_url is deprecated") || !anyContains(cfg.Warnings, "llama.embeddings_backend_url is deprecated") {
 		t.Fatalf("expected embeddings_backend_url deprecation warnings, got %#v", cfg.Warnings)
+	}
+	if !anyContains(cfg.Warnings, "analytics.database_path is deprecated") {
+		t.Fatalf("expected analytics.database_path deprecation warning, got %#v", cfg.Warnings)
 	}
 	if !cfg.Logging.BackendLogsToDisk {
 		t.Fatalf("backend logs to disk should be enabled")

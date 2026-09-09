@@ -99,6 +99,7 @@ cluster:
   slave_urls: []
   token: ""
   store_dir: "/data/router"
+  database_path: "/data/analytics.sqlite"
   sync_interval: "60s"
   health_interval: "15s"
   control_timeout: "30s"
@@ -108,10 +109,14 @@ analytics:
   enabled: true
   vram_enabled: true
   flush_interval: "3m"
+  # Deprecated. Keep for one release so the existing analytics file is adopted
+  # in place, then remove it.
   database_path: "/data/analytics.sqlite"
   raw_retention: "720h"
   vram_sample_interval: "1s"
   load_capture_enabled: false
+  # Deprecated. Keep for one release so the existing capture file is imported,
+  # then remove it.
   load_capture_database_path: "/data/load-captures.sqlite"
   load_capture_max_output_mb: 64
 

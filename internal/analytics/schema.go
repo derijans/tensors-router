@@ -4,13 +4,20 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+
+	"tensors-router/internal/routerstore"
 )
 
-func migrate(ctx context.Context, db *sql.DB) error {
+type SchemaModule struct{}
+
+var _ routerstore.Module = SchemaModule{}
+
+func (SchemaModule) Name() string { return "analytics" }
+
+func (SchemaModule) Version() int { return 5 }
+
+func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 	statements := []string{
-		`PRAGMA journal_mode = WAL`,
-		`PRAGMA synchronous = NORMAL`,
-		`PRAGMA busy_timeout = 5000`,
 		`CREATE TABLE IF NOT EXISTS analytics_events (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			node_id TEXT NOT NULL,
@@ -95,8 +102,44 @@ func migrate(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 	}
-	_, err := db.ExecContext(ctx, `PRAGMA user_version = 5`)
-	return err
+	return nil
+}
+
+func (SchemaModule) ImportLegacy(ctx context.Context, tx *sql.Tx, legacySchema string) (int64, error) {
+	events, err := routerstore.CopyRows(ctx, tx, routerstore.CopySpec{
+		LegacySchema: legacySchema,
+		LegacyTable:  "analytics_events",
+		Table:        "analytics_events",
+		Columns:      eventColumns(),
+	})
+	if err != nil {
+		return 0, err
+	}
+	rollups, err := routerstore.CopyRows(ctx, tx, routerstore.CopySpec{
+		LegacySchema: legacySchema,
+		LegacyTable:  "analytics_rollups",
+		Table:        "analytics_rollups",
+		Columns:      rollupColumns(),
+		Conflict:     rollupMergeClause,
+	})
+	if err != nil {
+		return 0, err
+	}
+	return events + rollups, nil
+}
+
+// The surrogate key is left behind so the merged table numbers its own rows;
+// nothing refers to an event by id.
+func eventColumns() []string {
+	return []string{
+		"node_id", "model_id", "section", "backend_mode", "event_type", "route", "config_filename",
+		"status_code", "success", "started_at", "finished_at", "duration_ms", "request_bytes",
+		"response_bytes", "input_tokens", "output_tokens", "total_tokens", "tokens_per_second",
+		"image_count", "image_width", "image_height", "image_steps", "image_type", "audio_seconds",
+		"audio_tokens", "audio_language", "audio_task", "load_vram_before_mb", "load_vram_after_mb",
+		"load_vram_delta_mb", "work_vram_start_mb", "work_vram_max_mb", "work_vram_end_mb",
+		"model_vram_estimate_mb", "vram_total_mb", "vram_peak_percent",
+	}
 }
 
 type migrationColumn struct {

@@ -47,6 +47,8 @@ func ResolveSecurityProfile(cliValue string, environmentValue string) string {
 }
 
 func finalizeCompatibility(cfg *Config) {
+	resolveDatabasePath(cfg)
+	warnDeprecatedDatabasePaths(cfg)
 	if len(cfg.Auth.BearerKeys) > 0 {
 		cfg.Auth.InferenceKeys = appendUnique(cfg.Auth.InferenceKeys, cfg.Auth.BearerKeys...)
 		cfg.Warnings = append(cfg.Warnings, "auth.bearer_keys is deprecated; values are inference-only, use auth.inference_keys")

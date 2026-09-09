@@ -24,7 +24,7 @@ func (store *Store) ListFiltered(ctx context.Context, query ListQuery) ([]Attemp
 	if query.Limit < 1 || query.Limit > 500 {
 		query.Limit = 100
 	}
-	statement := `SELECT id, node_id, kind, status, backend_mode, runtime, lane, snapshot_sha256, COALESCE(physical_attempt_id, ''), started_at, finished_at, duration_ms, failure_class, failure_message, captured_bytes, truncated FROM attempts WHERE 1 = 1`
+	statement := `SELECT id, node_id, kind, status, backend_mode, runtime, lane, snapshot_sha256, COALESCE(physical_attempt_id, ''), started_at, finished_at, duration_ms, failure_class, failure_message, captured_bytes, truncated FROM load_capture_attempts WHERE 1 = 1`
 	arguments := []any{}
 	if query.BeforeStartedMS > 0 {
 		if query.BeforeID == "" {
@@ -63,7 +63,7 @@ func (store *Store) ListFiltered(ctx context.Context, query ListQuery) ([]Attemp
 	}
 	statement += ` ORDER BY started_at DESC, id DESC LIMIT ?`
 	arguments = append(arguments, query.Limit)
-	rows, err := store.db.QueryContext(ctx, statement, arguments...)
+	rows, err := store.reader.QueryContext(ctx, statement, arguments...)
 	if err != nil {
 		return nil, err
 	}
@@ -84,7 +84,7 @@ func (store *Store) ListFiltered(ctx context.Context, query ListQuery) ([]Attemp
 		return nil, err
 	}
 	for index := range attempts {
-		assetRows, err := store.db.QueryContext(ctx, `SELECT role, sha256 FROM snapshot_assets WHERE snapshot_sha256 = ? ORDER BY role, position`, attempts[index].SnapshotSHA256)
+		assetRows, err := store.reader.QueryContext(ctx, `SELECT role, sha256 FROM load_capture_snapshot_assets WHERE snapshot_sha256 = ? ORDER BY role, position`, attempts[index].SnapshotSHA256)
 		if err != nil {
 			return nil, err
 		}

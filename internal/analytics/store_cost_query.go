@@ -70,7 +70,7 @@ func (store *Store) CostSamples(ctx context.Context, section string, window time
 }
 
 func (store *Store) requestCostSamples(ctx context.Context, section string, since int64) ([]CostSample, error) {
-	rows, err := store.db.QueryContext(ctx, `SELECT model_id, COUNT(*),
+	rows, err := store.reader.QueryContext(ctx, `SELECT model_id, COUNT(*),
 			SUM(work), SUM(duration), SUM(work * duration), SUM(work * work)
 		FROM (
 			SELECT model_id, CAST(duration_ms AS REAL) AS duration, `+imageWorkExpression+` AS work
@@ -102,7 +102,7 @@ func (store *Store) requestCostSamples(ctx context.Context, section string, sinc
 }
 
 func (store *Store) loadCostSamples(ctx context.Context, section string, since int64) ([]LoadCostSample, error) {
-	rows, err := store.db.QueryContext(ctx, `SELECT config_filename, COUNT(*), SUM(CAST(duration_ms AS REAL))
+	rows, err := store.reader.QueryContext(ctx, `SELECT config_filename, COUNT(*), SUM(CAST(duration_ms AS REAL))
 		FROM analytics_events
 		WHERE event_type = ? AND success = 1 AND section = ? AND finished_at >= ?
 			AND duration_ms > 0 AND config_filename <> ''

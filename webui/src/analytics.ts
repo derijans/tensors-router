@@ -1,4 +1,4 @@
-import { getAnalytics } from "./api";
+import { flushAnalytics, getAnalytics } from "./api";
 import {
   analyticsModelChoices,
   analyticsNodeChoices,
@@ -29,6 +29,15 @@ export async function loadAnalytics(): Promise<void> {
     state.analytics.loading = false;
     renderAnalytics();
   }
+}
+
+export async function flushAnalyticsToDisk(): Promise<void> {
+  const response = await flushAnalytics();
+  const failures = response.node_errors ?? [];
+  if (failures.length > 0) {
+    throw new Error(failures.map((failure) => `${failure.node_id || failure.node_url}: ${failure.error}`).join("; "));
+  }
+  await loadAnalytics();
 }
 
 export function renderAnalytics(): void {

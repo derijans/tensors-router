@@ -2,19 +2,20 @@ package loaderrors
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"tensors-router/internal/routerstore/routerstoretest"
 )
 
 func newTestStore(t *testing.T, retention time.Duration) *Store {
 	t.Helper()
-	store, err := NewStore(StoreConfig{NodeID: "node-a", DatabasePath: filepath.Join(t.TempDir(), "load-errors.sqlite"), Retention: retention})
+	handle := routerstoretest.Open(t, SchemaModule{})
+	store, err := NewStore(StoreConfig{NodeID: "node-a", DB: handle.DB(), ReadDB: handle.Reader(), Retention: retention})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
 	return store
 }
 
@@ -95,7 +96,7 @@ func TestRecordPrunesExpiredRows(t *testing.T) {
 	if err := store.Record(ctx, RecordInput{Phase: PhasePreload, Source: "old", Message: "stale failure"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.ExecContext(ctx, `UPDATE load_errors SET last_seen_at = ?`, time.Now().Add(-2*time.Hour).UnixMilli()); err != nil {
+	if _, err := store.writer.ExecContext(ctx, `UPDATE load_errors SET last_seen_at = ?`, time.Now().Add(-2*time.Hour).UnixMilli()); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Record(ctx, RecordInput{Phase: PhasePreload, Source: "new", Message: "fresh failure"}); err != nil {

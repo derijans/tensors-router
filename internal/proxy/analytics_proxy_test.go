@@ -8,7 +8,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -19,6 +18,7 @@ import (
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/hardware"
+	"tensors-router/internal/routerstore/routerstoretest"
 )
 
 func TestAnalyticsRecordsTextRequest(t *testing.T) {
@@ -358,9 +358,11 @@ func TestSiteAnalyticsForwardsActiveFiltersToClusterNodes(t *testing.T) {
 
 func newProxyAnalyticsStore(t *testing.T, nodeID string) *routeranalytics.Store {
 	t.Helper()
+	handle := routerstoretest.Open(t, routeranalytics.SchemaModule{})
 	store, err := routeranalytics.NewStore(routeranalytics.StoreConfig{
 		NodeID:        nodeID,
-		DatabasePath:  filepath.Join(t.TempDir(), "analytics.sqlite"),
+		DB:            handle.DB(),
+		ReadDB:        handle.Reader(),
 		FlushInterval: time.Hour,
 		Logger:        log.New(io.Discard, "", 0),
 	})
@@ -434,4 +436,54 @@ func recentEventOfType(t *testing.T, response routeranalytics.Response, eventTyp
 		t.Fatalf("expected exactly one %q event, got %d in %#v", eventType, len(found), response.Recent)
 	}
 	return found[0]
+}
+
+func TestSiteAnalyticsFlushPersistsBufferedEvents(t *testing.T) {
+	service, _ := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	handle := routerstoretest.Open(t, routeranalytics.SchemaModule{})
+	store, err := routeranalytics.NewStore(routeranalytics.StoreConfig{
+		NodeID:        "node-a",
+		DB:            handle.DB(),
+		ReadDB:        handle.Reader(),
+		FlushInterval: time.Hour,
+		Logger:        log.New(io.Discard, "", 0),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close(context.Background()) })
+	service.analyticsStore = store
+	now := time.Now()
+	store.Record(routeranalytics.Event{ModelID: "llm-a", Section: routeranalytics.SectionLLM, StatusCode: 200, Success: true, StartedAt: now, FinishedAt: now})
+
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/v1/site/analytics/flush", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	var response routeranalytics.FlushResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatal(err)
+	}
+	if len(response.NodeErrors) != 0 || len(response.FlushedNodes) != 1 {
+		t.Fatalf("unexpected flush response %#v", response)
+	}
+	var persisted int
+	if err := handle.Reader().QueryRow(`SELECT COUNT(*) FROM analytics_events`).Scan(&persisted); err != nil {
+		t.Fatal(err)
+	}
+	if persisted != 1 {
+		t.Fatalf("flush left %d events in memory, want them on disk", persisted)
+	}
+}
+
+func TestSiteAnalyticsFlushIsHiddenOnSlaveNodes(t *testing.T) {
+	service, _ := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	service.clusterRole = cluster.RoleSlave
+
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/v1/site/analytics/flush", nil))
+	if recorder.Code != http.StatusNotFound {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
 }

@@ -165,6 +165,10 @@ cluster:
   slave_urls: []
   token: ""
   store_dir: "./router-store"
+  # One SQLite file holds analytics, load captures, load errors and routing
+  # groups. Empty means store_dir/analytics.sqlite. Model assets and model state
+  # keep their own files.
+  database_path: ""
   sync_interval: "60s"
   health_interval: "15s"
   control_timeout: "30s"
@@ -185,15 +189,18 @@ analytics:
   enabled: false
   vram_enabled: true
   load_capture_enabled: false
+  # Deprecated: kept so the router can import an existing capture database once.
   load_capture_database_path: ""
   load_capture_max_output_mb: 64
   flush_interval: "3m"
+  # Deprecated: kept so the router can import an existing analytics database once.
   database_path: ""
   raw_retention: "720h"
   vram_sample_interval: "1s"
 
 diagnostics:
   enabled: true
+  # Deprecated: kept so the router can import an existing diagnostics database once.
   database_path: ""
   retention: "720h"
   max_output_kb: 64

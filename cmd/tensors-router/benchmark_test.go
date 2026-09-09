@@ -11,6 +11,7 @@ import (
 	routeranalytics "tensors-router/internal/analytics"
 	routerbenchmark "tensors-router/internal/benchmark"
 	"tensors-router/internal/config"
+	"tensors-router/internal/routerstore/routerstoretest"
 )
 
 func TestParseBenchmarkCommand(t *testing.T) {
@@ -68,9 +69,10 @@ func TestQuietLoggingKeepsAnalyticsUsageCollectionEnabled(t *testing.T) {
 	cfg.Logging.Mode = config.LoggingModeQuiet
 	cfg.Logging.BackendLogsToDisk = false
 	cfg.Analytics.Enabled = true
-	cfg.Analytics.DatabasePath = filepath.Join(t.TempDir(), "analytics.sqlite")
+	cfg.Cluster.DatabasePath = filepath.Join(t.TempDir(), "analytics.sqlite")
+	handle := routerstoretest.OpenAt(t, cfg.Cluster.DatabasePath, routeranalytics.SchemaModule{})
 	_, serveLogger := configuredLoggers(cfg.Logging.Mode)
-	store, err := newAnalyticsStore(cfg, serveLogger)
+	store, err := newAnalyticsStore(cfg, handle, serveLogger)
 	if err != nil {
 		t.Fatal(err)
 	}

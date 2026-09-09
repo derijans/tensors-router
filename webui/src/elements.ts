@@ -84,6 +84,7 @@ export const elements = {
   analyticsModelSelect: getRequiredElement("analyticsModelSelect", HTMLSelectElement),
   analyticsSectionSelect: getRequiredElement("analyticsSectionSelect", HTMLSelectElement),
   analyticsRefreshButton: getRequiredElement("analyticsRefreshButton", HTMLButtonElement),
+  analyticsFlushButton: getRequiredElement("analyticsFlushButton", HTMLButtonElement),
   analyticsStatus: getRequiredElement("analyticsStatus", HTMLElement),
   analyticsSummary: getRequiredElement("analyticsSummary", HTMLElement),
   analyticsTimeline: getRequiredElement("analyticsTimeline", HTMLElement),

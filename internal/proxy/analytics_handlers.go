@@ -25,6 +25,47 @@ func (service *Service) handleSiteAnalytics(w http.ResponseWriter, r *http.Reque
 	openai.WriteJSON(w, http.StatusOK, response)
 }
 
+func (service *Service) handleSiteAnalyticsFlush(w http.ResponseWriter, r *http.Request) {
+	if !service.siteControlAllowed() {
+		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		return
+	}
+	response := service.localAnalyticsFlush(r)
+	if service.clusterRole == cluster.RoleMaster {
+		results := fanOutNodes(r.Context(), service.remoteInventoryURLs(), func(nodeContext context.Context, nodeURL string) (routeranalytics.FlushResponse, error) {
+			var remote routeranalytics.FlushResponse
+			err := service.clusterClient.JSON(nodeContext, http.MethodPost, nodeURL, "/router/v1/node/analytics/flush", nil, &remote)
+			return remote, err
+		})
+		for _, result := range results {
+			if result.Err != nil {
+				response.NodeErrors = append(response.NodeErrors, routeranalytics.NodeError{NodeURL: result.Target, Error: result.Err.Error()})
+				continue
+			}
+			response.FlushedNodes = append(response.FlushedNodes, result.Value.FlushedNodes...)
+			response.NodeErrors = append(response.NodeErrors, result.Value.NodeErrors...)
+		}
+	}
+	openai.WriteJSON(w, http.StatusOK, response)
+}
+
+func (service *Service) handleNodeAnalyticsFlush(w http.ResponseWriter, r *http.Request) {
+	openai.WriteJSON(w, http.StatusOK, service.localAnalyticsFlush(r))
+}
+
+func (service *Service) localAnalyticsFlush(r *http.Request) routeranalytics.FlushResponse {
+	response := routeranalytics.FlushResponse{FlushedNodes: []string{}}
+	if service.analyticsStore == nil {
+		return response
+	}
+	if err := service.analyticsStore.Checkpoint(r.Context()); err != nil {
+		response.NodeErrors = append(response.NodeErrors, routeranalytics.NodeError{NodeID: service.nodeID, Error: err.Error()})
+		return response
+	}
+	response.FlushedNodes = append(response.FlushedNodes, service.nodeID)
+	return response
+}
+
 func (service *Service) handleNodeAnalytics(w http.ResponseWriter, r *http.Request) {
 	query, err := routeranalytics.QueryFromValues(r.URL.Query(), time.Now())
 	if err != nil {

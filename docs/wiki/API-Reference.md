@@ -180,7 +180,7 @@ Standalone and master routers expose administration routes in these groups:
 - `/router/v1/site/download/...`
 - `/router/v1/site/webuis/...`
 - `/router/v1/site/routing-groups`
-- `/router/v1/site/analytics`
+- `/router/v1/site/analytics` and `POST /router/v1/site/analytics/flush`
 - `/router/v1/site/load-captures`
 - `/router/v1/site/cook/...` and `/router/v1/site/config-file/...`
 - `/router/v1/site/model-files/...` and `/router/v1/site/model-assets/...`
@@ -195,6 +195,8 @@ Detailed records and paged output are available from:
 - `GET /router/v1/site/load-captures/{attempt_id}/output?node_id={node_id}&after_sequence={sequence}`
 
 Details contain the sanitized KCPPS snapshot and asset hashes. Output payloads are base64-encoded JSON byte fields, preserve stdout/stderr ordering, and may be marked truncated when the configured capture limit is reached. Site routes require admin authentication; corresponding `/router/v1/node/load-captures/...` routes require the cluster token.
+
+`POST /router/v1/site/analytics/flush` writes the buffered analytics events out and folds the write-ahead log back into the database file. A master also asks every reachable slave over `/router/v1/node/analytics/flush`. The response lists the nodes that persisted their buffer and reports any node that could not.
 
 The WebUI catalog, session toggle, model load, and proxied browser routes are described in [Backend WebUI Interfaces](Backend-WebUI-Interfaces).
 

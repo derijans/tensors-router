@@ -117,6 +117,33 @@ func TestServerProxiesAnalyticsRoute(t *testing.T) {
 	}
 }
 
+func TestServerProxiesAnalyticsFlushRoute(t *testing.T) {
+	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/router/v1/site/analytics/flush" {
+			http.NotFound(w, r)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"flushed_nodes": []string{"local"}})
+	}))
+	defer router.Close()
+
+	process := NewRouterProcess(RouterConfig{URL: router.URL}, t.TempDir())
+	server := NewServer(Config{Router: RouterConfig{URL: router.URL}}, process, NewSessionManager("admin-secret"))
+	cookie, csrf := loginForServerTest(t, server)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/analytics/flush", nil)
+	request.AddCookie(cookie)
+	request.Header.Set("X-CSRF-Token", csrf)
+	server.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected flush status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"flushed_nodes":["local"]`) {
+		t.Fatalf("unexpected flush body %s", recorder.Body.String())
+	}
+}
+
 func TestServerProxiesWebUIRoutesWithCSRF(t *testing.T) {
 	seen := []string{}
 	router := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -81,6 +81,8 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		service.handleBenchmarkRun(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/analytics":
 		service.handleSiteAnalytics(w, r)
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/analytics/flush":
+		service.handleSiteAnalyticsFlush(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/load-captures":
 		service.handleSiteLoadCaptures(w, r)
 	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/site/load-captures/"):
@@ -296,6 +298,10 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/analytics":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeAnalytics(w, r)
+		}
+	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/analytics/flush":
+		if service.requireClusterToken(w, r) {
+			service.handleNodeAnalyticsFlush(w, r)
 		}
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/load-captures":
 		if service.requireClusterToken(w, r) {

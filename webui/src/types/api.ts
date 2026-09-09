@@ -198,6 +198,11 @@ export interface AnalyticsNodeError {
   error: string;
 }
 
+export interface AnalyticsFlushResponse {
+  flushed_nodes: string[];
+  node_errors?: AnalyticsNodeError[];
+}
+
 export interface AnalyticsResponse {
   enabled: boolean;
   from: number;

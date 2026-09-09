@@ -47,6 +47,7 @@ import {
   stopDownloadJobPolling
 } from "./downloads";
 import {
+  flushAnalyticsToDisk,
   loadAnalytics,
   updateAnalyticsModel,
   updateAnalyticsNode,
@@ -497,6 +498,7 @@ elements.analyticsSectionSelect.addEventListener("change", () => runTask(async (
   await loadAnalytics();
 }, "analytics-section", "analytics", "Loading analytics…"));
 elements.analyticsRefreshButton.addEventListener("click", () => runTask(loadAnalytics, "analytics-refresh", "analytics", "Loading analytics…"));
+elements.analyticsFlushButton.addEventListener("click", () => runTask(flushAnalyticsToDisk, "analytics-flush", "analytics", "Flushing analytics…"));
 elements.loadCaptureRefreshButton.addEventListener("click", () => runTask(async () => {
   updateLoadCaptureFilters();
   await loadLoadCaptures();

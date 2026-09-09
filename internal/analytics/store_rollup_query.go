@@ -25,7 +25,7 @@ func (store *Store) queryRollupFilters(ctx context.Context, query Query) (Filter
 
 func (store *Store) queryRollupSummary(ctx context.Context, query Query) (Summary, error) {
 	where, args := dailyRollupWhere(query)
-	row := store.db.QueryRowContext(ctx, `SELECT
+	row := store.reader.QueryRowContext(ctx, `SELECT
 		COALESCE(SUM(request_count), 0),
 		COALESCE(SUM(success_count), 0),
 		COALESCE(SUM(input_tokens), 0),
@@ -70,7 +70,7 @@ func (store *Store) queryRollupSummary(ctx context.Context, query Query) (Summar
 
 func (store *Store) queryRollupSections(ctx context.Context, query Query) ([]SectionUsage, error) {
 	where, args := dailyRollupWhere(query)
-	rows, err := store.db.QueryContext(ctx, `SELECT
+	rows, err := store.reader.QueryContext(ctx, `SELECT
 		section,
 		COALESCE(SUM(request_count), 0),
 		COALESCE(SUM(total_tokens), 0),
@@ -100,7 +100,7 @@ func (store *Store) queryRollupSections(ctx context.Context, query Query) ([]Sec
 
 func (store *Store) queryRollupModels(ctx context.Context, query Query) ([]ModelUsage, error) {
 	where, args := dailyRollupWhere(query)
-	rows, err := store.db.QueryContext(ctx, `SELECT
+	rows, err := store.reader.QueryContext(ctx, `SELECT
 		node_id,
 		model_id,
 		COALESCE(SUM(request_count), 0),
@@ -133,7 +133,7 @@ func (store *Store) queryRollupModels(ctx context.Context, query Query) ([]Model
 
 func (store *Store) queryRollupNodes(ctx context.Context, query Query) ([]NodeUsage, error) {
 	where, args := dailyRollupWhere(query)
-	rows, err := store.db.QueryContext(ctx, `SELECT
+	rows, err := store.reader.QueryContext(ctx, `SELECT
 		node_id,
 		COALESCE(SUM(request_count), 0),
 		COALESCE(SUM(total_tokens), 0),

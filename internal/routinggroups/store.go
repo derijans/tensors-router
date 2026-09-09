@@ -4,15 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
-
-	_ "modernc.org/sqlite"
 )
-
-const databaseFilename = "routing-groups.sqlite"
 
 // Member identifies one image model on one node. Members are declared by an
 // operator and are not required to share a name, a config hash, or even a
@@ -28,58 +22,12 @@ type Group struct {
 }
 
 type Store struct {
-	database *sql.DB
+	writer *sql.DB
+	reader *sql.DB
 }
 
-func NewStore(directory string) (*Store, error) {
-	directory = strings.TrimSpace(directory)
-	if directory == "" {
-		return nil, fmt.Errorf("routing group store dir is required")
-	}
-	if err := os.MkdirAll(directory, 0o755); err != nil {
-		return nil, err
-	}
-	database, err := sql.Open("sqlite", filepath.Join(directory, databaseFilename))
-	if err != nil {
-		return nil, err
-	}
-	database.SetMaxOpenConns(1)
-	store := &Store{database: database}
-	if err := store.initialize(); err != nil {
-		_ = database.Close()
-		return nil, err
-	}
-	return store, nil
-}
-
-// The member primary key is the pair identifying a model rather than the group,
-// so the schema itself makes it impossible for one model to sit in two groups and
-// for routing to face a choice it has no way to resolve.
-func (store *Store) initialize() error {
-	_, err := store.database.Exec(`
-		PRAGMA busy_timeout = 5000;
-		PRAGMA journal_mode = WAL;
-		PRAGMA foreign_keys = ON;
-		CREATE TABLE IF NOT EXISTS routing_groups (
-			id TEXT PRIMARY KEY NOT NULL,
-			created_at INTEGER NOT NULL DEFAULT (unixepoch())
-		);
-		CREATE TABLE IF NOT EXISTS routing_group_members (
-			node_id TEXT NOT NULL,
-			image_id TEXT NOT NULL,
-			group_id TEXT NOT NULL,
-			PRIMARY KEY (node_id, image_id),
-			FOREIGN KEY (group_id) REFERENCES routing_groups(id) ON DELETE CASCADE
-		);
-		CREATE INDEX IF NOT EXISTS routing_group_members_group_idx ON routing_group_members (group_id);`)
-	return err
-}
-
-func (store *Store) Close() error {
-	if store == nil || store.database == nil {
-		return nil
-	}
-	return store.database.Close()
+func NewStore(writer *sql.DB, reader *sql.DB) *Store {
+	return &Store{writer: writer, reader: reader}
 }
 
 func (store *Store) Group(ctx context.Context, member Member) (Group, bool, error) {
@@ -91,7 +39,7 @@ func (store *Store) Group(ctx context.Context, member Member) (Group, bool, erro
 		return Group{}, false, nil
 	}
 	var groupID string
-	err := store.database.QueryRowContext(ctx,
+	err := store.reader.QueryRowContext(ctx,
 		`SELECT group_id FROM routing_group_members WHERE node_id = ? AND image_id = ?`,
 		member.NodeID, member.ImageID).Scan(&groupID)
 	if err == sql.ErrNoRows {
@@ -111,7 +59,7 @@ func (store *Store) Groups(ctx context.Context) ([]Group, error) {
 	if store == nil {
 		return nil, nil
 	}
-	rows, err := store.database.QueryContext(ctx,
+	rows, err := store.reader.QueryContext(ctx,
 		`SELECT group_id, node_id, image_id FROM routing_group_members ORDER BY group_id, node_id, image_id`)
 	if err != nil {
 		return nil, err
@@ -155,7 +103,7 @@ func (store *Store) SetGroup(ctx context.Context, anchor Member, members []Membe
 	}
 	wanted := dedupeMembers(append([]Member{anchor}, members...))
 
-	transaction, err := store.database.BeginTx(ctx, nil)
+	transaction, err := store.writer.BeginTx(ctx, nil)
 	if err != nil {
 		return Group{}, err
 	}
@@ -207,7 +155,7 @@ func (store *Store) DeleteGroup(ctx context.Context, member Member) error {
 }
 
 func (store *Store) membersOf(ctx context.Context, groupID string) ([]Member, error) {
-	rows, err := store.database.QueryContext(ctx,
+	rows, err := store.reader.QueryContext(ctx,
 		`SELECT node_id, image_id FROM routing_group_members WHERE group_id = ? ORDER BY node_id, image_id`, groupID)
 	if err != nil {
 		return nil, err

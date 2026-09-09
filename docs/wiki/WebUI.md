@@ -50,6 +50,8 @@ The Separate column on each kobold or `llama_sdcpp` model opens its separate-run
 
 The Load Captures tab appears when at least one selected node has `analytics.load_capture_enabled`. It can filter and merge attempt summaries across nodes, inspect sanitized KCPPS and asset identities, and fetch bounded stdout/stderr output incrementally. Reused loads link back to their physical attempt output.
 
-The capture database is node-local. A node that disables capture remains absent from the viewer and does not receive capture storage writes.
+Analytics keeps its newest events in memory until the flush interval elapses. **Flush to disk** on the Analytics tab writes them out at once, on this node and on every reachable slave.
+
+Capture rows are node-local. A node that disables capture remains absent from the viewer and does not receive capture storage writes.
 
 See [Cook Backend Options](Cook-Backend-Options) for the option catalog.

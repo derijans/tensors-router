@@ -4,27 +4,26 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/google/uuid"
-	_ "modernc.org/sqlite"
 )
 
 const defaultMaxOutputBytes = 64 * 1024
 
 type StoreConfig struct {
 	NodeID         string
-	DatabasePath   string
+	DB             *sql.DB
+	ReadDB         *sql.DB
 	Retention      time.Duration
 	MaxOutputBytes int
 }
 
 type Store struct {
-	db             *sql.DB
+	writer         *sql.DB
+	reader         *sql.DB
 	nodeID         string
 	retention      time.Duration
 	maxOutputBytes int
@@ -35,29 +34,8 @@ type Store struct {
 }
 
 func NewStore(config StoreConfig) (*Store, error) {
-	path := strings.TrimSpace(config.DatabasePath)
-	if path == "" {
-		return nil, fmt.Errorf("load error database path is required")
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, err
-	}
-	if err := os.Chmod(filepath.Dir(path), 0o700); err != nil {
-		return nil, err
-	}
-	database, err := sql.Open("sqlite", path)
-	if err != nil {
-		return nil, err
-	}
-	database.SetMaxOpenConns(1)
-	database.SetMaxIdleConns(1)
-	if err := migrate(context.Background(), database); err != nil {
-		_ = database.Close()
-		return nil, err
-	}
-	if err := secureDatabaseFiles(path); err != nil {
-		_ = database.Close()
-		return nil, err
+	if config.DB == nil || config.ReadDB == nil {
+		return nil, fmt.Errorf("load error database handles are required")
 	}
 	nodeID := strings.TrimSpace(config.NodeID)
 	if nodeID == "" {
@@ -67,14 +45,7 @@ func NewStore(config StoreConfig) (*Store, error) {
 	if maxOutput <= 0 {
 		maxOutput = defaultMaxOutputBytes
 	}
-	return &Store{db: database, nodeID: nodeID, retention: config.Retention, maxOutputBytes: maxOutput, pruneEach: time.Minute}, nil
-}
-
-func (store *Store) Close() error {
-	if store == nil || store.db == nil {
-		return nil
-	}
-	return store.db.Close()
+	return &Store{writer: config.DB, reader: config.ReadDB, nodeID: nodeID, retention: config.Retention, maxOutputBytes: maxOutput, pruneEach: time.Minute}, nil
 }
 
 func (store *Store) Record(ctx context.Context, input RecordInput) error {
@@ -99,7 +70,7 @@ func (store *Store) Record(ctx context.Context, input RecordInput) error {
 	}
 	now := time.Now().UTC().UnixMilli()
 	print := fingerprint(input, message)
-	_, err := store.db.ExecContext(ctx, `INSERT INTO load_errors (
+	_, err := store.writer.ExecContext(ctx, `INSERT INTO load_errors (
 			id, fingerprint, first_seen_at, last_seen_at, occurrences,
 			node_id, model_id, config_name, backend, backend_mode,
 			phase, severity, source, message, exit_error, output, truncated
@@ -157,7 +128,7 @@ func (store *Store) List(ctx context.Context, filter ListFilter) (ListResult, er
 	}
 	query += " ORDER BY last_seen_at DESC, id DESC LIMIT ?"
 	arguments = append(arguments, limit)
-	rows, err := store.db.QueryContext(ctx, query, arguments...)
+	rows, err := store.reader.QueryContext(ctx, query, arguments...)
 	if err != nil {
 		return ListResult{}, err
 	}
@@ -177,7 +148,7 @@ func (store *Store) Get(ctx context.Context, id string) (Record, bool, error) {
 	if store == nil {
 		return Record{}, false, nil
 	}
-	row := store.db.QueryRowContext(ctx, `SELECT id, fingerprint, first_seen_at, last_seen_at, occurrences, node_id, model_id, config_name, backend, backend_mode, phase, severity, source, message, exit_error, output, truncated FROM load_errors WHERE id = ?`, id)
+	row := store.reader.QueryRowContext(ctx, `SELECT id, fingerprint, first_seen_at, last_seen_at, occurrences, node_id, model_id, config_name, backend, backend_mode, phase, severity, source, message, exit_error, output, truncated FROM load_errors WHERE id = ?`, id)
 	record, err := scanRecord(row)
 	if err == sql.ErrNoRows {
 		return Record{}, false, nil
@@ -200,7 +171,7 @@ func (store *Store) pruneExpired(ctx context.Context) {
 	store.prunedAt = time.Now()
 	store.pruneMu.Unlock()
 	cutoff := time.Now().UTC().Add(-store.retention).UnixMilli()
-	_, _ = store.db.ExecContext(ctx, `DELETE FROM load_errors WHERE last_seen_at < ?`, cutoff)
+	_, _ = store.writer.ExecContext(ctx, `DELETE FROM load_errors WHERE last_seen_at < ?`, cutoff)
 }
 
 func scanRecord(scanner interface{ Scan(...any) error }) (Record, error) {
@@ -234,18 +205,4 @@ func boolValue(value bool) int {
 		return 1
 	}
 	return 0
-}
-
-func secureDatabaseFiles(path string) error {
-	for _, suffix := range []string{"", "-wal", "-shm"} {
-		candidate := path + suffix
-		if _, err := os.Stat(candidate); err == nil {
-			if err := os.Chmod(candidate, 0o600); err != nil {
-				return err
-			}
-		} else if !os.IsNotExist(err) {
-			return err
-		}
-	}
-	return nil
 }

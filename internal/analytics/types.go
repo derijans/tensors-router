@@ -205,3 +205,8 @@ type NodeError struct {
 	NodeURL string `json:"node_url,omitempty"`
 	Error   string `json:"error"`
 }
+
+type FlushResponse struct {
+	FlushedNodes []string    `json:"flushed_nodes"`
+	NodeErrors   []NodeError `json:"node_errors,omitempty"`
+}
