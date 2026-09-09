@@ -243,13 +243,15 @@ jobs:
             if [[ "$TARGET" == *-rocm ]]; then
               docker run --rm --platform "$platform" --entrypoint /bin/sh "$image" -c "ldconfig -p | grep -q 'libamdhip64\.so' && ldconfig -p | grep -q 'librocblas\.so'" || fail "libamdhip64.so/librocblas.so not registered with ldconfig"
             fi
+            report_name="trivy-$TARGET-${platform//\//-}.json"
             scan_status=0
-            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.docker:/root/.docker:ro" "$TRIVY_IMAGE" image --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL "$image" || scan_status=$?
-            case "$scan_status" in
-              0) ;;
-              1) fail "Trivy found fixed HIGH/CRITICAL vulnerabilities" ;;
-              *) fail "Trivy could not complete the scan (exit $scan_status)" ;;
-            esac
+            docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$HOME/.docker:/root/.docker:ro" -v "$RUNNER_TEMP:/report" "$TRIVY_IMAGE" image --timeout 30m --exit-code 0 --ignore-unfixed --severity HIGH,CRITICAL --format json --output "/report/$report_name" "$image" || scan_status=$?
+            [ "$scan_status" -eq 0 ] || fail "Trivy could not complete the scan (exit $scan_status)"
+            findings=$(jq '[.Results[]?.Vulnerabilities[]?] | length' "$RUNNER_TEMP/$report_name") || fail "Trivy report was not readable"
+            if [ "$findings" -ne 0 ]; then
+              jq -r '.Results[]?.Vulnerabilities[]? | "\(.Severity) \(.VulnerabilityID) \(.PkgName) \(.InstalledVersion) -> \(.FixedVersion)"' "$RUNNER_TEMP/$report_name"
+              fail "Trivy found $findings fixed HIGH/CRITICAL vulnerabilities"
+            fi
           done
 
   promote:
