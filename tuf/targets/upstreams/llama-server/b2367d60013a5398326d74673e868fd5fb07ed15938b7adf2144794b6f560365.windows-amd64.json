@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/ggml-org/llama.cpp",
+  "releases": [
+    {
+      "id": "386091836",
+      "tag": "b10885",
+      "published_at": "2026-09-10T07:51:19Z",
+      "prerelease": true,
+      "payloads": [
+        {
+          "name": "llama-b10885-bin-win-cpu-x64.zip",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10885/llama-b10885-bin-win-cpu-x64.zip",
+          "length": 18425079,
+          "sha256": "b96fd3b2dfa7add41b0d80f93599931d839b54b4b804abc4b295bd4039dc96f1"
+        }
+      ]
+    }
+  ]
+}
