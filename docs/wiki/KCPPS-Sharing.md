@@ -40,7 +40,7 @@ For each hash reference, the receiving router checks:
 
 1. Its indexed local assets
 2. Files below `models.file_roots`
-3. An available cluster peer
+3. An available cluster peer, which on a slave means the master reached at the slave's own `cluster.master_url`
 4. The config's commit-pinned Hugging Face origin
 5. A previously indexed Hugging Face origin for that hash
 6. A unique exact Hugging Face candidate found by the downloader

@@ -34,6 +34,7 @@ type assetLookupRecord struct {
 	Size     int64  `json:"size"`
 	NodeURL  string `json:"node_url,omitempty"`
 	Origin   string `json:"origin,omitempty"`
+	Master   bool   `json:"master,omitempty"`
 }
 
 func (service *Service) handleNodeClusterAssetLookup(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +61,7 @@ func (service *Service) lookupClusterAssets(ctx context.Context, request assetLo
 	response := assetLookupResponse{Assets: []assetLookupRecord{}}
 	if service.assetIndex != nil {
 		for _, hash := range request.Hashes {
-			record := assetLookupRecord{SHA256: hash, NodeURL: service.nodeURL}
+			record := assetLookupRecord{SHA256: hash, NodeURL: service.nodeURL, Master: true}
 			found := false
 			if asset, assetFound := service.assetIndex.Lookup(hash); assetFound {
 				record.Filename, record.Size = asset.Filename, asset.Size
@@ -285,6 +286,19 @@ func (service *Service) coordinatedAssetSources(hash string) []assetLookupRecord
 	return sources
 }
 
+func (service *Service) masterAssetSources(records []assetLookupRecord) []assetLookupRecord {
+	sources := make([]assetLookupRecord, 0, len(records))
+	for _, record := range records {
+		masterOwned := record.Master || record.NodeURL == ""
+		record.Master = false
+		if masterOwned {
+			record.NodeURL = service.masterURL
+		}
+		sources = append(sources, record)
+	}
+	return sources
+}
+
 func (service *Service) lookupCoordinatedAssetSources(hash string) []assetLookupRecord {
 	lookupContext, cancelLookup := context.WithTimeout(context.Background(), service.assetLookupTimeout)
 	defer cancelLookup()
@@ -292,7 +306,7 @@ func (service *Service) lookupCoordinatedAssetSources(hash string) []assetLookup
 	if service.clusterRole == cluster.RoleSlave && service.masterURL != "" {
 		var response assetLookupResponse
 		if err := service.clusterClient.JSON(lookupContext, http.MethodPost, service.masterURL, "/router/v1/node/assets/lookup-cluster", request, &response); err == nil {
-			return response.Assets
+			return service.masterAssetSources(response.Assets)
 		}
 	}
 	if service.clusterRole == cluster.RoleMaster {

@@ -4,12 +4,19 @@ param(
     [string]$NodeId = 'local',
     [ValidateSet('standalone', 'master', 'slave')]
     [string]$Role = 'standalone',
+    [string]$NodeRoot,
+    [string]$AssetRoot,
+    [string]$SharedDir,
     [ValidateRange(1, 65535)]
     [int]$RouterPort = 18080,
     [ValidateRange(1, 65535)]
     [int]$BackendPort = 15001,
     [ValidateRange(1, 65535)]
     [int]$EmbeddingsBackendPort = 15004,
+    [ValidateRange(1, 65535)]
+    [int]$LlamaBackendPort = 15002,
+    [ValidateRange(1, 65535)]
+    [int]$LlamaEmbeddingsBackendPort = 15005,
     [ValidateRange(1, 65535)]
     [int]$WebUIPort = 18443,
     [ValidateRange(1, 65535)]
@@ -22,8 +29,11 @@ param(
     [string]$RouterPath,
     [string]$WebUIPath,
     [string]$DownloaderPath,
+    [string]$KoboldPath,
+    [string]$LlamaPath,
     [string]$DownloaderStorageRoot,
     [string]$DownloaderStateDir,
+    [switch]$NoPublicURL,
     [switch]$IncludeDownloader,
     [switch]$Wait,
     [switch]$Detach
@@ -85,17 +95,38 @@ if ($Wait -and $Detach) {
     throw 'Wait and Detach cannot be used together.'
 }
 
-$repositoryRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+if ([string]::IsNullOrWhiteSpace($AssetRoot)) {
+    $AssetRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
+}
+$assetRoot = [System.IO.Path]::GetFullPath($AssetRoot)
+if ([string]::IsNullOrWhiteSpace($NodeRoot)) {
+    $NodeRoot = Join-Path $assetRoot "data-manual\$NodeId"
+}
+$nodeRoot = [System.IO.Path]::GetFullPath($NodeRoot)
 if ([string]::IsNullOrWhiteSpace($RouterPath)) {
-    $RouterPath = Join-Path $repositoryRoot 'dist\tensors-router-windows-amd64.exe'
+    $RouterPath = Join-Path $assetRoot 'dist\tensors-router-windows-amd64.exe'
 }
 if ([string]::IsNullOrWhiteSpace($WebUIPath)) {
-    $WebUIPath = Join-Path $repositoryRoot 'dist\tensor-router-webui-windows-amd64.exe'
+    $WebUIPath = Join-Path $assetRoot 'dist\tensor-router-webui-windows-amd64.exe'
 }
 if ([string]::IsNullOrWhiteSpace($DownloaderPath)) {
-    $DownloaderPath = Join-Path $repositoryRoot 'dist\tensor-router-downloader-windows-amd64.exe'
+    $DownloaderPath = Join-Path $assetRoot 'dist\tensor-router-downloader-windows-amd64.exe'
 }
-if ([string]::IsNullOrWhiteSpace($PublicURL)) {
+if ([string]::IsNullOrWhiteSpace($KoboldPath)) {
+    $KoboldPath = Join-Path $assetRoot 'bin\koboldcpp-nocuda.exe'
+}
+if ([string]::IsNullOrWhiteSpace($LlamaPath)) {
+    $LlamaPath = Join-Path $assetRoot 'bin\llama-b10295-bin-win-cpu-x64\llama-server.exe'
+}
+if ($NoPublicURL) {
+    if (-not [string]::IsNullOrWhiteSpace($PublicURL)) {
+        throw 'NoPublicURL and PublicURL cannot be used together.'
+    }
+    if ($Role -eq 'slave') {
+        throw 'NoPublicURL cannot be used for a slave because cluster.public_url is required there.'
+    }
+}
+elseif ([string]::IsNullOrWhiteSpace($PublicURL)) {
     $PublicURL = "http://127.0.0.1:$RouterPort"
 }
 if ($Role -ne 'standalone' -and [string]::IsNullOrWhiteSpace($ClusterToken)) {
@@ -108,9 +139,10 @@ if ($Role -eq 'slave' -and [string]::IsNullOrWhiteSpace($MasterURL)) {
 $routerPath = [System.IO.Path]::GetFullPath($RouterPath)
 $webuiPath = [System.IO.Path]::GetFullPath($WebUIPath)
 $downloaderPath = [System.IO.Path]::GetFullPath($DownloaderPath)
-$koboldPath = Join-Path $repositoryRoot 'bin\koboldcpp-nocuda.exe'
-$configDirectory = Join-Path $repositoryRoot '.kcpps'
-foreach ($requiredPath in @($routerPath, $koboldPath, $configDirectory)) {
+$koboldPath = [System.IO.Path]::GetFullPath($KoboldPath)
+$llamaPath = [System.IO.Path]::GetFullPath($LlamaPath)
+$configDirectory = Join-Path $nodeRoot '.kcpps'
+foreach ($requiredPath in @($routerPath, $koboldPath, $llamaPath, $configDirectory)) {
     if (-not (Test-Path -LiteralPath $requiredPath)) {
         throw "Required router asset was not found: $requiredPath"
     }
@@ -125,7 +157,7 @@ if (-not (Get-ChildItem -LiteralPath $configDirectory -Filter '*.kcpps' -File | 
     throw "No .kcpps files were found in $configDirectory"
 }
 
-$runtimePath = Join-Path $repositoryRoot "data-manual\$NodeId"
+$runtimePath = Join-Path $nodeRoot 'data'
 $configPath = Join-Path $runtimePath 'router.yaml'
 $pidPath = Join-Path $runtimePath 'router.pid'
 $webuiConfigPath = Join-Path $runtimePath 'webui.yaml'
@@ -140,16 +172,18 @@ foreach ($existingPIDPath in @($pidPath, $webuiPIDPath)) {
     }
 }
 
-Assert-PortAvailable -Port $RouterPort -ServiceName 'Router'
-Assert-PortAvailable -Port $BackendPort -ServiceName 'KoboldCpp'
-$servicePorts = @($RouterPort, $BackendPort, $EmbeddingsBackendPort)
+$servicePorts = @($RouterPort, $BackendPort, $EmbeddingsBackendPort, $LlamaBackendPort, $LlamaEmbeddingsBackendPort)
 if ($Role -eq 'master') {
     $servicePorts += @($WebUIPort, $BackendUIPort)
 }
 if (($servicePorts | Sort-Object -Unique).Count -ne $servicePorts.Count) {
-    throw 'Router, KoboldCpp, embeddings, and active WebUI ports must be distinct.'
+    throw 'Router, KoboldCpp, llama.cpp, and active WebUI ports must be distinct.'
 }
+Assert-PortAvailable -Port $RouterPort -ServiceName 'Router'
+Assert-PortAvailable -Port $BackendPort -ServiceName 'KoboldCpp'
 Assert-PortAvailable -Port $EmbeddingsBackendPort -ServiceName 'KoboldCpp embeddings'
+Assert-PortAvailable -Port $LlamaBackendPort -ServiceName 'llama.cpp'
+Assert-PortAvailable -Port $LlamaEmbeddingsBackendPort -ServiceName 'llama.cpp embeddings'
 if ($Role -eq 'master') {
     Assert-PortAvailable -Port $WebUIPort -ServiceName 'WebUI'
     Assert-PortAvailable -Port $BackendUIPort -ServiceName 'WebUI backend'
@@ -207,6 +241,7 @@ auth:
   admin_keys: []
 models:
   config_dir: $(ConvertTo-YAMLScalar $configDirectory)
+  shared_dir: $(ConvertTo-YAMLScalar $SharedDir)
 backend:
   mode: "kobold"
 kobold:
@@ -218,6 +253,13 @@ kobold:
   quiet: true
   skip_launcher: true
   no_model: true
+  hide_window: true
+  extra_args: []
+llama:
+  backend_url: "http://127.0.0.1:$LlamaBackendPort"
+  embeddings_backend_url: "http://127.0.0.1:$LlamaEmbeddingsBackendPort"
+  binary_path: $(ConvertTo-YAMLScalar $llamaPath)
+  data_dir: $(ConvertTo-YAMLScalar (Join-Path $runtimePath 'llama'))
   hide_window: true
   extra_args: []
 logging:
@@ -296,6 +338,8 @@ logging:
         Router = "http://$BindAddress`:$RouterPort"
         Backend = "http://127.0.0.1:$BackendPort"
         EmbeddingsBackend = "http://127.0.0.1:$EmbeddingsBackendPort"
+        LlamaBackend = "http://127.0.0.1:$LlamaBackendPort"
+        LlamaEmbeddingsBackend = "http://127.0.0.1:$LlamaEmbeddingsBackendPort"
         ProcessId = $routerProcess.Id
         Config = $configPath
         WebUI = $webuiURL

@@ -195,7 +195,7 @@ When updates are enabled, each selected backend needs either a direct binary URL
 | --- | --- | --- | --- |
 | `cluster.role` | String enum: `standalone`, `master`, `slave` | `standalone` | Selects the node's routing role. |
 | `cluster.node_id` | Nonempty string | `local` | Stable node identity. It must be unique in a cluster. |
-| `cluster.public_url` | Empty or absolute URL string | Empty | Reachable URL advertised by a slave. Required for a slave. |
+| `cluster.public_url` | Empty or absolute URL string | Empty | Reachable URL advertised by a slave. Required for a slave. A master may leave it empty and still serve asset transfers, because a slave falls back to its own `cluster.master_url`. |
 | `cluster.master_url` | Empty or absolute URL string | Empty | Master URL used by a slave. Required for a slave. |
 | `cluster.slave_urls` | List of absolute URL strings | `[]` | Slave URLs permitted and polled by a master. |
 | `cluster.token` | String | Empty | Shared cluster credential. Required for master and slave roles and rejected when it is a placeholder. |

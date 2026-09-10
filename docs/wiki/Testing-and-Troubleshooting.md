@@ -60,7 +60,7 @@ The launcher prints the matching shutdown commands. Use `-Wait` to keep its term
 
 ## One-machine Windows cluster
 
-The local launcher can run a master and multiple slaves on one Windows machine. Every node gets a separate router port, backend port, PID, log, and store under `data-manual\{node-id}`.
+The local launcher can run a master and multiple slaves on one Windows machine. Every node gets a separate router port, backend port, PID, log, and store under `data-manual\{node-id}`. Pass `-NodeRoot` to place a node outside the repository, `-AssetRoot` to point at the binaries and backends when they live elsewhere, and `-SharedDir` to choose where peer asset transfers land. `-NoPublicURL` starts a master without `cluster.public_url` for cluster asset tests.
 
 Start the master:
 
@@ -73,6 +73,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-koboldcpp-router.ps1 `
   -EmbeddingsBackendPort 15004 `
   -WebUIPort 18443 `
   -BackendUIPort 18444 `
+  -SlaveURL http://127.0.0.1:18081 `
   -ClusterToken local-cluster-token `
   -IncludeDownloader
 ```
