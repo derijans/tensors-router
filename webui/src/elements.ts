@@ -92,6 +92,8 @@ export const elements = {
   analyticsModelsTable: getRequiredElement("analyticsModelsTable", HTMLTableSectionElement),
   analyticsNodesTable: getRequiredElement("analyticsNodesTable", HTMLTableSectionElement),
   analyticsRecentTable: getRequiredElement("analyticsRecentTable", HTMLTableSectionElement),
+  analyticsRecentDetailHeader: getRequiredElement("analyticsRecentDetailHeader", HTMLTableCellElement),
+  analyticsDetailToggle: getRequiredElement("analyticsDetailToggle", HTMLInputElement),
   analyticsNodeErrors: getRequiredElement("analyticsNodeErrors", HTMLElement),
   loadCapturesTab: getRequiredElement("loadCapturesTab", HTMLButtonElement),
   loadCapturesPanel: getRequiredElement("loadCapturesPanel", HTMLElement),

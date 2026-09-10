@@ -249,9 +249,6 @@ func (store *Store) normalizeEvent(event Event) Event {
 	if event.DurationMS == 0 {
 		event.DurationMS = event.FinishedAt.Sub(event.StartedAt).Milliseconds()
 	}
-	if event.TotalTokens == 0 && (event.InputTokens > 0 || event.OutputTokens > 0) {
-		event.TotalTokens = event.InputTokens + event.OutputTokens
-	}
 	if event.LoadVRAMDelta == 0 && event.LoadVRAMAfter > event.LoadVRAMBefore {
 		event.LoadVRAMDelta = event.LoadVRAMAfter - event.LoadVRAMBefore
 	}
@@ -266,9 +263,7 @@ func (store *Store) normalizeEvent(event Event) Event {
 	event.WorkVRAMEnd = nonNegativeInt64(event.WorkVRAMEnd)
 	event.ModelVRAM = nonNegativeInt64(event.ModelVRAM)
 	event.VRAMTotal = nonNegativeInt64(event.VRAMTotal)
-	if event.TokensPerSecond == 0 && event.OutputTokens > 0 && event.DurationMS > 0 {
-		event.TokensPerSecond = float64(event.OutputTokens) / (float64(event.DurationMS) / 1000)
-	}
+	deriveTokenTotals(&event)
 	return event
 }
 
@@ -289,8 +284,9 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 		total_tokens, tokens_per_second, image_count, image_width, image_height, image_steps,
 		image_type, audio_seconds, audio_tokens, audio_language, audio_task, load_vram_before_mb, load_vram_after_mb,
 		load_vram_delta_mb, work_vram_start_mb, work_vram_max_mb, work_vram_end_mb,
-		model_vram_estimate_mb, vram_total_mb, vram_peak_percent
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		model_vram_estimate_mb, vram_total_mb, vram_peak_percent,
+		ttft_ms, decode_ms, max_gap_ms, finish_reason, aborted
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -341,6 +337,11 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 			event.ModelVRAM,
 			event.VRAMTotal,
 			event.VRAMPeakPercent,
+			event.TTFTMS,
+			event.DecodeMS,
+			event.MaxGapMS,
+			event.FinishReason,
+			boolInt(event.Aborted),
 		); err != nil {
 			return err
 		}

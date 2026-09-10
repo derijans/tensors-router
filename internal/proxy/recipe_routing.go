@@ -31,6 +31,7 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 		writeTransportError(w, transformErr)
 		return true
 	}
+	usageInjected := false
 	var response *http.Response
 	var err error
 	var analyticsEvent routeranalytics.Event
@@ -49,6 +50,7 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 			openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
 			return true
 		}
+		requestBody, usageInjected = injectStreamUsageOption(requestBody, r.URL.Path, backendMode)
 		started := time.Now()
 		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, component.ModelID, textAnalyticsSection(r.URL.Path), backendMode)
 		recordAnalytics = true
@@ -77,6 +79,7 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 	if recordAnalytics {
 		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 	}
+	response = responseWithoutInjectedUsage(response, usageInjected)
 	if err := service.writeModelProxyResponse(w, response, publicID, true); err != nil {
 		return true
 	}

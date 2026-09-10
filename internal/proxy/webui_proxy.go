@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
@@ -43,11 +44,13 @@ func (service *Service) handleSiteWebUIProxy(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	defer release()
+	started := time.Now()
 	response, err := service.forwardWebUIProxy(r.Context(), r, definition, strippedPath, route, siteWebUIProxyPrefix)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
+	response = service.webUIProxyResponseWithAnalytics(response, started, r, definition, strippedPath, route)
 	if err := writeWebUIProxyResponse(service, w, response); err != nil {
 		return
 	}
@@ -69,11 +72,13 @@ func (service *Service) handleNodeWebUIProxy(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	defer release()
+	started := time.Now()
 	response, err := service.forwardLocalWebUIProxy(r.Context(), r, definition, strippedPath, route, nodeWebUIProxyPrefix)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
+	response = service.webUIProxyResponseWithAnalytics(response, started, r, definition, strippedPath, route)
 	if err := writeWebUIProxyResponse(service, w, response); err != nil {
 		return
 	}

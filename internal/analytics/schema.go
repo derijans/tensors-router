@@ -14,7 +14,7 @@ var _ routerstore.Module = SchemaModule{}
 
 func (SchemaModule) Name() string { return "analytics" }
 
-func (SchemaModule) Version() int { return 5 }
+func (SchemaModule) Version() int { return 6 }
 
 func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 	statements := []string{
@@ -55,7 +55,12 @@ func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 			work_vram_end_mb INTEGER NOT NULL DEFAULT 0,
 			model_vram_estimate_mb INTEGER NOT NULL DEFAULT 0,
 			vram_total_mb INTEGER NOT NULL DEFAULT 0,
-			vram_peak_percent REAL NOT NULL DEFAULT 0
+			vram_peak_percent REAL NOT NULL DEFAULT 0,
+			ttft_ms INTEGER NOT NULL DEFAULT 0,
+			decode_ms INTEGER NOT NULL DEFAULT 0,
+			max_gap_ms INTEGER NOT NULL DEFAULT 0,
+			finish_reason TEXT NOT NULL DEFAULT '',
+			aborted INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS analytics_events_finished_at_idx ON analytics_events (finished_at)`,
 		`CREATE INDEX IF NOT EXISTS analytics_events_node_idx ON analytics_events (node_id, finished_at)`,
@@ -166,6 +171,11 @@ func migrationColumns() []migrationColumn {
 		{"analytics_events", "model_vram_estimate_mb", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_events", "vram_total_mb", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_events", "vram_peak_percent", "REAL NOT NULL DEFAULT 0"},
+		{"analytics_events", "ttft_ms", "INTEGER NOT NULL DEFAULT 0"},
+		{"analytics_events", "decode_ms", "INTEGER NOT NULL DEFAULT 0"},
+		{"analytics_events", "max_gap_ms", "INTEGER NOT NULL DEFAULT 0"},
+		{"analytics_events", "finish_reason", "TEXT NOT NULL DEFAULT ''"},
+		{"analytics_events", "aborted", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_rollups", "load_count", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_rollups", "load_duration_ms_total", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_rollups", "vram_peak_mb", "INTEGER NOT NULL DEFAULT 0"},

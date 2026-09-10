@@ -146,6 +146,7 @@ export interface AppState {
     data: AnalyticsResponse | null;
     loading: boolean;
     error: string;
+    showDetails: boolean;
   };
   loadCaptures: {
     query: LoadCaptureQuery;

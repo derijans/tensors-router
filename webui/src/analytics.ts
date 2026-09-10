@@ -88,7 +88,13 @@ export function updateAnalyticsSection(value: string): void {
   }
 }
 
+export function updateAnalyticsDetails(show: boolean): void {
+  state.analytics.showDetails = show;
+}
+
 function renderAnalyticsControls(): void {
+  elements.analyticsDetailToggle.checked = state.analytics.showDetails;
+  elements.analyticsRecentDetailHeader.textContent = state.analytics.showDetails ? "Stream metrics" : "Metadata";
   const query = normalizedAnalyticsQuery(state.analytics.query);
   const filters = state.analytics.data?.filters;
   elements.analyticsPeriodSelect.innerHTML = optionsHTML(analyticsPeriods, query.period);
@@ -242,7 +248,9 @@ function nodeRow(node: AnalyticsNodeUsage): string {
 }
 
 function recentRow(event: AnalyticsRecentEvent): string {
-  const media = event.event_type === "model_load"
+  const media = state.analytics.showDetails
+    ? streamDetail(event)
+    : event.event_type === "model_load"
     ? loadDetail(event)
     : event.section === "image"
     ? imageDetail(event)
@@ -260,6 +268,36 @@ function recentRow(event: AnalyticsRecentEvent): string {
       <td>${escapeHTML(media)}</td>
     </tr>
   `;
+}
+
+function streamDetail(event: AnalyticsRecentEvent): string {
+  if (event.event_type === "model_load") {
+    return loadDetail(event);
+  }
+  const parts: string[] = [];
+  if (event.ttft_ms) {
+    parts.push(`TTFT ${formatDecimal(event.ttft_ms, 0)}ms`);
+  }
+  if (event.decode_ms) {
+    parts.push(`decode ${formatDecimal(event.decode_ms, 0)}ms`);
+    const intervals = (event.output_tokens ?? 0) - 1;
+    if (intervals > 0) {
+      parts.push(`${formatDecimal((intervals * 1000) / event.decode_ms, 1)} tok/s decode`);
+    }
+  }
+  if (event.max_gap_ms) {
+    parts.push(`max gap ${formatDecimal(event.max_gap_ms, 0)}ms`);
+  }
+  if (event.finish_reason) {
+    parts.push(event.finish_reason);
+  }
+  if (event.aborted) {
+    parts.push("aborted");
+  }
+  if (parts.length === 0) {
+    return "no stream metrics";
+  }
+  return parts.join(" / ");
 }
 
 function tokenDetail(event: AnalyticsRecentEvent): string {

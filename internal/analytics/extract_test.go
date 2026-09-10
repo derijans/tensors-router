@@ -21,17 +21,36 @@ func TestApplyResponseExtractsTextUsageAndSpeed(t *testing.T) {
 	}
 }
 
-func TestApplyResponseDerivesSpeedOnlyWhenOutputTokensAreReported(t *testing.T) {
+func TestDeriveTokenTotalsFillsSpeedOnlyWhenOutputTokensAreReported(t *testing.T) {
 	event := Event{DurationMS: 2000}
 	ApplyResponse(&event, "application/json", []byte(`{"usage":{"completion_tokens":10}}`))
+	deriveTokenTotals(&event)
 	if event.TokensPerSecond != 5 {
 		t.Fatalf("expected derived token speed, got %.2f", event.TokensPerSecond)
+	}
+	if event.TotalTokens != 10 {
+		t.Fatalf("expected derived total tokens, got %d", event.TotalTokens)
 	}
 
 	empty := Event{DurationMS: 2000}
 	ApplyResponse(&empty, "application/json", []byte(`{"choices":[{"message":{"content":"hello"}}]}`))
+	deriveTokenTotals(&empty)
 	if empty.TokensPerSecond != 0 {
 		t.Fatalf("content-only response should not derive token speed, got %.2f", empty.TokensPerSecond)
+	}
+}
+
+func TestDeriveTokenTotalsWaitsForTheWholeStream(t *testing.T) {
+	event := Event{DurationMS: 1000}
+	ApplyEventStreamData(&event, []byte(`{"usage":{"prompt_tokens":11}}`))
+	if event.TotalTokens != 0 {
+		t.Fatalf("partial stream must not fix a total, got %d", event.TotalTokens)
+	}
+
+	ApplyEventStreamData(&event, []byte(`{"usage":{"completion_tokens":153}}`))
+	deriveTokenTotals(&event)
+	if event.TotalTokens != 164 {
+		t.Fatalf("unexpected total tokens %d", event.TotalTokens)
 	}
 }
 

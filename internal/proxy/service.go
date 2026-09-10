@@ -1368,12 +1368,14 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	requestBody, usageInjected := injectStreamUsageOption(requestBody, r.URL.Path, selectedBackendMode)
+
 	started := time.Now()
 	analyticsEvent := service.newAnalyticsEvent(started, r, requestBody, backendModelID, textAnalyticsSection(r.URL.Path), selectedBackendMode)
 	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readiness, selectedBackendMode)
 	if err != nil {
 		status, _, _ := backendFailureResponse(err)
-		if hasModel {
+		if hasModel || isTextInferencePath(r.URL.Path) {
 			service.recordAnalyticsFailure(analyticsEvent, status, workFinalizer)
 		}
 		writeBackendFailure(w, err)
@@ -1386,9 +1388,10 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 			configFilename: configFilename,
 		})
 	}
-	if hasModel {
+	if hasModel || isTextInferencePath(r.URL.Path) {
 		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 	}
+	response = responseWithoutInjectedUsage(response, usageInjected)
 
 	if err := service.writeModelProxyResponse(w, response, modelID, hasModel); err != nil {
 		return
@@ -1492,7 +1495,7 @@ func (service *Service) forwardWithFallbackObserved(ctx context.Context, origina
 
 	response, err := service.forward(runtime, ctx, original, body)
 	if !hasModel {
-		return response, nil, err
+		return response, stampLoadedModel(runtime), err
 	}
 	recoveredBackend := false
 	retryResult := service.backendRetryResult(response, err, original.URL.Path)
@@ -2854,10 +2857,18 @@ func writeEventStreamLine(w io.Writer, line string, virtualModelID string) error
 		return writeEventDataLine(w, strings.TrimPrefix(line, "data: "), virtualModelID)
 	case strings.HasPrefix(line, "data:"):
 		return writeEventDataLine(w, strings.TrimPrefix(line, "data:"), virtualModelID)
+	case json.Valid([]byte(line)):
+		return writeBareJSONStreamLine(w, line, virtualModelID)
 	default:
 		_, err := io.WriteString(w, html.EscapeString(line)+"\n")
 		return err
 	}
+}
+
+func writeBareJSONStreamLine(w io.Writer, line string, virtualModelID string) error {
+	rewritten := htmlEscapeJSON(rewriteJSONModel([]byte(line), virtualModelID))
+	_, err := w.Write(append(rewritten, '\n'))
+	return err
 }
 
 func writeEventDataLine(w io.Writer, data string, virtualModelID string) error {
@@ -3149,6 +3160,26 @@ func textPathRequiresModel(path string) bool {
 		"/v1/messages/count_tokens",
 		"/v1/rerank",
 		"/v1/reranking",
+		"/api/generate",
+		"/api/chat":
+		return true
+	default:
+		return false
+	}
+}
+
+func isTextInferencePath(path string) bool {
+	if isCorePath(path) || isEmbeddingsPath(path) {
+		return true
+	}
+	switch path {
+	case "/v1/embeddings",
+		"/v1/responses",
+		"/v1/messages",
+		"/v1/rerank",
+		"/v1/reranking",
+		"/api/v1/generate",
+		"/api/extra/generate/stream",
 		"/api/generate",
 		"/api/chat":
 		return true

@@ -2,7 +2,6 @@ package analytics
 
 import (
 	"bytes"
-	"encoding/json"
 	"mime"
 	"strings"
 	"time"
@@ -91,6 +90,7 @@ func ApplyResponse(event *Event, contentType string, body []byte) {
 		return
 	}
 	applyTokenResponse(event, root)
+	applyFinishReason(event, root)
 	if event.Section == SectionImage {
 		applyImageResponse(event, root)
 	}
@@ -112,6 +112,54 @@ func ApplyEventStreamData(event *Event, data []byte) {
 		return
 	}
 	applyTokenResponse(event, root)
+	applyFinishReason(event, root)
+}
+
+func StreamPayloadCarriesContent(payload []byte) bool {
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) == 0 || bytes.Equal(trimmed, []byte("[DONE]")) {
+		return false
+	}
+	root, ok := decodeObject(trimmed)
+	if !ok {
+		return false
+	}
+	return streamContentLength(root) > 0
+}
+
+func streamContentLength(root map[string]any) int {
+	for _, path := range [][]string{
+		{"choices", "0", "delta", "content"},
+		{"choices", "0", "delta", "reasoning_content"},
+		{"choices", "0", "text"},
+		{"response"},
+		{"token"},
+		{"message", "content"},
+		{"delta", "text"},
+		{"delta", "thinking"},
+	} {
+		if value, ok := resolvePath(root, path); ok {
+			if text, ok := value.(string); ok && text != "" {
+				return len(text)
+			}
+		}
+	}
+	return 0
+}
+
+func applyFinishReason(event *Event, root map[string]any) {
+	if event.FinishReason != "" {
+		return
+	}
+	event.FinishReason = firstString(root,
+		[]string{"choices", "0", "finish_reason"},
+		[]string{"finish_reason"},
+		[]string{"results", "0", "finish_reason"},
+		[]string{"done_reason"},
+		[]string{"stop_reason"},
+		[]string{"delta", "stop_reason"},
+		[]string{"response", "status"},
+	)
 }
 
 func applyImageRequest(event *Event, root map[string]any) {
@@ -180,31 +228,6 @@ func applyAudioResponse(event *Event, root map[string]any) {
 	}
 }
 
-func firstString(root map[string]any, paths ...[]string) string {
-	for _, path := range paths {
-		var current any = root
-		found := true
-		for _, key := range path {
-			object, ok := current.(map[string]any)
-			if !ok {
-				found = false
-				break
-			}
-			current, ok = object[key]
-			if !ok {
-				found = false
-				break
-			}
-		}
-		if found {
-			if value, ok := current.(string); ok {
-				return strings.TrimSpace(value)
-			}
-		}
-	}
-	return ""
-}
-
 func applyTokenResponse(event *Event, root map[string]any) {
 	if event.InputTokens == 0 {
 		event.InputTokens = int64(firstNumber(root,
@@ -212,6 +235,10 @@ func applyTokenResponse(event *Event, root map[string]any) {
 			[]string{"prompt_tokens"},
 			[]string{"timings", "prompt_n"},
 			[]string{"prompt_eval_count"},
+			[]string{"results", "0", "prompt_tokens"},
+			[]string{"usage", "input_tokens"},
+			[]string{"response", "usage", "input_tokens"},
+			[]string{"message", "usage", "input_tokens"},
 		))
 	}
 	if event.OutputTokens == 0 {
@@ -220,12 +247,17 @@ func applyTokenResponse(event *Event, root map[string]any) {
 			[]string{"completion_tokens"},
 			[]string{"timings", "predicted_n"},
 			[]string{"eval_count"},
+			[]string{"results", "0", "completion_tokens"},
+			[]string{"usage", "output_tokens"},
+			[]string{"response", "usage", "output_tokens"},
+			[]string{"message", "usage", "output_tokens"},
 		))
 	}
 	if event.TotalTokens == 0 {
 		event.TotalTokens = int64(firstNumber(root,
 			[]string{"usage", "total_tokens"},
 			[]string{"total_tokens"},
+			[]string{"response", "usage", "total_tokens"},
 		))
 	}
 	if event.TokensPerSecond == 0 {
@@ -239,10 +271,19 @@ func applyTokenResponse(event *Event, root map[string]any) {
 	if event.TokensPerSecond == 0 {
 		evalCount := firstNumber(root, []string{"eval_count"})
 		evalDuration := firstNumber(root, []string{"eval_duration"})
-		if evalCount > 0 && evalDuration > 0 {
+		if evalCount > 0 && evalDuration >= float64(shortestCredibleEvalDuration) {
 			event.TokensPerSecond = evalCount / (evalDuration / float64(time.Second))
 		}
 	}
+}
+
+const shortestCredibleEvalDuration = time.Millisecond
+
+func DeriveTotals(event *Event) {
+	deriveTokenTotals(event)
+}
+
+func deriveTokenTotals(event *Event) {
 	if event.TotalTokens == 0 && (event.InputTokens > 0 || event.OutputTokens > 0) {
 		event.TotalTokens = event.InputTokens + event.OutputTokens
 	}
@@ -277,69 +318,4 @@ func looksJSON(body []byte, contentType string) bool {
 	return len(trimmed) > 0 && trimmed[0] == '{'
 }
 
-func decodeObject(body []byte) (map[string]any, bool) {
-	var payload any
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.UseNumber()
-	if err := decoder.Decode(&payload); err != nil {
-		return nil, false
-	}
-	root, ok := payload.(map[string]any)
-	return root, ok
-}
 
-func firstNumber(root map[string]any, paths ...[]string) float64 {
-	for _, path := range paths {
-		if value, ok := nestedNumber(root, path); ok {
-			return value
-		}
-	}
-	return 0
-}
-
-func nestedNumber(root map[string]any, path []string) (float64, bool) {
-	var current any = root
-	for _, key := range path {
-		object, ok := current.(map[string]any)
-		if !ok {
-			return 0, false
-		}
-		current, ok = object[key]
-		if !ok {
-			return 0, false
-		}
-	}
-	return numberValue(current)
-}
-
-func nestedArray(root map[string]any, path []string) ([]any, bool) {
-	var current any = root
-	for _, key := range path {
-		object, ok := current.(map[string]any)
-		if !ok {
-			return nil, false
-		}
-		current, ok = object[key]
-		if !ok {
-			return nil, false
-		}
-	}
-	values, ok := current.([]any)
-	return values, ok
-}
-
-func numberValue(value any) (float64, bool) {
-	switch typed := value.(type) {
-	case json.Number:
-		parsed, err := typed.Float64()
-		return parsed, err == nil
-	case float64:
-		return typed, true
-	case int:
-		return float64(typed), true
-	case int64:
-		return float64(typed), true
-	default:
-		return 0, false
-	}
-}

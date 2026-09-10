@@ -301,7 +301,13 @@
           </div>
         </div>
         <div>
-          <h3>Recent</h3>
+          <div class="analytics-recent-head">
+            <h3>Recent</h3>
+            <label class="toggle-row">
+              <input id="analyticsDetailToggle" type="checkbox">
+              <span>Show details</span>
+            </label>
+          </div>
           <div class="table-wrap">
             <table>
               <thead>
@@ -312,7 +318,7 @@
                   <th>Section</th>
                   <th>Backend</th>
                   <th>Status</th>
-                  <th>Metadata</th>
+                  <th id="analyticsRecentDetailHeader">Metadata</th>
                 </tr>
               </thead>
               <tbody id="analyticsRecentTable"></tbody>

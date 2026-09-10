@@ -190,6 +190,11 @@ export interface AnalyticsRecentEvent {
   model_vram_estimate_mb?: number;
   vram_total_mb?: number;
   vram_peak_percent?: number;
+  ttft_ms?: number;
+  decode_ms?: number;
+  max_gap_ms?: number;
+  finish_reason?: string;
+  aborted?: boolean;
 }
 
 export interface AnalyticsNodeError {

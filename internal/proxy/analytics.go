@@ -80,6 +80,18 @@ func (service *Service) recordAnalyticsFinished(event routeranalytics.Event, fin
 	service.analyticsStore.Record(event)
 }
 
+func stampLoadedModel(runtime *backendRuntime) analyticsEventFinalizer {
+	if runtime == nil || runtime.state == nil {
+		return nil
+	}
+	return func(event *routeranalytics.Event) {
+		if event == nil || event.ModelID != "" {
+			return
+		}
+		event.ModelID, event.ConfigFilename = runtime.state.loadedModel()
+	}
+}
+
 func textAnalyticsSection(path string) string {
 	if isEmbeddingsPath(path) {
 		return routeranalytics.SectionEmbed

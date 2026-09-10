@@ -901,6 +901,14 @@ td {
   gap: 10px;
 }
 
+.analytics-recent-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .analytics-chart {
   width: 100%;
   min-height: 180px;

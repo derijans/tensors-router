@@ -304,7 +304,8 @@ func (store *Store) queryRecent(ctx context.Context, query Query) ([]RecentEvent
 		total_tokens, tokens_per_second, image_count, image_width, image_height, image_steps,
 		image_type, audio_seconds, audio_tokens, audio_language, audio_task, load_vram_before_mb, load_vram_after_mb,
 		load_vram_delta_mb, work_vram_start_mb, work_vram_max_mb, work_vram_end_mb,
-		model_vram_estimate_mb, vram_total_mb, vram_peak_percent
+		model_vram_estimate_mb, vram_total_mb, vram_peak_percent,
+		ttft_ms, decode_ms, max_gap_ms, finish_reason, aborted
 		FROM analytics_events `+where+`
 		ORDER BY finished_at DESC
 		LIMIT 100`, args...)
@@ -316,6 +317,7 @@ func (store *Store) queryRecent(ctx context.Context, query Query) ([]RecentEvent
 	for rows.Next() {
 		var item RecentEvent
 		var success int
+		var aborted int
 		if err := rows.Scan(
 			&item.NodeID,
 			&item.ModelID,
@@ -353,10 +355,16 @@ func (store *Store) queryRecent(ctx context.Context, query Query) ([]RecentEvent
 			&item.ModelVRAM,
 			&item.VRAMTotal,
 			&item.VRAMPeakPercent,
+			&item.TTFTMS,
+			&item.DecodeMS,
+			&item.MaxGapMS,
+			&item.FinishReason,
+			&aborted,
 		); err != nil {
 			return nil, err
 		}
 		item.Success = success == 1
+		item.Aborted = aborted == 1
 		result = append(result, item)
 	}
 	return result, rows.Err()

@@ -49,6 +49,8 @@ import {
 import {
   flushAnalyticsToDisk,
   loadAnalytics,
+  renderAnalytics,
+  updateAnalyticsDetails,
   updateAnalyticsModel,
   updateAnalyticsNode,
   updateAnalyticsPeriod,
@@ -481,22 +483,26 @@ elements.runBenchmarkButton.addEventListener("click", () => runTask(async () => 
   await runSelectedBenchmark();
   await refreshInventory();
 }, "benchmark-run", "benchmark", "Running benchmark…"));
-elements.analyticsPeriodSelect.addEventListener("change", () => runTask(async () => {
+elements.analyticsPeriodSelect.addEventListener("change", () => {
   updateAnalyticsPeriod(elements.analyticsPeriodSelect.value);
-  await loadAnalytics();
-}, "analytics-period", "analytics", "Loading analytics…"));
-elements.analyticsNodeSelect.addEventListener("change", () => runTask(async () => {
+  runTask(loadAnalytics, "analytics-period", "analytics", "Loading analytics…");
+});
+elements.analyticsNodeSelect.addEventListener("change", () => {
   updateAnalyticsNode(elements.analyticsNodeSelect.value);
-  await loadAnalytics();
-}, "analytics-node", "analytics", "Loading analytics…"));
-elements.analyticsModelSelect.addEventListener("change", () => runTask(async () => {
+  runTask(loadAnalytics, "analytics-node", "analytics", "Loading analytics…");
+});
+elements.analyticsModelSelect.addEventListener("change", () => {
   updateAnalyticsModel(elements.analyticsModelSelect.value);
-  await loadAnalytics();
-}, "analytics-model", "analytics", "Loading analytics…"));
-elements.analyticsSectionSelect.addEventListener("change", () => runTask(async () => {
+  runTask(loadAnalytics, "analytics-model", "analytics", "Loading analytics…");
+});
+elements.analyticsSectionSelect.addEventListener("change", () => {
   updateAnalyticsSection(elements.analyticsSectionSelect.value);
-  await loadAnalytics();
-}, "analytics-section", "analytics", "Loading analytics…"));
+  runTask(loadAnalytics, "analytics-section", "analytics", "Loading analytics…");
+});
+elements.analyticsDetailToggle.addEventListener("change", () => {
+  updateAnalyticsDetails(elements.analyticsDetailToggle.checked);
+  renderAnalytics();
+});
 elements.analyticsRefreshButton.addEventListener("click", () => runTask(loadAnalytics, "analytics-refresh", "analytics", "Loading analytics…"));
 elements.analyticsFlushButton.addEventListener("click", () => runTask(flushAnalyticsToDisk, "analytics-flush", "analytics", "Flushing analytics…"));
 elements.loadCaptureRefreshButton.addEventListener("click", () => runTask(async () => {

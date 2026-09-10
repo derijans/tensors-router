@@ -125,8 +125,8 @@ func TestMigrationAddsImageStepsToAnExistingDatabase(t *testing.T) {
 	if err := handle.Reader().QueryRow(`SELECT version FROM routerstore_schema_versions WHERE module = 'analytics'`).Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 5 {
-		t.Fatalf("analytics schema version = %d, want 5", version)
+	if want := (SchemaModule{}).Version(); version != want {
+		t.Fatalf("analytics schema version = %d, want %d", version, want)
 	}
 }
 

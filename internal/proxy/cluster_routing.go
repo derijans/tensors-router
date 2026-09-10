@@ -57,6 +57,10 @@ func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter
 		writeTransportError(w, transformErr)
 		return
 	}
+	usageInjected := false
+	if !route.Remote {
+		requestBody, usageInjected = injectStreamUsageOption(requestBody, r.URL.Path, modelBackendMode)
+	}
 	var response *http.Response
 	var err error
 	var analyticsEvent routeranalytics.Event
@@ -106,6 +110,7 @@ func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter
 	if recordAnalytics {
 		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
 	}
+	response = responseWithoutInjectedUsage(response, usageInjected)
 
 	if err := service.writeModelProxyResponse(w, response, publicID, true); err != nil {
 		return

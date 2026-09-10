@@ -10,15 +10,27 @@ import (
 
 const observedBodyLimit = 1 << 20
 
+type observedBodyKind int
+
+const (
+	observedBodyBuffered observedBodyKind = iota
+	observedBodyEventStream
+	observedBodyLineDelimitedJSON
+)
+
 type ResponseObserver struct {
-	body        io.ReadCloser
-	sink        EventSink
-	event       Event
-	contentType string
-	finalizers  []func(*Event)
-	lineBuffer  []byte
-	bodyBuffer  bytes.Buffer
-	once        sync.Once
+	body           io.ReadCloser
+	sink           EventSink
+	event          Event
+	contentType    string
+	bodyKind       observedBodyKind
+	finalizers     []func(*Event)
+	lineBuffer     []byte
+	bodyBuffer     bytes.Buffer
+	firstContentAt time.Time
+	lastContentAt  time.Time
+	streamComplete bool
+	once           sync.Once
 }
 
 func NewResponseObserver(sink EventSink, event Event, contentType string, body io.ReadCloser, finalizers ...func(*Event)) *ResponseObserver {
@@ -27,6 +39,7 @@ func NewResponseObserver(sink EventSink, event Event, contentType string, body i
 		sink:        sink,
 		event:       event,
 		contentType: contentType,
+		bodyKind:    observedBodyKindOf(contentType),
 		finalizers:  append([]func(*Event){}, finalizers...),
 	}
 }
@@ -50,10 +63,14 @@ func (observer *ResponseObserver) Close() error {
 }
 
 func (observer *ResponseObserver) observe(chunk []byte) {
-	if isEventStreamContent(observer.contentType) {
-		observer.observeEventStream(chunk)
+	if observer.bodyKind == observedBodyBuffered {
+		observer.bufferBody(chunk)
 		return
 	}
+	observer.observeLines(chunk)
+}
+
+func (observer *ResponseObserver) bufferBody(chunk []byte) {
 	if observer.bodyBuffer.Len() >= observedBodyLimit {
 		return
 	}
@@ -64,7 +81,7 @@ func (observer *ResponseObserver) observe(chunk []byte) {
 	_, _ = observer.bodyBuffer.Write(chunk)
 }
 
-func (observer *ResponseObserver) observeEventStream(chunk []byte) {
+func (observer *ResponseObserver) observeLines(chunk []byte) {
 	observer.lineBuffer = append(observer.lineBuffer, chunk...)
 	for {
 		index := bytes.IndexByte(observer.lineBuffer, '\n')
@@ -76,23 +93,51 @@ func (observer *ResponseObserver) observeEventStream(chunk []byte) {
 		}
 		line := strings.TrimRight(string(observer.lineBuffer[:index]), "\r")
 		observer.lineBuffer = observer.lineBuffer[index+1:]
-		observer.observeEventStreamLine(line)
+		observer.observeLine(line)
 	}
 }
 
-func (observer *ResponseObserver) observeEventStreamLine(line string) {
+func (observer *ResponseObserver) observeLine(line string) {
+	if observer.bodyKind == observedBodyLineDelimitedJSON {
+		observer.observePayload([]byte(line))
+		return
+	}
 	switch {
 	case strings.HasPrefix(line, "data: "):
-		ApplyEventStreamData(&observer.event, []byte(strings.TrimPrefix(line, "data: ")))
+		observer.observePayload([]byte(strings.TrimPrefix(line, "data: ")))
 	case strings.HasPrefix(line, "data:"):
-		ApplyEventStreamData(&observer.event, []byte(strings.TrimPrefix(line, "data:")))
+		observer.observePayload([]byte(strings.TrimPrefix(line, "data:")))
+	case looksLikeJSONObjectLine(line):
+		observer.observePayload([]byte(line))
 	}
+}
+
+func (observer *ResponseObserver) observePayload(payload []byte) {
+	if bytes.Equal(bytes.TrimSpace(payload), []byte("[DONE]")) {
+		observer.streamComplete = true
+		return
+	}
+	ApplyEventStreamData(&observer.event, payload)
+	if !StreamPayloadCarriesContent(payload) {
+		return
+	}
+	now := time.Now()
+	if observer.firstContentAt.IsZero() {
+		observer.firstContentAt = now
+	} else if gap := now.Sub(observer.lastContentAt).Milliseconds(); gap > observer.event.MaxGapMS {
+		observer.event.MaxGapMS = gap
+	}
+	observer.lastContentAt = now
+}
+
+func looksLikeJSONObjectLine(line string) bool {
+	return strings.HasPrefix(strings.TrimLeft(line, " \t"), "{")
 }
 
 func (observer *ResponseObserver) finish() {
 	observer.once.Do(func() {
 		if len(observer.lineBuffer) > 0 {
-			observer.observeEventStreamLine(strings.TrimRight(string(observer.lineBuffer), "\r\n"))
+			observer.observeLine(strings.TrimRight(string(observer.lineBuffer), "\r\n"))
 			observer.lineBuffer = nil
 		}
 		now := time.Now()
@@ -105,9 +150,11 @@ func (observer *ResponseObserver) finish() {
 		if observer.event.DurationMS == 0 {
 			observer.event.DurationMS = observer.event.FinishedAt.Sub(observer.event.StartedAt).Milliseconds()
 		}
-		if !isEventStreamContent(observer.contentType) {
+		if observer.bodyKind == observedBodyBuffered {
 			ApplyResponse(&observer.event, observer.contentType, observer.bodyBuffer.Bytes())
 		}
+		observer.applyStreamTimings()
+		deriveTokenTotals(&observer.event)
 		for _, finalizer := range observer.finalizers {
 			if finalizer != nil {
 				finalizer(&observer.event)
@@ -117,6 +164,25 @@ func (observer *ResponseObserver) finish() {
 	})
 }
 
-func isEventStreamContent(contentType string) bool {
-	return strings.Contains(strings.ToLower(contentType), "text/event-stream")
+func (observer *ResponseObserver) applyStreamTimings() {
+	if observer.firstContentAt.IsZero() {
+		return
+	}
+	if !observer.event.StartedAt.IsZero() {
+		observer.event.TTFTMS = observer.firstContentAt.Sub(observer.event.StartedAt).Milliseconds()
+	}
+	observer.event.DecodeMS = observer.lastContentAt.Sub(observer.firstContentAt).Milliseconds()
+	observer.event.Aborted = !observer.streamComplete && observer.event.FinishReason == ""
+}
+
+func observedBodyKindOf(contentType string) observedBodyKind {
+	lowered := strings.ToLower(contentType)
+	switch {
+	case strings.Contains(lowered, "text/event-stream"):
+		return observedBodyEventStream
+	case strings.Contains(lowered, "application/x-ndjson"), strings.Contains(lowered, "application/ndjson"):
+		return observedBodyLineDelimitedJSON
+	default:
+		return observedBodyBuffered
+	}
 }

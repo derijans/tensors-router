@@ -56,6 +56,11 @@ type Event struct {
 	ModelVRAM       int64     `json:"model_vram_estimate_mb,omitempty"`
 	VRAMTotal       int64     `json:"vram_total_mb,omitempty"`
 	VRAMPeakPercent float64   `json:"vram_peak_percent,omitempty"`
+	TTFTMS          int64     `json:"ttft_ms,omitempty"`
+	DecodeMS        int64     `json:"decode_ms,omitempty"`
+	MaxGapMS        int64     `json:"max_gap_ms,omitempty"`
+	FinishReason    string    `json:"finish_reason,omitempty"`
+	Aborted         bool      `json:"aborted,omitempty"`
 }
 
 type Query struct {
@@ -198,6 +203,11 @@ type RecentEvent struct {
 	ModelVRAM       int64   `json:"model_vram_estimate_mb,omitempty"`
 	VRAMTotal       int64   `json:"vram_total_mb,omitempty"`
 	VRAMPeakPercent float64 `json:"vram_peak_percent,omitempty"`
+	TTFTMS          int64   `json:"ttft_ms,omitempty"`
+	DecodeMS        int64   `json:"decode_ms,omitempty"`
+	MaxGapMS        int64   `json:"max_gap_ms,omitempty"`
+	FinishReason    string  `json:"finish_reason,omitempty"`
+	Aborted         bool    `json:"aborted,omitempty"`
 }
 
 type NodeError struct {

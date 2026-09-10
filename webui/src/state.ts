@@ -67,7 +67,8 @@ export const state: AppState = {
     },
     data: null,
     loading: false,
-    error: ""
+    error: "",
+    showDetails: false
   },
   loadCaptures: {
     query: {node_ids: [], status: "", kind: "", backend: ""},

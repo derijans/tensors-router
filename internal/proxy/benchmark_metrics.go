@@ -2,12 +2,13 @@ package proxy
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
+	routeranalytics "tensors-router/internal/analytics"
 	routerbenchmark "tensors-router/internal/benchmark"
+	"tensors-router/internal/jsonpath"
 )
 
 type textBenchmarkStats struct {
@@ -67,88 +68,21 @@ func (service *Service) textBenchmarkMetrics(ctx context.Context, path string, b
 }
 
 func extractTextBenchmarkStats(body string, duration time.Duration) textBenchmarkStats {
-	var payload any
-	decoder := json.NewDecoder(strings.NewReader(body))
-	decoder.UseNumber()
-	if err := decoder.Decode(&payload); err != nil {
-		return textBenchmarkStats{}
+	event := routeranalytics.Event{DurationMS: duration.Milliseconds()}
+	routeranalytics.ApplyResponse(&event, "application/json", []byte(body))
+	routeranalytics.DeriveTotals(&event)
+	stats := textBenchmarkStats{
+		promptTokens:     float64(event.InputTokens),
+		completionTokens: float64(event.OutputTokens),
+		tokensPerSecond:  event.TokensPerSecond,
 	}
-	root, ok := payload.(map[string]any)
+	root, ok := jsonpath.DecodeObject([]byte(body))
 	if !ok {
-		return textBenchmarkStats{}
+		return stats
 	}
-	stats := textBenchmarkStats{}
-	stats.promptTokens = firstNestedNumber(root,
-		[]string{"usage", "prompt_tokens"},
-		[]string{"timings", "prompt_n"},
-		[]string{"prompt_tokens"},
-		[]string{"prompt_eval_count"},
-	)
-	stats.completionTokens = firstNestedNumber(root,
-		[]string{"usage", "completion_tokens"},
-		[]string{"timings", "predicted_n"},
-		[]string{"completion_tokens"},
-		[]string{"eval_count"},
-	)
-	stats.tokensPerSecond = firstNestedNumber(root,
-		[]string{"timings", "predicted_per_second"},
-		[]string{"predicted_per_second"},
-		[]string{"tokens_per_second"},
-	)
-	stats.promptTokensPerSecond = firstNestedNumber(root,
+	stats.promptTokensPerSecond = jsonpath.FirstNumber(root,
 		[]string{"timings", "prompt_per_second"},
 		[]string{"prompt_per_second"},
 	)
-	if stats.tokensPerSecond <= 0 {
-		durationSeconds := duration.Seconds()
-		if stats.completionTokens > 0 && durationSeconds > 0 {
-			stats.tokensPerSecond = stats.completionTokens / durationSeconds
-		}
-	}
-	if stats.tokensPerSecond <= 0 {
-		evalCount := firstNestedNumber(root, []string{"eval_count"})
-		evalDuration := firstNestedNumber(root, []string{"eval_duration"})
-		if evalCount > 0 && evalDuration > 0 {
-			stats.tokensPerSecond = evalCount / (evalDuration / float64(time.Second))
-		}
-	}
 	return stats
-}
-
-func firstNestedNumber(root map[string]any, paths ...[]string) float64 {
-	for _, path := range paths {
-		if value, ok := nestedNumber(root, path); ok {
-			return value
-		}
-	}
-	return 0
-}
-
-func nestedNumber(root map[string]any, path []string) (float64, bool) {
-	var current any = root
-	for _, key := range path {
-		object, ok := current.(map[string]any)
-		if !ok {
-			return 0, false
-		}
-		current, ok = object[key]
-		if !ok {
-			return 0, false
-		}
-	}
-	return numberValue(current)
-}
-
-func numberValue(value any) (float64, bool) {
-	switch typed := value.(type) {
-	case json.Number:
-		parsed, err := typed.Float64()
-		return parsed, err == nil
-	case float64:
-		return typed, true
-	case int:
-		return float64(typed), true
-	default:
-		return 0, false
-	}
 }

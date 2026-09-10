@@ -50,6 +50,15 @@ func newActiveConfigState() *activeConfigState {
 	return &activeConfigState{changed: make(chan struct{}), leases: map[uint64]string{}}
 }
 
+func (state *activeConfigState) loadedModel() (string, string) {
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.switching {
+		return "", ""
+	}
+	return state.modelID, state.filename
+}
+
 func (service *Service) acquireModelConfigForBackendMode(mode string, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (*backendRuntime, func(), bool, error) {
 	return service.acquireModelConfigForBackendModeWithOptions(mode, ctx, modelID, configFilename, readiness, modelConfigAcquireOptions{forceReload: force})
 }
