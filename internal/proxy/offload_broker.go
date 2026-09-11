@@ -4,34 +4,50 @@ import (
 	"sort"
 	"time"
 
-	"tensors-router/internal/analytics"
 	"tensors-router/internal/schedulingcost"
 )
 
 // offloadCandidate is one member of a routing group as the master currently sees
 // it: what it has waiting, whether it already holds the group's model, and
-// whether it has room to take work that is not its own.
+// whether it has room to take work that is not its own. Section is the
+// analytics section its cost was fitted under (image or llm), which the image
+// and text lanes never share even when a group id string collides between them.
+// ContextCapacity is the model's context window; it is 0 (and so never gates
+// anything) for the image lane, which has no such notion.
 type offloadCandidate struct {
 	NodeID            string
 	ModelID           string
 	ConfigFilename    string
+	Section           string
 	Loaded            bool
 	AcceptingBorrowed bool
+	ContextCapacity   int
 	PendingCount      int64
-	PendingWork       float64
+	PendingWork       schedulingcost.Work
+	PendingContext    int64
 	BacklogCount      int64
-	BacklogWork       float64
+	BacklogWork       schedulingcost.Work
 }
 
 // offloadLease is standing permission for one owner to keep a single borrowed
-// request in flight on one helper. It carries no count: work moves one request at
-// a time, so the lease is renewed while it still pays off rather than sized up
-// front.
+// request in flight on one helper. It carries no count: work moves one request
+// at a time, so the lease is renewed while it still pays off rather than sized
+// up front. Lane keeps an image lease and a text lease with the same group id
+// from ever being confused with each other.
 type offloadLease struct {
+	Lane         string    `json:"lane"`
 	GroupID      string    `json:"group_id"`
 	OwnerNodeID  string    `json:"owner_node_id"`
 	HelperNodeID string    `json:"helper_node_id"`
 	ExpiresAt    time.Time `json:"expires_at"`
+}
+
+// backlogKey and leaseKey both key on (lane, groupID): an image group and a
+// text group can legitimately share a group id string on the same node, since
+// the two lanes' routing groups are stored, and assigned ids from, entirely
+// separate tables.
+func backlogKey(lane string, groupID string) string {
+	return lane + "\x00" + groupID
 }
 
 // planOffloadLeases decides which owners may lend work to which helpers.
@@ -45,13 +61,12 @@ type offloadLease struct {
 // little history is never scheduled on a guess, and refusing the whole group until
 // all of them qualify keeps the existing rotation running, which is what lets the
 // unqualified members accumulate the history they need.
-func planOffloadLeases(groupID string, candidates []offloadCandidate, costs *schedulingcost.Table, now time.Time, ttl time.Duration) []offloadLease {
+func planOffloadLeases(lane string, groupID string, candidates []offloadCandidate, costs *schedulingcost.Table, now time.Time, ttl time.Duration) []offloadLease {
 	if len(candidates) < 2 || costs == nil {
 		return nil
 	}
 	for _, candidate := range candidates {
-		key := schedulingcost.ModelKey{NodeID: candidate.NodeID, ModelID: candidate.ModelID, Section: analytics.SectionImage}
-		if _, qualified := costs.Estimate(key); !qualified {
+		if _, qualified := costs.Estimate(offloadModelKey(candidate)); !qualified {
 			return nil
 		}
 	}
@@ -68,13 +83,15 @@ func planOffloadLeases(groupID string, candidates []offloadCandidate, costs *sch
 		if !ok {
 			continue
 		}
-		meanWork := owner.PendingWork / float64(owner.PendingCount)
-		helper, helpMS, found := bestOffloadHelper(helpers, claimed, costs, meanWork)
+		meanWork := owner.PendingWork.Scaled(1 / float64(owner.PendingCount))
+		meanContext := int(owner.PendingContext / owner.PendingCount)
+		helper, helpMS, found := bestOffloadHelper(helpers, claimed, costs, meanWork, meanContext)
 		if !found || helpMS >= keepMS {
 			continue
 		}
 		claimed[helper.NodeID] = true
 		leases = append(leases, offloadLease{
+			Lane:         lane,
 			GroupID:      groupID,
 			OwnerNodeID:  owner.NodeID,
 			HelperNodeID: helper.NodeID,
@@ -94,8 +111,9 @@ func splitOffloadRoles(candidates []offloadCandidate) (owners []offloadCandidate
 		}
 	}
 	sort.Slice(owners, func(left, right int) bool {
-		if owners[left].BacklogWork != owners[right].BacklogWork {
-			return owners[left].BacklogWork > owners[right].BacklogWork
+		leftTotal, rightTotal := offloadWorkTotal(owners[left].BacklogWork), offloadWorkTotal(owners[right].BacklogWork)
+		if leftTotal != rightTotal {
+			return leftTotal > rightTotal
 		}
 		return owners[left].NodeID < owners[right].NodeID
 	})
@@ -105,16 +123,33 @@ func splitOffloadRoles(candidates []offloadCandidate) (owners []offloadCandidate
 	return owners, helpers
 }
 
+// offloadWorkTotal reduces a Work vector to one comparable scalar for ordering
+// owners by how deep their backlog is. Summing the terms is enough: the ordering
+// only needs to be consistent, not itself a duration.
+func offloadWorkTotal(work schedulingcost.Work) float64 {
+	total := 0.0
+	for index := 0; index < work.Arity(); index++ {
+		total += work.Term(index)
+	}
+	return total
+}
+
 // bestOffloadHelper prices every free helper for one job of the owner's average
 // size and returns the cheapest. A helper holding a different model is priced
 // with its measured load duration; one whose load has never been measured is
-// skipped rather than assumed to be free.
-func bestOffloadHelper(helpers []offloadCandidate, claimed map[string]bool, costs *schedulingcost.Table, meanWork float64) (offloadCandidate, float64, bool) {
+// skipped rather than assumed to be free. meanContext is 0 for the image lane,
+// which has no context window to check; for the text lane a helper whose window
+// cannot hold the owner's average pending request is skipped outright, because
+// refusing a lease costs nothing — the owner simply keeps draining its own queue.
+func bestOffloadHelper(helpers []offloadCandidate, claimed map[string]bool, costs *schedulingcost.Table, meanWork schedulingcost.Work, meanContext int) (offloadCandidate, float64, bool) {
 	var best offloadCandidate
 	bestMS := 0.0
 	found := false
 	for _, helper := range helpers {
 		if claimed[helper.NodeID] {
+			continue
+		}
+		if meanContext > 0 && helper.ContextCapacity < meanContext {
 			continue
 		}
 		switchMS, ok := offloadSwitchMS(helper, costs)
@@ -144,7 +179,7 @@ func offloadModelKey(candidate offloadCandidate) schedulingcost.ModelKey {
 	return schedulingcost.ModelKey{
 		NodeID:  candidate.NodeID,
 		ModelID: candidate.ModelID,
-		Section: analytics.SectionImage,
+		Section: candidate.Section,
 	}
 }
 
@@ -160,8 +195,8 @@ func newOffloadLeaseBook() *offloadLeaseBook {
 	return &offloadLeaseBook{leases: map[string]offloadLease{}}
 }
 
-func offloadLeaseKey(groupID string, ownerNodeID string) string {
-	return groupID + "\x00" + ownerNodeID
+func offloadLeaseBookKey(lane string, groupID string, ownerNodeID string) string {
+	return lane + "\x00" + groupID + "\x00" + ownerNodeID
 }
 
 // Replace installs the leases this cycle planned. Anything not replanned simply
@@ -170,13 +205,13 @@ func offloadLeaseKey(groupID string, ownerNodeID string) string {
 func (book *offloadLeaseBook) Replace(planned []offloadLease) {
 	live := make(map[string]offloadLease, len(planned))
 	for _, lease := range planned {
-		live[offloadLeaseKey(lease.GroupID, lease.OwnerNodeID)] = lease
+		live[offloadLeaseBookKey(lease.Lane, lease.GroupID, lease.OwnerNodeID)] = lease
 	}
 	book.leases = live
 }
 
-func (book *offloadLeaseBook) Lease(groupID string, ownerNodeID string, now time.Time) (offloadLease, bool) {
-	lease, ok := book.leases[offloadLeaseKey(groupID, ownerNodeID)]
+func (book *offloadLeaseBook) Lease(lane string, groupID string, ownerNodeID string, now time.Time) (offloadLease, bool) {
+	lease, ok := book.leases[offloadLeaseBookKey(lane, groupID, ownerNodeID)]
 	if !ok || !lease.ExpiresAt.After(now) {
 		return offloadLease{}, false
 	}

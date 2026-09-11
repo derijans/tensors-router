@@ -10,6 +10,7 @@ import (
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/routerstore/routerstoretest"
 	"tensors-router/internal/routinggroups"
+	"tensors-router/internal/schedulingcost"
 	"tensors-router/internal/siteapi"
 )
 
@@ -33,7 +34,7 @@ func newRoutingGroupService(t *testing.T) *Service {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.UpdateNode(cluster.Snapshot{
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion,
 		NodeID:  "slave-a",
 		NodeURL: "http://slave-a",
 		Models: []cluster.Model{
@@ -149,7 +150,7 @@ func TestSavingAGroupUpdatesRoutingImmediately(t *testing.T) {
 	// priced as the faster option, a request for the anchor can only reach it if
 	// the group is live.
 	service.registry.SetCostSource(&reachableCostSource{fastNodeID: "slave-a"})
-	route, release, ok := service.registry.AcquireImage("sdxl", true, "*", cluster.RouteHint{Work: 1000})
+	route, release, ok := service.registry.AcquireImage("sdxl", true, "*", cluster.RouteHint{Work: schedulingcost.ImageWork(1000)})
 	if !ok {
 		t.Fatal("no route after saving the group")
 	}
@@ -175,11 +176,11 @@ func (source *reachableCostSource) perJobMS(nodeID string) float64 {
 	return 60000
 }
 
-func (source *reachableCostSource) PredictMS(nodeID string, modelID string, lane string, work float64) (float64, bool) {
+func (source *reachableCostSource) PredictMS(nodeID string, modelID string, lane string, work schedulingcost.Work) (float64, bool) {
 	return source.perJobMS(nodeID), true
 }
 
-func (source *reachableCostSource) PredictQueueMS(nodeID string, modelID string, lane string, count int64, work float64) (float64, bool) {
+func (source *reachableCostSource) PredictQueueMS(nodeID string, modelID string, lane string, count int64, work schedulingcost.Work) (float64, bool) {
 	return float64(count) * source.perJobMS(nodeID), true
 }
 
@@ -187,8 +188,8 @@ func (source *reachableCostSource) SwitchPenaltyMS(nodeID string, configFilename
 	return 0, true
 }
 
-func (source *reachableCostSource) NodeBacklog(nodeID string, groupID string) (int64, float64) {
-	return 0, 0
+func (source *reachableCostSource) NodeBacklog(nodeID string, groupID string, lane string) (int64, schedulingcost.Work) {
+	return 0, schedulingcost.Work{}
 }
 
 func TestRoutingGroupDelete(t *testing.T) {

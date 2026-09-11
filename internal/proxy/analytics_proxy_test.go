@@ -217,7 +217,7 @@ func TestAnalyticsMasterDoesNotRecordRemoteRoute(t *testing.T) {
 	defer remote.Close()
 
 	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
-	if err := registry.UpdateNode(cluster.Snapshot{
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion,
 		NodeID:  "slave-a",
 		NodeURL: remote.URL,
 		Models:  []cluster.Model{testClusterModel("llm", "slave-a", "hash", "config", cluster.SourceSlave)},

@@ -319,6 +319,7 @@ func runServe(args []string) error {
 		SchedulingBackendDepth:    cfg.Cluster.SchedulingBackendDepth,
 		SchedulingRefreshInterval: cfg.Cluster.SchedulingRefreshInterval,
 		SchedulingGrantTTL:        cfg.Cluster.SchedulingGrantTTL,
+		SchedulingContextReserve:  cfg.Cluster.SchedulingContextReserve,
 		AnalyticsStore:            analyticsStore,
 		LoadCaptureStore:          loadCaptureStore,
 		LoadErrorStore:            loadErrorStore,

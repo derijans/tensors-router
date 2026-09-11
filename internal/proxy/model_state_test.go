@@ -120,11 +120,11 @@ func TestMasterModelStateUsesRegisteredNodeAndRefreshesSnapshot(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&received); err != nil {
 			t.Fatal(err)
 		}
-		openai.WriteJSON(w, http.StatusOK, cluster.Snapshot{NodeID: "node-b", Models: []cluster.Model{{LocalID: "remote", Filename: "remote.kcpps", HasLLM: true, Disabled: true}}})
+		openai.WriteJSON(w, http.StatusOK, cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: "node-b", Models: []cluster.Model{{LocalID: "remote", Filename: "remote.kcpps", HasLLM: true, Disabled: true}}})
 	}))
 	defer remote.Close()
 	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master.invalid")
-	if err := registry.UpdateNode(cluster.Snapshot{NodeID: "node-b", NodeURL: remote.URL, Models: []cluster.Model{{LocalID: "remote", Filename: "remote.kcpps", HasLLM: true}}}); err != nil {
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: "node-b", NodeURL: remote.URL, Models: []cluster.Model{{LocalID: "remote", Filename: "remote.kcpps", HasLLM: true}}}); err != nil {
 		t.Fatal(err)
 	}
 	service := NewService(ServiceConfig{Catalog: catalog.New(t.TempDir()), Registry: registry, ClusterRole: cluster.RoleMaster, NodeID: "master", NodeURL: "http://master.invalid", ClusterToken: "secret", Logger: log.New(io.Discard, "", 0)})
@@ -158,7 +158,7 @@ func TestDisabledModelUnloadsOnlyAfterActiveRuntimeReleaseAndReenableCancels(t *
 	if disabled.Code != http.StatusOK {
 		t.Fatalf("disable status=%d body=%s", disabled.Code, disabled.Body.String())
 	}
-	if _, _, ok := registry.Acquire("model-a", true); ok {
+	if _, _, ok := registry.Acquire("model-a", true, cluster.RouteHint{}); ok {
 		t.Fatal("new request acquired disabled model")
 	}
 	if backend.unloads.Load() != 0 {

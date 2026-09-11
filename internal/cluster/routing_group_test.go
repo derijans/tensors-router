@@ -1,6 +1,10 @@
 package cluster
 
-import "testing"
+import (
+	"testing"
+
+	"tensors-router/internal/schedulingcost"
+)
 
 type fakeGroupSource struct {
 	groupID string
@@ -25,7 +29,7 @@ type fakeCostSource struct {
 	backlog  map[string]int64
 }
 
-func (source *fakeCostSource) PredictMS(nodeID string, modelID string, lane string, work float64) (float64, bool) {
+func (source *fakeCostSource) PredictMS(nodeID string, modelID string, lane string, work schedulingcost.Work) (float64, bool) {
 	perJob, ok := source.perJobMS[nodeID]
 	if !ok {
 		return 0, false
@@ -33,7 +37,7 @@ func (source *fakeCostSource) PredictMS(nodeID string, modelID string, lane stri
 	return perJob, true
 }
 
-func (source *fakeCostSource) PredictQueueMS(nodeID string, modelID string, lane string, count int64, work float64) (float64, bool) {
+func (source *fakeCostSource) PredictQueueMS(nodeID string, modelID string, lane string, count int64, work schedulingcost.Work) (float64, bool) {
 	perJob, ok := source.perJobMS[nodeID]
 	if !ok {
 		return 0, false
@@ -46,8 +50,9 @@ func (source *fakeCostSource) SwitchPenaltyMS(nodeID string, configFilename stri
 	return load, ok
 }
 
-func (source *fakeCostSource) NodeBacklog(nodeID string, groupID string) (int64, float64) {
-	return source.backlog[nodeID], float64(source.backlog[nodeID])
+func (source *fakeCostSource) NodeBacklog(nodeID string, groupID string, lane string) (int64, schedulingcost.Work) {
+	count := source.backlog[nodeID]
+	return count, schedulingcost.ImageWork(float64(count))
 }
 
 func imageModel(id string, nodeID string, modelHash string, configHash string, source string) Model {
@@ -57,6 +62,13 @@ func imageModel(id string, nodeID string, modelHash string, configHash string, s
 	model.ImageID = id
 	model.PublicImageID = id
 	model.BackendMode = BackendModeLlamaSDCPP
+	return model
+}
+
+func textModel(id string, nodeID string, modelHash string, configHash string, source string, contextSize int) Model {
+	model := testModel(id, nodeID, modelHash, configHash, source)
+	model.HasLLM = true
+	model.Capabilities.Context = contextSize
 	return model
 }
 
@@ -73,7 +85,7 @@ func newForkedImageRegistry(t *testing.T, loadedOnSlave bool) *Registry {
 	}
 	remote := imageModel("sdxl-alt", "slave-a", "weights", "config-b", SourceSlave)
 	remote.Loaded = loadedOnSlave
-	if err := registry.UpdateNode(Snapshot{NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{remote}}); err != nil {
+	if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion, NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{remote}}); err != nil {
 		t.Fatal(err)
 	}
 	return registry
@@ -83,8 +95,8 @@ func groupOfForkedModels() *fakeGroupSource {
 	return &fakeGroupSource{
 		groupID: "group",
 		members: []GroupMember{
-			{NodeID: "master", ImageID: "sdxl"},
-			{NodeID: "slave-a", ImageID: "sdxl-alt"},
+			{Lane: RouteLaneImage, NodeID: "master", ModelID: "sdxl"},
+			{Lane: RouteLaneImage, NodeID: "slave-a", ModelID: "sdxl-alt"},
 		},
 	}
 }
@@ -97,7 +109,7 @@ func TestGroupRoutesAcrossDifferentPublicImageIDs(t *testing.T) {
 		backlog:  map[string]int64{"master": 12},
 	})
 
-	route, release, ok := registry.AcquireImage("sdxl", true, "*", RouteHint{Work: 1000})
+	route, release, ok := registry.AcquireImage("sdxl", true, "*", RouteHint{Work: schedulingcost.ImageWork(1000)})
 	if !ok {
 		t.Fatal("no route for a grouped image model")
 	}
@@ -127,7 +139,7 @@ func TestGroupPrefersAnIdleMemberThatMustLoadWhenTheBacklogIsDeep(t *testing.T) 
 		backlog:  map[string]int64{"master": 12},
 	})
 
-	route, release, ok := registry.AcquireImage("sdxl", true, "*", RouteHint{Work: 1000})
+	route, release, ok := registry.AcquireImage("sdxl", true, "*", RouteHint{Work: schedulingcost.ImageWork(1000)})
 	if !ok {
 		t.Fatal("no route for a grouped image model")
 	}
@@ -148,7 +160,7 @@ func TestGroupKeepsTheLoadedMemberWhenTheLoadOutlastsTheBacklog(t *testing.T) {
 		backlog:  map[string]int64{"master": 1},
 	})
 
-	route, release, ok := registry.AcquireImage("sdxl", true, "*", RouteHint{Work: 1000})
+	route, release, ok := registry.AcquireImage("sdxl", true, "*", RouteHint{Work: schedulingcost.ImageWork(1000)})
 	if !ok {
 		t.Fatal("no route for a grouped image model")
 	}
@@ -168,7 +180,7 @@ func TestGroupFallsBackToRotationWhileAMemberIsUnqualified(t *testing.T) {
 		backlog:  map[string]int64{"master": 50},
 	})
 
-	route, release, ok := registry.AcquireImage("sdxl", true, "*", RouteHint{Work: 1000})
+	route, release, ok := registry.AcquireImage("sdxl", true, "*", RouteHint{Work: schedulingcost.ImageWork(1000)})
 	if !ok {
 		t.Fatal("no route for a grouped image model")
 	}
@@ -208,7 +220,7 @@ func TestUngroupedImageModelSeesOnlyItsOwnReplicas(t *testing.T) {
 		backlog:  map[string]int64{"master": 99},
 	})
 
-	route, release, ok := registry.AcquireImage("sdxl", true, "*", RouteHint{Work: 1000})
+	route, release, ok := registry.AcquireImage("sdxl", true, "*", RouteHint{Work: schedulingcost.ImageWork(1000)})
 	if !ok {
 		t.Fatal("no route for an ungrouped image model")
 	}
@@ -222,7 +234,7 @@ func TestGroupSelectionIsSkippedWithoutACostSource(t *testing.T) {
 	registry := newForkedImageRegistry(t, true)
 	registry.SetGroupSource(groupOfForkedModels())
 
-	route, release, ok := registry.AcquireImage("sdxl", true, "*", RouteHint{Work: 1000})
+	route, release, ok := registry.AcquireImage("sdxl", true, "*", RouteHint{Work: schedulingcost.ImageWork(1000)})
 	if !ok {
 		t.Fatal("no route without a cost source")
 	}
@@ -242,12 +254,177 @@ func TestGroupFallsBackWhenAMemberSwitchIsUnpriced(t *testing.T) {
 		backlog:  map[string]int64{"master": 50},
 	})
 
-	route, release, ok := registry.AcquireImage("sdxl", true, "*", RouteHint{Work: 1000})
+	route, release, ok := registry.AcquireImage("sdxl", true, "*", RouteHint{Work: schedulingcost.ImageWork(1000)})
 	if !ok {
 		t.Fatal("no route for a grouped image model")
 	}
 	defer release()
 	if route.NodeID != "master" {
 		t.Fatalf("route = %+v, want the fallback cascade", route)
+	}
+}
+
+// TestImageGroupSelectionIsUnaffectedByTheContextGate pins that the image lane
+// carries on with no notion of a context window: an image hint with
+// RequiredContext == 0 against members whose Capabilities.Context is also 0
+// (image models never set it) still schedules exactly as it did before the
+// text lane's gate existed.
+func TestImageGroupSelectionIsUnaffectedByTheContextGate(t *testing.T) {
+	registry := newForkedImageRegistry(t, true)
+	registry.SetGroupSource(groupOfForkedModels())
+	registry.SetCostSource(&fakeCostSource{
+		perJobMS: map[string]float64{"master": 8000, "slave-a": 8000},
+		backlog:  map[string]int64{"master": 12},
+	})
+
+	route, release, ok := registry.AcquireImage("sdxl", true, "*", RouteHint{Work: schedulingcost.ImageWork(1000), RequiredContext: 0})
+	if !ok {
+		t.Fatal("no route for a grouped image model")
+	}
+	defer release()
+	if route.NodeID != "slave-a" {
+		t.Fatalf("route = %+v, want the idle member, unaffected by any context notion", route)
+	}
+}
+
+// newForkedTextRegistry loads both members by default, so a test whose focus
+// is cost-ordering or the context gate is never accidentally exercising the
+// unrelated "member is unpriced because it needs a load estimate" path.
+func newForkedTextRegistry(t *testing.T, masterContext int, slaveContext int) *Registry {
+	t.Helper()
+	registry := NewRegistry(RoleMaster, "master", "http://master")
+	local := textModel("llama", "master", "weights", "config-a", SourceMaster, masterContext)
+	local.Loaded = true
+	if err := registry.UpdateLocal([]Model{local}); err != nil {
+		t.Fatal(err)
+	}
+	remote := textModel("llama-alt", "slave-a", "weights", "config-b", SourceSlave, slaveContext)
+	remote.Loaded = true
+	if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion, NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{remote}}); err != nil {
+		t.Fatal(err)
+	}
+	return registry
+}
+
+func groupOfForkedTextModels() *fakeGroupSource {
+	return &fakeGroupSource{
+		groupID: "text-group",
+		members: []GroupMember{
+			{Lane: RouteLaneText, NodeID: "master", ModelID: "llama"},
+			{Lane: RouteLaneText, NodeID: "slave-a", ModelID: "llama-alt"},
+		},
+	}
+}
+
+func TestTextGroupSelectionOrdersByPredictedFinish(t *testing.T) {
+	registry := newForkedTextRegistry(t, 8192, 8192)
+	registry.SetGroupSource(groupOfForkedTextModels())
+	registry.SetCostSource(&fakeCostSource{
+		perJobMS: map[string]float64{"master": 8000, "slave-a": 2000},
+		backlog:  map[string]int64{"master": 5},
+	})
+
+	route, release, ok := registry.Acquire("llama", true, RouteHint{Work: schedulingcost.TextWork(200, 50)})
+	if !ok {
+		t.Fatal("no route for a grouped text model")
+	}
+	defer release()
+	if route.NodeID != "slave-a" {
+		t.Fatalf("route = %+v, want the cheaper member", route)
+	}
+}
+
+func TestTextGroupSelectionFallsBackWhenAMemberIsUnpriced(t *testing.T) {
+	registry := newForkedTextRegistry(t, 8192, 8192)
+	registry.SetGroupSource(groupOfForkedTextModels())
+	registry.SetCostSource(&fakeCostSource{
+		perJobMS: map[string]float64{"master": 8000},
+		backlog:  map[string]int64{"master": 5},
+	})
+
+	route, release, ok := registry.Acquire("llama", true, RouteHint{Work: schedulingcost.TextWork(200, 50)})
+	if !ok {
+		t.Fatal("no route for a grouped text model")
+	}
+	defer release()
+	if route.NodeID != "master" || route.Remote {
+		t.Fatalf("route = %+v, want the untouched local-first cascade", route)
+	}
+}
+
+// The cheapest member has too small a window; the request must land on the
+// larger one despite scoring worse.
+func TestTextGroupSelectionSkipsMembersThatCannotHoldTheContext(t *testing.T) {
+	registry := newForkedTextRegistry(t, 32768, 4096)
+	registry.SetGroupSource(groupOfForkedTextModels())
+	registry.SetCostSource(&fakeCostSource{
+		perJobMS: map[string]float64{"master": 8000, "slave-a": 1000},
+		backlog:  map[string]int64{"master": 1, "slave-a": 1},
+	})
+
+	route, release, ok := registry.Acquire("llama", true, RouteHint{Work: schedulingcost.TextWork(200, 50), RequiredContext: 6000})
+	if !ok {
+		t.Fatal("no route for a grouped text model")
+	}
+	defer release()
+	if route.NodeID != "master" {
+		t.Fatalf("route = %+v, want the larger-context member despite the worse score", route)
+	}
+}
+
+func TestTextGroupSelectionTreatsUnknownContextAsUnqualified(t *testing.T) {
+	registry := newForkedTextRegistry(t, 0, 8192)
+	registry.SetGroupSource(groupOfForkedTextModels())
+	registry.SetCostSource(&fakeCostSource{
+		perJobMS: map[string]float64{"master": 1000, "slave-a": 8000},
+		backlog:  map[string]int64{"master": 1, "slave-a": 1},
+	})
+
+	route, release, ok := registry.Acquire("llama", true, RouteHint{Work: schedulingcost.TextWork(200, 50), RequiredContext: 500})
+	if !ok {
+		t.Fatal("no route for a grouped text model")
+	}
+	defer release()
+	if route.NodeID != "slave-a" {
+		t.Fatalf("route = %+v, an unstated context window must never be treated as unlimited", route)
+	}
+}
+
+// Nothing in the group can hold the request: the gate redirects work, it never
+// refuses it, so the caller falls back to the local cascade rather than being
+// rejected outright.
+func TestTextGroupSelectionKeepsLocalWhenNothingFits(t *testing.T) {
+	registry := newForkedTextRegistry(t, 4096, 4096)
+	registry.SetGroupSource(groupOfForkedTextModels())
+	registry.SetCostSource(&fakeCostSource{
+		perJobMS: map[string]float64{"master": 8000, "slave-a": 1000},
+		backlog:  map[string]int64{"master": 1, "slave-a": 1},
+	})
+
+	route, release, ok := registry.Acquire("llama", true, RouteHint{Work: schedulingcost.TextWork(200, 50), RequiredContext: 6000})
+	if !ok {
+		t.Fatal("no route when nothing in the group fits")
+	}
+	defer release()
+	if route.NodeID != "master" || route.Remote {
+		t.Fatalf("route = %+v, want the untouched local-first cascade", route)
+	}
+}
+
+func TestTextGroupSelectionIgnoresAnEmptyHint(t *testing.T) {
+	registry := newForkedTextRegistry(t, 8192, 8192)
+	registry.SetGroupSource(groupOfForkedTextModels())
+	registry.SetCostSource(&fakeCostSource{
+		perJobMS: map[string]float64{"master": 8000, "slave-a": 1000},
+		backlog:  map[string]int64{"master": 1},
+	})
+
+	route, release, ok := registry.Acquire("llama", true, RouteHint{})
+	if !ok {
+		t.Fatal("no route for an unsized text request")
+	}
+	defer release()
+	if route.NodeID != "master" || route.Remote {
+		t.Fatalf("route = %+v, want the untouched cascade for an unpriced request", route)
 	}
 }

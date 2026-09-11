@@ -482,6 +482,33 @@ limits:
 	}
 }
 
+func TestSchedulingContextReserveDefaultsAndParses(t *testing.T) {
+	if got := Defaults().Cluster.SchedulingContextReserve; got != 256 {
+		t.Fatalf("default scheduling_context_reserve = %d, want 256", got)
+	}
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("cluster:\n  scheduling_context_reserve: 512\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Cluster.SchedulingContextReserve != 512 {
+		t.Fatalf("scheduling_context_reserve = %d, want 512", cfg.Cluster.SchedulingContextReserve)
+	}
+}
+
+func TestSchedulingContextReserveRejectsNegative(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	if err := os.WriteFile(path, []byte("cluster:\n  scheduling_context_reserve: -1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "scheduling_context_reserve") {
+		t.Fatalf("expected scheduling_context_reserve validation error, got %v", err)
+	}
+}
+
 func TestDefaultsIncludeSecureStreamingAndRetentionValues(t *testing.T) {
 	cfg := Defaults()
 	if cfg.Security.Profile != SecurityProfileSecure || cfg.Server.Bind != "127.0.0.1:8080" {

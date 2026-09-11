@@ -263,7 +263,7 @@ func TestBenchmarkRunForRemoteNodeUsesRegisteredNodeURL(t *testing.T) {
 			hits.Add(1)
 			writeBenchmarkRecordForTest(w, "slave-a", "remote")
 		case "/router/v1/node/models":
-			_ = json.NewEncoder(w).Encode(cluster.Snapshot{
+			_ = json.NewEncoder(w).Encode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion,
 				NodeID:  "slave-a",
 				NodeURL: slave.URL,
 				Models:  []cluster.Model{testClusterModel("remote", "slave-a", "mhash", "chash", cluster.SourceSlave)},
@@ -275,7 +275,7 @@ func TestBenchmarkRunForRemoteNodeUsesRegisteredNodeURL(t *testing.T) {
 	defer slave.Close()
 
 	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
-	if err := registry.UpdateNode(cluster.Snapshot{
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion,
 		NodeID:  "slave-a",
 		NodeURL: slave.URL,
 		Models:  []cluster.Model{testClusterModel("remote", "slave-a", "mhash", "chash", cluster.SourceSlave)},

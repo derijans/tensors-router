@@ -185,7 +185,7 @@ func TestRemoteClusterNodeAppliesLocalChatTemplateProfile(t *testing.T) {
 	t.Cleanup(nodeServer.Close)
 
 	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
-	if err := registry.UpdateNode(cluster.Snapshot{
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion,
 		NodeID:  "node",
 		NodeURL: nodeServer.URL,
 		Models:  []cluster.Model{testClusterModel("remote", "node", "model-hash", "config-hash", cluster.SourceSlave)},

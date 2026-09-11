@@ -184,7 +184,7 @@ func TestClientDecodesClusterErrorCode(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient("", server.URL)
-	err := client.Register(context.Background(), server.URL, Snapshot{NodeID: "node", NodeURL: "http://node"})
+	_, err := client.Register(context.Background(), server.URL, Snapshot{ProtocolVersion: ProtocolVersion, NodeID: "node", NodeURL: "http://node"})
 	var remoteError *RemoteError
 	if !errors.As(err, &remoteError) || remoteError.Code != ErrorCodeDuplicateNode || remoteError.Type != "cluster_error" {
 		t.Fatalf("unexpected remote error %#v", err)

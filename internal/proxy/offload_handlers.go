@@ -10,14 +10,26 @@ import (
 	"strings"
 	"time"
 
+	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
 )
+
+// normalizedOffloadLane defends the lease lookup against a missing or unknown
+// header value by falling back to the image lane, which is what every build
+// before the text lane existed always meant.
+func normalizedOffloadLane(value string) string {
+	if strings.TrimSpace(value) == cluster.RouteLaneText {
+		return cluster.RouteLaneText
+	}
+	return cluster.RouteLaneImage
+}
 
 const (
 	offloadMarkerHeader = "X-Tensors-Offload"
 	offloadGroupHeader  = "X-Tensors-Offload-Group"
 	offloadOwnerHeader  = "X-Tensors-Offload-Owner"
 	offloadPathHeader   = "X-Tensors-Offload-Path"
+	offloadLaneHeader   = "X-Tensors-Offload-Lane"
 
 	offloadReturnedCode = "offload_returned"
 )
@@ -61,11 +73,12 @@ func (service *Service) handleNodeOffloadRequest(w http.ResponseWriter, r *http.
 	groupID := strings.TrimSpace(r.Header.Get(offloadGroupHeader))
 	ownerNodeID := strings.TrimSpace(r.Header.Get(offloadOwnerHeader))
 	path := strings.TrimSpace(r.Header.Get(offloadPathHeader))
+	lane := normalizedOffloadLane(r.Header.Get(offloadLaneHeader))
 	if groupID == "" || ownerNodeID == "" || !isLocalInferencePath(path) {
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "offload group, owner, and path are required")
 		return
 	}
-	lease, ok := service.leaseBook.Lease(groupID, ownerNodeID, time.Now())
+	lease, ok := service.leaseBook.Lease(lane, groupID, ownerNodeID, time.Now())
 	if !ok {
 		openai.WriteError(w, http.StatusConflict, offloadReturnedCode, "no live offload lease for this owner")
 		return
@@ -117,7 +130,7 @@ func (service *Service) forwardBorrowedRequest(ctx context.Context, nodeURL stri
 // sendOffloadedRequest is the owner handing one request to the master for
 // placement. It returns errOffloadReturned when the helper could not take it, in
 // which case the caller re-queues locally and answers its client itself.
-func (service *Service) sendOffloadedRequest(ctx context.Context, groupID string, r *http.Request, body []byte) (*http.Response, error) {
+func (service *Service) sendOffloadedRequest(ctx context.Context, lane string, groupID string, r *http.Request, body []byte) (*http.Response, error) {
 	masterURL, err := service.clusterClient.AuthorizedBaseURL(service.masterURL)
 	if err != nil {
 		return nil, err
@@ -138,6 +151,7 @@ func (service *Service) sendOffloadedRequest(ctx context.Context, groupID string
 	request.Header.Set(offloadGroupHeader, groupID)
 	request.Header.Set(offloadOwnerHeader, service.nodeID)
 	request.Header.Set(offloadPathHeader, r.URL.Path)
+	request.Header.Set(offloadLaneHeader, lane)
 	request.Host = target.Host
 
 	response, err := service.client.Do(request)

@@ -8,23 +8,43 @@ import (
 )
 
 // applyImageSchedulingStatus publishes what the master needs to decide whether
-// this node should lend or borrow: what it still has queued, whether it has room
-// for work that is not its own, which image config it is holding, and the
-// coefficients fitted from its own history.
+// this node should lend or borrow image work: what it still has queued,
+// whether it has room for work that is not its own, which image config it is
+// holding, and the coefficients fitted from its own history.
 func (service *Service) applyImageSchedulingStatus(status *NodeRuntimeStatus) {
 	if service.imageQueue == nil {
 		return
 	}
 	status.ImageQueue = service.imageQueue.Stats()
-	status.AcceptingBorrowed = service.imageQueue.AcceptingBorrowed()
+	status.AcceptingBorrowedImage = service.imageQueue.AcceptingBorrowed(service.idleForBorrowedWork())
 	status.ActiveImageConfig = service.activeImageConfigFilename()
 	if costs := service.publishedCosts(); costs != nil {
 		status.Costs = *costs
 	}
 }
 
+// applyTextSchedulingStatus is applyImageSchedulingStatus's text-lane twin.
+// Costs are published once by the image half above; both lanes' coefficients
+// already live in the one merged table.
+func (service *Service) applyTextSchedulingStatus(status *NodeRuntimeStatus) {
+	if service.textQueue == nil {
+		return
+	}
+	status.TextQueue = service.textQueue.Stats()
+	status.AcceptingBorrowedText = service.textQueue.AcceptingBorrowed(service.idleForBorrowedWork())
+	status.ActiveTextConfig = service.activeTextConfigFilename()
+}
+
 func (service *Service) activeImageConfigFilename() string {
 	runtime, err := service.runtimeForBackendMode(service.currentBackendMode(), readinessImage)
+	if err != nil || runtime == nil {
+		return ""
+	}
+	return currentRuntimeConfigFilename(runtime)
+}
+
+func (service *Service) activeTextConfigFilename() string {
+	runtime, err := service.runtimeForBackendMode(service.currentBackendMode(), readinessText)
 	if err != nil || runtime == nil {
 		return ""
 	}
@@ -55,7 +75,7 @@ func (service *Service) refreshLocalCosts(ctx context.Context) {
 // offload leases current with them. It returns immediately; the loop stops with
 // the context.
 func (service *Service) StartSchedulingRefresh(ctx context.Context) {
-	if service.imageQueue == nil {
+	if service.imageQueue == nil && service.textQueue == nil {
 		return
 	}
 	go func() {

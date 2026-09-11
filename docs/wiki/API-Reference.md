@@ -179,7 +179,7 @@ Standalone and master routers expose administration routes in these groups:
 - `/router/v1/site/nodes/backends/launch-options`
 - `/router/v1/site/download/...`
 - `/router/v1/site/webuis/...`
-- `/router/v1/site/routing-groups`
+- `/router/v1/site/routing-groups` (image models) and `/router/v1/site/text-routing-groups` (LLM models, a separate store and endpoint, see [Cluster-Routing](Cluster-Routing.md#text-backlog-offloading))
 - `/router/v1/site/analytics` and `POST /router/v1/site/analytics/flush`
 - `/router/v1/site/load-captures`
 - `/router/v1/site/cook/...` and `/router/v1/site/config-file/...`

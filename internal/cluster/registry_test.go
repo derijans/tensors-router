@@ -7,7 +7,7 @@ import (
 
 func TestRegistryRetainsNodeURLWithoutModels(t *testing.T) {
 	registry := NewRegistry(RoleMaster, "master", "http://master")
-	if err := registry.UpdateNode(Snapshot{NodeID: "files-only", NodeURL: "http://files-only"}); err != nil {
+	if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion, NodeID: "files-only", NodeURL: "http://files-only"}); err != nil {
 		t.Fatal(err)
 	}
 	urls := registry.NodeURLsByID()
@@ -38,10 +38,10 @@ func TestRegistryExcludesDisabledReplicasAndUsesEnabledFallback(t *testing.T) {
 	remote.HasVoice = true
 	remote.HasMusic = true
 	remote.BackendMode = BackendModeLlamaSDCPP
-	if err := registry.UpdateNode(Snapshot{NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{remote}}); err != nil {
+	if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion, NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{remote}}); err != nil {
 		t.Fatal(err)
 	}
-	route, release, ok := registry.Acquire("shared", true)
+	route, release, ok := registry.Acquire("shared", true, RouteHint{})
 	if !ok || route.NodeID != "slave-a" || !route.Remote {
 		t.Fatalf("expected enabled remote fallback, route=%#v ok=%t", route, ok)
 	}
@@ -50,10 +50,10 @@ func TestRegistryExcludesDisabledReplicasAndUsesEnabledFallback(t *testing.T) {
 		t.Fatalf("enabled replica missing from public catalog %#v", models)
 	}
 	remote.Disabled = true
-	if err := registry.UpdateNode(Snapshot{NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{remote}}); err != nil {
+	if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion, NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{remote}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, ok := registry.Acquire("shared", true); ok {
+	if _, _, ok := registry.Acquire("shared", true, RouteHint{}); ok {
 		t.Fatal("disabled replicas remained routable")
 	}
 	if _, _, ok := registry.AcquireEmbedding("shared", true); ok {
@@ -78,7 +78,7 @@ func TestRegistryDedupeAndIndexesConflictingSlaveModel(t *testing.T) {
 	if err := registry.UpdateLocal([]Model{testModel("same", "master", "mhash", "chash", SourceMaster)}); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.UpdateNode(Snapshot{
+	if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion,
 		NodeID:  "slave-a",
 		NodeURL: "http://slave-a",
 		Models: []Model{
@@ -109,7 +109,7 @@ func TestRegistryPrefersMasterThenBalancesSlavesWhenMasterBusy(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, nodeID := range []string{"slave-a", "slave-b"} {
-		if err := registry.UpdateNode(Snapshot{
+		if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion,
 			NodeID:  nodeID,
 			NodeURL: "http://" + nodeID,
 			Models:  []Model{testModel("llm", nodeID, "mhash", "chash", SourceSlave)},
@@ -118,19 +118,19 @@ func TestRegistryPrefersMasterThenBalancesSlavesWhenMasterBusy(t *testing.T) {
 		}
 	}
 
-	first, releaseFirst, ok := registry.Acquire("llm", true)
+	first, releaseFirst, ok := registry.Acquire("llm", true, RouteHint{})
 	if !ok || first.Remote || first.NodeID != "master" {
 		t.Fatalf("expected master first route %#v ok=%t", first, ok)
 	}
 	defer releaseFirst()
 
-	second, releaseSecond, ok := registry.Acquire("llm", true)
+	second, releaseSecond, ok := registry.Acquire("llm", true, RouteHint{})
 	if !ok || !second.Remote || second.NodeID != "slave-a" {
 		t.Fatalf("expected first slave while master busy %#v ok=%t", second, ok)
 	}
 	releaseSecond()
 
-	third, releaseThird, ok := registry.Acquire("llm", true)
+	third, releaseThird, ok := registry.Acquire("llm", true, RouteHint{})
 	if !ok || !third.Remote || third.NodeID != "slave-b" {
 		t.Fatalf("expected second slave round robin %#v ok=%t", third, ok)
 	}
@@ -142,7 +142,7 @@ func TestRegistrySpecificEmbeddingRequiresLoadedRemote(t *testing.T) {
 	model := testModel("embed", "slave-a", "hash", "config", SourceSlave)
 	model.HasLLM = false
 	model.HasEmbeddings = true
-	if err := registry.UpdateNode(Snapshot{NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{model}}); err != nil {
+	if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion, NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{model}}); err != nil {
 		t.Fatal(err)
 	}
 	if _, _, ok := registry.AcquireSpecificEmbedding("slave-a", model.Filename, model.LocalID, true); ok {
@@ -150,7 +150,7 @@ func TestRegistrySpecificEmbeddingRequiresLoadedRemote(t *testing.T) {
 	}
 
 	model.EmbeddingsLoaded = true
-	if err := registry.UpdateNode(Snapshot{NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{model}}); err != nil {
+	if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion, NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{model}}); err != nil {
 		t.Fatal(err)
 	}
 	route, release, ok := registry.AcquireSpecificEmbedding("slave-a", model.Filename, model.LocalID, true)
@@ -170,7 +170,7 @@ func TestRegistryKeepsSplitImageLaneLocalWhenTextLaneBusy(t *testing.T) {
 	if err := registry.UpdateLocal([]Model{model}); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.UpdateNode(Snapshot{
+	if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion,
 		NodeID:  "slave-a",
 		NodeURL: "http://slave-a",
 		Models:  []Model{model},
@@ -178,7 +178,7 @@ func TestRegistryKeepsSplitImageLaneLocalWhenTextLaneBusy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	textRoute, releaseText, ok := registry.Acquire("combo", true)
+	textRoute, releaseText, ok := registry.Acquire("combo", true, RouteHint{})
 	if !ok || textRoute.Remote || textRoute.Lane != RouteLaneText {
 		t.Fatalf("expected local text route %#v ok=%t", textRoute, ok)
 	}
@@ -223,7 +223,7 @@ func TestRegistryAcquiresExactVoiceReplica(t *testing.T) {
 	if err := registry.UpdateLocal([]Model{local}); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.UpdateNode(Snapshot{NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{remote}}); err != nil {
+	if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion, NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{remote}}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -276,7 +276,7 @@ func TestRegistryWebUIRoutePrefersIdleSlaveThenFallsBackToBusy(t *testing.T) {
 func TestRegistryMarksSlaveURLUnhealthy(t *testing.T) {
 	registry := NewRegistry(RoleMaster, "master", "http://master")
 	for _, nodeID := range []string{"slave-a", "slave-b"} {
-		if err := registry.UpdateNode(Snapshot{
+		if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion,
 			NodeID:  nodeID,
 			NodeURL: "http://" + nodeID,
 			Models:  []Model{testModel("llm", nodeID, "mhash", "chash", SourceSlave)},
@@ -286,7 +286,7 @@ func TestRegistryMarksSlaveURLUnhealthy(t *testing.T) {
 	}
 
 	registry.MarkNodeURLHealth("http://slave-a", false)
-	route, release, ok := registry.Acquire("llm", false)
+	route, release, ok := registry.Acquire("llm", false, RouteHint{})
 	defer release()
 	if !ok || route.NodeID != "slave-b" {
 		t.Fatalf("expected healthy slave-b route %#v ok=%t", route, ok)
@@ -324,17 +324,17 @@ func TestRegistryRejectsDuplicateNodeIdentitiesWithoutMutation(t *testing.T) {
 	if err := registry.UpdateLocal([]Model{testModel("local", "master", "hash", "config", SourceMaster)}); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.UpdateNode(Snapshot{NodeID: "slave-a", NodeURL: "http://SLAVE:80/"}); err != nil {
+	if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion, NodeID: "slave-a", NodeURL: "http://SLAVE:80/"}); err != nil {
 		t.Fatal(err)
 	}
 	baselineRevision := registry.Revision()
 	baselineModels := registry.Models()
 
 	conflicts := []Snapshot{
-		{NodeID: "master", NodeURL: "http://other"},
-		{NodeID: "slave-master-url", NodeURL: "http://master"},
-		{NodeID: "slave-a", NodeURL: "http://other"},
-		{NodeID: "slave-b", NodeURL: "http://slave"},
+		{ProtocolVersion: ProtocolVersion, NodeID: "master", NodeURL: "http://other"},
+		{ProtocolVersion: ProtocolVersion, NodeID: "slave-master-url", NodeURL: "http://master"},
+		{ProtocolVersion: ProtocolVersion, NodeID: "slave-a", NodeURL: "http://other"},
+		{ProtocolVersion: ProtocolVersion, NodeID: "slave-b", NodeURL: "http://slave"},
 	}
 	for _, snapshot := range conflicts {
 		err := registry.UpdateNode(snapshot)
@@ -352,10 +352,10 @@ func TestRegistryRejectsDuplicateNodeIdentitiesWithoutMutation(t *testing.T) {
 
 func TestRegistryAcceptsNormalizedOwnerRefresh(t *testing.T) {
 	registry := NewRegistry(RoleMaster, "master", "http://master")
-	if err := registry.UpdateNode(Snapshot{NodeID: " slave-a ", NodeURL: "HTTP://SLAVE:80/"}); err != nil {
+	if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion, NodeID: " slave-a ", NodeURL: "HTTP://SLAVE:80/"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.UpdateNode(Snapshot{NodeID: "slave-a", NodeURL: "http://slave", Models: []Model{testModel("fresh", "slave-a", "hash", "config", SourceSlave)}}); err != nil {
+	if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion, NodeID: "slave-a", NodeURL: "http://slave", Models: []Model{testModel("fresh", "slave-a", "hash", "config", SourceSlave)}}); err != nil {
 		t.Fatal(err)
 	}
 	if models := registry.Models(); len(models) != 1 || models[0].LocalID != "fresh" {
@@ -367,7 +367,7 @@ func TestRegistryConcurrentIdentityClaimHasOneOwner(t *testing.T) {
 	registry := NewRegistry(RoleMaster, "master", "http://master")
 	start := make(chan struct{})
 	errors := make(chan error, 2)
-	for _, snapshot := range []Snapshot{{NodeID: "first", NodeURL: "http://shared"}, {NodeID: "second", NodeURL: "http://shared"}} {
+	for _, snapshot := range []Snapshot{{ProtocolVersion: ProtocolVersion, NodeID: "first", NodeURL: "http://shared"}, {ProtocolVersion: ProtocolVersion, NodeID: "second", NodeURL: "http://shared"}} {
 		snapshot := snapshot
 		go func() {
 			<-start

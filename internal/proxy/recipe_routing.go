@@ -53,6 +53,7 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 		requestBody, usageInjected = injectStreamUsageOption(requestBody, r.URL.Path, backendMode)
 		started := time.Now()
 		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, component.ModelID, textAnalyticsSection(r.URL.Path), backendMode)
+		analyticsEvent.PromptBytes = int64(len(body))
 		recordAnalytics = true
 		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readiness, backendMode)
 	}

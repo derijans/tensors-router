@@ -210,7 +210,7 @@ func newSeparateRuntimeClusterPair(t *testing.T) (master *Service, remoteNodeID 
 	t.Cleanup(slave.Close)
 
 	masterRegistry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master.invalid")
-	if err := masterRegistry.UpdateNode(cluster.Snapshot{NodeID: remoteNodeID, NodeURL: slave.URL}); err != nil {
+	if err := masterRegistry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: remoteNodeID, NodeURL: slave.URL}); err != nil {
 		t.Fatal(err)
 	}
 	master = NewService(ServiceConfig{

@@ -320,10 +320,19 @@ func (metadata RuntimeConfig) TensorSplitValue() string {
 }
 
 func capabilitiesFromMetadata(metadata configMetadata, hasLLM bool, hasImage bool, hasEmbeddings bool, hasMultimodal bool, hasVoice bool, hasMusic bool) Capabilities {
+	contextSize := metadata.ContextSize
+	if contextSize <= 0 {
+		// A vLLM config states its window as max_model_length rather than the
+		// llama.cpp-family contextsize; without this fallback every vLLM text
+		// model reports Context == 0 and is permanently unqualified for the text
+		// routing group context gate, which treats 0 as unknown rather than
+		// unlimited.
+		contextSize = metadata.VLLM.Settings.MaxModelLength
+	}
 	capabilities := Capabilities{
 		LLM:     hasLLM,
 		MCP:     metadata.MCPEnabled,
-		Context: metadata.ContextSize,
+		Context: contextSize,
 	}
 	if hasImage {
 		capabilities.Image = &ImageCapabilities{

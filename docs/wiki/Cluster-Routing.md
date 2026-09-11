@@ -71,6 +71,50 @@ weights means the model hash matches the anchor, which is the case worth groupin
 Different weights means it does not, and selecting such a member requires an
 explicit acknowledgement before the group can be saved.
 
+## Text backlog offloading
+
+LLM models get the same two mechanisms as image models (cost-ordered selection
+and backlog lending), through a **separate** text routing group, saved and listed
+under `/router/v1/site/text-routing-groups` rather than the image endpoint. A
+model that is both an LLM and an image model (a multimodal `.kcpps`) can sit in
+one group per lane independently; editing one lane's membership never touches the
+other's.
+
+**Eligibility.** A text model may join a group only if it serves requests
+one at a time (`parallel` and `vllm.settings.max_number_sequences` both `1` or
+unset: a config that serves concurrently is already outside the one-request-per-slot
+discipline the queue assumes) and states a context window (`contextsize`, or a
+vLLM config's `settings.max_model_length`). An ineligible model is listed as a
+candidate but shown disabled with the reason, never silently omitted. Editing a
+grouped model's config to become ineligible skips it at the next selection, not
+just at the next save.
+
+**The context gate.** Every candidate is priced first, exactly as in the image
+lane, and only then filtered by whether its context window can hold the request's
+estimated size. The gate redirects work: a member that cannot hold the request is
+dropped from contention, not the whole group. If nothing in the group fits, the
+request runs on the model the client asked for, on the local node; the router
+never rejects a request the gate itself is uncertain about. A model with no
+measured token profile is unqualified for both cost ordering and the gate, the
+same discipline `cluster.scheduling_min_samples` already applies to cost fitting.
+
+Token counts are estimated, never counted: the router divides the raw request
+body size by a bytes-per-token ratio it measures from that model's own traffic,
+pulled conservative by the ratio's own measured spread rather than a configured
+margin. `cluster.scheduling_context_reserve` is only the floor on how much of the
+window is reserved for the answer when the client states no `max_tokens`; the rest
+comes from the same measured history.
+
+A streaming (`stream: true`) request is still cost-ordered and gated, but is never
+withdrawn for offload: the router only buffers a replayable body for a
+non-streaming request, so a stream can never be handed to another node mid-flight.
+A request whose body was never buffered at all (larger than
+`limits.replay_buffer_mb`) skips cost ordering, the gate, and the queue entirely
+and falls back to plain rotation, matching an unsized image request.
+
+A model in no text group is completely unaffected by any of this: no queue, no
+gate, no redirection, identical to a build without the text lane.
+
 ## Model identity
 
 Cluster records contain public and local IDs, node identity, source, configuration and asset hashes, backend family, capabilities, and availability.

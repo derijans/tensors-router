@@ -6,6 +6,7 @@ import (
 	"time"
 
 	routeranalytics "tensors-router/internal/analytics"
+	"tensors-router/internal/cluster"
 	"tensors-router/internal/schedulingcost"
 )
 
@@ -35,16 +36,28 @@ func (source *schedulingCostSource) Table() *schedulingcost.Table {
 	return source.table
 }
 
-func (source *schedulingCostSource) PredictMS(nodeID string, modelID string, lane string, work float64) (float64, bool) {
-	source.mu.RLock()
-	defer source.mu.RUnlock()
-	return source.table.PredictMS(schedulingcost.ModelKey{NodeID: nodeID, ModelID: modelID, Section: routeranalytics.SectionImage}, work)
+// laneSection maps a cluster route lane to the analytics section its cost
+// samples were fitted under. Every other lane (voice, music, embeddings) has no
+// scheduling cost source and never reaches here.
+func laneSection(lane string) string {
+	switch lane {
+	case cluster.RouteLaneText:
+		return routeranalytics.SectionLLM
+	default:
+		return routeranalytics.SectionImage
+	}
 }
 
-func (source *schedulingCostSource) PredictQueueMS(nodeID string, modelID string, lane string, count int64, work float64) (float64, bool) {
+func (source *schedulingCostSource) PredictMS(nodeID string, modelID string, lane string, work schedulingcost.Work) (float64, bool) {
 	source.mu.RLock()
 	defer source.mu.RUnlock()
-	return source.table.PredictQueueMS(schedulingcost.ModelKey{NodeID: nodeID, ModelID: modelID, Section: routeranalytics.SectionImage}, count, work)
+	return source.table.PredictMS(schedulingcost.ModelKey{NodeID: nodeID, ModelID: modelID, Section: laneSection(lane)}, work)
+}
+
+func (source *schedulingCostSource) PredictQueueMS(nodeID string, modelID string, lane string, count int64, work schedulingcost.Work) (float64, bool) {
+	source.mu.RLock()
+	defer source.mu.RUnlock()
+	return source.table.PredictQueueMS(schedulingcost.ModelKey{NodeID: nodeID, ModelID: modelID, Section: laneSection(lane)}, count, work)
 }
 
 func (source *schedulingCostSource) SwitchPenaltyMS(nodeID string, configFilename string) (float64, bool) {
@@ -53,14 +66,24 @@ func (source *schedulingCostSource) SwitchPenaltyMS(nodeID string, configFilenam
 	return source.table.LoadMS(schedulingcost.LoadKey{NodeID: nodeID, ConfigFilename: configFilename})
 }
 
-func (source *schedulingCostSource) NodeBacklog(nodeID string, groupID string) (int64, float64) {
+// NodeBacklog reports what a node has queued for one group in one lane.
+// Backlogs are stored per (lane, groupID) because an image group and a text
+// group can legitimately share a group id string on the same node — the two
+// lanes queue independently and must never be confused.
+func (source *schedulingCostSource) NodeBacklog(nodeID string, groupID string, lane string) (int64, schedulingcost.Work) {
 	source.mu.RLock()
 	defer source.mu.RUnlock()
-	stats, ok := source.backlogs[nodeID][groupID]
+	stats, ok := source.backlogs[nodeID][backlogKey(lane, groupID)]
 	if !ok {
-		return 0, 0
+		return 0, schedulingcost.Work{}
 	}
 	return stats.BacklogCount, stats.BacklogWork
+}
+
+func (source *schedulingCostSource) TokenProfile(nodeID string, modelID string) (schedulingcost.TokenProfile, bool) {
+	source.mu.RLock()
+	defer source.mu.RUnlock()
+	return source.table.TokenProfile(schedulingcost.ProfileKey{NodeID: nodeID, ModelID: modelID})
 }
 
 // fitLocalCosts refits this node from its own analytics database. Raw request
@@ -70,22 +93,36 @@ func (service *Service) fitLocalCosts(ctx context.Context) schedulingcost.NodeCo
 	if service.analyticsStore == nil {
 		return schedulingcost.NodeCosts{}
 	}
-	samples, loadSamples, err := service.analyticsStore.CostSamples(ctx, routeranalytics.SectionImage, service.schedulingSampleWindow, time.Now())
+	minSamples := int64(service.schedulingMinSamples)
+
+	imageSamples, loadSamples, err := service.analyticsStore.CostSamples(ctx, routeranalytics.SectionImage, service.schedulingSampleWindow, time.Now())
 	if err != nil {
 		service.logger.Printf("scheduling cost sampling failed: %v", err)
 		return schedulingcost.NodeCosts{}
 	}
-	fitSamples := make([]schedulingcost.Sample, 0, len(samples))
-	for _, sample := range samples {
+	textSamples, err := service.analyticsStore.TextCostSamples(ctx, service.schedulingSampleWindow, time.Now())
+	if err != nil {
+		service.logger.Printf("scheduling text cost sampling failed: %v", err)
+		textSamples = nil
+	}
+	profileSamples, err := service.analyticsStore.TokenProfileSamples(ctx, service.schedulingSampleWindow, time.Now())
+	if err != nil {
+		service.logger.Printf("scheduling token profile sampling failed: %v", err)
+		profileSamples = nil
+	}
+
+	fitSamples := make([]schedulingcost.Sample, 0, len(imageSamples)+len(textSamples))
+	for _, sample := range append(append([]routeranalytics.CostSample{}, imageSamples...), textSamples...) {
 		fitSamples = append(fitSamples, schedulingcost.Sample{
 			NodeID:          sample.NodeID,
 			ModelID:         sample.ModelID,
 			Section:         sample.Section,
+			Arity:           sample.Arity,
 			Count:           sample.Count,
-			SumWork:         sample.SumWork,
 			SumDuration:     sample.SumDuration,
+			SumWork:         sample.SumWork,
 			SumWorkDuration: sample.SumWorkDuration,
-			SumWorkSquared:  sample.SumWorkSquared,
+			SumWorkProduct:  sample.SumWorkProduct,
 		})
 	}
 	fitLoads := make([]schedulingcost.LoadSample, 0, len(loadSamples))
@@ -97,5 +134,17 @@ func (service *Service) fitLocalCosts(ctx context.Context) schedulingcost.NodeCo
 			SumDuration:    sample.SumDuration,
 		})
 	}
-	return schedulingcost.Build(fitSamples, fitLoads, int64(service.schedulingMinSamples)).NodeCosts()
+	fitProfiles := make([]schedulingcost.TokenProfileSample, 0, len(profileSamples))
+	for _, sample := range profileSamples {
+		fitProfiles = append(fitProfiles, schedulingcost.TokenProfileSample{
+			NodeID:           sample.NodeID,
+			ModelID:          sample.ModelID,
+			Count:            sample.Count,
+			SumRatio:         sample.SumRatio,
+			SumRatioSquared:  sample.SumRatioSquared,
+			SumOutput:        sample.SumOutput,
+			SumOutputSquared: sample.SumOutputSquared,
+		})
+	}
+	return schedulingcost.Build(fitSamples, fitLoads, fitProfiles, minSamples).NodeCosts()
 }

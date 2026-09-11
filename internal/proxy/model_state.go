@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"tensors-router/internal/buildinfo"
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
@@ -116,7 +117,14 @@ func (service *Service) setLocalModelEnabled(ctx context.Context, localID string
 	if err != nil {
 		return cluster.Snapshot{}, err
 	}
-	return cluster.Snapshot{NodeID: service.nodeID, NodeURL: service.nodeURL, Models: models}, nil
+	return cluster.Snapshot{
+		NodeID:                 service.nodeID,
+		NodeURL:                service.nodeURL,
+		Models:                 models,
+		ProtocolVersion:        cluster.ProtocolVersion,
+		MinimumProtocolVersion: cluster.MinimumProtocolVersion,
+		BuildVersion:           buildinfo.Current().Version,
+	}, nil
 }
 
 func writeModelStateError(w http.ResponseWriter, err error) {

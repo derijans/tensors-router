@@ -48,7 +48,7 @@ func newGroupedImageService(t *testing.T, gate chan struct{}, grouped bool) *Ser
 				{NodeID: service.nodeID, ImageID: "combo-dream"},
 				{NodeID: "slave-a", ImageID: "combo-alt-dream"},
 			},
-		}}))
+		}}, nil))
 	}
 	service.registry = registry
 	return service
@@ -170,7 +170,7 @@ func TestRuntimeStatusReportsQueueAndBorrowingState(t *testing.T) {
 	waitForBacklog(t, service, 1)
 
 	status := service.localRuntimeStatus()
-	if status.AcceptingBorrowed {
+	if status.AcceptingBorrowedImage {
 		t.Fatal("node advertises it is accepting borrowed work while running its own")
 	}
 	if len(status.ImageQueue) != 1 || status.ImageQueue[0].GroupID != "group" {
@@ -181,7 +181,7 @@ func TestRuntimeStatusReportsQueueAndBorrowingState(t *testing.T) {
 	if code := <-done; code != http.StatusOK {
 		t.Fatalf("status %d, want 200", code)
 	}
-	if !service.localRuntimeStatus().AcceptingBorrowed {
+	if !service.localRuntimeStatus().AcceptingBorrowedImage {
 		t.Fatal("node still refuses borrowed work after draining its own queue")
 	}
 }

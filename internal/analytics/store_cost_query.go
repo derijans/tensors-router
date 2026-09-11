@@ -6,17 +6,20 @@ import (
 )
 
 // CostSample is the aggregated form of every successful request recorded for one
-// model, reduced to the sums an ordinary least squares fit needs. Only the sums
-// leave the store: raw rows never cross a node boundary.
+// model, reduced to the moment sums an ordinary least squares fit needs. Only
+// the sums leave the store: raw rows never cross a node boundary. Arity says how
+// many of the two work terms are meaningful — the image lane fills only index 0,
+// the text lane fills both for prefill and decode.
 type CostSample struct {
 	NodeID          string
 	ModelID         string
 	Section         string
+	Arity           int
 	Count           int64
-	SumWork         float64
 	SumDuration     float64
-	SumWorkDuration float64
-	SumWorkSquared  float64
+	SumWork         [2]float64
+	SumWorkDuration [2]float64
+	SumWorkProduct  [2][2]float64
 }
 
 type LoadCostSample struct {
@@ -85,14 +88,14 @@ func (store *Store) requestCostSamples(ctx context.Context, section string, sinc
 	defer rows.Close()
 	var samples []CostSample
 	for rows.Next() {
-		sample := CostSample{NodeID: store.nodeID, Section: section}
+		sample := CostSample{NodeID: store.nodeID, Section: section, Arity: 1}
 		if err := rows.Scan(
 			&sample.ModelID,
 			&sample.Count,
-			&sample.SumWork,
+			&sample.SumWork[0],
 			&sample.SumDuration,
-			&sample.SumWorkDuration,
-			&sample.SumWorkSquared,
+			&sample.SumWorkDuration[0],
+			&sample.SumWorkProduct[0][0],
 		); err != nil {
 			return nil, err
 		}

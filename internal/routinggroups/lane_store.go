@@ -1,0 +1,226 @@
+package routinggroups
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"sort"
+	"strings"
+)
+
+// laneTables names the two tables and the member column one lane's routing
+// groups live in. Every value that reaches these fields comes only from
+// imageLaneTables or textLaneTables below — nothing derived from a request
+// ever does — which is what makes interpolating them into SQL safe here where
+// a bind parameter cannot stand in for a table or column name.
+type laneTables struct {
+	groups       string
+	members      string
+	memberColumn string
+}
+
+var imageLaneTables = laneTables{groups: "routing_groups", members: "routing_group_members", memberColumn: "image_id"}
+var textLaneTables = laneTables{groups: "routing_text_groups", members: "routing_text_group_members", memberColumn: "model_id"}
+
+// laneMember and laneGroup are the lane-agnostic shapes both Member/Group
+// (image) and TextMember/TextGroup convert to and from at the edge of the
+// public API, so the SQL beneath them is written once.
+type laneMember struct {
+	NodeID  string
+	ModelID string
+}
+
+type laneGroup struct {
+	ID      string
+	Members []laneMember
+}
+
+func (store *Store) laneGroup(ctx context.Context, tables laneTables, member laneMember) (laneGroup, bool, error) {
+	if store == nil {
+		return laneGroup{}, false, nil
+	}
+	member = normalizeLaneMember(member)
+	if member.NodeID == "" || member.ModelID == "" {
+		return laneGroup{}, false, nil
+	}
+	var groupID string
+	query := fmt.Sprintf(`SELECT group_id FROM %s WHERE node_id = ? AND %s = ?`, tables.members, tables.memberColumn)
+	err := store.reader.QueryRowContext(ctx, query, member.NodeID, member.ModelID).Scan(&groupID)
+	if err == sql.ErrNoRows {
+		return laneGroup{}, false, nil
+	}
+	if err != nil {
+		return laneGroup{}, false, err
+	}
+	members, err := store.laneMembersOf(ctx, tables, groupID)
+	if err != nil {
+		return laneGroup{}, false, err
+	}
+	return laneGroup{ID: groupID, Members: members}, true, nil
+}
+
+func (store *Store) laneGroups(ctx context.Context, tables laneTables) ([]laneGroup, error) {
+	if store == nil {
+		return nil, nil
+	}
+	query := fmt.Sprintf(`SELECT group_id, node_id, %s FROM %s ORDER BY group_id, node_id, %s`, tables.memberColumn, tables.members, tables.memberColumn)
+	rows, err := store.reader.QueryContext(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	byID := map[string][]laneMember{}
+	var order []string
+	for rows.Next() {
+		var groupID string
+		var member laneMember
+		if err := rows.Scan(&groupID, &member.NodeID, &member.ModelID); err != nil {
+			return nil, err
+		}
+		if _, seen := byID[groupID]; !seen {
+			order = append(order, groupID)
+		}
+		byID[groupID] = append(byID[groupID], member)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	groups := make([]laneGroup, 0, len(order))
+	for _, groupID := range order {
+		groups = append(groups, laneGroup{ID: groupID, Members: byID[groupID]})
+	}
+	return groups, nil
+}
+
+// setLaneGroup replaces whatever group the anchor belonged to with exactly the
+// anchor plus the supplied members. A member named here leaves any other group
+// it was in, so the one-group-per-model invariant holds without the caller
+// having to unpick the previous arrangement. A group left with fewer than two
+// members is deleted: a group of one has nowhere to offload to.
+func (store *Store) setLaneGroup(ctx context.Context, tables laneTables, anchor laneMember, members []laneMember) (laneGroup, error) {
+	if store == nil {
+		return laneGroup{}, fmt.Errorf("routing group store is not configured")
+	}
+	anchor = normalizeLaneMember(anchor)
+	if anchor.NodeID == "" || anchor.ModelID == "" {
+		return laneGroup{}, fmt.Errorf("anchor node_id and %s are required", tables.memberColumn)
+	}
+	wanted := dedupeLaneMembers(append([]laneMember{anchor}, members...))
+
+	transaction, err := store.writer.BeginTx(ctx, nil)
+	if err != nil {
+		return laneGroup{}, err
+	}
+	defer func() { _ = transaction.Rollback() }()
+
+	groupID, err := laneGroupIDForAnchor(ctx, transaction, tables, anchor)
+	if err != nil {
+		return laneGroup{}, err
+	}
+	if _, err := transaction.ExecContext(ctx, fmt.Sprintf(`DELETE FROM %s WHERE group_id = ?`, tables.members), groupID); err != nil {
+		return laneGroup{}, err
+	}
+	if len(wanted) < 2 {
+		if err := deleteUndersizedLaneGroups(ctx, transaction, tables); err != nil {
+			return laneGroup{}, err
+		}
+		if err := transaction.Commit(); err != nil {
+			return laneGroup{}, err
+		}
+		return laneGroup{}, nil
+	}
+	if _, err := transaction.ExecContext(ctx,
+		fmt.Sprintf(`INSERT INTO %s(id) VALUES (?) ON CONFLICT(id) DO NOTHING`, tables.groups), groupID); err != nil {
+		return laneGroup{}, err
+	}
+	insertMember := fmt.Sprintf(
+		`INSERT INTO %s(node_id, %s, group_id) VALUES (?, ?, ?)
+		 ON CONFLICT(node_id, %s) DO UPDATE SET group_id = excluded.group_id`,
+		tables.members, tables.memberColumn, tables.memberColumn)
+	for _, member := range wanted {
+		if _, err := transaction.ExecContext(ctx, insertMember, member.NodeID, member.ModelID, groupID); err != nil {
+			return laneGroup{}, err
+		}
+	}
+	if err := deleteUndersizedLaneGroups(ctx, transaction, tables); err != nil {
+		return laneGroup{}, err
+	}
+	if err := transaction.Commit(); err != nil {
+		return laneGroup{}, err
+	}
+	return laneGroup{ID: groupID, Members: wanted}, nil
+}
+
+func (store *Store) laneMembersOf(ctx context.Context, tables laneTables, groupID string) ([]laneMember, error) {
+	query := fmt.Sprintf(`SELECT node_id, %s FROM %s WHERE group_id = ? ORDER BY node_id, %s`, tables.memberColumn, tables.members, tables.memberColumn)
+	rows, err := store.reader.QueryContext(ctx, query, groupID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var members []laneMember
+	for rows.Next() {
+		var member laneMember
+		if err := rows.Scan(&member.NodeID, &member.ModelID); err != nil {
+			return nil, err
+		}
+		members = append(members, member)
+	}
+	return members, rows.Err()
+}
+
+func laneGroupIDForAnchor(ctx context.Context, transaction *sql.Tx, tables laneTables, anchor laneMember) (string, error) {
+	var groupID string
+	query := fmt.Sprintf(`SELECT group_id FROM %s WHERE node_id = ? AND %s = ?`, tables.members, tables.memberColumn)
+	err := transaction.QueryRowContext(ctx, query, anchor.NodeID, anchor.ModelID).Scan(&groupID)
+	if err == nil {
+		return groupID, nil
+	}
+	if err != sql.ErrNoRows {
+		return "", err
+	}
+	return anchor.NodeID + "\x00" + anchor.ModelID, nil
+}
+
+// A member joining another group can leave its old one with a single model in
+// it, which is no longer a group: there is nowhere to offload to, and leaving
+// the row behind would let a later edit resurrect a peer that has since moved
+// away.
+func deleteUndersizedLaneGroups(ctx context.Context, transaction *sql.Tx, tables laneTables) error {
+	if _, err := transaction.ExecContext(ctx, fmt.Sprintf(
+		`DELETE FROM %s WHERE group_id IN (
+			SELECT group_id FROM %s GROUP BY group_id HAVING COUNT(*) < 2
+		)`, tables.members, tables.members)); err != nil {
+		return err
+	}
+	_, err := transaction.ExecContext(ctx, fmt.Sprintf(
+		`DELETE FROM %s WHERE id NOT IN (SELECT DISTINCT group_id FROM %s)`, tables.groups, tables.members))
+	return err
+}
+
+func normalizeLaneMember(member laneMember) laneMember {
+	return laneMember{NodeID: strings.TrimSpace(member.NodeID), ModelID: strings.TrimSpace(member.ModelID)}
+}
+
+func dedupeLaneMembers(members []laneMember) []laneMember {
+	seen := map[laneMember]struct{}{}
+	result := make([]laneMember, 0, len(members))
+	for _, member := range members {
+		member = normalizeLaneMember(member)
+		if member.NodeID == "" || member.ModelID == "" {
+			continue
+		}
+		if _, duplicate := seen[member]; duplicate {
+			continue
+		}
+		seen[member] = struct{}{}
+		result = append(result, member)
+	}
+	sort.Slice(result, func(left, right int) bool {
+		if result[left].NodeID != result[right].NodeID {
+			return result[left].NodeID < result[right].NodeID
+		}
+		return result[left].ModelID < result[right].ModelID
+	})
+	return result
+}

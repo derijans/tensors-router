@@ -38,7 +38,7 @@ func TestSelectorlessEmbeddingAcquisitionSkipsStaleCandidate(t *testing.T) {
 		PublicID: "embed-b", LocalID: "embed-b", NodeID: "node-b", NodeURL: "http://node-b", Filename: "embed-b.kcpps",
 		BackendMode: BackendModeKobold, Source: cluster.SourceSlave, HasEmbeddings: true, Available: true, EmbeddingsLoaded: true,
 	}
-	if err := registry.UpdateNode(cluster.Snapshot{NodeID: available.NodeID, NodeURL: available.NodeURL, Models: []cluster.Model{available}}); err != nil {
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: available.NodeID, NodeURL: available.NodeURL, Models: []cluster.Model{available}}); err != nil {
 		t.Fatal(err)
 	}
 	stale := available

@@ -206,7 +206,7 @@ func TestMasterWebUILoadRoutesToSelectedRemoteNode(t *testing.T) {
 	defer remote.Close()
 
 	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
-	if err := registry.UpdateNode(cluster.Snapshot{
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion,
 		NodeID:  "slave-a",
 		NodeURL: remote.URL,
 		Models:  []cluster.Model{testClusterModel("remote-text", "slave-a", "remote-hash", "remote-config", cluster.SourceSlave)},
@@ -353,7 +353,7 @@ func TestRemoteWebUIBackendAPIUsesSlaveRootAndToken(t *testing.T) {
 	defer slaveServer.Close()
 
 	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
-	if err := registry.UpdateNode(cluster.Snapshot{NodeID: "slave-a", NodeURL: slaveServer.URL}); err != nil {
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: "slave-a", NodeURL: slaveServer.URL}); err != nil {
 		t.Fatal(err)
 	}
 	service := NewService(ServiceConfig{
@@ -408,7 +408,7 @@ func TestRemoteWebUIProxyUsesSlaveTokenAndRewritesNodeRedirect(t *testing.T) {
 	defer remote.Close()
 
 	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
-	if err := registry.UpdateNode(cluster.Snapshot{NodeID: "slave-a", NodeURL: remote.URL}); err != nil {
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: "slave-a", NodeURL: remote.URL}); err != nil {
 		t.Fatal(err)
 	}
 	service := NewService(ServiceConfig{

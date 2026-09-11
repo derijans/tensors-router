@@ -12,6 +12,7 @@ import (
 )
 
 const ErrorCodeDuplicateNode = "duplicate_node"
+const ErrorCodeIncompatibleProtocol = "incompatible_protocol"
 
 type Error struct {
 	Code    string `json:"code"`
@@ -36,6 +37,10 @@ func ErrorCode(err error) string {
 
 func DuplicateNodeError(nodeID string, nodeURL string) error {
 	return NewDuplicateNodeError(fmt.Sprintf("node identity conflicts with an existing owner: node_id=%q node_url=%q", nodeID, nodeURL))
+}
+
+func NewIncompatibleProtocolError(message string) error {
+	return &Error{Code: ErrorCodeIncompatibleProtocol, Message: message}
 }
 
 const (
@@ -99,9 +104,12 @@ type Model struct {
 }
 
 type Snapshot struct {
-	NodeID  string  `json:"node_id"`
-	NodeURL string  `json:"node_url"`
-	Models  []Model `json:"models"`
+	NodeID                 string  `json:"node_id"`
+	NodeURL                string  `json:"node_url"`
+	Models                 []Model `json:"models"`
+	ProtocolVersion        int     `json:"protocol_version,omitempty"`
+	MinimumProtocolVersion int     `json:"minimum_protocol_version,omitempty"`
+	BuildVersion           string  `json:"build_version,omitempty"`
 }
 
 type ModelStateRequest struct {

@@ -14,7 +14,7 @@ var _ routerstore.Module = SchemaModule{}
 
 func (SchemaModule) Name() string { return "analytics" }
 
-func (SchemaModule) Version() int { return 6 }
+func (SchemaModule) Version() int { return 7 }
 
 func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 	statements := []string{
@@ -33,6 +33,7 @@ func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 			finished_at INTEGER NOT NULL,
 			duration_ms INTEGER NOT NULL,
 			request_bytes INTEGER NOT NULL DEFAULT 0,
+			prompt_bytes INTEGER NOT NULL DEFAULT 0,
 			response_bytes INTEGER NOT NULL DEFAULT 0,
 			input_tokens INTEGER NOT NULL DEFAULT 0,
 			output_tokens INTEGER NOT NULL DEFAULT 0,
@@ -139,6 +140,7 @@ func eventColumns() []string {
 	return []string{
 		"node_id", "model_id", "section", "backend_mode", "event_type", "route", "config_filename",
 		"status_code", "success", "started_at", "finished_at", "duration_ms", "request_bytes",
+		"prompt_bytes",
 		"response_bytes", "input_tokens", "output_tokens", "total_tokens", "tokens_per_second",
 		"image_count", "image_width", "image_height", "image_steps", "image_type", "audio_seconds",
 		"audio_tokens", "audio_language", "audio_task", "load_vram_before_mb", "load_vram_after_mb",
@@ -158,6 +160,7 @@ func migrationColumns() []migrationColumn {
 		{"analytics_events", "event_type", "TEXT NOT NULL DEFAULT 'request'"},
 		{"analytics_events", "config_filename", "TEXT NOT NULL DEFAULT ''"},
 		{"analytics_events", "request_bytes", "INTEGER NOT NULL DEFAULT 0"},
+		{"analytics_events", "prompt_bytes", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_events", "response_bytes", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_events", "image_steps", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_events", "audio_language", "TEXT NOT NULL DEFAULT ''"},

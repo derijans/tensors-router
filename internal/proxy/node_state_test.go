@@ -130,7 +130,7 @@ func TestNodeStateClusterAuthenticationAndRemoteRouting(t *testing.T) {
 	nodeServer := httptest.NewServer(node)
 	t.Cleanup(nodeServer.Close)
 	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "")
-	if err := registry.UpdateNode(cluster.Snapshot{NodeID: "worker", NodeURL: nodeServer.URL}); err != nil {
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: "worker", NodeURL: nodeServer.URL}); err != nil {
 		t.Fatal(err)
 	}
 	master, _ := newTestServiceWithRegistry(t, registry, http.NotFoundHandler(), "secret")
@@ -219,7 +219,7 @@ func TestBackendInitializationRoutesForwardToRemoteNode(t *testing.T) {
 	t.Cleanup(nodeServer.Close)
 
 	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "")
-	if err := registry.UpdateNode(cluster.Snapshot{NodeID: "worker", NodeURL: nodeServer.URL}); err != nil {
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: "worker", NodeURL: nodeServer.URL}); err != nil {
 		t.Fatal(err)
 	}
 	master, _ := newTestServiceWithRegistry(t, registry, http.NotFoundHandler(), "secret")

@@ -40,14 +40,14 @@ func TestNodeRegistrationConflictReturnsStableCodeWithoutRegistryMutation(t *tes
 		service.ServeHTTP(recorder, request)
 		return recorder
 	}
-	if recorder := register(`{"node_id":"slave","node_url":"http://slave-a"}`); recorder.Code != http.StatusOK {
+	if recorder := register(`{"node_id":"slave","node_url":"http://slave-a","protocol_version":2}`); recorder.Code != http.StatusOK {
 		t.Fatalf("initial registration failed status=%d body=%s", recorder.Code, recorder.Body.String())
 	}
 	if _, err := clusterClient.AuthorizedBaseURL("http://slave-a"); err != nil {
 		t.Fatalf("accepted node URL was not authorized: %v", err)
 	}
 	baselineRevision := registry.Revision()
-	recorder := register(`{"node_id":"slave","node_url":"http://slave-b"}`)
+	recorder := register(`{"node_id":"slave","node_url":"http://slave-b","protocol_version":2}`)
 	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), `"type":"cluster_error"`) || !strings.Contains(recorder.Body.String(), `"code":"duplicate_node"`) {
 		t.Fatalf("unexpected conflict response status=%d body=%s", recorder.Code, recorder.Body.String())
 	}

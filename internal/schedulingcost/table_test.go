@@ -15,7 +15,7 @@ func buildTestTable(t *testing.T) *Table {
 	loads := []LoadSample{
 		{NodeID: "node-b", ConfigFilename: "sdxl-alt.kcpps", Count: 3, SumDuration: 57000},
 	}
-	return Build(samples, loads, 20)
+	return Build(samples, loads, nil, 20)
 }
 
 func sampleFor(nodeID string, modelID string, points [][2]float64) Sample {
@@ -41,11 +41,14 @@ func TestNilTableReportsUnqualified(t *testing.T) {
 	if _, ok := table.Estimate(ModelKey{NodeID: "node-a"}); ok {
 		t.Fatal("nil table reported an estimate")
 	}
-	if _, ok := table.PredictMS(ModelKey{NodeID: "node-a"}, 1); ok {
+	if _, ok := table.PredictMS(ModelKey{NodeID: "node-a"}, ImageWork(1)); ok {
 		t.Fatal("nil table reported a prediction")
 	}
 	if _, ok := table.LoadMS(LoadKey{NodeID: "node-a"}); ok {
 		t.Fatal("nil table reported a load cost")
+	}
+	if _, ok := table.TokenProfile(ProfileKey{NodeID: "node-a"}); ok {
+		t.Fatal("nil table reported a token profile")
 	}
 }
 
@@ -61,15 +64,19 @@ func TestPredictQueueChargesBasePerEntry(t *testing.T) {
 
 	const entries = 6
 	const totalWork = 6 * 30 * 1024 * 1024
-	queueMS, ok := table.PredictQueueMS(key, entries, totalWork)
+	queueMS, ok := table.PredictQueueMS(key, entries, ImageWork(totalWork))
 	if !ok {
 		t.Fatal("queue prediction was rejected for a qualified node")
 	}
-	want := entries*estimate.BaseMS + estimate.SlopeMS*totalWork
+	want := entries*estimate.BaseMS + estimate.SlopeMS[0]*totalWork
 	if math.Abs(queueMS-want) > 1e-6 {
 		t.Fatalf("queue prediction = %v, want %v", queueMS, want)
 	}
-	if single := estimate.PredictMS(totalWork); queueMS <= single {
+	single, ok := estimate.PredictMS(ImageWork(totalWork))
+	if !ok {
+		t.Fatal("single prediction rejected for matching arity")
+	}
+	if queueMS <= single {
 		t.Fatalf("queue of %d priced at %v, no more than one request at %v", entries, queueMS, single)
 	}
 }
@@ -77,9 +84,23 @@ func TestPredictQueueChargesBasePerEntry(t *testing.T) {
 func TestPredictQueueOfNothingIsZero(t *testing.T) {
 	table := buildTestTable(t)
 	key := ModelKey{NodeID: "node-a", ModelID: "sdxl", Section: "image"}
-	queueMS, ok := table.PredictQueueMS(key, 0, 0)
+	queueMS, ok := table.PredictQueueMS(key, 0, Work{})
 	if !ok || queueMS != 0 {
 		t.Fatalf("empty queue priced at %v ok=%t, want 0 true", queueMS, ok)
+	}
+}
+
+// TestPredictRejectsWorkOfTheWrongArity pins the unit-safety guarantee added
+// when prediction became work-vector-typed: a text-shaped work vector must
+// never be priced against an image fit, or the reverse.
+func TestPredictRejectsWorkOfTheWrongArity(t *testing.T) {
+	table := buildTestTable(t)
+	key := ModelKey{NodeID: "node-a", ModelID: "sdxl", Section: "image"}
+	if _, ok := table.PredictMS(key, TextWork(100, 50)); ok {
+		t.Fatal("image estimate accepted a two-term text work vector")
+	}
+	if _, ok := table.PredictQueueMS(key, 3, TextWork(100, 50)); ok {
+		t.Fatal("image estimate accepted a two-term text work vector in a queue prediction")
 	}
 }
 
@@ -103,6 +124,18 @@ func TestMergeRestoresPublishedCosts(t *testing.T) {
 	loadMS, ok := merged.LoadMS(LoadKey{NodeID: "node-b", ConfigFilename: "sdxl-alt.kcpps"})
 	if !ok || loadMS != 19000 {
 		t.Fatalf("restored load = %v ok=%t, want 19000 true", loadMS, ok)
+	}
+}
+
+// TestMergeDropsCostsWithoutSlopes pins the deliberate degradation for a node
+// on an older build: an empty SlopesMS (what slope_ms decodes as here) must be
+// dropped as unqualified, never merged as a confident zero slope.
+func TestMergeDropsCostsWithoutSlopes(t *testing.T) {
+	merged := Merge(map[string]NodeCosts{
+		"node-old": {Models: []ModelCost{{ModelID: "sdxl", Section: "image", BaseMS: 1000, Samples: 40}}},
+	})
+	if _, ok := merged.Estimate(ModelKey{NodeID: "node-old", ModelID: "sdxl", Section: "image"}); ok {
+		t.Fatal("cost with no slopes was merged instead of dropped")
 	}
 }
 

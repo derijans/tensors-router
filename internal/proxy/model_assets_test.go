@@ -274,7 +274,7 @@ func TestConcurrentPeerResolutionUsesOneDirectTransfer(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = destinationIndex.Close() })
 	registry := cluster.NewRegistry(cluster.RoleMaster, "destination", "http://destination.invalid")
-	if err := registry.UpdateNode(cluster.Snapshot{NodeID: "source", NodeURL: server.URL}); err != nil {
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: "source", NodeURL: server.URL}); err != nil {
 		t.Fatal(err)
 	}
 	destination := NewService(ServiceConfig{NodeID: "destination", NodeURL: "http://destination.invalid", ClusterToken: "secret", Registry: registry, ClusterClient: cluster.NewClient("secret", server.URL), AssetIndex: destinationIndex})
@@ -327,7 +327,7 @@ func TestInferenceWaitsForDirectPeerResolutionBeforeGeneration(t *testing.T) {
 	if err := registry.UpdateLocal(cluster.LocalModels(models, "destination", "http://destination.invalid", cluster.SourceMaster)); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.UpdateNode(cluster.Snapshot{NodeID: "source", NodeURL: sourceServer.URL}); err != nil {
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: "source", NodeURL: sourceServer.URL}); err != nil {
 		t.Fatal(err)
 	}
 	var generationRequests atomic.Int32

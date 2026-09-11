@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -36,15 +37,27 @@ func RegisterInitial(ctx context.Context, config SyncConfig, registry *Registry,
 	if config.Role != RoleSlave {
 		return nil
 	}
-	err := client.Register(ctx, config.MasterURL, registry.Snapshot())
+	response, err := client.Register(ctx, config.MasterURL, registry.Snapshot())
 	if err == nil {
-		return nil
+		return checkMasterCompatibility(response, config.MasterURL, logger)
 	}
 	if terminalRegistrationError(err) {
 		return err
 	}
 	logSyncError(logger, "cluster initial master registration failed url=%s error=%v", config.MasterURL, err)
 	return nil
+}
+
+// checkMasterCompatibility is the slave's half of the version gate: the master
+// refuses an old slave in UpdateNode, and this is what stops a new slave trusting
+// an old master instead — a shape change breaks the reader on either side.
+func checkMasterCompatibility(response RegisterResponse, masterURL string, logger *log.Logger) error {
+	if response.ProtocolVersion >= MinimumProtocolVersion {
+		return nil
+	}
+	err := fmt.Errorf("master %q speaks protocol version %d, below the minimum %d this build requires; update the master", masterURL, response.ProtocolVersion, MinimumProtocolVersion)
+	logSyncError(logger, "cluster registration stopped, incompatible master: %v", err)
+	return err
 }
 
 func StartSync(ctx context.Context, config SyncConfig, registry *Registry, client *Client, logger *log.Logger) <-chan error {
@@ -79,8 +92,15 @@ func registerLoop(ctx context.Context, config SyncConfig, registry *Registry, cl
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			err := client.Register(ctx, config.MasterURL, registry.Snapshot())
+			response, err := client.Register(ctx, config.MasterURL, registry.Snapshot())
 			if err == nil {
+				if compatErr := checkMasterCompatibility(response, config.MasterURL, logger); compatErr != nil {
+					select {
+					case errCh <- compatErr:
+					default:
+					}
+					return
+				}
 				continue
 			}
 			if terminalRegistrationError(err) {

@@ -1737,7 +1737,7 @@ func TestSelectorlessEmbeddingsRoundRobinLoadedClusterModels(t *testing.T) {
 	} {
 		model := testClusterEmbeddingModel(remote.id, remote.nodeID, remote.id+"-hash", remote.id+"-config", cluster.SourceSlave)
 		model.EmbeddingsLoaded = true
-		if err := registry.UpdateNode(cluster.Snapshot{NodeID: remote.nodeID, NodeURL: remote.url, Models: []cluster.Model{model}}); err != nil {
+		if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: remote.nodeID, NodeURL: remote.url, Models: []cluster.Model{model}}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -2335,7 +2335,7 @@ func TestClusterModelsEndpointHidesNodeIdentityAndIndexesConflicts(t *testing.T)
 	if err := registry.UpdateLocal([]cluster.Model{testClusterModel("same", "master", "master-hash", "config-hash", cluster.SourceMaster)}); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.UpdateNode(cluster.Snapshot{
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion,
 		NodeID:  "slave-a",
 		NodeURL: "http://slave-a",
 		Models:  []cluster.Model{testClusterModel("same", "slave-a", "slave-hash", "config-hash", cluster.SourceSlave)},
@@ -2501,7 +2501,7 @@ func TestClusterRemoteRequestRewritesModelBothWays(t *testing.T) {
 	if err := registry.UpdateLocal([]cluster.Model{testClusterModel("same", "master", "master-hash", "config-hash", cluster.SourceMaster)}); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.UpdateNode(cluster.Snapshot{
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion,
 		NodeID:  "slave-a",
 		NodeURL: remote.URL,
 		Models:  []cluster.Model{testClusterModel("same", "slave-a", "slave-hash", "config-hash", cluster.SourceSlave)},
@@ -2551,7 +2551,7 @@ func TestClusterRemoteTextAPIRequestRewritesModelBothWays(t *testing.T) {
 	if err := registry.UpdateLocal([]cluster.Model{testClusterModel("same", "master", "master-hash", "config-hash", cluster.SourceMaster)}); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.UpdateNode(cluster.Snapshot{
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion,
 		NodeID:  "slave-a",
 		NodeURL: remote.URL,
 		Models:  []cluster.Model{testClusterModel("same", "slave-a", "slave-hash", "config-hash", cluster.SourceSlave)},
@@ -3042,7 +3042,7 @@ func TestClusterRemoteEmbeddingsRequestRewritesModelBothWays(t *testing.T) {
 	if err := registry.UpdateLocal([]cluster.Model{testClusterEmbeddingModel("embed", "master", "master-hash", "config-hash", cluster.SourceMaster)}); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.UpdateNode(cluster.Snapshot{
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion,
 		NodeID:  "slave-a",
 		NodeURL: remote.URL,
 		Models:  []cluster.Model{testClusterEmbeddingModel("embed", "slave-a", "slave-hash", "config-hash", cluster.SourceSlave)},
@@ -3088,7 +3088,7 @@ func TestClusterRemoteEmbeddingsRequestCanUsePublicImageID(t *testing.T) {
 	defer remote.Close()
 
 	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
-	if err := registry.UpdateNode(cluster.Snapshot{
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion,
 		NodeID:  "slave-a",
 		NodeURL: remote.URL,
 		Models:  []cluster.Model{testClusterImageEmbeddingModel("imageembed", "slave-a", "slave-hash", "config-hash", cluster.SourceSlave, "perfectdeliberate_v90")},
@@ -3877,7 +3877,7 @@ func newConflictingImageRegistry(t *testing.T, slaveURL string) *cluster.Registr
 	if err := registry.UpdateLocal([]cluster.Model{testClusterImageModel("same", "master", "master-hash", "config-hash", cluster.SourceMaster, "dream")}); err != nil {
 		t.Fatal(err)
 	}
-	if err := registry.UpdateNode(cluster.Snapshot{
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion,
 		NodeID:  "slave-a",
 		NodeURL: slaveURL,
 		Models:  []cluster.Model{testClusterImageModel("same", "slave-a", "slave-hash", "config-hash", cluster.SourceSlave, "dream")},

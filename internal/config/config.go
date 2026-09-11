@@ -210,6 +210,7 @@ type ClusterConfig struct {
 	SchedulingMinSamples      int
 	SchedulingBackendDepth    int
 	SchedulingGrantTTL        time.Duration
+	SchedulingContextReserve  int
 }
 
 type AnalyticsConfig struct {
@@ -341,6 +342,7 @@ func Defaults() Config {
 			SchedulingMinSamples:      20,
 			SchedulingBackendDepth:    2,
 			SchedulingGrantTTL:        30 * time.Second,
+			SchedulingContextReserve:  256,
 		},
 		Analytics: AnalyticsConfig{
 			Enabled:                false,
@@ -562,6 +564,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Cluster.SchedulingGrantTTL <= 0 {
 		return fmt.Errorf("cluster.scheduling_grant_ttl must be positive")
+	}
+	if cfg.Cluster.SchedulingContextReserve < 0 {
+		return fmt.Errorf("cluster.scheduling_context_reserve must not be negative")
 	}
 	if cfg.Analytics.FlushInterval <= 0 {
 		return fmt.Errorf("analytics.flush_interval must be positive")
@@ -1466,6 +1471,13 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 				return err
 			}
 			cfg.Cluster.SchedulingGrantTTL = parsed
+			return nil
+		case "scheduling_context_reserve":
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				return err
+			}
+			cfg.Cluster.SchedulingContextReserve = parsed
 			return nil
 		}
 	case "analytics":

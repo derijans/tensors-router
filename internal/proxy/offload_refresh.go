@@ -5,14 +5,15 @@ import (
 	"net/http"
 	"time"
 
+	routeranalytics "tensors-router/internal/analytics"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/routinggroups"
 	"tensors-router/internal/schedulingcost"
 )
 
 // refreshOffloadPlan is the master's cycle: collect what every node is holding,
-// rebuild the shared cost picture from the coefficients they published, then decide
-// which owners may lend to which helpers and tell them so.
+// rebuild the shared cost picture from the coefficients they published, then
+// decide which owners may lend to which helpers in each lane and tell them so.
 func (service *Service) refreshOffloadPlan(ctx context.Context) {
 	if service.clusterRole != cluster.RoleMaster || service.registry == nil {
 		return
@@ -23,18 +24,30 @@ func (service *Service) refreshOffloadPlan(ctx context.Context) {
 	if service.routingGroups == nil {
 		return
 	}
-	groups, err := service.routingGroups.Groups(ctx)
+	costs := service.costSource.Table()
+	now := time.Now()
+	var planned []offloadLease
+
+	imageGroups, err := service.routingGroups.Groups(ctx)
 	if err != nil {
 		service.logger.Printf("offload plan skipped, routing groups unavailable: %v", err)
 		return
 	}
-	costs := service.costSource.Table()
-	now := time.Now()
-	var planned []offloadLease
-	for _, group := range groups {
-		candidates := service.offloadCandidates(group, statuses)
-		planned = append(planned, planOffloadLeases(group.ID, candidates, costs, now, service.schedulingGrantTTL)...)
+	for _, group := range imageGroups {
+		candidates := service.imageOffloadCandidates(group, statuses)
+		planned = append(planned, planOffloadLeases(cluster.RouteLaneImage, group.ID, candidates, costs, now, service.schedulingGrantTTL)...)
 	}
+
+	textGroups, err := service.routingGroups.TextGroups(ctx)
+	if err != nil {
+		service.logger.Printf("offload plan skipped, text routing groups unavailable: %v", err)
+		textGroups = nil
+	}
+	for _, group := range textGroups {
+		candidates := service.textOffloadCandidates(group, statuses)
+		planned = append(planned, planOffloadLeases(cluster.RouteLaneText, group.ID, candidates, costs, now, service.schedulingGrantTTL)...)
+	}
+
 	service.leaseBook.Replace(planned)
 	service.deliverOffloadLeases(ctx, planned)
 }
@@ -51,34 +64,39 @@ func (service *Service) collectRuntimeStatuses(ctx context.Context) map[string]N
 
 // applyClusterCosts merges every node's published coefficients into one table and
 // records what each node has queued, so selection prices candidates from one
-// coherent snapshot.
+// coherent snapshot. Backlogs are keyed by (lane, groupID): an image group and a
+// text group can legitimately share a group id string on the same node, since
+// the two lanes' ids are assigned from entirely separate tables.
 func (service *Service) applyClusterCosts(statuses map[string]NodeRuntimeStatus) {
 	costsByNode := make(map[string]schedulingcost.NodeCosts, len(statuses))
 	backlogs := make(map[string]map[string]offloadGroupStats, len(statuses))
 	for nodeID, status := range statuses {
 		costsByNode[nodeID] = status.Costs
-		byGroup := make(map[string]offloadGroupStats, len(status.ImageQueue))
+		byGroup := make(map[string]offloadGroupStats, len(status.ImageQueue)+len(status.TextQueue))
 		for _, stats := range status.ImageQueue {
-			byGroup[stats.GroupID] = stats
+			byGroup[backlogKey(cluster.RouteLaneImage, stats.GroupID)] = stats
+		}
+		for _, stats := range status.TextQueue {
+			byGroup[backlogKey(cluster.RouteLaneText, stats.GroupID)] = stats
 		}
 		backlogs[nodeID] = byGroup
 	}
 	service.costSource.Replace(schedulingcost.Merge(costsByNode), backlogs)
 }
 
-func (service *Service) offloadCandidates(group routinggroups.Group, statuses map[string]NodeRuntimeStatus) []offloadCandidate {
+func (service *Service) imageOffloadCandidates(group routinggroups.Group, statuses map[string]NodeRuntimeStatus) []offloadCandidate {
 	models := service.registry.Models()
 	byMember := make(map[cluster.GroupMember]cluster.Model, len(models))
 	for _, model := range models {
 		if model.Disabled || !model.HasImage || model.ImageID == "" {
 			continue
 		}
-		byMember[cluster.GroupMember{NodeID: model.NodeID, ImageID: model.ImageID}] = model
+		byMember[cluster.GroupMember{Lane: cluster.RouteLaneImage, NodeID: model.NodeID, ModelID: model.ImageID}] = model
 	}
 
 	candidates := make([]offloadCandidate, 0, len(group.Members))
 	for _, member := range group.Members {
-		model, known := byMember[cluster.GroupMember{NodeID: member.NodeID, ImageID: member.ImageID}]
+		model, known := byMember[cluster.GroupMember{Lane: cluster.RouteLaneImage, NodeID: member.NodeID, ModelID: member.ImageID}]
 		if !known || !model.Available {
 			continue
 		}
@@ -97,10 +115,59 @@ func (service *Service) offloadCandidates(group routinggroups.Group, statuses ma
 			NodeID:            member.NodeID,
 			ModelID:           member.ImageID,
 			ConfigFilename:    model.Filename,
+			Section:           routeranalytics.SectionImage,
 			Loaded:            status.ActiveImageConfig == model.Filename,
-			AcceptingBorrowed: status.AcceptingBorrowed,
+			AcceptingBorrowed: status.AcceptingBorrowedImage,
 			PendingCount:      stats.PendingCount,
 			PendingWork:       stats.PendingWork,
+			BacklogCount:      stats.BacklogCount,
+			BacklogWork:       stats.BacklogWork,
+		})
+	}
+	return candidates
+}
+
+// textOffloadCandidates mirrors imageOffloadCandidates, adding ContextCapacity
+// from the model's own capabilities so bestOffloadHelper can skip a helper
+// whose window cannot hold what the owner is trying to lend.
+func (service *Service) textOffloadCandidates(group routinggroups.TextGroup, statuses map[string]NodeRuntimeStatus) []offloadCandidate {
+	models := service.registry.Models()
+	byMember := make(map[cluster.GroupMember]cluster.Model, len(models))
+	for _, model := range models {
+		if model.Disabled || !model.HasLLM {
+			continue
+		}
+		byMember[cluster.GroupMember{Lane: cluster.RouteLaneText, NodeID: model.NodeID, ModelID: model.LocalID}] = model
+	}
+
+	candidates := make([]offloadCandidate, 0, len(group.Members))
+	for _, member := range group.Members {
+		model, known := byMember[cluster.GroupMember{Lane: cluster.RouteLaneText, NodeID: member.NodeID, ModelID: member.ModelID}]
+		if !known || !model.Available {
+			continue
+		}
+		status, reachable := statuses[member.NodeID]
+		if !reachable {
+			continue
+		}
+		stats := offloadGroupStats{}
+		for _, item := range status.TextQueue {
+			if item.GroupID == group.ID {
+				stats = item
+				break
+			}
+		}
+		candidates = append(candidates, offloadCandidate{
+			NodeID:            member.NodeID,
+			ModelID:           member.ModelID,
+			ConfigFilename:    model.Filename,
+			Section:           routeranalytics.SectionLLM,
+			Loaded:            status.ActiveTextConfig == model.Filename,
+			AcceptingBorrowed: status.AcceptingBorrowedText,
+			ContextCapacity:   model.Capabilities.Context,
+			PendingCount:      stats.PendingCount,
+			PendingWork:       stats.PendingWork,
+			PendingContext:    stats.PendingContext,
 			BacklogCount:      stats.BacklogCount,
 			BacklogWork:       stats.BacklogWork,
 		})
@@ -126,14 +193,15 @@ func (service *Service) deliverOffloadLeases(ctx context.Context, leases []offlo
 }
 
 func (service *Service) storeOffloadLease(lease offloadLease) {
-	service.offloadLeases.Store(lease.GroupID, lease)
+	service.offloadLeases.Store(backlogKey(lease.Lane, lease.GroupID), lease)
 }
 
-// activeOffloadLease reports the lease this node may currently use for a group. An
-// expired lease is simply absent, so a helper that went busy or a master that
-// stopped polling ends the arrangement without a revoke having to arrive.
-func (service *Service) activeOffloadLease(groupID string, now time.Time) (offloadLease, bool) {
-	value, ok := service.offloadLeases.Load(groupID)
+// activeOffloadLease reports the lease this node may currently use for a group
+// in a lane. An expired lease is simply absent, so a helper that went busy or a
+// master that stopped polling ends the arrangement without a revoke having to
+// arrive.
+func (service *Service) activeOffloadLease(lane string, groupID string, now time.Time) (offloadLease, bool) {
+	value, ok := service.offloadLeases.Load(backlogKey(lane, groupID))
 	if !ok {
 		return offloadLease{}, false
 	}

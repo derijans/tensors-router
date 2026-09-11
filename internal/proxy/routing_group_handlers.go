@@ -194,12 +194,25 @@ func (lookup *routingGroupLookup) GroupMembers(member cluster.GroupMember) (stri
 	return entry.groupID, entry.members, true
 }
 
-func newRoutingGroupLookup(groups []routinggroups.Group) *routingGroupLookup {
+// newRoutingGroupLookup merges both lanes into one lookup keyed by
+// (Lane, NodeID, ModelID). An image group and a text group never collide here
+// even if their group id strings happened to match, because Lane is part of
+// the key on both the member and the entries it returns.
+func newRoutingGroupLookup(imageGroups []routinggroups.Group, textGroups []routinggroups.TextGroup) *routingGroupLookup {
 	lookup := &routingGroupLookup{byMember: map[cluster.GroupMember]routingGroupEntry{}}
-	for _, group := range groups {
+	for _, group := range imageGroups {
 		members := make([]cluster.GroupMember, 0, len(group.Members))
 		for _, member := range group.Members {
-			members = append(members, cluster.GroupMember{NodeID: member.NodeID, ImageID: member.ImageID})
+			members = append(members, cluster.GroupMember{Lane: cluster.RouteLaneImage, NodeID: member.NodeID, ModelID: member.ImageID})
+		}
+		for _, member := range members {
+			lookup.byMember[member] = routingGroupEntry{groupID: group.ID, members: members}
+		}
+	}
+	for _, group := range textGroups {
+		members := make([]cluster.GroupMember, 0, len(group.Members))
+		for _, member := range group.Members {
+			members = append(members, cluster.GroupMember{Lane: cluster.RouteLaneText, NodeID: member.NodeID, ModelID: member.ModelID})
 		}
 		for _, member := range members {
 			lookup.byMember[member] = routingGroupEntry{groupID: group.ID, members: members}
@@ -219,14 +232,23 @@ func (service *Service) loadRoutingGroupSource() {
 	service.applyRoutingGroupSource(context.Background())
 }
 
+// applyRoutingGroupSource is the one place both lanes' group membership is
+// rebuilt into the registry's lookup. Both the image and the text routing
+// group HTTP handlers call this after every edit, so a saved group of either
+// lane takes effect on the very next request.
 func (service *Service) applyRoutingGroupSource(ctx context.Context) {
 	if service.routingGroups == nil || service.registry == nil {
 		return
 	}
-	groups, err := service.routingGroups.Groups(ctx)
+	imageGroups, err := service.routingGroups.Groups(ctx)
 	if err != nil {
 		service.logger.Printf("routing group load failed: %v", err)
 		return
 	}
-	service.registry.SetGroupSource(newRoutingGroupLookup(groups))
+	textGroups, err := service.routingGroups.TextGroups(ctx)
+	if err != nil {
+		service.logger.Printf("text routing group load failed: %v", err)
+		return
+	}
+	service.registry.SetGroupSource(newRoutingGroupLookup(imageGroups, textGroups))
 }

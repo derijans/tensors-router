@@ -17,9 +17,10 @@ type LoadKey struct {
 type Table struct {
 	estimates map[ModelKey]Estimate
 	loads     map[LoadKey]float64
+	profiles  map[ProfileKey]TokenProfile
 }
 
-func Build(samples []Sample, loadSamples []LoadSample, minSamples int64) *Table {
+func Build(samples []Sample, loadSamples []LoadSample, profileSamples []TokenProfileSample, minSamples int64) *Table {
 	estimates := make(map[ModelKey]Estimate, len(samples))
 	for _, sample := range samples {
 		estimate, ok := Fit(sample, minSamples)
@@ -36,7 +37,15 @@ func Build(samples []Sample, loadSamples []LoadSample, minSamples int64) *Table 
 		}
 		loads[LoadKey{NodeID: sample.NodeID, ConfigFilename: sample.ConfigFilename}] = mean
 	}
-	return &Table{estimates: estimates, loads: loads}
+	profiles := make(map[ProfileKey]TokenProfile, len(profileSamples))
+	for _, sample := range profileSamples {
+		profile, ok := FitTokenProfile(sample, minSamples)
+		if !ok {
+			continue
+		}
+		profiles[ProfileKey{NodeID: sample.NodeID, ModelID: sample.ModelID}] = profile
+	}
+	return &Table{estimates: estimates, loads: loads, profiles: profiles}
 }
 
 func (table *Table) Estimate(key ModelKey) (Estimate, bool) {
@@ -47,29 +56,23 @@ func (table *Table) Estimate(key ModelKey) (Estimate, bool) {
 	return estimate, ok
 }
 
-func (table *Table) PredictMS(key ModelKey, work float64) (float64, bool) {
+func (table *Table) PredictMS(key ModelKey, work Work) (float64, bool) {
 	estimate, ok := table.Estimate(key)
 	if !ok {
 		return 0, false
 	}
-	return estimate.PredictMS(work), true
+	return estimate.PredictMS(work)
 }
 
 // PredictQueueMS prices a whole pending queue rather than one request: each
 // entry pays the fixed per-request cost once, and the variable cost scales with
 // the summed work.
-func (table *Table) PredictQueueMS(key ModelKey, count int64, totalWork float64) (float64, bool) {
+func (table *Table) PredictQueueMS(key ModelKey, count int64, totalWork Work) (float64, bool) {
 	estimate, ok := table.Estimate(key)
 	if !ok {
 		return 0, false
 	}
-	if count <= 0 {
-		return 0, true
-	}
-	if totalWork < 0 {
-		totalWork = 0
-	}
-	return float64(count)*estimate.BaseMS + estimate.SlopeMS*totalWork, true
+	return estimate.PredictQueueMS(count, totalWork)
 }
 
 func (table *Table) LoadMS(key LoadKey) (float64, bool) {
@@ -80,6 +83,14 @@ func (table *Table) LoadMS(key LoadKey) (float64, bool) {
 	return mean, ok
 }
 
+func (table *Table) TokenProfile(key ProfileKey) (TokenProfile, bool) {
+	if table == nil {
+		return TokenProfile{}, false
+	}
+	profile, ok := table.profiles[key]
+	return profile, ok
+}
+
 func (table *Table) ModelCosts() []ModelCost {
 	if table == nil {
 		return nil
@@ -87,11 +98,11 @@ func (table *Table) ModelCosts() []ModelCost {
 	costs := make([]ModelCost, 0, len(table.estimates))
 	for key, estimate := range table.estimates {
 		costs = append(costs, ModelCost{
-			ModelID: key.ModelID,
-			Section: key.Section,
-			BaseMS:  estimate.BaseMS,
-			SlopeMS: estimate.SlopeMS,
-			Samples: estimate.Samples,
+			ModelID:  key.ModelID,
+			Section:  key.Section,
+			BaseMS:   estimate.BaseMS,
+			SlopesMS: append([]float64{}, estimate.SlopeMS[:estimate.Arity]...),
+			Samples:  estimate.Samples,
 		})
 	}
 	return costs
@@ -108,15 +119,37 @@ func (table *Table) LoadCosts() []LoadCost {
 	return costs
 }
 
-// ModelCost and LoadCost are the wire form a node publishes in its runtime
-// status. NodeID is implied by the status envelope and is filled in by the
-// master when it merges tables from several nodes.
+func (table *Table) TokenCosts() []TokenCost {
+	if table == nil {
+		return nil
+	}
+	costs := make([]TokenCost, 0, len(table.profiles))
+	for key, profile := range table.profiles {
+		costs = append(costs, TokenCost{
+			ModelID:                   key.ModelID,
+			ConservativeBytesPerToken: profile.ConservativeBytesPerToken,
+			ReservedOutputTokens:      profile.ReservedOutputTokens,
+			Samples:                   profile.Samples,
+		})
+	}
+	return costs
+}
+
+// ModelCost, LoadCost and TokenCost are the wire form a node publishes in its
+// runtime status. NodeID is implied by the status envelope and is filled in by
+// the master when it merges tables from several nodes.
+//
+// SlopesMS replaces a prior single slope_ms field rather than reinterpreting it:
+// a node on an older build publishes slope_ms, which decodes here as an absent,
+// empty SlopesMS, which Merge drops as unqualified. Reusing the old key would
+// have produced a confident wrong prediction (a zero slope) instead of a
+// rejection.
 type ModelCost struct {
-	ModelID string  `json:"model_id"`
-	Section string  `json:"section"`
-	BaseMS  float64 `json:"base_ms"`
-	SlopeMS float64 `json:"slope_ms"`
-	Samples int64   `json:"samples"`
+	ModelID  string    `json:"model_id"`
+	Section  string    `json:"section"`
+	BaseMS   float64   `json:"base_ms"`
+	SlopesMS []float64 `json:"slopes_ms"`
+	Samples  int64     `json:"samples"`
 }
 
 type LoadCost struct {
@@ -124,29 +157,52 @@ type LoadCost struct {
 	LoadMS         float64 `json:"load_ms"`
 }
 
+type TokenCost struct {
+	ModelID                   string  `json:"model_id"`
+	ConservativeBytesPerToken float64 `json:"conservative_bytes_per_token"`
+	ReservedOutputTokens      float64 `json:"reserved_output_tokens"`
+	Samples                   int64   `json:"samples"`
+}
+
 type NodeCosts struct {
 	Models []ModelCost `json:"models,omitempty"`
 	Loads  []LoadCost  `json:"loads,omitempty"`
+	Tokens []TokenCost `json:"tokens,omitempty"`
 }
 
 func (table *Table) NodeCosts() NodeCosts {
-	return NodeCosts{Models: table.ModelCosts(), Loads: table.LoadCosts()}
+	return NodeCosts{Models: table.ModelCosts(), Loads: table.LoadCosts(), Tokens: table.TokenCosts()}
 }
 
 func Merge(costsByNode map[string]NodeCosts) *Table {
 	estimates := map[ModelKey]Estimate{}
 	loads := map[LoadKey]float64{}
+	profiles := map[ProfileKey]TokenProfile{}
 	for nodeID, costs := range costsByNode {
 		for _, cost := range costs.Models {
+			arity := len(cost.SlopesMS)
+			if arity < 1 || arity > MaxWorkTerms {
+				continue
+			}
+			var slopes [MaxWorkTerms]float64
+			copy(slopes[:], cost.SlopesMS)
 			estimates[ModelKey{NodeID: nodeID, ModelID: cost.ModelID, Section: cost.Section}] = Estimate{
 				BaseMS:  cost.BaseMS,
-				SlopeMS: cost.SlopeMS,
+				SlopeMS: slopes,
+				Arity:   arity,
 				Samples: cost.Samples,
 			}
 		}
 		for _, cost := range costs.Loads {
 			loads[LoadKey{NodeID: nodeID, ConfigFilename: cost.ConfigFilename}] = cost.LoadMS
 		}
+		for _, cost := range costs.Tokens {
+			profiles[ProfileKey{NodeID: nodeID, ModelID: cost.ModelID}] = TokenProfile{
+				ConservativeBytesPerToken: cost.ConservativeBytesPerToken,
+				ReservedOutputTokens:      cost.ReservedOutputTokens,
+				Samples:                   cost.Samples,
+			}
+		}
 	}
-	return &Table{estimates: estimates, loads: loads}
+	return &Table{estimates: estimates, loads: loads, profiles: profiles}
 }

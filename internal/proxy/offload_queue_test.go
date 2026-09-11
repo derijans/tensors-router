@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"tensors-router/internal/schedulingcost"
 )
 
 func outcomeNow(t *testing.T, entry *offloadEntry) (offloadOutcome, bool) {
@@ -34,12 +36,15 @@ func mustBeWaiting(t *testing.T, entry *offloadEntry, label string) {
 	}
 }
 
+// enqueueNative and enqueueBorrowed default nodeIdle to true: these tests
+// exercise the queue's own pending/admitted bookkeeping (hasNativeWorkLocked),
+// not the node-wide idle signal, which offload_idle_test.go covers instead.
 func enqueueNative(queue *offloadQueue, groupID string, work float64) *offloadEntry {
-	return queue.Enqueue(groupID, work, false, time.Now())
+	return queue.Enqueue(groupID, schedulingcost.ImageWork(work), 0, false, false, true, time.Now())
 }
 
 func enqueueBorrowed(queue *offloadQueue, groupID string, work float64) *offloadEntry {
-	return queue.Enqueue(groupID, work, true, time.Now())
+	return queue.Enqueue(groupID, schedulingcost.ImageWork(work), 0, true, false, true, time.Now())
 }
 
 // The whole point of the queue is that the backend keeps exactly one job running
@@ -135,7 +140,7 @@ func TestBorrowedWorkIsRefusedWhileTheNodeHasItsOwn(t *testing.T) {
 	if !ok || outcome != offloadReturned {
 		t.Fatalf("borrowed outcome = %v ok=%t, want returned", outcome, ok)
 	}
-	if queue.AcceptingBorrowed() {
+	if queue.AcceptingBorrowed(true) {
 		t.Fatal("queue reports it is accepting borrowed work while running its own")
 	}
 }
@@ -165,16 +170,31 @@ func TestQueueAcceptsBorrowedWorkAgainOnceItsOwnQueueDrains(t *testing.T) {
 	queue := newOffloadQueue(1)
 	native := enqueueNative(queue, "group", 10)
 	mustBeAdmitted(t, native, "native")
-	if queue.AcceptingBorrowed() {
+	if queue.AcceptingBorrowed(true) {
 		t.Fatal("accepting borrowed work while its own is running")
 	}
 
 	queue.Complete(native)
-	if !queue.AcceptingBorrowed() {
+	if !queue.AcceptingBorrowed(true) {
 		t.Fatal("still refusing borrowed work after its own queue drained")
 	}
 	borrowed := enqueueBorrowed(queue, "group", 10)
 	mustBeAdmitted(t, borrowed, "borrowed")
+}
+
+// TestQueueRefusesBorrowedWorkWhileTheNodeIsBusyElsewhere pins the new half of
+// the borrowed-refusal rule: even with nothing of its own in this queue, a
+// node that is busy elsewhere (nodeIdle == false) still refuses borrowed work.
+func TestQueueRefusesBorrowedWorkWhileTheNodeIsBusyElsewhere(t *testing.T) {
+	queue := newOffloadQueue(2)
+	borrowed := queue.Enqueue("group", schedulingcost.ImageWork(10), 0, true, false, false, time.Now())
+	outcome, ok := outcomeNow(t, borrowed)
+	if !ok || outcome != offloadReturned {
+		t.Fatalf("borrowed outcome = %v ok=%t, want returned when the node is not idle", outcome, ok)
+	}
+	if queue.AcceptingBorrowed(false) {
+		t.Fatal("queue reports accepting borrowed work while the node is not idle")
+	}
 }
 
 // A returned request has already waited here and then again on a peer, so it goes
@@ -185,7 +205,7 @@ func TestRequeuePlacesReturnedWorkAtTheHead(t *testing.T) {
 	waiting := enqueueNative(queue, "group", 10)
 	mustBeAdmitted(t, running, "running")
 
-	returned := queue.Requeue("group", 10, time.Now())
+	returned := queue.Requeue("group", schedulingcost.ImageWork(10), 0, time.Now())
 	mustBeWaiting(t, returned, "returned")
 	mustBeWaiting(t, waiting, "waiting")
 
@@ -224,10 +244,10 @@ func TestStatsReportPendingOwnWorkPerGroup(t *testing.T) {
 	for _, item := range stats {
 		byGroup[item.GroupID] = item
 	}
-	if got := byGroup["group"]; got.PendingCount != 2 || got.PendingWork != 30 {
+	if got := byGroup["group"]; got.PendingCount != 2 || got.PendingWork.Term(0) != 30 {
 		t.Fatalf("group stats = %+v, want 2 pending totalling 30", got)
 	}
-	if got := byGroup["other"]; got.PendingCount != 1 || got.PendingWork != 40 {
+	if got := byGroup["other"]; got.PendingCount != 1 || got.PendingWork.Term(0) != 40 {
 		t.Fatalf("other group stats = %+v, want 1 pending totalling 40", got)
 	}
 }
@@ -268,10 +288,10 @@ func TestStatsSeparateWithdrawableWorkFromTotalBacklog(t *testing.T) {
 	if len(stats) != 1 {
 		t.Fatalf("stats = %+v, want one group", stats)
 	}
-	if stats[0].PendingCount != 2 || stats[0].PendingWork != 30 {
+	if stats[0].PendingCount != 2 || stats[0].PendingWork.Term(0) != 30 {
 		t.Fatalf("withdrawable = %d/%v, want 2/30", stats[0].PendingCount, stats[0].PendingWork)
 	}
-	if stats[0].BacklogCount != 3 || stats[0].BacklogWork != 35 {
+	if stats[0].BacklogCount != 3 || stats[0].BacklogWork.Term(0) != 35 {
 		t.Fatalf("backlog = %d/%v, want 3/35 including the running job", stats[0].BacklogCount, stats[0].BacklogWork)
 	}
 }
@@ -282,7 +302,64 @@ func TestStatsCountABacklogThatIsOnlyRunningWork(t *testing.T) {
 	mustBeAdmitted(t, running, "running")
 
 	stats := queue.Stats()
-	if len(stats) != 1 || stats[0].PendingCount != 0 || stats[0].BacklogCount != 1 || stats[0].BacklogWork != 7 {
+	if len(stats) != 1 || stats[0].PendingCount != 0 || stats[0].BacklogCount != 1 || stats[0].BacklogWork.Term(0) != 7 {
 		t.Fatalf("stats = %+v, want nothing withdrawable but a backlog of one", stats)
+	}
+}
+
+// TestTextQueueRefusesBorrowedWorkWhileNativeWorkIsPending pins that the same
+// discipline holds for a two-term text work vector, not just the image lane's
+// single-term one.
+func TestTextQueueRefusesBorrowedWorkWhileNativeWorkIsPending(t *testing.T) {
+	queue := newOffloadQueue(1)
+	native := queue.Enqueue("group", schedulingcost.TextWork(200, 50), 4096, false, false, true, time.Now())
+	mustBeAdmitted(t, native, "native")
+
+	borrowed := queue.Enqueue("group", schedulingcost.TextWork(200, 50), 4096, true, false, true, time.Now())
+	outcome, ok := outcomeNow(t, borrowed)
+	if !ok || outcome != offloadReturned {
+		t.Fatalf("borrowed outcome = %v ok=%t, want returned", outcome, ok)
+	}
+}
+
+// TestPinnedEntryCountsTowardBacklogButIsNeverWithdrawn pins the streaming
+// text case: a pinned entry counts toward the node's reported backlog, so the
+// master sees the node's real load, but WithdrawNewest must never take it —
+// the router never buffered a replayable body for it.
+func TestPinnedEntryCountsTowardBacklogButIsNeverWithdrawn(t *testing.T) {
+	queue := newOffloadQueue(2)
+	running := queue.Enqueue("group", schedulingcost.TextWork(100, 20), 2048, false, false, true, time.Now())
+	mustBeAdmitted(t, running, "running")
+	pinned := queue.Enqueue("group", schedulingcost.TextWork(100, 20), 2048, false, true, true, time.Now())
+	mustBeAdmitted(t, pinned, "pinned")
+
+	if withdrawn := queue.WithdrawNewest("group", 5); len(withdrawn) != 0 {
+		t.Fatalf("withdrew %d entries, want none when every entry is admitted or pinned", len(withdrawn))
+	}
+
+	stats := queue.Stats()
+	if len(stats) != 1 || stats[0].BacklogCount != 2 {
+		t.Fatalf("stats = %+v, want the pinned entry counted in the backlog", stats)
+	}
+}
+
+// TestTextQueueStatsCarryBothWorkTermsAndContext pins that Stats aggregates
+// the two-term work vector and the summed required context together, which
+// the image lane never needed.
+func TestTextQueueStatsCarryBothWorkTermsAndContext(t *testing.T) {
+	queue := newOffloadQueue(1)
+	running := queue.Enqueue("group", schedulingcost.TextWork(100, 20), 2048, false, false, true, time.Now())
+	mustBeAdmitted(t, running, "running")
+	queue.Enqueue("group", schedulingcost.TextWork(200, 40), 4096, false, false, true, time.Now())
+
+	stats := queue.Stats()
+	if len(stats) != 1 {
+		t.Fatalf("stats = %+v, want one group", stats)
+	}
+	if stats[0].PendingWork.Term(0) != 200 || stats[0].PendingWork.Term(1) != 40 {
+		t.Fatalf("pending work = %+v, want (200, 40)", stats[0].PendingWork)
+	}
+	if stats[0].PendingContext != 4096 {
+		t.Fatalf("pending context = %d, want 4096", stats[0].PendingContext)
 	}
 }

@@ -111,6 +111,7 @@ type ServiceConfig struct {
 	SchedulingBackendDepth    int
 	SchedulingRefreshInterval time.Duration
 	SchedulingGrantTTL        time.Duration
+	SchedulingContextReserve  int
 	LoadCaptureStore          *loadcapture.Store
 	LoadCaptureMaxOutputBytes int64
 	LoadErrorStore            *loaderrors.Store
@@ -188,6 +189,8 @@ type Service struct {
 	schedulingBackendDepth    int
 	schedulingRefreshInterval time.Duration
 	schedulingGrantTTL        time.Duration
+	schedulingContextReserve  int
+	textQueue                 *offloadQueue
 	loadCaptureStore          *loadcapture.Store
 	loadCaptureMaxOutputBytes int64
 	loadErrorStore            *loaderrors.Store
@@ -439,6 +442,7 @@ func NewService(config ServiceConfig) *Service {
 		schedulingBackendDepth:    config.SchedulingBackendDepth,
 		schedulingRefreshInterval: config.SchedulingRefreshInterval,
 		schedulingGrantTTL:        config.SchedulingGrantTTL,
+		schedulingContextReserve:  config.SchedulingContextReserve,
 		loadCaptureStore:          config.LoadCaptureStore,
 		loadCaptureMaxOutputBytes: config.LoadCaptureMaxOutputBytes,
 		loadErrorStore:            config.LoadErrorStore,
@@ -490,6 +494,7 @@ func NewService(config ServiceConfig) *Service {
 	service.separatePool = newSeparateRuntimePool(config.SeparateRuntimeLimit)
 	service.applySchedulingDefaults()
 	service.imageQueue = newOffloadQueue(service.schedulingBackendDepth)
+	service.textQueue = newOffloadQueue(service.schedulingBackendDepth)
 	if service.registry != nil {
 		service.registry.SetCostSource(service.costSource)
 	}
@@ -514,6 +519,9 @@ func (service *Service) applySchedulingDefaults() {
 	}
 	if service.schedulingGrantTTL <= 0 {
 		service.schedulingGrantTTL = 30 * time.Second
+	}
+	if service.schedulingContextReserve <= 0 {
+		service.schedulingContextReserve = 256
 	}
 }
 
@@ -1267,7 +1275,7 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 	if !hasModel && isEmbeddingsPath(r.URL.Path) {
 		if target, selected := service.acquireSelectorlessEmbeddingTarget(r.URL.Path, r.Context()); selected {
 			if service.registry != nil {
-				service.handleAcquiredRegistryModelRequest(w, r, body, target.publicID, target.clusterModel, target.clusterRoute, target.release, true)
+				service.handleAcquiredRegistryModelRequest(w, r, body, target.publicID, target.clusterModel, target.clusterRoute, target.release, true, cluster.RouteHint{})
 				return
 			}
 			modelID = target.publicID
@@ -1372,6 +1380,7 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 
 	started := time.Now()
 	analyticsEvent := service.newAnalyticsEvent(started, r, requestBody, backendModelID, textAnalyticsSection(r.URL.Path), selectedBackendMode)
+	analyticsEvent.PromptBytes = int64(len(body))
 	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readiness, selectedBackendMode)
 	if err != nil {
 		status, _, _ := backendFailureResponse(err)

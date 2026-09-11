@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"tensors-router/internal/backenddiagnostic"
+	"tensors-router/internal/buildinfo"
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
@@ -41,6 +42,8 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		service.handleSiteModelState(w, r)
 	case r.URL.Path == "/router/v1/site/routing-groups":
 		service.handleSiteRoutingGroups(w, r)
+	case r.URL.Path == "/router/v1/site/text-routing-groups":
+		service.handleSiteTextRoutingGroups(w, r)
 	case r.URL.Path == "/router/v1/site/separate-runtimes":
 		service.handleSiteSeparateRuntimes(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/download/capabilities":
@@ -123,6 +126,8 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		service.handleSiteModelAssetLookup(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/models":
 		service.handleRouterModels(w)
+	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/version":
+		service.handleRouterVersion(w)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/models":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeModels(w, r)
@@ -420,8 +425,11 @@ func (service *Service) handleNodeModels(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, cluster.Snapshot{
-		NodeID: "local",
-		Models: service.withBenchmarks(cluster.LocalModelsWithBackendMode(models, "local", "", cluster.SourceLocal, service.backendMode)),
+		NodeID:                 "local",
+		Models:                 service.withBenchmarks(cluster.LocalModelsWithBackendMode(models, "local", "", cluster.SourceLocal, service.backendMode)),
+		ProtocolVersion:        cluster.ProtocolVersion,
+		MinimumProtocolVersion: cluster.MinimumProtocolVersion,
+		BuildVersion:           buildinfo.Current().Version,
 	})
 }
 
@@ -440,8 +448,14 @@ func (service *Service) handleNodeRegister(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := service.registry.UpdateNode(snapshot); err != nil {
-		if cluster.ErrorCode(err) == cluster.ErrorCodeDuplicateNode {
+		switch cluster.ErrorCode(err) {
+		case cluster.ErrorCodeDuplicateNode:
 			openai.WriteErrorCode(w, http.StatusConflict, "cluster_error", cluster.ErrorCodeDuplicateNode, err.Error())
+			return
+		case cluster.ErrorCodeIncompatibleProtocol:
+			service.logger.Printf("node registration refused, incompatible protocol: %v", err)
+			openai.WriteErrorCode(w, http.StatusConflict, "cluster_error", cluster.ErrorCodeIncompatibleProtocol,
+				fmt.Sprintf("%v; this master requires protocol version %d or newer, update the node", err, cluster.MinimumProtocolVersion))
 			return
 		}
 		openai.WriteError(w, http.StatusBadRequest, "cluster_error", err.Error())
@@ -451,7 +465,19 @@ func (service *Service) handleNodeRegister(w http.ResponseWriter, r *http.Reques
 		openai.WriteError(w, http.StatusInternalServerError, "cluster_error", err.Error())
 		return
 	}
-	openai.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
+	openai.WriteJSON(w, http.StatusOK, map[string]any{
+		"ok":                       true,
+		"protocol_version":         cluster.ProtocolVersion,
+		"minimum_protocol_version": cluster.MinimumProtocolVersion,
+	})
+}
+
+func (service *Service) handleRouterVersion(w http.ResponseWriter) {
+	openai.WriteJSON(w, http.StatusOK, map[string]any{
+		"version":                  buildinfo.Current().Version,
+		"protocol_version":         cluster.ProtocolVersion,
+		"minimum_protocol_version": cluster.MinimumProtocolVersion,
+	})
 }
 
 func (service *Service) validateRegisteredNodeURL(nodeURL string) error {
@@ -712,7 +738,7 @@ func (service *Service) acquireRegistryModelControlRoute(ctx context.Context, pu
 	case readinessTranscription:
 		return service.registry.AcquireVoice(publicID, healthy)
 	default:
-		return service.registry.Acquire(publicID, healthy)
+		return service.registry.Acquire(publicID, healthy, cluster.RouteHint{})
 	}
 }
 

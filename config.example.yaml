@@ -184,6 +184,16 @@ cluster:
   scheduling_min_samples: 20
   scheduling_backend_depth: 2
   scheduling_grant_ttl: "30s"
+  # Text routing groups reuse every key above. A .kcpps that sets parallel or
+  # vllm.settings.max_number_sequences above 1 serves requests concurrently and
+  # cannot join a text group at all, which is what keeps one backend depth
+  # correct for both lanes: every groupable text model is serial, exactly like
+  # a diffusion backend. scheduling_context_reserve is the floor on how much of
+  # a context window is kept for the answer when the client states no limit;
+  # the rest of the context estimate is measured from each model's own traffic
+  # (a bytes-per-token ratio pulled conservative by its own measured spread),
+  # so there is no separate margin to tune.
+  scheduling_context_reserve: 256
 
 analytics:
   enabled: false

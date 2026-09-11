@@ -16,7 +16,7 @@ func TestSyncSlavesFetchesConcurrentlyAndAppliesConfiguredOrder(t *testing.T) {
 		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			time.Sleep(delay)
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"node_id":"shared","models":[]}`))
+			_, _ = w.Write([]byte(`{"node_id":"shared","models":[],"protocol_version":2}`))
 		}))
 	}
 	first := newSlave(100 * time.Millisecond)

@@ -81,10 +81,10 @@ func TestCostSamplesAggregatesTheSumsAFitNeeds(t *testing.T) {
 		got  float64
 		want float64
 	}{
-		{"sum work", sample.SumWork, wantWork},
+		{"sum work", sample.SumWork[0], wantWork},
 		{"sum duration", sample.SumDuration, wantDuration},
-		{"sum work*duration", sample.SumWorkDuration, wantWorkDuration},
-		{"sum work^2", sample.SumWorkSquared, wantWorkSquared},
+		{"sum work*duration", sample.SumWorkDuration[0], wantWorkDuration},
+		{"sum work^2", sample.SumWorkProduct[0][0], wantWorkSquared},
 	} {
 		if math.Abs(check.got-check.want) > math.Abs(check.want)*1e-9 {
 			t.Fatalf("%s = %v, want %v", check.name, check.got, check.want)
@@ -194,10 +194,10 @@ func TestCostSamplesSurvivesLargeWorkValuesWithoutOverflow(t *testing.T) {
 	}
 	work := 50.0 * 2048 * 2048 * 4
 	wantSquared := 200 * work * work
-	if got := samples[0].SumWorkSquared; math.Abs(got-wantSquared) > wantSquared*1e-9 {
+	if got := samples[0].SumWorkProduct[0][0]; math.Abs(got-wantSquared) > wantSquared*1e-9 {
 		t.Fatalf("sum work^2 = %v, want %v", got, wantSquared)
 	}
-	if samples[0].SumWorkSquared <= 0 {
+	if samples[0].SumWorkProduct[0][0] <= 0 {
 		t.Fatal("sum of squared work overflowed to a non-positive value")
 	}
 }
@@ -227,8 +227,8 @@ func TestImageWorkMatchesTheFitExpression(t *testing.T) {
 	if len(samples) != 1 {
 		t.Fatalf("samples = %d, want 1", len(samples))
 	}
-	if math.Abs(samples[0].SumWork-wantWork) > wantWork*1e-12 {
-		t.Fatalf("sql work total = %v, go work total = %v", samples[0].SumWork, wantWork)
+	if math.Abs(samples[0].SumWork[0]-wantWork) > wantWork*1e-12 {
+		t.Fatalf("sql work total = %v, go work total = %v", samples[0].SumWork[0], wantWork)
 	}
 }
 
@@ -241,6 +241,99 @@ func TestImageWorkIsZeroForUnsizedRequests(t *testing.T) {
 		if work := ImageWork(event); work != 0 {
 			t.Fatalf("work = %v for %#v, want 0", work, event)
 		}
+	}
+}
+
+func recordTextRequest(store *Store, now time.Time, modelID string, inputTokens int64, outputTokens int64, durationMS int64, success bool) {
+	store.Record(Event{
+		ModelID:      modelID,
+		Section:      SectionLLM,
+		BackendMode:  "kobold",
+		Route:        "/v1/chat/completions",
+		EventType:    EventTypeRequest,
+		StatusCode:   200,
+		Success:      success,
+		StartedAt:    now.Add(-time.Duration(durationMS) * time.Millisecond),
+		FinishedAt:   now,
+		DurationMS:   durationMS,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+	})
+}
+
+// The coefficients are fitted from the SQL expression and then applied to a
+// recorded event's own numbers. If the two ever diverge, a prediction is made
+// in different units from the model that produced it, exactly the failure
+// TestImageWorkMatchesTheFitExpression guards against on the image lane.
+func TestTextWorkMatchesTheFitExpression(t *testing.T) {
+	store := newTestStore(t, "node-a")
+	now := time.Now().UTC()
+	cases := []struct {
+		input, output, duration int64
+	}{
+		{200, 50, 1000},
+		{800, 300, 4000},
+		{50, 20, 500},
+	}
+	var wantPrefill, wantDecode float64
+	for index, value := range cases {
+		prefill, decode, ok := TextWork(value.input, value.output)
+		if !ok {
+			t.Fatalf("TextWork rejected a positive case %+v", value)
+		}
+		wantPrefill += prefill
+		wantDecode += decode
+		recordTextRequest(store, now, "llama", value.input, value.output, value.duration+int64(index), true)
+	}
+
+	samples, err := store.TextCostSamples(context.Background(), 24*time.Hour, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 1 {
+		t.Fatalf("samples = %d, want 1", len(samples))
+	}
+	sample := samples[0]
+	if sample.Arity != 2 || sample.Section != SectionLLM {
+		t.Fatalf("unexpected sample shape %+v", sample)
+	}
+	if math.Abs(sample.SumWork[0]-wantPrefill) > wantPrefill*1e-12 {
+		t.Fatalf("sql prefill total = %v, go prefill total = %v", sample.SumWork[0], wantPrefill)
+	}
+	if math.Abs(sample.SumWork[1]-wantDecode) > wantDecode*1e-12 {
+		t.Fatalf("sql decode total = %v, go decode total = %v", sample.SumWork[1], wantDecode)
+	}
+}
+
+func TestTextCostSamplesExcludeUnsuccessfulAndTokenlessRows(t *testing.T) {
+	store := newTestStore(t, "node-a")
+	now := time.Now().UTC()
+	recordTextRequest(store, now, "llama", 200, 50, 1000, true)
+	recordTextRequest(store, now, "llama", 200, 50, 1000, false)
+	recordTextRequest(store, now, "llama", 0, 50, 1000, true)
+	recordTextRequest(store, now, "llama", 200, 0, 1000, true)
+
+	samples, err := store.TextCostSamples(context.Background(), 24*time.Hour, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 1 || samples[0].Count != 1 {
+		t.Fatalf("expected exactly the one qualifying row, got %+v", samples)
+	}
+}
+
+func TestTextCostSamplesAreScopedToTheLLMSection(t *testing.T) {
+	store := newTestStore(t, "node-a")
+	now := time.Now().UTC()
+	recordTextRequest(store, now, "llama", 200, 50, 1000, true)
+	recordImageRequest(store, now, "sdxl", 30, 1024, 1024, 1, 18000, true)
+
+	samples, err := store.TextCostSamples(context.Background(), 24*time.Hour, now.Add(time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 1 || samples[0].ModelID != "llama" {
+		t.Fatalf("image row leaked into the text fit: %+v", samples)
 	}
 }
 

@@ -188,6 +188,52 @@ type RoutingGroupRequest struct {
 	Members []RoutingGroupMember `json:"members"`
 }
 
+// TextRoutingGroupMember names one LLM model on one node. Kept distinct from
+// RoutingGroupMember because it addresses a model by its own id rather than an
+// image id, and because a model can be both an LLM and an image model with
+// independent group membership in each lane.
+type TextRoutingGroupMember struct {
+	NodeID  string `json:"node_id"`
+	ModelID string `json:"model_id"`
+}
+
+type TextRoutingGroup struct {
+	ID      string                   `json:"id"`
+	Members []TextRoutingGroupMember `json:"members"`
+}
+
+// TextRoutingGroupCandidate is an LLM model that could join the anchor's
+// group. ContextSize is surfaced because grouping models with different
+// windows is the one mistake the router cannot route around on its own: a
+// short-window member is simply skipped for a long request, and the operator
+// has to be able to see why. Eligible is false when the model fails the
+// text-group eligibility rules (concurrent serving, or no stated context
+// window) and IneligibleReason names which.
+type TextRoutingGroupCandidate struct {
+	NodeID           string `json:"node_id"`
+	ModelID          string `json:"model_id"`
+	Filename         string `json:"filename"`
+	ModelHash        string `json:"model_hash,omitempty"`
+	ConfigHash       string `json:"config_hash,omitempty"`
+	ContextSize      int    `json:"context_size"`
+	Multimodal       bool   `json:"multimodal"`
+	WeightsMatch     bool   `json:"weights_match"`
+	Selected         bool   `json:"selected"`
+	Eligible         bool   `json:"eligible"`
+	IneligibleReason string `json:"ineligible_reason,omitempty"`
+}
+
+type TextRoutingGroupsResponse struct {
+	Groups     []TextRoutingGroup          `json:"groups"`
+	Anchor     *TextRoutingGroupMember     `json:"anchor,omitempty"`
+	Candidates []TextRoutingGroupCandidate `json:"candidates,omitempty"`
+}
+
+type TextRoutingGroupRequest struct {
+	Anchor  TextRoutingGroupMember   `json:"anchor"`
+	Members []TextRoutingGroupMember `json:"members"`
+}
+
 type SeparateRuntimeSettings struct {
 	RunSeparate bool     `json:"run_separate"`
 	Triggers    []string `json:"triggers"`

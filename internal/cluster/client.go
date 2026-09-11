@@ -89,8 +89,20 @@ func (client *Client) FetchSnapshot(ctx context.Context, nodeURL string) (Snapsh
 	return snapshot, err
 }
 
-func (client *Client) Register(ctx context.Context, masterURL string, snapshot Snapshot) error {
-	return client.JSON(ctx, http.MethodPost, masterURL, "/router/v1/node/register", snapshot, nil)
+// RegisterResponse is what a master answers a registration with: not just
+// success, but the protocol floor it speaks, so a slave can tell a genuinely
+// incompatible master from one that merely rejected this attempt for some other
+// reason.
+type RegisterResponse struct {
+	OK                     bool `json:"ok"`
+	ProtocolVersion        int  `json:"protocol_version"`
+	MinimumProtocolVersion int  `json:"minimum_protocol_version"`
+}
+
+func (client *Client) Register(ctx context.Context, masterURL string, snapshot Snapshot) (RegisterResponse, error) {
+	var response RegisterResponse
+	err := client.JSON(ctx, http.MethodPost, masterURL, "/router/v1/node/register", snapshot, &response)
+	return response, err
 }
 
 func (client *Client) Load(ctx context.Context, nodeURL string, modelID string) error {

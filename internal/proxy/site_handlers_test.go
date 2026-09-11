@@ -92,7 +92,7 @@ func TestSplitRecipeRoutesTextAndImageToDifferentNodes(t *testing.T) {
 	}
 	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
 	for nodeID, nodeURL := range map[string]string{"text-node": textNode.URL, "image-node": imageNode.URL} {
-		if err := registry.UpdateNode(cluster.Snapshot{NodeID: nodeID, NodeURL: nodeURL}); err != nil {
+		if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: nodeID, NodeURL: nodeURL}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -151,7 +151,7 @@ func TestSiteCookRejectsNodeURLOverride(t *testing.T) {
 	defer slave.Close()
 
 	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
-	if err := registry.UpdateNode(cluster.Snapshot{
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion,
 		NodeID:  "slave-a",
 		NodeURL: slave.URL,
 	}); err != nil {
@@ -251,7 +251,7 @@ func TestSiteInventoryIncludesFilesFromRegisteredNodeWithoutModels(t *testing.T)
 	}))
 	defer remote.Close()
 	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master.invalid")
-	if err := registry.UpdateNode(cluster.Snapshot{NodeID: "files-only", NodeURL: remote.URL, Models: []cluster.Model{}}); err != nil {
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: "files-only", NodeURL: remote.URL, Models: []cluster.Model{}}); err != nil {
 		t.Fatal(err)
 	}
 	service := NewService(ServiceConfig{Catalog: catalog.New(t.TempDir()), Registry: registry, ClusterRole: cluster.RoleMaster, NodeID: "master", NodeURL: "http://master.invalid", ClusterToken: "secret", Logger: log.New(io.Discard, "", 0)})
@@ -320,7 +320,7 @@ func TestModelFileHashRoutesToOwningNode(t *testing.T) {
 	}))
 	defer remote.Close()
 	registry := cluster.NewRegistry(cluster.RoleMaster, "node-a", "http://node-a.invalid")
-	if err := registry.UpdateNode(cluster.Snapshot{NodeID: "node-b", NodeURL: remote.URL}); err != nil {
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: "node-b", NodeURL: remote.URL}); err != nil {
 		t.Fatal(err)
 	}
 	service := NewService(ServiceConfig{

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"tensors-router/internal/buildinfo"
 	"tensors-router/internal/catalog"
 )
 
@@ -62,6 +63,9 @@ func (registry *Registry) UpdateNode(snapshot Snapshot) error {
 		return fmt.Errorf("node_url is invalid: %w", err)
 	}
 	snapshot.NodeURL = normalizedURL
+	if err := CompatiblePeer(snapshot.ProtocolVersion); err != nil {
+		return NewIncompatibleProtocolError(fmt.Sprintf("node %q build %q: %v", snapshot.NodeID, snapshot.BuildVersion, err))
+	}
 
 	registry.mu.Lock()
 	defer registry.mu.Unlock()
@@ -123,9 +127,12 @@ func (registry *Registry) Snapshot() Snapshot {
 	defer registry.mu.Unlock()
 
 	return Snapshot{
-		NodeID:  registry.localID,
-		NodeURL: registry.localURL,
-		Models:  cloneModels(registry.local),
+		NodeID:                 registry.localID,
+		NodeURL:                registry.localURL,
+		Models:                 cloneModels(registry.local),
+		ProtocolVersion:        ProtocolVersion,
+		MinimumProtocolVersion: MinimumProtocolVersion,
+		BuildVersion:           buildinfo.Current().Version,
 	}
 }
 
@@ -285,14 +292,19 @@ func (registry *Registry) MusicModel(publicID string) (Model, bool) {
 	return Model{}, false
 }
 
-func (registry *Registry) Acquire(publicID string, localHealthy bool) (Route, func(), bool) {
+func (registry *Registry) Acquire(publicID string, localHealthy bool, hint RouteHint) (Route, func(), bool) {
 	registry.mu.Lock()
-	route, ok := registry.selectRouteLocked(publicID, registry.replicasLocked(publicID), localHealthy, RouteLaneText)
+	replicas := registry.replicasLocked(publicID)
+	groupID, replicas := registry.groupExpandedReplicasLocked(RouteLaneText, publicID, replicas, "")
+	route, ok := registry.selectGroupTextRouteLocked(groupID, replicas, localHealthy, hint)
+	if !ok {
+		route, ok = registry.selectRouteLocked(publicID, replicas, localHealthy, RouteLaneText)
+	}
 	if !ok {
 		registry.mu.Unlock()
 		return Route{}, func() {}, false
 	}
-	return registry.acquireRouteLocked(route)
+	return registry.acquireRouteLocked(withRequestedTextID(route, publicID))
 }
 
 func (registry *Registry) AcquireMCP(publicID string, localHealthy bool) (Route, func(), bool) {
@@ -337,7 +349,7 @@ func (registry *Registry) AcquireSpecificEmbedding(nodeID string, filename strin
 func (registry *Registry) AcquireImage(publicImageID string, localHealthy bool, activeConfigFilename string, hint RouteHint) (Route, func(), bool) {
 	registry.mu.Lock()
 	replicas := registry.imageReplicasLocked(publicImageID, activeConfigFilename)
-	groupID, replicas := registry.groupExpandedImageReplicasLocked(publicImageID, replicas, activeConfigFilename)
+	groupID, replicas := registry.groupExpandedReplicasLocked(RouteLaneImage, publicImageID, replicas, activeConfigFilename)
 	route, ok := registry.selectGroupImageRouteLocked(groupID, replicas, localHealthy, hint)
 	if !ok {
 		route, ok = registry.selectRouteLocked(publicImageID, replicas, localHealthy, RouteLaneImage)

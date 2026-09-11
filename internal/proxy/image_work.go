@@ -5,6 +5,7 @@ import (
 
 	routeranalytics "tensors-router/internal/analytics"
 	"tensors-router/internal/cluster"
+	"tensors-router/internal/schedulingcost"
 )
 
 // imageRouteHint prices the request before it is dispatched, reusing the same
@@ -19,5 +20,5 @@ func imageRouteHint(r *http.Request, body []byte) cluster.RouteHint {
 	}
 	event := routeranalytics.Event{Section: routeranalytics.SectionImage}
 	routeranalytics.ApplyRequest(&event, r.URL.Path, body, r.Header.Get("Content-Type"))
-	return cluster.RouteHint{Work: routeranalytics.ImageWork(event)}
+	return cluster.RouteHint{Work: schedulingcost.ImageWork(routeranalytics.ImageWork(event))}
 }
