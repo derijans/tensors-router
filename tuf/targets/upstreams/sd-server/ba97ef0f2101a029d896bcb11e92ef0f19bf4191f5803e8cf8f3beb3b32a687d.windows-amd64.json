@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "386606380",
+      "tag": "master-853-b68d586",
+      "published_at": "2026-09-10T20:34:53Z",
+      "payloads": [
+        {
+          "name": "sd-master-b68d586-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-853-b68d586/sd-master-b68d586-bin-win-cpu-x64.zip",
+          "length": 24182816,
+          "sha256": "824733ffc58e29a40f61c75ce7fb7e15a2fb05ab2031027b1d80a9e4430f29be"
+        }
+      ]
+    }
+  ]
+}

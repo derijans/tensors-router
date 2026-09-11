@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/ggml-org/llama.cpp",
+  "releases": [
+    {
+      "id": "386827946",
+      "tag": "b10903",
+      "published_at": "2026-09-11T06:33:01Z",
+      "prerelease": true,
+      "payloads": [
+        {
+          "name": "llama-b10903-bin-ubuntu-x64.tar.gz",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10903/llama-b10903-bin-ubuntu-x64.tar.gz",
+          "length": 16813495,
+          "sha256": "5366d9db6a3d22a8dfde0b5105d9f002438d309971594ffcb65b180d7cc3f592"
+        }
+      ]
+    }
+  ]
+}

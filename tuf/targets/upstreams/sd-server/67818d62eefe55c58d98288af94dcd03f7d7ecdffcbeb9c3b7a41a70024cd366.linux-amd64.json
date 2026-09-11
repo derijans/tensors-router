@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "386606380",
+      "tag": "master-853-b68d586",
+      "published_at": "2026-09-10T20:34:53Z",
+      "payloads": [
+        {
+          "name": "sd-master-b68d586-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-853-b68d586/sd-master-b68d586-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 33188284,
+          "sha256": "fcdd33158b241cb6ea1931dd83d2650512e98c9d806c589038be801d3a056928"
+        }
+      ]
+    }
+  ]
+}
