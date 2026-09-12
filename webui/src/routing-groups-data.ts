@@ -53,6 +53,10 @@ export function selectedCandidateKeys(candidates: RoutingGroupCandidate[]): Set<
   return new Set(candidates.filter(candidate => candidate.selected).map(candidate => candidateKey(candidate)));
 }
 
+export function restoreCandidateKeys(candidates: RoutingGroupCandidate[]): Set<string> {
+  return new Set(candidates.filter(candidate => candidate.restore_after_borrow).map(candidate => candidateKey(candidate)));
+}
+
 /**
  * A group of one has nowhere to offload to, so the button reports peers rather
  * than members: what the operator cares about is how many other nodes can help.
@@ -94,8 +98,12 @@ export function newlySelectedDifferentWeights(
   );
 }
 
-export function membersFromSelection(candidates: RoutingGroupCandidate[], selected: Set<string>): RoutingGroupMember[] {
+export function membersFromSelection(
+  candidates: RoutingGroupCandidate[],
+  selected: Set<string>,
+  restore: Set<string> = new Set()
+): RoutingGroupMember[] {
   return candidates
     .filter(candidate => selected.has(candidateKey(candidate)))
-    .map(candidate => memberFromCandidate(candidate));
+    .map(candidate => ({...memberFromCandidate(candidate), restore_after_borrow: restore.has(candidateKey(candidate))}));
 }

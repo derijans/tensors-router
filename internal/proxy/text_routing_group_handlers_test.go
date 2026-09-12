@@ -165,6 +165,32 @@ func TestSaveTextRoutingGroupRebuildsTheRegistrySource(t *testing.T) {
 	}
 }
 
+func TestSaveTextRoutingGroupPersistsRestoreAfterBorrowPerMember(t *testing.T) {
+	service := newTextRoutingGroupService(t)
+	body := `{"anchor":{"node_id":"master","model_id":"llama-70b"},"members":[` +
+		`{"node_id":"slave-a","model_id":"llama-70b-q8","restore_after_borrow":true},` +
+		`{"node_id":"slave-a","model_id":"mistral"}]}`
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/router/v1/site/text-routing-groups", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", recorder.Code, recorder.Body.String())
+	}
+
+	response := getTextRoutingGroups(t, service, "?node_id=master&model_id=llama-70b")
+	byModel := map[string]siteapi.TextRoutingGroupCandidate{}
+	for _, candidate := range response.Candidates {
+		byModel[candidate.ModelID] = candidate
+	}
+	if candidate, ok := byModel["llama-70b-q8"]; !ok || !candidate.RestoreAfterBorrow {
+		t.Fatalf("llama-70b-q8 = %+v, want restore_after_borrow true", candidate)
+	}
+	if candidate, ok := byModel["mistral"]; !ok || candidate.RestoreAfterBorrow {
+		t.Fatalf("mistral = %+v, want restore_after_borrow false", candidate)
+	}
+}
+
 func TestDeleteTextRoutingGroupClearsMembership(t *testing.T) {
 	service := newTextRoutingGroupService(t)
 	saveBody := `{"anchor":{"node_id":"master","model_id":"llama-70b"},"members":[{"node_id":"slave-a","model_id":"llama-70b-q8"}]}`

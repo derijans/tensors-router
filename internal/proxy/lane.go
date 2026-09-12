@@ -103,6 +103,7 @@ func (service *Service) acquireModelConfigForBackendModeWithOptions(mode string,
 	if err := service.ensureBackendFamily(ctx, mode); err != nil {
 		return nil, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
 	}
+	service.noteBorrowRestoreActivity(ctx, runtime, mode, configFilename, readiness)
 	if err := service.enforceUnloadPolicy(ctx, mode, configFilename, readiness); err != nil {
 		return nil, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
 	}

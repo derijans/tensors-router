@@ -842,6 +842,16 @@ func TestLoadExampleConfigParsesSchedulingKeys(t *testing.T) {
 	if cfg.Cluster.SchedulingGrantTTL != 30*time.Second {
 		t.Fatalf("grant ttl = %v, want 30s", cfg.Cluster.SchedulingGrantTTL)
 	}
+	if cfg.Cluster.OffloadRestoreDelay != 1500*time.Millisecond {
+		t.Fatalf("offload restore delay = %v, want 1.5s", cfg.Cluster.OffloadRestoreDelay)
+	}
+}
+
+func TestOffloadRestoreDelayDefaultsTo1500Milliseconds(t *testing.T) {
+	cfg := Defaults()
+	if cfg.Cluster.OffloadRestoreDelay != 1500*time.Millisecond {
+		t.Fatalf("offload restore delay = %v, want 1.5s", cfg.Cluster.OffloadRestoreDelay)
+	}
 }
 
 // The fit window has to stay inside the raw retention, because rollups keep totals
@@ -863,6 +873,7 @@ func TestSchedulingValuesAreValidated(t *testing.T) {
 		{"one sample floor", func(cfg *Config) { cfg.Cluster.SchedulingMinSamples = 1 }},
 		{"zero backend depth", func(cfg *Config) { cfg.Cluster.SchedulingBackendDepth = 0 }},
 		{"zero grant ttl", func(cfg *Config) { cfg.Cluster.SchedulingGrantTTL = 0 }},
+		{"zero offload restore delay", func(cfg *Config) { cfg.Cluster.OffloadRestoreDelay = 0 }},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			cfg := Defaults()

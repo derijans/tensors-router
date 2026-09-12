@@ -192,6 +192,36 @@ func (source *reachableCostSource) NodeBacklog(nodeID string, groupID string, la
 	return 0, schedulingcost.Work{}
 }
 
+func TestRoutingGroupSavesRestoreAfterBorrowPerMember(t *testing.T) {
+	service := newRoutingGroupService(t)
+
+	body := `{"anchor":{"node_id":"master","image_id":"sdxl"},"members":[` +
+		`{"node_id":"slave-a","image_id":"xl-jugg-q8","restore_after_borrow":true},` +
+		`{"node_id":"slave-a","image_id":"flux"}]}`
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/router/v1/site/routing-groups", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status %d body %s", recorder.Code, recorder.Body.String())
+	}
+
+	response := getRoutingGroups(t, service, "?node_id=master&image_id=sdxl")
+	if response.Anchor == nil || response.Anchor.RestoreAfterBorrow {
+		t.Fatalf("anchor = %+v, want restore_after_borrow false since it was not requested", response.Anchor)
+	}
+	byImage := map[string]siteapi.RoutingGroupCandidate{}
+	for _, candidate := range response.Candidates {
+		byImage[candidate.ImageID] = candidate
+	}
+	if candidate, ok := byImage["xl-jugg-q8"]; !ok || !candidate.RestoreAfterBorrow {
+		t.Fatalf("xl-jugg-q8 = %+v, want restore_after_borrow true", candidate)
+	}
+	if candidate, ok := byImage["flux"]; !ok || candidate.RestoreAfterBorrow {
+		t.Fatalf("flux = %+v, want restore_after_borrow false", candidate)
+	}
+}
+
 func TestRoutingGroupDelete(t *testing.T) {
 	service := newRoutingGroupService(t)
 	body := `{"anchor":{"node_id":"master","image_id":"sdxl"},"members":[{"node_id":"slave-a","image_id":"xl-jugg-q8"}]}`

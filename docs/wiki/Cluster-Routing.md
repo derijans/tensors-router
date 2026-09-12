@@ -60,6 +60,24 @@ to be priced, controlled by `cluster.scheduling_min_samples` and
 the group, which is what builds the history the remaining members are missing. A
 node is never scheduled on a guess.
 
+### Reloading the model borrowed work displaced
+
+Serving a borrowed request loads the group's model on the helper, which evicts
+whatever that helper already had loaded (usually the helper's own model, which
+is normally not itself a member of the group). Nothing restores that on its own:
+the helper keeps serving the group's model until its own next request pays the
+switch cost again.
+
+A routing group member can be marked to restore after borrow. When it is, the
+helper that served borrowed work through that member reloads the model it held
+before, once `cluster.offload_restore_delay` (default `1.5s`) passes with no
+further borrowed work arriving on either lane and the node has none of its own
+work running. A native request arriving first cancels the pending restore
+instead of competing with it, and a run of consecutive borrowed requests
+restores whatever was loaded before the run started, not an intermediate model.
+The flag lives on the member, not the group, since only some members may be
+worth restoring for.
+
 ### Grouping models that are not identical
 
 A group asserts that its members are interchangeable. The router cannot verify

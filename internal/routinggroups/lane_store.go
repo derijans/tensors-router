@@ -18,8 +18,9 @@ var imageLaneTables = laneTables{groups: "routing_groups", members: "routing_gro
 var textLaneTables = laneTables{groups: "routing_text_groups", members: "routing_text_group_members", memberColumn: "model_id"}
 
 type laneMember struct {
-	NodeID  string
-	ModelID string
+	NodeID             string
+	ModelID            string
+	RestoreAfterBorrow bool
 }
 
 type laneGroup struct {
@@ -55,7 +56,7 @@ func (store *Store) laneGroups(ctx context.Context, tables laneTables) ([]laneGr
 	if store == nil {
 		return nil, nil
 	}
-	query := fmt.Sprintf(`SELECT group_id, node_id, %s FROM %s ORDER BY group_id, node_id, %s`, tables.memberColumn, tables.members, tables.memberColumn)
+	query := fmt.Sprintf(`SELECT group_id, node_id, %s, restore_after_borrow FROM %s ORDER BY group_id, node_id, %s`, tables.memberColumn, tables.members, tables.memberColumn)
 	rows, err := store.reader.QueryContext(ctx, query)
 	if err != nil {
 		return nil, err
@@ -66,9 +67,11 @@ func (store *Store) laneGroups(ctx context.Context, tables laneTables) ([]laneGr
 	for rows.Next() {
 		var groupID string
 		var member laneMember
-		if err := rows.Scan(&groupID, &member.NodeID, &member.ModelID); err != nil {
+		var restoreAfterBorrow int
+		if err := rows.Scan(&groupID, &member.NodeID, &member.ModelID, &restoreAfterBorrow); err != nil {
 			return nil, err
 		}
+		member.RestoreAfterBorrow = restoreAfterBorrow != 0
 		if _, seen := byID[groupID]; !seen {
 			order = append(order, groupID)
 		}
@@ -92,7 +95,7 @@ func (store *Store) setLaneGroup(ctx context.Context, tables laneTables, anchor 
 	if anchor.NodeID == "" || anchor.ModelID == "" {
 		return laneGroup{}, fmt.Errorf("anchor node_id and %s are required", tables.memberColumn)
 	}
-	wanted := dedupeLaneMembers(append([]laneMember{anchor}, members...))
+	wanted := dedupeLaneMembersFirstWins(append([]laneMember{anchor}, members...))
 
 	transaction, err := store.writer.BeginTx(ctx, nil)
 	if err != nil {
@@ -121,11 +124,11 @@ func (store *Store) setLaneGroup(ctx context.Context, tables laneTables, anchor 
 		return laneGroup{}, err
 	}
 	insertMember := fmt.Sprintf(
-		`INSERT INTO %s(node_id, %s, group_id) VALUES (?, ?, ?)
-		 ON CONFLICT(node_id, %s) DO UPDATE SET group_id = excluded.group_id`,
+		`INSERT INTO %s(node_id, %s, group_id, restore_after_borrow) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(node_id, %s) DO UPDATE SET group_id = excluded.group_id, restore_after_borrow = excluded.restore_after_borrow`,
 		tables.members, tables.memberColumn, tables.memberColumn)
 	for _, member := range wanted {
-		if _, err := transaction.ExecContext(ctx, insertMember, member.NodeID, member.ModelID, groupID); err != nil {
+		if _, err := transaction.ExecContext(ctx, insertMember, member.NodeID, member.ModelID, groupID, restoreAfterBorrowColumn(member.RestoreAfterBorrow)); err != nil {
 			return laneGroup{}, err
 		}
 	}
@@ -139,7 +142,7 @@ func (store *Store) setLaneGroup(ctx context.Context, tables laneTables, anchor 
 }
 
 func (store *Store) laneMembersOf(ctx context.Context, tables laneTables, groupID string) ([]laneMember, error) {
-	query := fmt.Sprintf(`SELECT node_id, %s FROM %s WHERE group_id = ? ORDER BY node_id, %s`, tables.memberColumn, tables.members, tables.memberColumn)
+	query := fmt.Sprintf(`SELECT node_id, %s, restore_after_borrow FROM %s WHERE group_id = ? ORDER BY node_id, %s`, tables.memberColumn, tables.members, tables.memberColumn)
 	rows, err := store.reader.QueryContext(ctx, query, groupID)
 	if err != nil {
 		return nil, err
@@ -148,12 +151,21 @@ func (store *Store) laneMembersOf(ctx context.Context, tables laneTables, groupI
 	var members []laneMember
 	for rows.Next() {
 		var member laneMember
-		if err := rows.Scan(&member.NodeID, &member.ModelID); err != nil {
+		var restoreAfterBorrow int
+		if err := rows.Scan(&member.NodeID, &member.ModelID, &restoreAfterBorrow); err != nil {
 			return nil, err
 		}
+		member.RestoreAfterBorrow = restoreAfterBorrow != 0
 		members = append(members, member)
 	}
 	return members, rows.Err()
+}
+
+func restoreAfterBorrowColumn(value bool) int {
+	if value {
+		return 1
+	}
+	return 0
 }
 
 func laneGroupIDForAnchor(ctx context.Context, transaction *sql.Tx, tables laneTables, anchor laneMember) (string, error) {
@@ -182,22 +194,37 @@ func deleteUndersizedLaneGroups(ctx context.Context, transaction *sql.Tx, tables
 }
 
 func normalizeLaneMember(member laneMember) laneMember {
-	return laneMember{NodeID: strings.TrimSpace(member.NodeID), ModelID: strings.TrimSpace(member.ModelID)}
+	return laneMember{
+		NodeID:             strings.TrimSpace(member.NodeID),
+		ModelID:            strings.TrimSpace(member.ModelID),
+		RestoreAfterBorrow: member.RestoreAfterBorrow,
+	}
 }
 
-func dedupeLaneMembers(members []laneMember) []laneMember {
-	seen := map[laneMember]struct{}{}
-	result := make([]laneMember, 0, len(members))
+type laneMemberKey struct {
+	NodeID  string
+	ModelID string
+}
+
+// setLaneGroup prepends the anchor, so its RestoreAfterBorrow survives a duplicate.
+func dedupeLaneMembersFirstWins(members []laneMember) []laneMember {
+	byKey := map[laneMemberKey]laneMember{}
+	var order []laneMemberKey
 	for _, member := range members {
 		member = normalizeLaneMember(member)
 		if member.NodeID == "" || member.ModelID == "" {
 			continue
 		}
-		if _, duplicate := seen[member]; duplicate {
+		key := laneMemberKey{NodeID: member.NodeID, ModelID: member.ModelID}
+		if _, duplicate := byKey[key]; duplicate {
 			continue
 		}
-		seen[member] = struct{}{}
-		result = append(result, member)
+		order = append(order, key)
+		byKey[key] = member
+	}
+	result := make([]laneMember, 0, len(order))
+	for _, key := range order {
+		result = append(result, byKey[key])
 	}
 	sort.Slice(result, func(left, right int) bool {
 		if result[left].NodeID != result[right].NodeID {

@@ -13,7 +13,7 @@ var _ routerstore.Module = SchemaModule{}
 
 func (SchemaModule) Name() string { return "routinggroups" }
 
-func (SchemaModule) Version() int { return 2 }
+func (SchemaModule) Version() int { return 3 }
 
 func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 	statements := []string{
@@ -46,6 +46,12 @@ func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 		if _, err := db.ExecContext(ctx, statement); err != nil {
 			return err
 		}
+	}
+	if err := addColumnIfMissing(ctx, db, "routing_group_members", "restore_after_borrow", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := addColumnIfMissing(ctx, db, "routing_text_group_members", "restore_after_borrow", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
 	}
 	return nil
 }

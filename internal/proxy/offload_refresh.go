@@ -31,7 +31,7 @@ func (service *Service) refreshOffloadPlan(ctx context.Context) {
 	for _, group := range imageGroups {
 		members := make([]laneGroupMember, 0, len(group.Members))
 		for _, member := range group.Members {
-			members = append(members, laneGroupMember{NodeID: member.NodeID, ModelID: member.ImageID})
+			members = append(members, laneGroupMember{NodeID: member.NodeID, ModelID: member.ImageID, RestoreAfterBorrow: member.RestoreAfterBorrow})
 		}
 		candidates := service.offloadCandidatesForLane(cluster.RouteLaneImage, group.ID, members, statuses)
 		planned = append(planned, planOffloadLeases(cluster.RouteLaneImage, group.ID, candidates, costs, now, service.schedulingGrantTTL)...)
@@ -45,7 +45,7 @@ func (service *Service) refreshOffloadPlan(ctx context.Context) {
 	for _, group := range textGroups {
 		members := make([]laneGroupMember, 0, len(group.Members))
 		for _, member := range group.Members {
-			members = append(members, laneGroupMember{NodeID: member.NodeID, ModelID: member.ModelID})
+			members = append(members, laneGroupMember{NodeID: member.NodeID, ModelID: member.ModelID, RestoreAfterBorrow: member.RestoreAfterBorrow})
 		}
 		candidates := service.offloadCandidatesForLane(cluster.RouteLaneText, group.ID, members, statuses)
 		planned = append(planned, planOffloadLeases(cluster.RouteLaneText, group.ID, candidates, costs, now, service.schedulingGrantTTL)...)
@@ -83,8 +83,9 @@ func (service *Service) applyClusterCosts(statuses map[string]NodeRuntimeStatus)
 }
 
 type laneGroupMember struct {
-	NodeID  string
-	ModelID string
+	NodeID             string
+	ModelID            string
+	RestoreAfterBorrow bool
 }
 
 func laneGroupStatsFor(status NodeRuntimeStatus, lane string, groupID string) offloadGroupStats {
@@ -132,14 +133,15 @@ func (service *Service) offloadCandidatesForLane(lane string, groupID string, me
 		}
 		stats := laneGroupStatsFor(status, lane, groupID)
 		candidate := offloadCandidate{
-			NodeID:         member.NodeID,
-			ModelID:        member.ModelID,
-			ConfigFilename: model.Filename,
-			Section:        laneSection(lane),
-			PendingCount:   stats.PendingCount,
-			PendingWork:    stats.PendingWork,
-			BacklogCount:   stats.BacklogCount,
-			BacklogWork:    stats.BacklogWork,
+			NodeID:             member.NodeID,
+			ModelID:            member.ModelID,
+			ConfigFilename:     model.Filename,
+			Section:            laneSection(lane),
+			RestoreAfterBorrow: member.RestoreAfterBorrow,
+			PendingCount:       stats.PendingCount,
+			PendingWork:        stats.PendingWork,
+			BacklogCount:       stats.BacklogCount,
+			BacklogWork:        stats.BacklogWork,
 		}
 		if lane == cluster.RouteLaneText {
 			candidate.Loaded = status.ActiveTextConfig == model.Filename

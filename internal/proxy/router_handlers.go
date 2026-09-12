@@ -373,8 +373,13 @@ func (service *Service) handleNodeInference(w http.ResponseWriter, r *http.Reque
 	forwarded.Header.Del("Authorization")
 	borrowed := strings.TrimSpace(forwarded.Header.Get(offloadMarkerHeader)) != ""
 	forwarded.Header.Del(offloadMarkerHeader)
+	restoreRequested := strings.TrimSpace(forwarded.Header.Get(offloadRestoreHeader)) != ""
+	forwarded.Header.Del(offloadRestoreHeader)
 	if borrowed {
 		forwarded = markBorrowedRequest(forwarded)
+		if restoreRequested {
+			forwarded = markBorrowRestoreRequested(forwarded)
+		}
 	}
 	service.ServeHTTP(w, forwarded)
 }

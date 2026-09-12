@@ -9,8 +9,9 @@ import (
 // operator and are not required to share a name, a config hash, or even a
 // checkpoint with each other.
 type Member struct {
-	NodeID  string `json:"node_id"`
-	ImageID string `json:"image_id"`
+	NodeID             string `json:"node_id"`
+	ImageID            string `json:"image_id"`
+	RestoreAfterBorrow bool   `json:"restore_after_borrow"`
 }
 
 type Group struct {
@@ -58,7 +59,7 @@ func (store *Store) DeleteGroup(ctx context.Context, member Member) error {
 }
 
 func memberToLane(member Member) laneMember {
-	return laneMember{NodeID: member.NodeID, ModelID: member.ImageID}
+	return laneMember{NodeID: member.NodeID, ModelID: member.ImageID, RestoreAfterBorrow: member.RestoreAfterBorrow}
 }
 
 func membersToLane(members []Member) []laneMember {
@@ -75,7 +76,7 @@ func groupFromLane(group laneGroup) Group {
 	}
 	members := make([]Member, 0, len(group.Members))
 	for _, member := range group.Members {
-		members = append(members, Member{NodeID: member.NodeID, ImageID: member.ModelID})
+		members = append(members, Member{NodeID: member.NodeID, ImageID: member.ModelID, RestoreAfterBorrow: member.RestoreAfterBorrow})
 	}
 	return Group{ID: group.ID, Members: members}
 }

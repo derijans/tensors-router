@@ -172,6 +172,44 @@ func TestSetGroupRejectsABlankAnchor(t *testing.T) {
 	}
 }
 
+func memberByImageID(members []Member, imageID string) (Member, bool) {
+	for _, member := range members {
+		if member.ImageID == imageID {
+			return member, true
+		}
+	}
+	return Member{}, false
+}
+
+func TestSetGroupRoundTripsRestoreAfterBorrowPerMember(t *testing.T) {
+	store := newTestStore(t)
+	ctx := context.Background()
+
+	restoreB := memberB()
+	restoreB.RestoreAfterBorrow = true
+	saved, err := store.SetGroup(ctx, anchorA(), []Member{restoreB, memberC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if member, found := memberByImageID(saved.Members, memberB().ImageID); !found || !member.RestoreAfterBorrow {
+		t.Fatalf("memberB = %+v, want restore_after_borrow true", member)
+	}
+	if member, found := memberByImageID(saved.Members, memberC().ImageID); !found || member.RestoreAfterBorrow {
+		t.Fatalf("memberC = %+v, want restore_after_borrow false", member)
+	}
+	if member, found := memberByImageID(saved.Members, anchorA().ImageID); !found || member.RestoreAfterBorrow {
+		t.Fatalf("anchor = %+v, want restore_after_borrow false since it was not requested", member)
+	}
+
+	regrouped, err := store.SetGroup(ctx, anchorA(), []Member{restoreB, memberC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if member, found := memberByImageID(regrouped.Members, memberB().ImageID); !found || !member.RestoreAfterBorrow {
+		t.Fatalf("memberB after regroup = %+v, want restore_after_borrow to still be true", member)
+	}
+}
+
 func TestGroupsSurviveReopeningTheStore(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "analytics.sqlite")
 	handle := routerstoretest.OpenAt(t, path, SchemaModule{})

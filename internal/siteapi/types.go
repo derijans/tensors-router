@@ -153,8 +153,9 @@ type InventoryResponse struct {
 // RoutingGroupMember names one image model on one node. Members are declared by
 // an operator, not derived from hashes, so they need not share a name or a config.
 type RoutingGroupMember struct {
-	NodeID  string `json:"node_id"`
-	ImageID string `json:"image_id"`
+	NodeID             string `json:"node_id"`
+	ImageID            string `json:"image_id"`
+	RestoreAfterBorrow bool   `json:"restore_after_borrow"`
 }
 
 type RoutingGroup struct {
@@ -168,13 +169,14 @@ type RoutingGroup struct {
 // requests for the anchor with genuinely different images, and the router has no
 // way to detect that, so the UI has to say so before it is chosen.
 type RoutingGroupCandidate struct {
-	NodeID       string `json:"node_id"`
-	ImageID      string `json:"image_id"`
-	Filename     string `json:"filename"`
-	ModelHash    string `json:"model_hash,omitempty"`
-	ConfigHash   string `json:"config_hash,omitempty"`
-	WeightsMatch bool   `json:"weights_match"`
-	Selected     bool   `json:"selected"`
+	NodeID             string `json:"node_id"`
+	ImageID            string `json:"image_id"`
+	Filename           string `json:"filename"`
+	ModelHash          string `json:"model_hash,omitempty"`
+	ConfigHash         string `json:"config_hash,omitempty"`
+	WeightsMatch       bool   `json:"weights_match"`
+	Selected           bool   `json:"selected"`
+	RestoreAfterBorrow bool   `json:"restore_after_borrow"`
 }
 
 type RoutingGroupsResponse struct {
@@ -189,8 +191,9 @@ type RoutingGroupRequest struct {
 }
 
 type TextRoutingGroupMember struct {
-	NodeID  string `json:"node_id"`
-	ModelID string `json:"model_id"`
+	NodeID             string `json:"node_id"`
+	ModelID            string `json:"model_id"`
+	RestoreAfterBorrow bool   `json:"restore_after_borrow"`
 }
 
 type TextRoutingGroup struct {
@@ -199,17 +202,18 @@ type TextRoutingGroup struct {
 }
 
 type TextRoutingGroupCandidate struct {
-	NodeID           string `json:"node_id"`
-	ModelID          string `json:"model_id"`
-	Filename         string `json:"filename"`
-	ModelHash        string `json:"model_hash,omitempty"`
-	ConfigHash       string `json:"config_hash,omitempty"`
-	ContextSize      int    `json:"context_size"`
-	Multimodal       bool   `json:"multimodal"`
-	WeightsMatch     bool   `json:"weights_match"`
-	Selected         bool   `json:"selected"`
-	Eligible         bool   `json:"eligible"`
-	IneligibleReason string `json:"ineligible_reason,omitempty"`
+	NodeID             string `json:"node_id"`
+	ModelID            string `json:"model_id"`
+	Filename           string `json:"filename"`
+	ModelHash          string `json:"model_hash,omitempty"`
+	ConfigHash         string `json:"config_hash,omitempty"`
+	ContextSize        int    `json:"context_size"`
+	Multimodal         bool   `json:"multimodal"`
+	WeightsMatch       bool   `json:"weights_match"`
+	Selected           bool   `json:"selected"`
+	Eligible           bool   `json:"eligible"`
+	IneligibleReason   string `json:"ineligible_reason,omitempty"`
+	RestoreAfterBorrow bool   `json:"restore_after_borrow"`
 }
 
 type TextRoutingGroupsResponse struct {

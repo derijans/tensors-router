@@ -112,6 +112,7 @@ type ServiceConfig struct {
 	SchedulingRefreshInterval time.Duration
 	SchedulingGrantTTL        time.Duration
 	SchedulingContextReserve  int
+	OffloadRestoreDelay       time.Duration
 	LoadCaptureStore          *loadcapture.Store
 	LoadCaptureMaxOutputBytes int64
 	LoadErrorStore            *loaderrors.Store
@@ -190,6 +191,8 @@ type Service struct {
 	schedulingRefreshInterval time.Duration
 	schedulingGrantTTL        time.Duration
 	schedulingContextReserve  int
+	offloadRestoreDelay       time.Duration
+	borrowRestore             sync.Map
 	textQueue                 *offloadQueue
 	loadCaptureStore          *loadcapture.Store
 	loadCaptureMaxOutputBytes int64
@@ -443,6 +446,7 @@ func NewService(config ServiceConfig) *Service {
 		schedulingRefreshInterval: config.SchedulingRefreshInterval,
 		schedulingGrantTTL:        config.SchedulingGrantTTL,
 		schedulingContextReserve:  config.SchedulingContextReserve,
+		offloadRestoreDelay:       config.OffloadRestoreDelay,
 		loadCaptureStore:          config.LoadCaptureStore,
 		loadCaptureMaxOutputBytes: config.LoadCaptureMaxOutputBytes,
 		loadErrorStore:            config.LoadErrorStore,
@@ -522,6 +526,9 @@ func (service *Service) applySchedulingDefaults() {
 	}
 	if service.schedulingContextReserve <= 0 {
 		service.schedulingContextReserve = 256
+	}
+	if service.offloadRestoreDelay <= 0 {
+		service.offloadRestoreDelay = defaultOffloadRestoreDelay
 	}
 }
 

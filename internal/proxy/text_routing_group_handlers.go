@@ -51,17 +51,25 @@ func (service *Service) writeTextRoutingGroups(w http.ResponseWriter, r *http.Re
 	}
 	response.Anchor = &anchor
 
-	selected := map[siteapi.TextRoutingGroupMember]bool{}
+	existing := map[textRoutingMemberKey]routinggroups.TextMember{}
 	if group, found, err := service.routingGroups.TextGroup(r.Context(), routinggroups.TextMember{NodeID: anchor.NodeID, ModelID: anchor.ModelID}); err == nil && found {
 		for _, member := range group.Members {
-			selected[siteapi.TextRoutingGroupMember{NodeID: member.NodeID, ModelID: member.ModelID}] = true
+			existing[textRoutingMemberKey{NodeID: member.NodeID, ModelID: member.ModelID}] = member
 		}
 	}
-	response.Candidates = service.textRoutingGroupCandidates(anchor, selected)
+	response.Candidates = service.textRoutingGroupCandidates(anchor, existing)
+	if member, found := existing[textRoutingMemberKey{NodeID: anchor.NodeID, ModelID: anchor.ModelID}]; found {
+		response.Anchor.RestoreAfterBorrow = member.RestoreAfterBorrow
+	}
 	openai.WriteJSON(w, http.StatusOK, response)
 }
 
-func (service *Service) textRoutingGroupCandidates(anchor siteapi.TextRoutingGroupMember, selected map[siteapi.TextRoutingGroupMember]bool) []siteapi.TextRoutingGroupCandidate {
+type textRoutingMemberKey struct {
+	NodeID  string
+	ModelID string
+}
+
+func (service *Service) textRoutingGroupCandidates(anchor siteapi.TextRoutingGroupMember, existing map[textRoutingMemberKey]routinggroups.TextMember) []siteapi.TextRoutingGroupCandidate {
 	if service.registry == nil {
 		return nil
 	}
@@ -85,19 +93,21 @@ func (service *Service) textRoutingGroupCandidates(anchor siteapi.TextRoutingGro
 			continue
 		}
 		eligible, reason := textCandidateEligibility(model, anchorMultimodal)
-		member := siteapi.TextRoutingGroupMember{NodeID: model.NodeID, ModelID: model.LocalID}
+		key := textRoutingMemberKey{NodeID: model.NodeID, ModelID: model.LocalID}
+		member, selected := existing[key]
 		candidates = append(candidates, siteapi.TextRoutingGroupCandidate{
-			NodeID:           model.NodeID,
-			ModelID:          model.LocalID,
-			Filename:         model.Filename,
-			ModelHash:        model.ModelHash,
-			ConfigHash:       model.ConfigHash,
-			ContextSize:      model.Capabilities.Context,
-			Multimodal:       model.HasMultimodal,
-			WeightsMatch:     anchorHash != "" && model.ModelHash == anchorHash,
-			Selected:         selected[member],
-			Eligible:         eligible,
-			IneligibleReason: reason,
+			NodeID:             model.NodeID,
+			ModelID:            model.LocalID,
+			Filename:           model.Filename,
+			ModelHash:          model.ModelHash,
+			ConfigHash:         model.ConfigHash,
+			ContextSize:        model.Capabilities.Context,
+			Multimodal:         model.HasMultimodal,
+			WeightsMatch:       anchorHash != "" && model.ModelHash == anchorHash,
+			Selected:           selected,
+			Eligible:           eligible,
+			IneligibleReason:   reason,
+			RestoreAfterBorrow: member.RestoreAfterBorrow,
 		})
 	}
 	sort.Slice(candidates, func(left, right int) bool {
@@ -150,10 +160,10 @@ func (service *Service) saveTextRoutingGroup(w http.ResponseWriter, r *http.Requ
 	}
 	members := make([]routinggroups.TextMember, 0, len(request.Members))
 	for _, member := range request.Members {
-		members = append(members, routinggroups.TextMember{NodeID: member.NodeID, ModelID: member.ModelID})
+		members = append(members, routinggroups.TextMember{NodeID: member.NodeID, ModelID: member.ModelID, RestoreAfterBorrow: member.RestoreAfterBorrow})
 	}
 	group, err := service.routingGroups.SetTextGroup(r.Context(),
-		routinggroups.TextMember{NodeID: request.Anchor.NodeID, ModelID: request.Anchor.ModelID}, members)
+		routinggroups.TextMember{NodeID: request.Anchor.NodeID, ModelID: request.Anchor.ModelID, RestoreAfterBorrow: request.Anchor.RestoreAfterBorrow}, members)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
@@ -203,7 +213,7 @@ func siteTextRoutingGroups(groups []routinggroups.TextGroup) []siteapi.TextRouti
 func siteTextRoutingGroup(group routinggroups.TextGroup) siteapi.TextRoutingGroup {
 	members := make([]siteapi.TextRoutingGroupMember, 0, len(group.Members))
 	for _, member := range group.Members {
-		members = append(members, siteapi.TextRoutingGroupMember{NodeID: member.NodeID, ModelID: member.ModelID})
+		members = append(members, siteapi.TextRoutingGroupMember{NodeID: member.NodeID, ModelID: member.ModelID, RestoreAfterBorrow: member.RestoreAfterBorrow})
 	}
 	return siteapi.TextRoutingGroup{ID: group.ID, Members: members}
 }

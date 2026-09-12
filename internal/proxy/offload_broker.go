@@ -8,26 +8,28 @@ import (
 )
 
 type offloadCandidate struct {
-	NodeID            string
-	ModelID           string
-	ConfigFilename    string
-	Section           string
-	Loaded            bool
-	AcceptingBorrowed bool
-	ContextCapacity   int
-	PendingCount      int64
-	PendingWork       schedulingcost.Work
-	PendingContext    int64
-	BacklogCount      int64
-	BacklogWork       schedulingcost.Work
+	NodeID             string
+	ModelID            string
+	ConfigFilename     string
+	Section            string
+	Loaded             bool
+	AcceptingBorrowed  bool
+	RestoreAfterBorrow bool
+	ContextCapacity    int
+	PendingCount       int64
+	PendingWork        schedulingcost.Work
+	PendingContext     int64
+	BacklogCount       int64
+	BacklogWork        schedulingcost.Work
 }
 
 type offloadLease struct {
-	Lane         string    `json:"lane"`
-	GroupID      string    `json:"group_id"`
-	OwnerNodeID  string    `json:"owner_node_id"`
-	HelperNodeID string    `json:"helper_node_id"`
-	ExpiresAt    time.Time `json:"expires_at"`
+	Lane               string    `json:"lane"`
+	GroupID            string    `json:"group_id"`
+	OwnerNodeID        string    `json:"owner_node_id"`
+	HelperNodeID       string    `json:"helper_node_id"`
+	RestoreHelperModel bool      `json:"restore_helper_model"`
+	ExpiresAt          time.Time `json:"expires_at"`
 }
 
 func backlogKey(lane string, groupID string) string {
@@ -75,11 +77,12 @@ func planOffloadLeases(lane string, groupID string, candidates []offloadCandidat
 		}
 		claimed[helper.NodeID] = true
 		leases = append(leases, offloadLease{
-			Lane:         lane,
-			GroupID:      groupID,
-			OwnerNodeID:  owner.NodeID,
-			HelperNodeID: helper.NodeID,
-			ExpiresAt:    now.Add(ttl),
+			Lane:               lane,
+			GroupID:            groupID,
+			OwnerNodeID:        owner.NodeID,
+			HelperNodeID:       helper.NodeID,
+			RestoreHelperModel: helper.RestoreAfterBorrow,
+			ExpiresAt:          now.Add(ttl),
 		})
 	}
 	return leases

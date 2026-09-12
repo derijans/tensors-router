@@ -3,8 +3,9 @@ package routinggroups
 import "context"
 
 type TextMember struct {
-	NodeID  string `json:"node_id"`
-	ModelID string `json:"model_id"`
+	NodeID             string `json:"node_id"`
+	ModelID            string `json:"model_id"`
+	RestoreAfterBorrow bool   `json:"restore_after_borrow"`
 }
 
 type TextGroup struct {
@@ -43,7 +44,7 @@ func (store *Store) DeleteTextGroup(ctx context.Context, member TextMember) erro
 }
 
 func textMemberToLane(member TextMember) laneMember {
-	return laneMember{NodeID: member.NodeID, ModelID: member.ModelID}
+	return laneMember{NodeID: member.NodeID, ModelID: member.ModelID, RestoreAfterBorrow: member.RestoreAfterBorrow}
 }
 
 func textMembersToLane(members []TextMember) []laneMember {
@@ -60,7 +61,7 @@ func textGroupFromLane(group laneGroup) TextGroup {
 	}
 	members := make([]TextMember, 0, len(group.Members))
 	for _, member := range group.Members {
-		members = append(members, TextMember{NodeID: member.NodeID, ModelID: member.ModelID})
+		members = append(members, TextMember{NodeID: member.NodeID, ModelID: member.ModelID, RestoreAfterBorrow: member.RestoreAfterBorrow})
 	}
 	return TextGroup{ID: group.ID, Members: members}
 }

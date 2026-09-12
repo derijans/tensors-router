@@ -5,6 +5,7 @@ import {
   groupCandidatesByNode,
   membersFromSelection,
   newlySelectedDifferentWeights,
+  restoreCandidateKeys,
   selectedCandidateKeys
 } from "./routing-groups-data";
 import type { RoutingGroupCandidate, RoutingGroupMember } from "./types";
@@ -14,6 +15,7 @@ interface DialogSession {
   anchor: RoutingGroupMember;
   candidates: RoutingGroupCandidate[];
   selected: Set<string>;
+  restore: Set<string>;
   acknowledged: boolean;
 }
 
@@ -34,6 +36,16 @@ export function registerRoutingGroupDialog(refreshInventory: () => Promise<void>
       renderRoutingDialog();
       return;
     }
+    const restoreKey = target.dataset.routingRestore;
+    if (restoreKey !== undefined) {
+      if (target.checked) {
+        session.restore.add(restoreKey);
+      } else {
+        session.restore.delete(restoreKey);
+      }
+      renderRoutingDialog();
+      return;
+    }
     const key = target.dataset.routingCandidate;
     if (key === undefined) {
       return;
@@ -42,6 +54,7 @@ export function registerRoutingGroupDialog(refreshInventory: () => Promise<void>
       session.selected.add(key);
     } else {
       session.selected.delete(key);
+      session.restore.delete(key);
     }
     session.acknowledged = false;
     renderRoutingDialog();
@@ -65,9 +78,10 @@ export async function openRoutingGroupDialog(anchor: RoutingGroupMember): Promis
   const response = await fetchRoutingGroups(anchor);
   const candidates = response.candidates ?? [];
   session = {
-    anchor,
+    anchor: response.anchor ?? anchor,
     candidates,
     selected: selectedCandidateKeys(candidates),
+    restore: restoreCandidateKeys(candidates),
     acknowledged: false
   };
   renderRoutingDialog();
@@ -85,7 +99,7 @@ async function submitRoutingGroup(refreshInventory: () => Promise<void>): Promis
   if (!session) {
     return;
   }
-  const members = membersFromSelection(session.candidates, session.selected);
+  const members = membersFromSelection(session.candidates, session.selected, session.restore);
   setRoutingStatus("Saving routing group…", false);
   try {
     if (members.length === 0) {
@@ -130,23 +144,30 @@ function candidateMarkup(current: DialogSession): string {
   }
   return groupCandidatesByNode(current.candidates)
     .map(group => {
-      const rows = group.candidates.map(candidate => candidateRow(candidate, current.selected)).join("");
+      const rows = group.candidates.map(candidate => candidateRow(candidate, current.selected, current.restore)).join("");
       return `<div class="routing-node"><h3>${escapeHTML(group.nodeId)}</h3>${rows}</div>`;
     })
     .join("");
 }
 
-function candidateRow(candidate: RoutingGroupCandidate, selected: Set<string>): string {
+function candidateRow(candidate: RoutingGroupCandidate, selected: Set<string>, restore: Set<string>): string {
   const key = candidateKey(candidate);
+  const isSelected = selected.has(key);
   const badge = candidate.weights_match
     ? `<span class="routing-badge routing-badge-same">same weights</span>`
     : `<span class="routing-badge routing-badge-different">different weights</span>`;
   return `
-    <label class="routing-candidate">
-      <input type="checkbox" data-routing-candidate="${escapeAttribute(key)}"${selected.has(key) ? " checked" : ""}>
-      <span class="routing-candidate-name">${escapeHTML(candidate.image_id)}<span>${escapeHTML(candidate.filename)}</span></span>
-      ${badge}
-    </label>
+    <div class="routing-candidate-row">
+      <label class="routing-candidate">
+        <input type="checkbox" data-routing-candidate="${escapeAttribute(key)}"${isSelected ? " checked" : ""}>
+        <span class="routing-candidate-name">${escapeHTML(candidate.image_id)}<span>${escapeHTML(candidate.filename)}</span></span>
+        ${badge}
+      </label>
+      <label class="routing-candidate-restore">
+        <input type="checkbox" data-routing-restore="${escapeAttribute(key)}"${restore.has(key) ? " checked" : ""}${isSelected ? "" : " disabled"}>
+        <span>Reload the displaced model once borrowed work goes quiet</span>
+      </label>
+    </div>
   `;
 }
 

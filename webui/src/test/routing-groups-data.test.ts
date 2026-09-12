@@ -5,6 +5,7 @@ import {
   membersFromSelection,
   newlySelectedDifferentWeights,
   peerCountForModel,
+  restoreCandidateKeys,
   routingButtonLabel,
   selectedCandidateKeys,
   splitCandidatesByWeights
@@ -123,15 +124,40 @@ describe("newlySelectedDifferentWeights", () => {
   });
 });
 
+describe("selectedCandidateKeys / restoreCandidateKeys", () => {
+  it("seeds the restore selection from what is already saved, independently of membership", () => {
+    const restore = restoreCandidateKeys([
+      candidate({image_id: "a1", restore_after_borrow: true}),
+      candidate({image_id: "a2", restore_after_borrow: false})
+    ]);
+
+    expect([...restore]).toEqual([candidateKey({node_id: "slave-a", image_id: "a1"})]);
+  });
+});
+
 describe("membersFromSelection", () => {
   it("keeps only the ticked candidates", () => {
     const candidates = [candidate({image_id: "a1"}), candidate({image_id: "a2"})];
     const selected = new Set([candidateKey({node_id: "slave-a", image_id: "a2"})]);
 
-    expect(membersFromSelection(candidates, selected)).toEqual([{node_id: "slave-a", image_id: "a2"}]);
+    expect(membersFromSelection(candidates, selected)).toEqual([{node_id: "slave-a", image_id: "a2", restore_after_borrow: false}]);
   });
 
   it("returns nothing when the operator clears the group", () => {
     expect(membersFromSelection([candidate()], new Set())).toEqual([]);
+  });
+
+  it("emits restore_after_borrow only for ticked members, dropping it for unticked ones", () => {
+    const candidates = [candidate({image_id: "a1"}), candidate({image_id: "a2"})];
+    const selected = new Set([
+      candidateKey({node_id: "slave-a", image_id: "a1"}),
+      candidateKey({node_id: "slave-a", image_id: "a2"})
+    ]);
+    const restore = new Set([candidateKey({node_id: "slave-a", image_id: "a1"})]);
+
+    expect(membersFromSelection(candidates, selected, restore)).toEqual([
+      {node_id: "slave-a", image_id: "a1", restore_after_borrow: true},
+      {node_id: "slave-a", image_id: "a2", restore_after_borrow: false}
+    ]);
   });
 });

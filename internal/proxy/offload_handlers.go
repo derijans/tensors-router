@@ -22,11 +22,12 @@ func offloadLaneFromHeader(value string) string {
 }
 
 const (
-	offloadMarkerHeader = "X-Tensors-Offload"
-	offloadGroupHeader  = "X-Tensors-Offload-Group"
-	offloadOwnerHeader  = "X-Tensors-Offload-Owner"
-	offloadPathHeader   = "X-Tensors-Offload-Path"
-	offloadLaneHeader   = "X-Tensors-Offload-Lane"
+	offloadMarkerHeader  = "X-Tensors-Offload"
+	offloadGroupHeader   = "X-Tensors-Offload-Group"
+	offloadOwnerHeader   = "X-Tensors-Offload-Owner"
+	offloadPathHeader    = "X-Tensors-Offload-Path"
+	offloadLaneHeader    = "X-Tensors-Offload-Lane"
+	offloadRestoreHeader = "X-Tensors-Offload-Restore"
 
 	offloadReturnedCode = "offload_returned"
 )
@@ -42,9 +43,14 @@ func markBorrowedRequest(r *http.Request) *http.Request {
 }
 
 func requestIsBorrowed(r *http.Request) bool {
-	borrowed, _ := r.Context().Value(offloadContextKey{}).(bool)
-	return borrowed
+	return contextIsBorrowed(r.Context())
 }
+
+func markBorrowRestoreRequested(r *http.Request) *http.Request {
+	return r.WithContext(context.WithValue(r.Context(), offloadRestoreContextKey{}, true))
+}
+
+type offloadRestoreContextKey struct{}
 
 // handleNodeOffloadGrant receives a slot lease from the master. The owner keeps it
 // until it expires; nothing revokes it.
@@ -90,7 +96,7 @@ func (service *Service) handleNodeOffloadRequest(w http.ResponseWriter, r *http.
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
-	response, err := service.forwardBorrowedRequest(r.Context(), nodeURL, path, r, body)
+	response, err := service.forwardBorrowedRequest(r.Context(), nodeURL, path, r, body, lease.RestoreHelperModel)
 	if err != nil {
 		openai.WriteError(w, http.StatusConflict, offloadReturnedCode, err.Error())
 		return
@@ -101,7 +107,7 @@ func (service *Service) handleNodeOffloadRequest(w http.ResponseWriter, r *http.
 	_, _ = io.Copy(w, response.Body)
 }
 
-func (service *Service) forwardBorrowedRequest(ctx context.Context, nodeURL string, path string, original *http.Request, body []byte) (*http.Response, error) {
+func (service *Service) forwardBorrowedRequest(ctx context.Context, nodeURL string, path string, original *http.Request, body []byte, restoreHelperModel bool) (*http.Response, error) {
 	base, err := service.clusterClient.AuthorizedBaseURL(nodeURL)
 	if err != nil {
 		return nil, err
@@ -120,6 +126,9 @@ func (service *Service) forwardBorrowedRequest(ctx context.Context, nodeURL stri
 	copyClusterRequestHeaders(request.Header, original.Header)
 	request.Header.Set("Authorization", "Bearer "+service.clusterToken)
 	request.Header.Set(offloadMarkerHeader, "1")
+	if restoreHelperModel {
+		request.Header.Set(offloadRestoreHeader, "1")
+	}
 	request.Host = target.Host
 	return service.client.Do(request)
 }

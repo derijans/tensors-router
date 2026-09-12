@@ -325,6 +325,7 @@ export interface Model {
 export interface RoutingGroupMember {
   node_id: string;
   image_id: string;
+  restore_after_borrow?: boolean;
 }
 
 export interface RoutingGroup {
@@ -340,6 +341,7 @@ export interface RoutingGroupCandidate {
   config_hash?: string;
   weights_match: boolean;
   selected: boolean;
+  restore_after_borrow?: boolean;
 }
 
 export interface RoutingGroupsResponse {

@@ -320,6 +320,7 @@ func runServe(args []string) error {
 		SchedulingRefreshInterval: cfg.Cluster.SchedulingRefreshInterval,
 		SchedulingGrantTTL:        cfg.Cluster.SchedulingGrantTTL,
 		SchedulingContextReserve:  cfg.Cluster.SchedulingContextReserve,
+		OffloadRestoreDelay:       cfg.Cluster.OffloadRestoreDelay,
 		AnalyticsStore:            analyticsStore,
 		LoadCaptureStore:          loadCaptureStore,
 		LoadErrorStore:            loadErrorStore,

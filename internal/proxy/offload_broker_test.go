@@ -104,6 +104,40 @@ func textCandidateWithContextWindow(nodeID string, pendingCount int64, loaded bo
 // The idle node has to load the model first. With a deep backlog on the owner
 // that load is still worth paying, because it amortises over every job that then
 // flows through the slot.
+func TestLeaseCarriesTheHelperMembersRestoreFlag(t *testing.T) {
+	costs := costTableFor(t,
+		map[string]float64{"node-a": 8000, "node-b": 8000},
+		map[string]float64{"node-b": 19000})
+	now := time.Now()
+
+	helper := candidate("node-b", 0, false)
+	helper.RestoreAfterBorrow = true
+	leases := planOffloadLeases(cluster.RouteLaneImage, "group", []offloadCandidate{
+		candidate("node-a", 16, true),
+		helper,
+	}, costs, now, 30*time.Second)
+
+	if len(leases) != 1 || !leases[0].RestoreHelperModel {
+		t.Fatalf("leases = %+v, want RestoreHelperModel true from the helper's own flag", leases)
+	}
+}
+
+func TestLeaseOmitsRestoreWhenTheHelperMemberDidNotRequestIt(t *testing.T) {
+	costs := costTableFor(t,
+		map[string]float64{"node-a": 8000, "node-b": 8000},
+		map[string]float64{"node-b": 19000})
+	now := time.Now()
+
+	leases := planOffloadLeases(cluster.RouteLaneImage, "group", []offloadCandidate{
+		candidate("node-a", 16, true),
+		candidate("node-b", 0, false),
+	}, costs, now, 30*time.Second)
+
+	if len(leases) != 1 || leases[0].RestoreHelperModel {
+		t.Fatalf("leases = %+v, want RestoreHelperModel false when unticked", leases)
+	}
+}
+
 func TestLeaseIsGrantedWhenTheLoadFitsUnderTheBacklog(t *testing.T) {
 	costs := costTableFor(t,
 		map[string]float64{"node-a": 8000, "node-b": 8000},

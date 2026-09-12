@@ -52,21 +52,29 @@ func (service *Service) writeRoutingGroups(w http.ResponseWriter, r *http.Reques
 	}
 	response.Anchor = &anchor
 
-	selected := map[siteapi.RoutingGroupMember]bool{}
+	existing := map[routingMemberKey]routinggroups.Member{}
 	if group, found, err := service.routingGroups.Group(r.Context(), routinggroups.Member{NodeID: anchor.NodeID, ImageID: anchor.ImageID}); err == nil && found {
 		for _, member := range group.Members {
-			selected[siteapi.RoutingGroupMember{NodeID: member.NodeID, ImageID: member.ImageID}] = true
+			existing[routingMemberKey{NodeID: member.NodeID, ImageID: member.ImageID}] = member
 		}
 	}
-	response.Candidates = service.routingGroupCandidates(anchor, selected)
+	response.Candidates = service.routingGroupCandidates(anchor, existing)
+	if member, found := existing[routingMemberKey{NodeID: anchor.NodeID, ImageID: anchor.ImageID}]; found {
+		response.Anchor.RestoreAfterBorrow = member.RestoreAfterBorrow
+	}
 	openai.WriteJSON(w, http.StatusOK, response)
+}
+
+type routingMemberKey struct {
+	NodeID  string
+	ImageID string
 }
 
 // routingGroupCandidates lists every image model on another node. It deliberately
 // does not filter by name or by config hash: the whole point is to let an operator
 // group the same checkpoint that two nodes configured differently, which is
 // exactly the case those filters would exclude.
-func (service *Service) routingGroupCandidates(anchor siteapi.RoutingGroupMember, selected map[siteapi.RoutingGroupMember]bool) []siteapi.RoutingGroupCandidate {
+func (service *Service) routingGroupCandidates(anchor siteapi.RoutingGroupMember, existing map[routingMemberKey]routinggroups.Member) []siteapi.RoutingGroupCandidate {
 	if service.registry == nil {
 		return nil
 	}
@@ -90,15 +98,17 @@ func (service *Service) routingGroupCandidates(anchor siteapi.RoutingGroupMember
 		if model.NodeID == anchor.NodeID {
 			continue
 		}
-		member := siteapi.RoutingGroupMember{NodeID: model.NodeID, ImageID: model.ImageID}
+		key := routingMemberKey{NodeID: model.NodeID, ImageID: model.ImageID}
+		member, selected := existing[key]
 		candidates = append(candidates, siteapi.RoutingGroupCandidate{
-			NodeID:       model.NodeID,
-			ImageID:      model.ImageID,
-			Filename:     model.Filename,
-			ModelHash:    model.ModelHash,
-			ConfigHash:   model.ConfigHash,
-			WeightsMatch: anchorHash != "" && model.ModelHash == anchorHash,
-			Selected:     selected[member],
+			NodeID:             model.NodeID,
+			ImageID:            model.ImageID,
+			Filename:           model.Filename,
+			ModelHash:          model.ModelHash,
+			ConfigHash:         model.ConfigHash,
+			WeightsMatch:       anchorHash != "" && model.ModelHash == anchorHash,
+			Selected:           selected,
+			RestoreAfterBorrow: member.RestoreAfterBorrow,
 		})
 	}
 	sort.Slice(candidates, func(left, right int) bool {
@@ -122,10 +132,10 @@ func (service *Service) saveRoutingGroup(w http.ResponseWriter, r *http.Request)
 	}
 	members := make([]routinggroups.Member, 0, len(request.Members))
 	for _, member := range request.Members {
-		members = append(members, routinggroups.Member{NodeID: member.NodeID, ImageID: member.ImageID})
+		members = append(members, routinggroups.Member{NodeID: member.NodeID, ImageID: member.ImageID, RestoreAfterBorrow: member.RestoreAfterBorrow})
 	}
 	group, err := service.routingGroups.SetGroup(r.Context(),
-		routinggroups.Member{NodeID: request.Anchor.NodeID, ImageID: request.Anchor.ImageID}, members)
+		routinggroups.Member{NodeID: request.Anchor.NodeID, ImageID: request.Anchor.ImageID, RestoreAfterBorrow: request.Anchor.RestoreAfterBorrow}, members)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
@@ -166,7 +176,7 @@ func siteRoutingGroups(groups []routinggroups.Group) []siteapi.RoutingGroup {
 func siteRoutingGroup(group routinggroups.Group) siteapi.RoutingGroup {
 	members := make([]siteapi.RoutingGroupMember, 0, len(group.Members))
 	for _, member := range group.Members {
-		members = append(members, siteapi.RoutingGroupMember{NodeID: member.NodeID, ImageID: member.ImageID})
+		members = append(members, siteapi.RoutingGroupMember{NodeID: member.NodeID, ImageID: member.ImageID, RestoreAfterBorrow: member.RestoreAfterBorrow})
 	}
 	return siteapi.RoutingGroup{ID: group.ID, Members: members}
 }

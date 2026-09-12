@@ -3,7 +3,6 @@ package proxy
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -22,21 +21,8 @@ type cookNodeFacts struct {
 	models      []cluster.Model
 }
 
-type cookValidationError struct {
-	message string
-	issues  []cook.ValidationIssue
-}
-
-func (err cookValidationError) Error() string {
-	return err.message
-}
-
 func validationIssues(err error) ([]cook.ValidationIssue, bool) {
-	var validation cookValidationError
-	if errors.As(err, &validation) {
-		return validation.issues, true
-	}
-	return nil, false
+	return cook.IssuesFromError(err)
 }
 
 func (service *Service) validateCookGroups(ctx context.Context, groups []cookGroup, options cook.Options) ([]cook.ValidationIssue, error) {
@@ -63,7 +49,7 @@ func (service *Service) validateCookGroups(ctx context.Context, groups []cookGro
 		issues = append(issues, validateUnknownGPUCount(group, fact, groupOptions)...)
 	}
 	if hasValidationErrors(issues) {
-		return issues, cookValidationError{message: validationMessage(issues), issues: issues}
+		return issues, cook.ValidationError{Issues: issues}
 	}
 	return issues, nil
 }
@@ -430,19 +416,6 @@ func hasValidationErrors(issues []cook.ValidationIssue) bool {
 		}
 	}
 	return false
-}
-
-func validationMessage(issues []cook.ValidationIssue) string {
-	messages := make([]string, 0)
-	for _, issue := range issues {
-		if issue.Severity == "error" {
-			messages = append(messages, issue.Message)
-		}
-	}
-	if len(messages) == 0 {
-		return "validation failed"
-	}
-	return strings.Join(messages, "; ")
 }
 
 func observedOptions(nodes []siteapi.NodeInventory, models []cluster.Model) []cook.OptionDefinition {

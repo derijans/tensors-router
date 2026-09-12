@@ -184,6 +184,10 @@ cluster:
   scheduling_min_samples: 20
   scheduling_backend_depth: 2
   scheduling_grant_ttl: "30s"
+  # If a routing group member is marked to restore after borrow, the node that
+  # served borrowed work on that member reloads whatever model it held before,
+  # once offload_restore_delay passes with no further borrowed work arriving.
+  offload_restore_delay: "1.5s"
   # Text routing groups reuse every key above. A .kcpps that sets parallel or
   # vllm.settings.max_number_sequences above 1 serves requests concurrently and
   # cannot join a text group at all, which is what keeps one backend depth

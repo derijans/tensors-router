@@ -211,6 +211,7 @@ type ClusterConfig struct {
 	SchedulingBackendDepth    int
 	SchedulingGrantTTL        time.Duration
 	SchedulingContextReserve  int
+	OffloadRestoreDelay       time.Duration
 }
 
 type AnalyticsConfig struct {
@@ -343,6 +344,7 @@ func Defaults() Config {
 			SchedulingBackendDepth:    2,
 			SchedulingGrantTTL:        30 * time.Second,
 			SchedulingContextReserve:  256,
+			OffloadRestoreDelay:       1500 * time.Millisecond,
 		},
 		Analytics: AnalyticsConfig{
 			Enabled:                false,
@@ -567,6 +569,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Cluster.SchedulingContextReserve < 0 {
 		return fmt.Errorf("cluster.scheduling_context_reserve must not be negative")
+	}
+	if cfg.Cluster.OffloadRestoreDelay <= 0 {
+		return fmt.Errorf("cluster.offload_restore_delay must be positive")
 	}
 	if cfg.Analytics.FlushInterval <= 0 {
 		return fmt.Errorf("analytics.flush_interval must be positive")
@@ -1478,6 +1483,13 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 				return err
 			}
 			cfg.Cluster.SchedulingContextReserve = parsed
+			return nil
+		case "offload_restore_delay":
+			parsed, err := time.ParseDuration(value)
+			if err != nil {
+				return err
+			}
+			cfg.Cluster.OffloadRestoreDelay = parsed
 			return nil
 		}
 	case "analytics":
