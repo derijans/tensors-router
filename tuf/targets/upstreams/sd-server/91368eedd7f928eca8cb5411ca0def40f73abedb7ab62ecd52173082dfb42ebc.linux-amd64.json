@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "387320995",
+      "tag": "master-859-7f410a3",
+      "published_at": "2026-09-11T20:38:03Z",
+      "payloads": [
+        {
+          "name": "sd-master-7f410a3-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-859-7f410a3/sd-master-7f410a3-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 33224779,
+          "sha256": "3f3e1a6b57a2e4d184aa9ea9ab916272ea92b4b79d5af667cad89d0a3edc2bc7"
+        }
+      ]
+    }
+  ]
+}

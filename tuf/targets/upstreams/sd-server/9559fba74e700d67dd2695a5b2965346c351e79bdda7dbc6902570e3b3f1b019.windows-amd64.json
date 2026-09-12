@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "387320995",
+      "tag": "master-859-7f410a3",
+      "published_at": "2026-09-11T20:38:03Z",
+      "payloads": [
+        {
+          "name": "sd-master-7f410a3-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-859-7f410a3/sd-master-7f410a3-bin-win-cpu-x64.zip",
+          "length": 24207083,
+          "sha256": "38c58cd603e39f91a63fb4c854db4af19c6a15b642d3982ab3c5b336b05c1855"
+        }
+      ]
+    }
+  ]
+}
