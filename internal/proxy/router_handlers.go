@@ -738,7 +738,7 @@ func (service *Service) acquireRegistryModelControlRoute(ctx context.Context, pu
 	case readinessTranscription:
 		return service.registry.AcquireVoice(publicID, healthy)
 	default:
-		return service.registry.Acquire(publicID, healthy, cluster.RouteHint{})
+		return service.registry.Acquire(publicID, healthy, cluster.UnsizedRouteHint())
 	}
 }
 

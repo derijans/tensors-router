@@ -16,7 +16,7 @@ import (
 // cost ordering entirely and takes the existing rotation.
 func imageRouteHint(r *http.Request, body []byte) cluster.RouteHint {
 	if len(body) == 0 {
-		return cluster.RouteHint{}
+		return cluster.UnsizedRouteHint()
 	}
 	event := routeranalytics.Event{Section: routeranalytics.SectionImage}
 	routeranalytics.ApplyRequest(&event, r.URL.Path, body, r.Header.Get("Content-Type"))

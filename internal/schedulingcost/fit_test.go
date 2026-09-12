@@ -59,10 +59,6 @@ func TestFitRecoversKnownCoefficients(t *testing.T) {
 	}
 }
 
-// TestArityOneFitMatchesTheClosedForm is what makes "image is the degenerate
-// case of the general solver" a verified claim rather than a hope: the general
-// normal-equation solve, on a single-regressor sample, must reproduce the
-// closed-form OLS coefficients bit-for-bit within floating point tolerance.
 func TestArityOneFitMatchesTheClosedForm(t *testing.T) {
 	sample := sampleFromPoints(linearPoints(1234.5, 0.0000789, imageWorks(50)))
 	estimate, ok := Fit(sample, 20)
@@ -194,8 +190,6 @@ func TestFitAcceptsRealisticImageWorkSpread(t *testing.T) {
 	}
 }
 
-// textSampleFromPoints builds a two-term sample from (prefill, decode,
-// duration) triples, mirroring sampleFromPoints for the text lane.
 func textSampleFromPoints(points [][3]float64) Sample {
 	sample := Sample{NodeID: "node-a", ModelID: "llama", Section: "llm", Arity: 2}
 	for _, point := range points {
@@ -214,9 +208,6 @@ func textSampleFromPoints(points [][3]float64) Sample {
 	return sample
 }
 
-// textPointsIndependent generates synthetic (prefill, decode, duration) rows
-// from known coefficients with prefill and decode varied independently of one
-// another, which is what a real two-term fit needs to separate the slopes.
 func textPointsIndependent(base, prefillSlope, decodeSlope float64, n int) [][3]float64 {
 	points := make([][3]float64, 0, n)
 	for index := 0; index < n; index++ {

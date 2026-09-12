@@ -18,6 +18,10 @@ import (
 	"tensors-router/internal/recipes"
 )
 
+func borrowedRequestMustStayOnThisNode(r *http.Request, route cluster.Route) bool {
+	return requestIsBorrowed(r) && route.Remote
+}
+
 func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string) {
 	hint := service.textRouteHint(service.nodeID, publicID, int64(len(body)), body)
 	model, route, release, ok := service.acquireRegistryModelRoute(r, publicID, hint)
@@ -25,12 +29,7 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("model %q has no available replicas", publicID))
 		return
 	}
-	// A borrowed request must never be forwarded again: it already arrived at
-	// the node the master leased for it. Group selection has no notion of
-	// "already borrowed" and can still pick a remote member, so a remote
-	// route here is handled like native work arriving on a pending entry:
-	// handed back, never chased.
-	if requestIsBorrowed(r) && route.Remote {
+	if borrowedRequestMustStayOnThisNode(r, route) {
 		release()
 		writeOffloadReturned(w)
 		return
@@ -38,14 +37,7 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 	service.handleAcquiredRegistryModelRequest(w, r, body, publicID, model, route, release, false, hint)
 }
 
-// handleAcquiredRegistryModelRequest's hint parameter is the same one
-// acquireRegistryModelRoute priced the route with — recomputed here it could
-// key the token profile against a different (node, model) than selection
-// actually used, and the queue's requiredContext would then disagree with
-// what the gate accepted. A caller with no hint of its own (the vLLM
-// responses tracking path, which pre-acquires its own route) passes the zero
-// value, which already means "unpriced" throughout this package.
-func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string, model cluster.Model, route cluster.Route, release func(), insertModel bool, hint cluster.RouteHint) {
+func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string, model cluster.Model, route cluster.Route, release func(), insertModel bool, pricedHint cluster.RouteHint) {
 	defer release()
 	modelBackendMode, backendModeErr := service.clusterModelBackendMode(model)
 	if backendModeErr != nil {
@@ -99,43 +91,13 @@ func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter
 			}
 		}
 
-		// A grouped text model queues in the router instead of going straight to
-		// the backend, which is what keeps its backlog recallable and lendable.
-		// Embeddings never reach this branch's queue: they have no decode phase
-		// and are not part of any text routing group.
 		if !isEmbeddingsPath(r.URL.Path) {
-			if groupID, grouped := service.textGroupID(route.NodeID, route.LocalID); grouped {
-				admission, queueErr := service.enterTextQueue(r.Context(), groupID, hint.Work, int64(hint.RequiredContext), requestIsStreaming(body), requestIsBorrowed(r))
-				if queueErr != nil {
-					openai.WriteError(w, http.StatusBadGateway, "backend_error", queueErr.Error())
-					return
-				}
-				switch {
-				case admission.returned:
-					writeOffloadReturned(w)
-					return
-				case admission.offload:
-					handled := false
-					if helper, found := service.leasedHelperMember(cluster.RouteLaneText, groupID, route.NodeID, route.LocalID); found &&
-						service.leasedHelperContextFits(helper, admission.entry.requiredContext) {
-						forwardedBody := rewriteRequestModel(requestBody, helper.ModelID)
-						handled = service.forwardOffloadedTextRequest(w, r, r, forwardedBody, groupID, publicID, release)
-					}
-					if handled {
-						return
-					}
-					// The helper could not take it after all — either it refused, or its
-					// context window cannot hold this specific entry even though it fit
-					// the group's mean — so this node runs it.
-					requeued := service.textQueue.Requeue(groupID, hint.Work, int64(hint.RequiredContext), time.Now())
-					if outcome, waitErr := service.textQueue.Await(r.Context(), requeued); waitErr != nil || outcome != offloadAdmitted {
-						openai.WriteError(w, http.StatusBadGateway, "backend_error", "returned request could not be re-queued")
-						return
-					}
-					defer service.completeTextQueueEntry(groupID, requeued)
-				default:
-					defer service.completeTextQueueEntry(groupID, admission.entry)
-				}
+			complete, handled := service.serveTextThroughGroupQueue(w, r, body, requestBody, publicID, route, pricedHint, release)
+			if handled {
+				return
+			}
+			if complete != nil {
+				defer complete()
 			}
 		}
 
@@ -174,6 +136,41 @@ func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter
 
 	if err := service.writeModelProxyResponse(w, response, publicID, true); err != nil {
 		return
+	}
+}
+
+func (service *Service) serveTextThroughGroupQueue(w http.ResponseWriter, r *http.Request, body []byte, requestBody []byte, publicID string, route cluster.Route, pricedHint cluster.RouteHint, release func()) (complete func(), handled bool) {
+	groupID, grouped := service.textGroupID(route.NodeID, route.LocalID)
+	if !grouped {
+		return nil, false
+	}
+	admission, queueErr := service.enterTextQueue(r.Context(), groupID, pricedHint.Work, int64(pricedHint.RequiredContext), requestIsStreaming(body), requestIsBorrowed(r))
+	if queueErr != nil {
+		openai.WriteError(w, http.StatusBadGateway, "backend_error", queueErr.Error())
+		return nil, true
+	}
+	switch admission.outcome {
+	case offloadReturned:
+		writeOffloadReturned(w)
+		return nil, true
+	case offloadWithdrawn:
+		handled := false
+		if helper, found := service.leasedHelperMember(cluster.RouteLaneText, groupID, route.NodeID, route.LocalID); found &&
+			service.leasedHelperContextFits(helper, admission.entry.requiredContext) {
+			forwardedBody := rewriteRequestModel(requestBody, helper.ModelID)
+			handled = service.forwardOffloadedTextRequest(w, r, r, forwardedBody, groupID, publicID, release)
+		}
+		if handled {
+			return nil, true
+		}
+		requeued := service.textQueue.Requeue(groupID, pricedHint.Work, int64(pricedHint.RequiredContext), time.Now())
+		if outcome, waitErr := service.textQueue.Await(r.Context(), requeued); waitErr != nil || outcome != offloadAdmitted {
+			openai.WriteError(w, http.StatusBadGateway, "backend_error", "returned request could not be re-queued")
+			return nil, true
+		}
+		return func() { service.completeTextQueueEntry(groupID, requeued) }, false
+	default:
+		return func() { service.completeTextQueueEntry(groupID, admission.entry) }, false
 	}
 }
 
@@ -259,12 +256,12 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 				openai.WriteError(w, http.StatusBadGateway, "backend_error", queueErr.Error())
 				return true
 			}
-			switch {
-			case admission.returned:
+			switch admission.outcome {
+			case offloadReturned:
 				release()
 				writeOffloadReturned(w)
 				return true
-			case admission.offload:
+			case offloadWithdrawn:
 				handled := service.forwardOffloadedImageRequest(w, r, request, requestBody, groupID, publicImageID, release)
 				if handled {
 					return true

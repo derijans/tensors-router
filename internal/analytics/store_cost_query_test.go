@@ -261,10 +261,6 @@ func recordTextRequest(store *Store, now time.Time, modelID string, inputTokens 
 	})
 }
 
-// The coefficients are fitted from the SQL expression and then applied to a
-// recorded event's own numbers. If the two ever diverge, a prediction is made
-// in different units from the model that produced it, exactly the failure
-// TestImageWorkMatchesTheFitExpression guards against on the image lane.
 func TestTextWorkMatchesTheFitExpression(t *testing.T) {
 	store := newTestStore(t, "node-a")
 	now := time.Now().UTC()

@@ -14,10 +14,7 @@ import (
 	"tensors-router/internal/openai"
 )
 
-// normalizedOffloadLane defends the lease lookup against a missing or unknown
-// header value by falling back to the image lane, which is what every build
-// before the text lane existed always meant.
-func normalizedOffloadLane(value string) string {
+func offloadLaneFromHeader(value string) string {
 	if strings.TrimSpace(value) == cluster.RouteLaneText {
 		return cluster.RouteLaneText
 	}
@@ -73,7 +70,7 @@ func (service *Service) handleNodeOffloadRequest(w http.ResponseWriter, r *http.
 	groupID := strings.TrimSpace(r.Header.Get(offloadGroupHeader))
 	ownerNodeID := strings.TrimSpace(r.Header.Get(offloadOwnerHeader))
 	path := strings.TrimSpace(r.Header.Get(offloadPathHeader))
-	lane := normalizedOffloadLane(r.Header.Get(offloadLaneHeader))
+	lane := offloadLaneFromHeader(r.Header.Get(offloadLaneHeader))
 	if groupID == "" || ownerNodeID == "" || !isLocalInferencePath(path) {
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "offload group, owner, and path are required")
 		return

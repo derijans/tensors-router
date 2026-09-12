@@ -43,10 +43,6 @@ func TestTokenProfileRejectsImplausibleRatio(t *testing.T) {
 	}
 }
 
-// TestConservativeRatioWidensWithMeasuredVariance pins that the safety margin
-// is the model's own measured spread, not a configured percent: two profiles
-// with the same mean ratio but different spread must produce different,
-// correctly-ordered estimates.
 func TestConservativeRatioWidensWithMeasuredVariance(t *testing.T) {
 	stableRatios := make([]float64, 30)
 	stableOutputs := make([]float64, 30)

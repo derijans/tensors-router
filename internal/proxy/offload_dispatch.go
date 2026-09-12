@@ -10,14 +10,9 @@ import (
 	"tensors-router/internal/schedulingcost"
 )
 
-// queueAdmission is the outcome of waiting for a turn at the local backend.
-// Exactly one of its fields is meaningful, matching the three ways a queued
-// request can leave the queue.
 type queueAdmission struct {
-	entry    *offloadEntry
-	admitted bool
-	offload  bool
-	returned bool
+	entry   *offloadEntry
+	outcome offloadOutcome
 }
 
 func (service *Service) queueForLane(lane string) *offloadQueue {
@@ -27,9 +22,6 @@ func (service *Service) queueForLane(lane string) *offloadQueue {
 	return service.imageQueue
 }
 
-// groupIDForLane reports the routing group a locally served request belongs to
-// in the given lane. A model in no group is not queued at all and behaves
-// exactly as before.
 func (service *Service) groupIDForLane(lane string, nodeID string, modelID string) (string, bool) {
 	if service.registry == nil || service.queueForLane(lane) == nil {
 		return "", false
@@ -49,46 +41,39 @@ func (service *Service) textGroupID(nodeID string, modelID string) (string, bool
 	return service.groupIDForLane(cluster.RouteLaneText, nodeID, modelID)
 }
 
-// enterQueue holds the request until the backend has room, or until it is
-// taken back to be lent to a peer, or until this node has to hand it back
-// because work of its own arrived. nodeIdle is read fresh here, immediately
-// before the request tries to land, rather than from the last published
-// status, so a native request that arrived a moment ago on any runtime — not
-// only this lane's queue — is never raced past.
 func (service *Service) enterQueue(ctx context.Context, lane string, groupID string, work schedulingcost.Work, requiredContext int64, pinned bool, borrowed bool) (queueAdmission, error) {
+	origin := nativeRequest
+	if borrowed {
+		origin = borrowedFromPeer
+	}
+	withdrawal := withdrawable
+	if pinned {
+		withdrawal = pinnedToThisNode
+	}
 	queue := service.queueForLane(lane)
-	entry := queue.Enqueue(groupID, work, requiredContext, borrowed, pinned, service.idleForBorrowedWork(), time.Now())
+	entry := queue.Enqueue(queuedRequest{
+		groupID:         groupID,
+		work:            work,
+		requiredContext: requiredContext,
+		origin:          origin,
+		withdrawal:      withdrawal,
+	}, service.nodeActivity(), time.Now())
 	service.maybeOffload(lane, groupID)
 	outcome, err := queue.Await(ctx, entry)
 	if err != nil {
 		return queueAdmission{}, err
 	}
-	switch outcome {
-	case offloadAdmitted:
-		return queueAdmission{entry: entry, admitted: true}, nil
-	case offloadWithdrawn:
-		return queueAdmission{entry: entry, offload: true}, nil
-	default:
-		return queueAdmission{entry: entry, returned: true}, nil
-	}
+	return queueAdmission{entry: entry, outcome: outcome}, nil
 }
 
 func (service *Service) enterImageQueue(ctx context.Context, groupID string, work schedulingcost.Work, borrowed bool) (queueAdmission, error) {
 	return service.enterQueue(ctx, cluster.RouteLaneImage, groupID, work, 0, false, borrowed)
 }
 
-// enterTextQueue additionally carries requiredContext, for the per-request
-// re-check before a withdrawn entry is actually handed to a helper, and
-// pinned, which keeps a streaming request counted in the node's backlog
-// without ever letting it be withdrawn — the router never buffered a
-// replayable body for it.
 func (service *Service) enterTextQueue(ctx context.Context, groupID string, work schedulingcost.Work, requiredContext int64, pinned bool, borrowed bool) (queueAdmission, error) {
 	return service.enterQueue(ctx, cluster.RouteLaneText, groupID, work, requiredContext, pinned, borrowed)
 }
 
-// completeQueueEntry frees the backend slot and immediately reconsiders
-// lending, because a completion is exactly when a helper slot may become
-// useful.
 func (service *Service) completeQueueEntry(lane string, groupID string, entry *offloadEntry) {
 	queue := service.queueForLane(lane)
 	if queue == nil {
@@ -106,13 +91,6 @@ func (service *Service) completeTextQueueEntry(groupID string, entry *offloadEnt
 	service.completeQueueEntry(cluster.RouteLaneText, groupID, entry)
 }
 
-// maybeOffload withdraws at most one pending request for a group when a live
-// lease says a peer can finish it sooner. One at a time is the whole
-// discipline: a helper never holds a borrowed queue, so it has nothing to hand
-// back beyond the job it is running, and the next request is sent only once
-// that one completes. Keyed by (lane, groupID) so an image group and a text
-// group that happen to share a group id string never contend for the same
-// in-flight slot.
 func (service *Service) maybeOffload(lane string, groupID string) {
 	queue := service.queueForLane(lane)
 	if queue == nil || groupID == "" {
@@ -136,17 +114,10 @@ func (service *Service) finishOffload(lane string, groupID string) {
 	service.maybeOffload(lane, groupID)
 }
 
-// writeOffloadReturned answers a borrowed request this node will not start. It is
-// not a failure: the owner still holds the client and simply runs the request
-// itself.
 func writeOffloadReturned(w http.ResponseWriter) {
 	openai.WriteError(w, http.StatusConflict, offloadReturnedCode, "node has work of its own and returned this borrowed request")
 }
 
-// forwardOffloadedRequest sends one withdrawn request to the master for
-// placement on the leased helper and relays the answer to the client this node
-// is still holding. It reports false when the helper could not take it, which
-// is not a failure: the caller re-queues and runs the request itself.
 func (service *Service) forwardOffloadedRequest(w http.ResponseWriter, original *http.Request, forwarded *http.Request, body []byte, lane string, groupID string, publicID string, release func()) bool {
 	defer service.finishOffload(lane, groupID)
 
@@ -169,9 +140,6 @@ func (service *Service) forwardOffloadedTextRequest(w http.ResponseWriter, origi
 	return service.forwardOffloadedRequest(w, original, forwarded, body, cluster.RouteLaneText, groupID, publicID, release)
 }
 
-// Routing groups link checkpoints that carry different ids on different
-// nodes, so a relayed request must be addressed to the helper's own id — the
-// helper's registry has never heard of the owner's.
 func (service *Service) leasedHelperMember(lane string, groupID string, ownerNodeID string, ownerModelID string) (cluster.GroupMember, bool) {
 	lease, ok := service.activeOffloadLease(lane, groupID, time.Now())
 	if !ok {
@@ -189,11 +157,6 @@ func (service *Service) leasedHelperMember(lane string, groupID string, ownerNod
 	return cluster.GroupMember{}, false
 }
 
-// planOffloadLeases gates a lease on the owner's *average* pending request,
-// so one long request in a queue of short ones can still be withdrawn toward
-// a helper whose window cannot actually hold it — this is the per-entry
-// re-check that closes that gap. A lane with no notion of context (image) or
-// an entry that was never sized reports true: there is nothing to gate.
 func (service *Service) leasedHelperContextFits(helper cluster.GroupMember, requiredContext int64) bool {
 	if requiredContext <= 0 {
 		return true

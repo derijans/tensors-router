@@ -59,12 +59,8 @@ func TestUnknownContextIsNotGroupable(t *testing.T) {
 	}
 }
 
-// TestEligibilityIsRecheckedAtSelection pins that a member edited to become
-// concurrent after it was grouped is skipped at selection time, not just at
-// group-save time: the operator-declared membership in fakeGroupSource still
-// names it, but modelForMemberLocked must refuse to expand into it.
 func TestEligibilityIsRecheckedAtSelection(t *testing.T) {
-	registry := newForkedTextRegistry(t, 8192, 8192)
+	registry := newTextRegistryWithBothMembersLoaded(t, 8192, 8192)
 	slave := eligibleTextModel()
 	slave.NodeID = "slave-a"
 	slave.LocalID = "llama-alt"

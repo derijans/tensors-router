@@ -11,9 +11,6 @@ import (
 	"tensors-router/internal/routerstore/routerstoretest"
 )
 
-// TestImportLegacyWithoutTextTablesCopiesNothing pins that a v1 legacy database
-// — one predating the text tables entirely — imports cleanly: the image rows
-// copy over and the text row count is exactly zero, never an error.
 func TestImportLegacyWithoutTextTablesCopiesNothing(t *testing.T) {
 	legacyPath := filepath.Join(t.TempDir(), "legacy.sqlite")
 	legacyDB, err := sql.Open("sqlite", legacyPath)

@@ -20,9 +20,6 @@ type NodeRuntimeStatus struct {
 	ActiveRequests          int    `json:"active_requests"`
 	QueuedRequests          int    `json:"queued_requests"`
 
-	// AcceptingBorrowedImage is false while this node is busy, which is what
-	// stops the master lending it more image work. It kept its original JSON key
-	// (accepting_borrowed) from before the text lane existed.
 	AcceptingBorrowedImage bool                     `json:"accepting_borrowed"`
 	ImageQueue             []offloadGroupStats      `json:"image_queue,omitempty"`
 	ActiveImageConfig      string                   `json:"active_image_config,omitempty"`
@@ -43,6 +40,9 @@ func (service *Service) localRuntimeStatus() NodeRuntimeStatus {
 	status := NodeRuntimeStatus{NodeID: service.nodeID, BackendMode: mode}
 	service.applyImageSchedulingStatus(&status)
 	service.applyTextSchedulingStatus(&status)
+	if costs := service.publishedCosts(); costs != nil {
+		status.Costs = *costs
+	}
 	family := service.backendFamilies[mode]
 	for _, runtime := range uniqueBackendRuntimes(family) {
 		runtime.state.mu.Lock()

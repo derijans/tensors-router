@@ -8,11 +8,6 @@ import (
 	"strings"
 )
 
-// laneTables names the two tables and the member column one lane's routing
-// groups live in. Every value that reaches these fields comes only from
-// imageLaneTables or textLaneTables below — nothing derived from a request
-// ever does — which is what makes interpolating them into SQL safe here where
-// a bind parameter cannot stand in for a table or column name.
 type laneTables struct {
 	groups       string
 	members      string
@@ -22,9 +17,6 @@ type laneTables struct {
 var imageLaneTables = laneTables{groups: "routing_groups", members: "routing_group_members", memberColumn: "image_id"}
 var textLaneTables = laneTables{groups: "routing_text_groups", members: "routing_text_group_members", memberColumn: "model_id"}
 
-// laneMember and laneGroup are the lane-agnostic shapes both Member/Group
-// (image) and TextMember/TextGroup convert to and from at the edge of the
-// public API, so the SQL beneath them is written once.
 type laneMember struct {
 	NodeID  string
 	ModelID string
@@ -92,11 +84,6 @@ func (store *Store) laneGroups(ctx context.Context, tables laneTables) ([]laneGr
 	return groups, nil
 }
 
-// setLaneGroup replaces whatever group the anchor belonged to with exactly the
-// anchor plus the supplied members. A member named here leaves any other group
-// it was in, so the one-group-per-model invariant holds without the caller
-// having to unpick the previous arrangement. A group left with fewer than two
-// members is deleted: a group of one has nowhere to offload to.
 func (store *Store) setLaneGroup(ctx context.Context, tables laneTables, anchor laneMember, members []laneMember) (laneGroup, error) {
 	if store == nil {
 		return laneGroup{}, fmt.Errorf("routing group store is not configured")
@@ -182,10 +169,6 @@ func laneGroupIDForAnchor(ctx context.Context, transaction *sql.Tx, tables laneT
 	return anchor.NodeID + "\x00" + anchor.ModelID, nil
 }
 
-// A member joining another group can leave its old one with a single model in
-// it, which is no longer a group: there is nowhere to offload to, and leaving
-// the row behind would let a later edit resurrect a peer that has since moved
-// away.
 func deleteUndersizedLaneGroups(ctx context.Context, transaction *sql.Tx, tables laneTables) error {
 	if _, err := transaction.ExecContext(ctx, fmt.Sprintf(
 		`DELETE FROM %s WHERE group_id IN (

@@ -44,8 +44,6 @@ func (store *Store) Groups(ctx context.Context) ([]Group, error) {
 	return result, nil
 }
 
-// SetGroup replaces whatever group the anchor belonged to with exactly the anchor
-// plus the supplied members. See setLaneGroup for the shared invariants.
 func (store *Store) SetGroup(ctx context.Context, anchor Member, members []Member) (Group, error) {
 	group, err := store.setLaneGroup(ctx, imageLaneTables, memberToLane(anchor), membersToLane(members))
 	return groupFromLane(group), err

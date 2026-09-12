@@ -89,10 +89,6 @@ func (client *Client) FetchSnapshot(ctx context.Context, nodeURL string) (Snapsh
 	return snapshot, err
 }
 
-// RegisterResponse is what a master answers a registration with: not just
-// success, but the protocol floor it speaks, so a slave can tell a genuinely
-// incompatible master from one that merely rejected this attempt for some other
-// reason.
 type RegisterResponse struct {
 	OK                     bool `json:"ok"`
 	ProtocolVersion        int  `json:"protocol_version"`

@@ -12,8 +12,6 @@ import (
 	"tensors-router/internal/catalog"
 )
 
-// A .kcpps may override backend_mode per model, so a node can hold real work
-// in a family other than currentBackendMode's — the case this fixture builds.
 func newTwoFamilyTestService(t *testing.T) *Service {
 	t.Helper()
 	koboldServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

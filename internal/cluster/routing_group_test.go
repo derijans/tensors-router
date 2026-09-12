@@ -264,11 +264,6 @@ func TestGroupFallsBackWhenAMemberSwitchIsUnpriced(t *testing.T) {
 	}
 }
 
-// TestImageGroupSelectionIsUnaffectedByTheContextGate pins that the image lane
-// carries on with no notion of a context window: an image hint with
-// RequiredContext == 0 against members whose Capabilities.Context is also 0
-// (image models never set it) still schedules exactly as it did before the
-// text lane's gate existed.
 func TestImageGroupSelectionIsUnaffectedByTheContextGate(t *testing.T) {
 	registry := newForkedImageRegistry(t, true)
 	registry.SetGroupSource(groupOfForkedModels())
@@ -287,10 +282,7 @@ func TestImageGroupSelectionIsUnaffectedByTheContextGate(t *testing.T) {
 	}
 }
 
-// newForkedTextRegistry loads both members by default, so a test whose focus
-// is cost-ordering or the context gate is never accidentally exercising the
-// unrelated "member is unpriced because it needs a load estimate" path.
-func newForkedTextRegistry(t *testing.T, masterContext int, slaveContext int) *Registry {
+func newTextRegistryWithBothMembersLoaded(t *testing.T, masterContext int, slaveContext int) *Registry {
 	t.Helper()
 	registry := NewRegistry(RoleMaster, "master", "http://master")
 	local := textModel("llama", "master", "weights", "config-a", SourceMaster, masterContext)
@@ -317,7 +309,7 @@ func groupOfForkedTextModels() *fakeGroupSource {
 }
 
 func TestTextGroupSelectionOrdersByPredictedFinish(t *testing.T) {
-	registry := newForkedTextRegistry(t, 8192, 8192)
+	registry := newTextRegistryWithBothMembersLoaded(t, 8192, 8192)
 	registry.SetGroupSource(groupOfForkedTextModels())
 	registry.SetCostSource(&fakeCostSource{
 		perJobMS: map[string]float64{"master": 8000, "slave-a": 2000},
@@ -335,7 +327,7 @@ func TestTextGroupSelectionOrdersByPredictedFinish(t *testing.T) {
 }
 
 func TestTextGroupSelectionFallsBackWhenAMemberIsUnpriced(t *testing.T) {
-	registry := newForkedTextRegistry(t, 8192, 8192)
+	registry := newTextRegistryWithBothMembersLoaded(t, 8192, 8192)
 	registry.SetGroupSource(groupOfForkedTextModels())
 	registry.SetCostSource(&fakeCostSource{
 		perJobMS: map[string]float64{"master": 8000},
@@ -352,10 +344,8 @@ func TestTextGroupSelectionFallsBackWhenAMemberIsUnpriced(t *testing.T) {
 	}
 }
 
-// The cheapest member has too small a window; the request must land on the
-// larger one despite scoring worse.
 func TestTextGroupSelectionSkipsMembersThatCannotHoldTheContext(t *testing.T) {
-	registry := newForkedTextRegistry(t, 32768, 4096)
+	registry := newTextRegistryWithBothMembersLoaded(t, 32768, 4096)
 	registry.SetGroupSource(groupOfForkedTextModels())
 	registry.SetCostSource(&fakeCostSource{
 		perJobMS: map[string]float64{"master": 8000, "slave-a": 1000},
@@ -373,7 +363,7 @@ func TestTextGroupSelectionSkipsMembersThatCannotHoldTheContext(t *testing.T) {
 }
 
 func TestTextGroupSelectionTreatsUnknownContextAsUnqualified(t *testing.T) {
-	registry := newForkedTextRegistry(t, 0, 8192)
+	registry := newTextRegistryWithBothMembersLoaded(t, 0, 8192)
 	registry.SetGroupSource(groupOfForkedTextModels())
 	registry.SetCostSource(&fakeCostSource{
 		perJobMS: map[string]float64{"master": 1000, "slave-a": 8000},
@@ -390,11 +380,8 @@ func TestTextGroupSelectionTreatsUnknownContextAsUnqualified(t *testing.T) {
 	}
 }
 
-// Nothing in the group can hold the request: the gate redirects work, it never
-// refuses it, so the caller falls back to the local cascade rather than being
-// rejected outright.
 func TestTextGroupSelectionKeepsLocalWhenNothingFits(t *testing.T) {
-	registry := newForkedTextRegistry(t, 4096, 4096)
+	registry := newTextRegistryWithBothMembersLoaded(t, 4096, 4096)
 	registry.SetGroupSource(groupOfForkedTextModels())
 	registry.SetCostSource(&fakeCostSource{
 		perJobMS: map[string]float64{"master": 8000, "slave-a": 1000},
@@ -412,7 +399,7 @@ func TestTextGroupSelectionKeepsLocalWhenNothingFits(t *testing.T) {
 }
 
 func TestTextGroupSelectionIgnoresAnEmptyHint(t *testing.T) {
-	registry := newForkedTextRegistry(t, 8192, 8192)
+	registry := newTextRegistryWithBothMembersLoaded(t, 8192, 8192)
 	registry.SetGroupSource(groupOfForkedTextModels())
 	registry.SetCostSource(&fakeCostSource{
 		perJobMS: map[string]float64{"master": 8000, "slave-a": 1000},

@@ -2,24 +2,13 @@ package schedulingcost
 
 import "math"
 
-// minPivotRatio guards against a near-singular system. Prefill and decode
-// tokens correlate strongly in real chat traffic (long prompts get long
-// answers), and a collinear system is technically solvable but the split
-// between the two slopes is noise dressed as a measurement. scale is the
-// largest absolute entry of the original moment matrix, so the threshold
-// adapts to the units of the data instead of comparing against a fixed number.
-const minPivotRatio = 1e-9
+const minPivotToMatrixScaleRatio = 1e-9
 
-// solveNormalEquations solves moments*beta = targets by Gaussian elimination
-// with partial pivoting, rejecting rather than returning an unstable answer
-// when a pivot collapses relative to the matrix's own scale. moments must be
-// square; targets must have the same length.
 func solveNormalEquations(moments [][]float64, targets []float64) ([]float64, bool) {
 	n := len(targets)
 	if n == 0 || len(moments) != n {
 		return nil, false
 	}
-	scale := 0.0
 	augmented := make([][]float64, n)
 	for row := 0; row < n; row++ {
 		if len(moments[row]) != n {
@@ -28,17 +17,33 @@ func solveNormalEquations(moments [][]float64, targets []float64) ([]float64, bo
 		augmented[row] = make([]float64, n+1)
 		copy(augmented[row], moments[row])
 		augmented[row][n] = targets[row]
-		for col := 0; col < n; col++ {
-			if abs := math.Abs(moments[row][col]); abs > scale {
-				scale = abs
-			}
-		}
 	}
+	scale := largestAbsoluteEntry(moments)
 	if scale == 0 || math.IsNaN(scale) || math.IsInf(scale, 0) {
 		return nil, false
 	}
-	threshold := minPivotRatio * scale
+	threshold := minPivotToMatrixScaleRatio * scale
 
+	if !eliminateWithPartialPivoting(augmented, threshold) {
+		return nil, false
+	}
+	return backSubstitute(augmented)
+}
+
+func largestAbsoluteEntry(matrix [][]float64) float64 {
+	largest := 0.0
+	for _, row := range matrix {
+		for _, value := range row {
+			if abs := math.Abs(value); abs > largest {
+				largest = abs
+			}
+		}
+	}
+	return largest
+}
+
+func eliminateWithPartialPivoting(augmented [][]float64, threshold float64) bool {
+	n := len(augmented)
 	for pivotIndex := 0; pivotIndex < n; pivotIndex++ {
 		bestRow := pivotIndex
 		bestValue := math.Abs(augmented[pivotIndex][pivotIndex])
@@ -48,7 +53,7 @@ func solveNormalEquations(moments [][]float64, targets []float64) ([]float64, bo
 			}
 		}
 		if bestValue < threshold {
-			return nil, false
+			return false
 		}
 		augmented[pivotIndex], augmented[bestRow] = augmented[bestRow], augmented[pivotIndex]
 
@@ -63,7 +68,11 @@ func solveNormalEquations(moments [][]float64, targets []float64) ([]float64, bo
 			}
 		}
 	}
+	return true
+}
 
+func backSubstitute(augmented [][]float64) ([]float64, bool) {
+	n := len(augmented)
 	solution := make([]float64, n)
 	for row := n - 1; row >= 0; row-- {
 		sum := augmented[row][n]

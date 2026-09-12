@@ -48,9 +48,6 @@ func RegisterInitial(ctx context.Context, config SyncConfig, registry *Registry,
 	return nil
 }
 
-// checkMasterCompatibility is the slave's half of the version gate: the master
-// refuses an old slave in UpdateNode, and this is what stops a new slave trusting
-// an old master instead — a shape change breaks the reader on either side.
 func checkMasterCompatibility(response RegisterResponse, masterURL string, logger *log.Logger) error {
 	if response.ProtocolVersion >= MinimumProtocolVersion {
 		return nil

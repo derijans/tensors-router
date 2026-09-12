@@ -9,11 +9,6 @@ import (
 	"tensors-router/internal/cluster"
 )
 
-// TestUngroupedTextRequestIsNeverQueued pins the governing invariant: a model
-// in no routing group never touches the text queue at all, matching a
-// pre-text-lane build exactly. This is the common case — most deployments
-// have no routing groups configured — so it has to hold with no registry and
-// no group source present, not just when one is configured and simply empty.
 func TestUngroupedTextRequestIsNeverQueued(t *testing.T) {
 	service, _, _ := newSplitTestServiceWithConfigContents(t,
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -45,13 +40,8 @@ func TestUngroupedTextRequestIsNeverQueued(t *testing.T) {
 	}
 }
 
-// TestUngroupedTextRequestUsesPlainRotation pins that Acquire falls straight
-// through to today's round-robin cascade for a model in no group: no group
-// source is even installed in this fixture, so GroupMembers must report
-// nothing found rather than an empty-but-present group.
 func TestUngroupedTextRequestUsesPlainRotation(t *testing.T) {
 	service := newTextRoutingGroupService(t)
-	// No group is ever saved in this fixture.
 
 	groupID, members, ok := service.registry.GroupMembers(cluster.GroupMember{Lane: cluster.RouteLaneText, NodeID: "master", ModelID: "llama-70b"})
 	if ok || groupID != "" || members != nil {

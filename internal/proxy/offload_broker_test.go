@@ -34,10 +34,7 @@ func costTableFor(t *testing.T, perJobMS map[string]float64, loadMS map[string]f
 	return schedulingcost.Merge(models)
 }
 
-// textCostTableFor is costTableFor's two-term twin: jobMS is priced entirely
-// through the decode slope, so a test can still reason in "cost per job" terms
-// while exercising the arity-2 path.
-func textCostTableFor(t *testing.T, perJobMS map[string]float64, loadMS map[string]float64) *schedulingcost.Table {
+func costTableWithDecodeOnlySlope(t *testing.T, perJobMS map[string]float64, loadMS map[string]float64) *schedulingcost.Table {
 	t.Helper()
 	models := map[string]schedulingcost.NodeCosts{}
 	for nodeID, jobMS := range perJobMS {
@@ -82,9 +79,7 @@ func candidate(nodeID string, pendingCount int64, loaded bool) offloadCandidate 
 	}
 }
 
-// textCandidate is candidate's text-lane twin: work is stated in decode
-// tokens, and contextCapacity carries the model's window for the gate.
-func textCandidate(nodeID string, pendingCount int64, loaded bool, contextCapacity int) offloadCandidate {
+func textCandidateWithContextWindow(nodeID string, pendingCount int64, loaded bool, contextCapacity int) offloadCandidate {
 	backlogCount := pendingCount
 	if pendingCount > 0 {
 		backlogCount++
@@ -305,10 +300,6 @@ func TestLeaseBookDropsWhatIsNoLongerPlanned(t *testing.T) {
 	}
 }
 
-// TestOffloadLeasesAreKeyedByLane pins that an image group and a text group
-// sharing the same group id string get independent leases: an image lease
-// granted for "group" must never be visible when the text lane asks for a
-// lease under the same id.
 func TestOffloadLeasesAreKeyedByLane(t *testing.T) {
 	book := newOffloadLeaseBook()
 	now := time.Now()
@@ -322,17 +313,14 @@ func TestOffloadLeasesAreKeyedByLane(t *testing.T) {
 	}
 }
 
-// TestTextOffloadLeaseRequiresEveryMemberQualified mirrors
-// TestGroupIsSkippedWhileAnyMemberIsUnqualified on the text lane's two-term
-// cost shape.
 func TestTextOffloadLeaseRequiresEveryMemberQualified(t *testing.T) {
-	costs := textCostTableFor(t,
+	costs := costTableWithDecodeOnlySlope(t,
 		map[string]float64{"node-a": 8000},
 		map[string]float64{"node-b": 1000})
 
 	leases := planOffloadLeases(cluster.RouteLaneText, "group", []offloadCandidate{
-		textCandidate("node-a", 16, true, 8192),
-		textCandidate("node-b", 0, false, 8192),
+		textCandidateWithContextWindow("node-a", 16, true, 8192),
+		textCandidateWithContextWindow("node-b", 0, false, 8192),
 	}, costs, time.Now(), 30*time.Second)
 
 	if len(leases) != 0 {
@@ -340,18 +328,14 @@ func TestTextOffloadLeaseRequiresEveryMemberQualified(t *testing.T) {
 	}
 }
 
-// A helper whose window cannot hold the owner's average pending request is
-// skipped even though it would otherwise be the cheapest helper available —
-// refusing a lease costs nothing, so there is no reason to ever place a
-// request somewhere it would be truncated.
 func TestTextOffloadHelperMustHoldTheOwnersMeanContext(t *testing.T) {
-	costs := textCostTableFor(t,
+	costs := costTableWithDecodeOnlySlope(t,
 		map[string]float64{"node-a": 8000, "node-b": 1000},
 		map[string]float64{"node-b": 100})
 
-	owner := textCandidate("node-a", 16, true, 32768)
+	owner := textCandidateWithContextWindow("node-a", 16, true, 32768)
 	owner.PendingContext = 6000 * owner.PendingCount
-	helper := textCandidate("node-b", 0, false, 4096)
+	helper := textCandidateWithContextWindow("node-b", 0, false, 4096)
 
 	leases := planOffloadLeases(cluster.RouteLaneText, "group", []offloadCandidate{owner, helper}, costs, time.Now(), 30*time.Second)
 
@@ -361,13 +345,13 @@ func TestTextOffloadHelperMustHoldTheOwnersMeanContext(t *testing.T) {
 }
 
 func TestTextOffloadGrantsWhenTheHelperCanHoldTheContext(t *testing.T) {
-	costs := textCostTableFor(t,
+	costs := costTableWithDecodeOnlySlope(t,
 		map[string]float64{"node-a": 8000, "node-b": 1000},
 		map[string]float64{"node-b": 100})
 
-	owner := textCandidate("node-a", 16, true, 32768)
+	owner := textCandidateWithContextWindow("node-a", 16, true, 32768)
 	owner.PendingContext = 6000 * owner.PendingCount
-	helper := textCandidate("node-b", 0, false, 8192)
+	helper := textCandidateWithContextWindow("node-b", 0, false, 8192)
 
 	leases := planOffloadLeases(cluster.RouteLaneText, "group", []offloadCandidate{owner, helper}, costs, time.Now(), 30*time.Second)
 
@@ -376,12 +360,9 @@ func TestTextOffloadGrantsWhenTheHelperCanHoldTheContext(t *testing.T) {
 	}
 }
 
-// TestMeanWorkIsElementwise pins that averaging a pending backlog scales every
-// regressor independently rather than collapsing the vector to one scalar
-// first.
 func TestMeanWorkIsElementwise(t *testing.T) {
 	summed := schedulingcost.TextWork(800, 200)
-	mean := summed.Scaled(1.0 / 4.0)
+	mean := summed.Mean(4)
 	if mean.Term(0) != 200 || mean.Term(1) != 50 {
 		t.Fatalf("mean = %+v, want (200, 50)", mean)
 	}

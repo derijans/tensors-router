@@ -296,7 +296,7 @@ func (registry *Registry) Acquire(publicID string, localHealthy bool, hint Route
 	registry.mu.Lock()
 	replicas := registry.replicasLocked(publicID)
 	groupID, replicas := registry.groupExpandedReplicasLocked(RouteLaneText, publicID, replicas, "")
-	route, ok := registry.selectGroupTextRouteLocked(groupID, replicas, localHealthy, hint)
+	route, ok := registry.selectGroupRouteLocked(RouteLaneText, groupID, replicas, localHealthy, hint)
 	if !ok {
 		route, ok = registry.selectRouteLocked(publicID, replicas, localHealthy, RouteLaneText)
 	}
@@ -304,7 +304,7 @@ func (registry *Registry) Acquire(publicID string, localHealthy bool, hint Route
 		registry.mu.Unlock()
 		return Route{}, func() {}, false
 	}
-	return registry.acquireRouteLocked(withRequestedTextID(route, publicID))
+	return registry.acquireRouteLocked(withRequestedPublicID(route, RouteLaneText, publicID))
 }
 
 func (registry *Registry) AcquireMCP(publicID string, localHealthy bool) (Route, func(), bool) {
@@ -350,7 +350,7 @@ func (registry *Registry) AcquireImage(publicImageID string, localHealthy bool, 
 	registry.mu.Lock()
 	replicas := registry.imageReplicasLocked(publicImageID, activeConfigFilename)
 	groupID, replicas := registry.groupExpandedReplicasLocked(RouteLaneImage, publicImageID, replicas, activeConfigFilename)
-	route, ok := registry.selectGroupImageRouteLocked(groupID, replicas, localHealthy, hint)
+	route, ok := registry.selectGroupRouteLocked(RouteLaneImage, groupID, replicas, localHealthy, hint)
 	if !ok {
 		route, ok = registry.selectRouteLocked(publicImageID, replicas, localHealthy, RouteLaneImage)
 	}
@@ -358,7 +358,7 @@ func (registry *Registry) AcquireImage(publicImageID string, localHealthy bool, 
 		registry.mu.Unlock()
 		return Route{}, func() {}, false
 	}
-	return registry.acquireRouteLocked(withRequestedImageID(route, publicImageID))
+	return registry.acquireRouteLocked(withRequestedPublicID(route, RouteLaneImage, publicImageID))
 }
 
 func (registry *Registry) AcquireVoice(publicID string, localHealthy bool) (Route, func(), bool) {

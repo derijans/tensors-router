@@ -162,13 +162,7 @@ func (service *Service) resolveTransportTextRoute(r *http.Request, publicID stri
 		return service.transportRecipeRoute(recipe, component, publicID, component.ModelID, readiness, textAnalyticsSection(r.URL.Path), true)
 	}
 	if service.registry != nil && service.registryHasModelForOpenAIPath(publicID, r.URL.Path) {
-		// The transport lane never buffers this body, so there is no byte count to
-		// price a text request from. An empty hint turns off cost ordering, the
-		// context gate, and queueing for it — the same discipline imageRouteHint
-		// already applies to an unsized image request — rather than estimating
-		// from Content-Length, which for the body sizes that reach this lane
-		// (over limits.replay_buffer_mb) is dominated by embedded media, not text.
-		model, route, release, ok := service.acquireRegistryModelRoute(r, publicID, cluster.RouteHint{})
+		model, route, release, ok := service.acquireRegistryModelRoute(r, publicID, cluster.UnsizedRouteHint())
 		if !ok {
 			return transportRoute{}, transportRouteError{http.StatusBadGateway, "backend_error", fmt.Sprintf("model %q has no available replicas", publicID)}
 		}
@@ -250,7 +244,7 @@ func (service *Service) resolveTransportImageRoute(r *http.Request, publicID str
 			if err != nil {
 				return transportRoute{}, err
 			}
-			route, release, acquired := service.registry.AcquireImage(publicID, service.localBackendAvailableForRoute(r.Context(), mode, readinessImage), activeConfig, cluster.RouteHint{})
+			route, release, acquired := service.registry.AcquireImage(publicID, service.localBackendAvailableForRoute(r.Context(), mode, readinessImage), activeConfig, cluster.UnsizedRouteHint())
 			if !acquired {
 				return transportRoute{}, transportRouteError{http.StatusBadGateway, "backend_error", fmt.Sprintf("image model %q has no available replicas", publicID)}
 			}

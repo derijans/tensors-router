@@ -15,12 +15,6 @@ func (SchemaModule) Name() string { return "routinggroups" }
 
 func (SchemaModule) Version() int { return 2 }
 
-// The member primary key is the pair identifying a model rather than the group,
-// so the schema itself makes it impossible for one model to sit in two groups and
-// for routing to face a choice it has no way to resolve. Text groups get their
-// own pair of tables rather than a lane column on the image ones, so a model
-// that is both an LLM and an image model can sit in one group per lane and
-// editing one lane's membership can never touch the other's rows.
 func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 	statements := []string{
 		`CREATE TABLE IF NOT EXISTS routing_groups (

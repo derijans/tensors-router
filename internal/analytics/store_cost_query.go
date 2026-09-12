@@ -5,11 +5,6 @@ import (
 	"time"
 )
 
-// CostSample is the aggregated form of every successful request recorded for one
-// model, reduced to the moment sums an ordinary least squares fit needs. Only
-// the sums leave the store: raw rows never cross a node boundary. Arity says how
-// many of the two work terms are meaningful — the image lane fills only index 0,
-// the text lane fills both for prefill and decode.
 type CostSample struct {
 	NodeID          string
 	ModelID         string

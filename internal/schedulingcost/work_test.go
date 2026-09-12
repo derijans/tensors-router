@@ -5,10 +5,6 @@ import (
 	"testing"
 )
 
-// TestWorkRoundTripsThroughJSON pins that Work survives a publish/merge cycle:
-// terms and arity are unexported, so without MarshalJSON/UnmarshalJSON a Work
-// embedded in a published status would silently encode as an empty object and
-// a node's backlog magnitude would never reach the master.
 func TestWorkRoundTripsThroughJSON(t *testing.T) {
 	original := TextWork(120, 45)
 	encoded, err := json.Marshal(original)

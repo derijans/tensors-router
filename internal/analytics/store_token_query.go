@@ -5,9 +5,6 @@ import (
 	"time"
 )
 
-// TokenProfileSample is the measured relationship between a request's raw byte
-// size and what the backend reported back, reduced to the sums a per-row ratio
-// and its spread need.
 type TokenProfileSample struct {
 	NodeID           string
 	ModelID          string
@@ -18,9 +15,6 @@ type TokenProfileSample struct {
 	SumOutputSquared float64
 }
 
-// TokenProfileSamples reads raw rows, ratio computed per request rather than as
-// one pooled sum, because a per-row ratio is what gets applied to a single
-// future request's byte count.
 func (store *Store) TokenProfileSamples(ctx context.Context, window time.Duration, now time.Time) ([]TokenProfileSample, error) {
 	if store == nil {
 		return nil, nil

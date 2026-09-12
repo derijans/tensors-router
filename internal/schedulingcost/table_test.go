@@ -90,9 +90,6 @@ func TestPredictQueueOfNothingIsZero(t *testing.T) {
 	}
 }
 
-// TestPredictRejectsWorkOfTheWrongArity pins the unit-safety guarantee added
-// when prediction became work-vector-typed: a text-shaped work vector must
-// never be priced against an image fit, or the reverse.
 func TestPredictRejectsWorkOfTheWrongArity(t *testing.T) {
 	table := buildTestTable(t)
 	key := ModelKey{NodeID: "node-a", ModelID: "sdxl", Section: "image"}
@@ -127,9 +124,6 @@ func TestMergeRestoresPublishedCosts(t *testing.T) {
 	}
 }
 
-// TestMergeDropsCostsWithoutSlopes pins the deliberate degradation for a node
-// on an older build: an empty SlopesMS (what slope_ms decodes as here) must be
-// dropped as unqualified, never merged as a confident zero slope.
 func TestMergeDropsCostsWithoutSlopes(t *testing.T) {
 	merged := Merge(map[string]NodeCosts{
 		"node-old": {Models: []ModelCost{{ModelID: "sdxl", Section: "image", BaseMS: 1000, Samples: 40}}},

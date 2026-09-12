@@ -36,9 +36,6 @@ func (source *schedulingCostSource) Table() *schedulingcost.Table {
 	return source.table
 }
 
-// laneSection maps a cluster route lane to the analytics section its cost
-// samples were fitted under. Every other lane (voice, music, embeddings) has no
-// scheduling cost source and never reaches here.
 func laneSection(lane string) string {
 	switch lane {
 	case cluster.RouteLaneText:
@@ -66,10 +63,6 @@ func (source *schedulingCostSource) SwitchPenaltyMS(nodeID string, configFilenam
 	return source.table.LoadMS(schedulingcost.LoadKey{NodeID: nodeID, ConfigFilename: configFilename})
 }
 
-// NodeBacklog reports what a node has queued for one group in one lane.
-// Backlogs are stored per (lane, groupID) because an image group and a text
-// group can legitimately share a group id string on the same node — the two
-// lanes queue independently and must never be confused.
 func (source *schedulingCostSource) NodeBacklog(nodeID string, groupID string, lane string) (int64, schedulingcost.Work) {
 	source.mu.RLock()
 	defer source.mu.RUnlock()

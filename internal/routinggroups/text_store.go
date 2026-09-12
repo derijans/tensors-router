@@ -2,10 +2,6 @@ package routinggroups
 
 import "context"
 
-// TextMember identifies one LLM model on one node. Kept in its own table from
-// Member so that a model which is both an LLM and an image model — a
-// multimodal .kcpps serving both capabilities — can sit in one group per lane
-// without either edit disturbing the other.
 type TextMember struct {
 	NodeID  string `json:"node_id"`
 	ModelID string `json:"model_id"`

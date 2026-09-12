@@ -61,12 +61,6 @@ func (service *Service) writeTextRoutingGroups(w http.ResponseWriter, r *http.Re
 	openai.WriteJSON(w, http.StatusOK, response)
 }
 
-// textRoutingGroupCandidates lists every eligible LLM model on another node.
-// Like its image counterpart it does not filter by name or config hash — the
-// point is letting an operator group the same checkpoint configured
-// differently on two nodes — but it does report, rather than silently omit,
-// a model that fails eligibility, so the UI can explain why a row is disabled
-// instead of it simply not appearing.
 func (service *Service) textRoutingGroupCandidates(anchor siteapi.TextRoutingGroupMember, selected map[siteapi.TextRoutingGroupMember]bool) []siteapi.TextRoutingGroupCandidate {
 	if service.registry == nil {
 		return nil
@@ -115,17 +109,9 @@ func (service *Service) textRoutingGroupCandidates(anchor siteapi.TextRoutingGro
 	return candidates
 }
 
-// textCandidateEligibility layers the pairwise modality-homogeneity rule over
-// cluster.TextGroupEligible's per-model checks. Mixing a multimodal model with
-// a text-only one would let a base64-heavy request drag a text-only model's
-// measured bytes-per-token ratio in the unsafe direction — an
-// under-estimate — so the two never share a group.
 func textCandidateEligibility(model cluster.Model, anchorMultimodal bool) (bool, string) {
-	if !cluster.TextGroupEligible(model) {
-		if model.Capabilities.Context <= 0 {
-			return false, "model does not report a context window"
-		}
-		return false, "model serves requests concurrently"
+	if reason, eligible := cluster.TextGroupIneligibility(model); !eligible {
+		return false, reason
 	}
 	if model.HasMultimodal != anchorMultimodal {
 		return false, "multimodal and text-only models cannot share a group"

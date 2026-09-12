@@ -14,12 +14,6 @@ import (
 
 const chatCompletionBody = `{"model":"llama-70b","messages":[{"role":"user","content":"hi"}]}`
 
-// newGroupedTextService mirrors newGroupedImageService for the text lane: a
-// node holding one LLM model, with a backend that blocks until the test
-// releases it so queue states can be observed. The peer is declared as a
-// group member but is deliberately not a routable replica, which is what
-// lets these tests observe the queue directly rather than racing a second
-// node.
 func newGroupedTextService(t *testing.T, gate chan struct{}, grouped bool) *Service {
 	t.Helper()
 	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -87,9 +81,6 @@ func waitForTextBacklog(t *testing.T, service *Service, want int64) {
 	t.Fatalf("text queue never reached a backlog of %d: %+v", want, service.textQueue.Stats())
 }
 
-// A grouped text model routes through the router-held queue exactly like a
-// grouped image model does, and for the same reason: an admitted request is
-// already inside the backend and cannot be moved.
 func TestGroupedTextRequestQueuesBeforeTheBackend(t *testing.T) {
 	gate := make(chan struct{})
 	service := newGroupedTextService(t, gate, true)
@@ -113,10 +104,6 @@ func TestGroupedTextRequestQueuesBeforeTheBackend(t *testing.T) {
 	}
 }
 
-// A model in no text group must not be queued at all, so nothing changes for
-// traffic that was never enrolled — even though the service has a registry
-// and a group source, unlike the no-registry-at-all case in
-// ungrouped_text_test.go.
 func TestUngroupedTextModelIsNeverQueued(t *testing.T) {
 	service := newGroupedTextService(t, nil, false)
 
@@ -181,9 +168,6 @@ func TestIdleNodeServesBorrowedTextWork(t *testing.T) {
 	}
 }
 
-// newLeasedTextHelper registers a helper model on slave-a under its own,
-// deliberately different, local id and stores a live lease naming it — the
-// fixture every leasedHelperMember/leasedHelperContextFits test builds on.
 func newLeasedTextHelper(t *testing.T, service *Service, helperContext int) {
 	t.Helper()
 	slave := testClusterModel("llama-70b-alt", "slave-a", "weights", "config-b", cluster.SourceSlave)
@@ -198,8 +182,6 @@ func newLeasedTextHelper(t *testing.T, service *Service, helperContext int) {
 	})
 }
 
-// Routing groups link checkpoints that carry different ids on different
-// nodes, so the helper's registry has never heard of the owner's id.
 func TestLeasedHelperMemberResolvesTheHelpersOwnModelID(t *testing.T) {
 	service := newGroupedTextService(t, nil, true)
 	newLeasedTextHelper(t, service, 8192)
@@ -233,9 +215,6 @@ func TestLeasedHelperMemberRequiresALiveLease(t *testing.T) {
 	}
 }
 
-// planOffloadLeases gates a lease on the owner's *average* pending request,
-// so a single larger-than-average one can still be withdrawn toward a helper
-// whose window cannot actually hold it — the gap leasedHelperContextFits closes.
 func TestOffloadedTextRequestThatDoesNotFitTheHelperIsRequeued(t *testing.T) {
 	service := newGroupedTextService(t, nil, true)
 	newLeasedTextHelper(t, service, 100)
@@ -255,8 +234,6 @@ func TestOffloadedTextRequestThatDoesNotFitTheHelperIsRequeued(t *testing.T) {
 	}
 }
 
-// The status a master polls has to describe the text half of the arrangement
-// too: what this node still has to do, and whether it can take anything more.
 func TestRuntimeStatusReportsTextQueueAndBorrowingState(t *testing.T) {
 	gate := make(chan struct{})
 	service := newGroupedTextService(t, gate, true)

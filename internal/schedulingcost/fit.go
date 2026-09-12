@@ -2,12 +2,6 @@ package schedulingcost
 
 import "math"
 
-// Sample is the aggregated form of every request analytics recorded for one
-// (node, model, section), reduced to the moment sums an ordinary least squares
-// fit needs for however many regressors this lane's work has (Arity). Image
-// fits one term (pixel-steps); text fits two (prefill and decode tokens). Only
-// SumWork[:Arity], SumWorkDuration[:Arity] and SumWorkProduct[:Arity][:Arity]
-// are meaningful; the rest sit at zero and are ignored.
 type Sample struct {
 	NodeID          string
 	ModelID         string
@@ -20,8 +14,6 @@ type Sample struct {
 	SumWorkProduct  [MaxWorkTerms][MaxWorkTerms]float64
 }
 
-// LoadSample is the same reduction for model load events, which have no work
-// term and collapse to a mean.
 type LoadSample struct {
 	NodeID         string
 	ConfigFilename string
@@ -29,8 +21,6 @@ type LoadSample struct {
 	SumDuration    float64
 }
 
-// Estimate is a fitted duration = BaseMS + sum(SlopeMS[i] * work_i) model.
-// Arity says how many of SlopeMS's entries are meaningful.
 type Estimate struct {
 	BaseMS  float64
 	SlopeMS [MaxWorkTerms]float64
@@ -38,10 +28,6 @@ type Estimate struct {
 	Samples int64
 }
 
-// PredictMS prices one request of the given size. It reports false when work's
-// arity does not match the estimate's — pricing a text hint against an image
-// fit, or the reverse, is a unit error the caller must never be allowed to make
-// silently.
 func (estimate Estimate) PredictMS(work Work) (float64, bool) {
 	if work.Arity() != estimate.Arity {
 		return 0, false
@@ -57,9 +43,6 @@ func (estimate Estimate) PredictMS(work Work) (float64, bool) {
 	return total, true
 }
 
-// PredictQueueMS prices a whole pending queue rather than one request: each
-// entry pays the fixed per-request cost once, and the variable cost scales with
-// the summed work.
 func (estimate Estimate) PredictQueueMS(count int64, totalWork Work) (float64, bool) {
 	if count <= 0 {
 		if totalWork.Arity() != 0 && totalWork.Arity() != estimate.Arity {
@@ -81,13 +64,12 @@ func (estimate Estimate) PredictQueueMS(count int64, totalWork Work) (float64, b
 	return total, true
 }
 
-// Fit rejects rather than guesses. A node whose history is too thin, whose work
-// values do not vary in some regressor, whose regressors are too collinear to
-// separate, or whose fitted slope is negative in any regressor stays
-// unqualified and is never predictively scheduled.
+const minSamplesFloor = 2
+const minRelativeWorkSpread = 0.05
+
 func Fit(sample Sample, minSamples int64) (Estimate, bool) {
-	if minSamples < 2 {
-		minSamples = 2
+	if minSamples < minSamplesFloor {
+		minSamples = minSamplesFloor
 	}
 	arity := sample.Arity
 	if arity < 1 || arity > MaxWorkTerms {
@@ -96,15 +78,31 @@ func Fit(sample Sample, minSamples int64) (Estimate, bool) {
 	if sample.Count < minSamples {
 		return Estimate{}, false
 	}
-	count := float64(sample.Count)
-
-	for index := 0; index < arity; index++ {
-		denominator := count*sample.SumWorkProduct[index][index] - sample.SumWork[index]*sample.SumWork[index]
-		if !workSpreadIsUsable(denominator, sample.SumWork[index]) {
-			return Estimate{}, false
-		}
+	if !everyRegressorIsMeasurable(sample, arity) {
+		return Estimate{}, false
 	}
 
+	moments, targets := normalEquationsFor(sample, arity)
+	solution, ok := solveNormalEquations(moments, targets)
+	if !ok {
+		return Estimate{}, false
+	}
+	return estimateFromSolution(solution, arity, sample.Count)
+}
+
+func everyRegressorIsMeasurable(sample Sample, arity int) bool {
+	count := float64(sample.Count)
+	for index := 0; index < arity; index++ {
+		denominator := count*sample.SumWorkProduct[index][index] - sample.SumWork[index]*sample.SumWork[index]
+		if !relativeWorkSpreadIsMeasurable(denominator, sample.SumWork[index]) {
+			return false
+		}
+	}
+	return true
+}
+
+func normalEquationsFor(sample Sample, arity int) ([][]float64, []float64) {
+	count := float64(sample.Count)
 	size := arity + 1
 	moments := make([][]float64, size)
 	moments[0] = make([]float64, size)
@@ -124,11 +122,10 @@ func Fit(sample Sample, minSamples int64) (Estimate, bool) {
 	for row := 0; row < arity; row++ {
 		targets[row+1] = sample.SumWorkDuration[row]
 	}
+	return moments, targets
+}
 
-	solution, ok := solveNormalEquations(moments, targets)
-	if !ok {
-		return Estimate{}, false
-	}
+func estimateFromSolution(solution []float64, arity int, sampleCount int64) (Estimate, bool) {
 	base := solution[0]
 	if math.IsNaN(base) || math.IsInf(base, 0) {
 		return Estimate{}, false
@@ -144,16 +141,10 @@ func Fit(sample Sample, minSamples int64) (Estimate, bool) {
 	if base < 0 {
 		base = 0
 	}
-	return Estimate{BaseMS: base, SlopeMS: slopes, Arity: arity, Samples: sample.Count}, true
+	return Estimate{BaseMS: base, SlopeMS: slopes, Arity: arity, Samples: sampleCount}, true
 }
 
-// workSpreadIsUsable requires the observed work values to vary by a meaningful
-// fraction of their own mean. A node that only ever served one resolution at one
-// step count (or, for text, one prompt length) carries no information about how
-// duration scales with that regressor, so a slope derived from that history
-// would be noise dressed as a measurement. Expressed as a relative standard
-// deviation, the test is sqrt(denominator)/sumWork >= minRelativeWorkSpread.
-func workSpreadIsUsable(denominator float64, sumWork float64) bool {
+func relativeWorkSpreadIsMeasurable(denominator float64, sumWork float64) bool {
 	if denominator <= 0 || math.IsNaN(denominator) || math.IsInf(denominator, 0) {
 		return false
 	}
@@ -163,8 +154,6 @@ func workSpreadIsUsable(denominator float64, sumWork float64) bool {
 	threshold := minRelativeWorkSpread * sumWork
 	return denominator >= threshold*threshold
 }
-
-const minRelativeWorkSpread = 0.05
 
 func FitLoad(sample LoadSample, minSamples int64) (float64, bool) {
 	if minSamples < 1 {

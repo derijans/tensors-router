@@ -135,15 +135,6 @@ func (table *Table) TokenCosts() []TokenCost {
 	return costs
 }
 
-// ModelCost, LoadCost and TokenCost are the wire form a node publishes in its
-// runtime status. NodeID is implied by the status envelope and is filled in by
-// the master when it merges tables from several nodes.
-//
-// SlopesMS replaces a prior single slope_ms field rather than reinterpreting it:
-// a node on an older build publishes slope_ms, which decodes here as an absent,
-// empty SlopesMS, which Merge drops as unqualified. Reusing the old key would
-// have produced a confident wrong prediction (a zero slope) instead of a
-// rejection.
 type ModelCost struct {
 	ModelID  string    `json:"model_id"`
 	Section  string    `json:"section"`

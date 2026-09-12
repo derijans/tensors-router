@@ -9,12 +9,6 @@ import (
 	routeranalytics "tensors-router/internal/analytics"
 )
 
-// TestPromptBytesRecordsTheRawBodyLength pins that prompt_bytes is the raw
-// client body length, not the transformed one the backend actually receives.
-// stream: true forces injectStreamUsageOption to grow the body by adding
-// stream_options, so a test that used the transformed length here would give
-// a different, wrong answer — this is the pin that keeps the token profile
-// fit and the pre-dispatch estimate in the same units.
 func TestPromptBytesRecordsTheRawBodyLength(t *testing.T) {
 	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/chat/completions" {

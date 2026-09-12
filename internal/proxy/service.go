@@ -1275,7 +1275,7 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 	if !hasModel && isEmbeddingsPath(r.URL.Path) {
 		if target, selected := service.acquireSelectorlessEmbeddingTarget(r.URL.Path, r.Context()); selected {
 			if service.registry != nil {
-				service.handleAcquiredRegistryModelRequest(w, r, body, target.publicID, target.clusterModel, target.clusterRoute, target.release, true, cluster.RouteHint{})
+				service.handleAcquiredRegistryModelRequest(w, r, body, target.publicID, target.clusterModel, target.clusterRoute, target.release, true, cluster.UnsizedRouteHint())
 				return
 			}
 			modelID = target.publicID

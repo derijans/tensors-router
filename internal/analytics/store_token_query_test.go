@@ -24,9 +24,6 @@ func recordTextRequestWithBytes(store *Store, now time.Time, modelID string, pro
 	})
 }
 
-// A request whose body was never buffered records prompt_bytes = 0
-// (imageRouteHint's text equivalent skips the hint entirely for that lane), and
-// such a row must never feed the ratio fit.
 func TestTokenProfileSamplesRequirePromptBytes(t *testing.T) {
 	store := newTestStore(t, "node-a")
 	now := time.Now().UTC()

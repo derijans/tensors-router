@@ -5,18 +5,9 @@ import (
 	"time"
 )
 
-// textPrefillExpression and textDecodeExpression are the text lane's two work
-// terms. Both cast to REAL for the same reason imageWorkExpression does: the
-// prefill*decode cross term reaches far past exact integer range once summed
-// over a day of traffic.
 const textPrefillExpression = `CAST(input_tokens AS REAL)`
 const textDecodeExpression = `CAST(output_tokens AS REAL)`
 
-// TextWork is the same pair computed in Go for a request that has already run,
-// used to keep the fit and a recorded event's own numbers in the same units.
-// The pre-dispatch estimate for a request that has not run yet comes from
-// TokenProfile instead, because prefill and decode tokens are not known before
-// the backend answers.
 func TextWork(inputTokens int64, outputTokens int64) (prefill float64, decode float64, ok bool) {
 	if inputTokens <= 0 || outputTokens <= 0 {
 		return 0, 0, false
@@ -24,10 +15,6 @@ func TextWork(inputTokens int64, outputTokens int64) (prefill float64, decode fl
 	return float64(inputTokens), float64(outputTokens), true
 }
 
-// TextCostSamples reads raw rows for the text lane, mirroring CostSamples but
-// with two regressors instead of one and no load samples of its own — the text
-// lane's model-load durations are already recorded under SectionLLM and read
-// back through the image-shaped loadCostSamples query.
 func (store *Store) TextCostSamples(ctx context.Context, window time.Duration, now time.Time) ([]CostSample, error) {
 	if store == nil {
 		return nil, nil

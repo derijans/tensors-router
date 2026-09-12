@@ -59,9 +59,6 @@ func getTextRoutingGroups(t *testing.T, service *Service, query string) siteapi.
 	return response
 }
 
-// TestTextRoutingGroupsRequireSiteControl pins that a slave — which has no
-// site control — cannot reach the text routing group endpoint at all, mirroring
-// the image lane's admin-only surface.
 func TestTextRoutingGroupsRequireSiteControl(t *testing.T) {
 	service := newTextRoutingGroupService(t)
 	service.clusterRole = cluster.RoleSlave
@@ -92,9 +89,6 @@ func TestTextRoutingGroupCandidatesReportContextSize(t *testing.T) {
 	}
 }
 
-// TestTextRoutingGroupCandidatesExcludeIneligibleModels pins that a
-// concurrent-serving model is still listed (so the UI can explain why), but
-// marked ineligible rather than silently omitted or silently selectable.
 func TestTextRoutingGroupCandidatesExcludeIneligibleModels(t *testing.T) {
 	service := newTextRoutingGroupService(t)
 	registry := service.registry
@@ -154,9 +148,6 @@ func TestSaveTextRoutingGroupRejectsIneligibleMember(t *testing.T) {
 	}
 }
 
-// TestSaveTextRoutingGroupRebuildsTheRegistrySource pins that a saved group
-// takes effect on the very next request, not at the next scheduling refresh
-// tick.
 func TestSaveTextRoutingGroupRebuildsTheRegistrySource(t *testing.T) {
 	service := newTextRoutingGroupService(t)
 	body := `{"anchor":{"node_id":"master","model_id":"llama-70b"},"members":[{"node_id":"slave-a","model_id":"llama-70b-q8"}]}`

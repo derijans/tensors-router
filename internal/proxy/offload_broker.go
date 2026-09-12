@@ -7,13 +7,6 @@ import (
 	"tensors-router/internal/schedulingcost"
 )
 
-// offloadCandidate is one member of a routing group as the master currently sees
-// it: what it has waiting, whether it already holds the group's model, and
-// whether it has room to take work that is not its own. Section is the
-// analytics section its cost was fitted under (image or llm), which the image
-// and text lanes never share even when a group id string collides between them.
-// ContextCapacity is the model's context window; it is 0 (and so never gates
-// anything) for the image lane, which has no such notion.
 type offloadCandidate struct {
 	NodeID            string
 	ModelID           string
@@ -29,11 +22,6 @@ type offloadCandidate struct {
 	BacklogWork       schedulingcost.Work
 }
 
-// offloadLease is standing permission for one owner to keep a single borrowed
-// request in flight on one helper. It carries no count: work moves one request
-// at a time, so the lease is renewed while it still pays off rather than sized
-// up front. Lane keeps an image lease and a text lease with the same group id
-// from ever being confused with each other.
 type offloadLease struct {
 	Lane         string    `json:"lane"`
 	GroupID      string    `json:"group_id"`
@@ -42,10 +30,6 @@ type offloadLease struct {
 	ExpiresAt    time.Time `json:"expires_at"`
 }
 
-// backlogKey and leaseKey both key on (lane, groupID): an image group and a
-// text group can legitimately share a group id string on the same node, since
-// the two lanes' routing groups are stored, and assigned ids from, entirely
-// separate tables.
 func backlogKey(lane string, groupID string) string {
 	return lane + "\x00" + groupID
 }
@@ -83,7 +67,7 @@ func planOffloadLeases(lane string, groupID string, candidates []offloadCandidat
 		if !ok {
 			continue
 		}
-		meanWork := owner.PendingWork.Scaled(1 / float64(owner.PendingCount))
+		meanWork := owner.PendingWork.Mean(owner.PendingCount)
 		meanContext := int(owner.PendingContext / owner.PendingCount)
 		helper, helpMS, found := bestOffloadHelper(helpers, claimed, costs, meanWork, meanContext)
 		if !found || helpMS >= keepMS {
@@ -111,7 +95,7 @@ func splitOffloadRoles(candidates []offloadCandidate) (owners []offloadCandidate
 		}
 	}
 	sort.Slice(owners, func(left, right int) bool {
-		leftTotal, rightTotal := offloadWorkTotal(owners[left].BacklogWork), offloadWorkTotal(owners[right].BacklogWork)
+		leftTotal, rightTotal := backlogMagnitude(owners[left].BacklogWork), backlogMagnitude(owners[right].BacklogWork)
 		if leftTotal != rightTotal {
 			return leftTotal > rightTotal
 		}
@@ -123,10 +107,7 @@ func splitOffloadRoles(candidates []offloadCandidate) (owners []offloadCandidate
 	return owners, helpers
 }
 
-// offloadWorkTotal reduces a Work vector to one comparable scalar for ordering
-// owners by how deep their backlog is. Summing the terms is enough: the ordering
-// only needs to be consistent, not itself a duration.
-func offloadWorkTotal(work schedulingcost.Work) float64 {
+func backlogMagnitude(work schedulingcost.Work) float64 {
 	total := 0.0
 	for index := 0; index < work.Arity(); index++ {
 		total += work.Term(index)
@@ -134,13 +115,10 @@ func offloadWorkTotal(work schedulingcost.Work) float64 {
 	return total
 }
 
-// bestOffloadHelper prices every free helper for one job of the owner's average
-// size and returns the cheapest. A helper holding a different model is priced
-// with its measured load duration; one whose load has never been measured is
-// skipped rather than assumed to be free. meanContext is 0 for the image lane,
-// which has no context window to check; for the text lane a helper whose window
-// cannot hold the owner's average pending request is skipped outright, because
-// refusing a lease costs nothing — the owner simply keeps draining its own queue.
+func helperWindowHolds(helper offloadCandidate, meanContext int) bool {
+	return meanContext <= 0 || helper.ContextCapacity >= meanContext
+}
+
 func bestOffloadHelper(helpers []offloadCandidate, claimed map[string]bool, costs *schedulingcost.Table, meanWork schedulingcost.Work, meanContext int) (offloadCandidate, float64, bool) {
 	var best offloadCandidate
 	bestMS := 0.0
@@ -149,7 +127,7 @@ func bestOffloadHelper(helpers []offloadCandidate, claimed map[string]bool, cost
 		if claimed[helper.NodeID] {
 			continue
 		}
-		if meanContext > 0 && helper.ContextCapacity < meanContext {
+		if !helperWindowHolds(helper, meanContext) {
 			continue
 		}
 		switchMS, ok := offloadSwitchMS(helper, costs)

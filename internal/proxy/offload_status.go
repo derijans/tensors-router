@@ -7,31 +7,21 @@ import (
 	"tensors-router/internal/schedulingcost"
 )
 
-// applyImageSchedulingStatus publishes what the master needs to decide whether
-// this node should lend or borrow image work: what it still has queued,
-// whether it has room for work that is not its own, which image config it is
-// holding, and the coefficients fitted from its own history.
 func (service *Service) applyImageSchedulingStatus(status *NodeRuntimeStatus) {
 	if service.imageQueue == nil {
 		return
 	}
 	status.ImageQueue = service.imageQueue.Stats()
-	status.AcceptingBorrowedImage = service.imageQueue.AcceptingBorrowed(service.idleForBorrowedWork())
+	status.AcceptingBorrowedImage = service.imageQueue.AcceptingBorrowed(service.nodeActivity())
 	status.ActiveImageConfig = service.activeImageConfigFilename()
-	if costs := service.publishedCosts(); costs != nil {
-		status.Costs = *costs
-	}
 }
 
-// applyTextSchedulingStatus is applyImageSchedulingStatus's text-lane twin.
-// Costs are published once by the image half above; both lanes' coefficients
-// already live in the one merged table.
 func (service *Service) applyTextSchedulingStatus(status *NodeRuntimeStatus) {
 	if service.textQueue == nil {
 		return
 	}
 	status.TextQueue = service.textQueue.Stats()
-	status.AcceptingBorrowedText = service.textQueue.AcceptingBorrowed(service.idleForBorrowedWork())
+	status.AcceptingBorrowedText = service.textQueue.AcceptingBorrowed(service.nodeActivity())
 	status.ActiveTextConfig = service.activeTextConfigFilename()
 }
 

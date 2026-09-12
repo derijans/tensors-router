@@ -51,10 +51,6 @@ func TestTextGroupOfOneIsDeleted(t *testing.T) {
 	}
 }
 
-// TestTextAndImageGroupsAreIndependent is what justifies two tables rather than
-// a lane column on one: a model that is both an LLM and an image model must be
-// able to sit in one group per lane, and editing one lane's membership must
-// never touch the other's rows.
 func TestTextAndImageGroupsAreIndependent(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
