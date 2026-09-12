@@ -25,6 +25,16 @@ describe("option parsing", () => {
     expect(invalidJSON.value).toBe("not json");
     expect(invalidJSON.warnings[0]?.reason).toBe("Invalid JSON is kept as a string.");
   });
+
+  it("treats gpulayers as a plain number, surfacing a warning for a stray label", () => {
+    const negativeOne = parseOptionInput(optionDefinition("gpulayers", "number"), "-1");
+    expect(negativeOne).toEqual({value: -1, warnings: []});
+
+    const auto = parseOptionInput(optionDefinition("gpulayers", "number"), "auto");
+    expect(auto.value).toBe(0);
+    expect(auto.warnings).toHaveLength(1);
+    expect(auto.warnings[0]?.original).toBe("auto");
+  });
 });
 
 describe("comparison emptiness", () => {

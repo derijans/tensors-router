@@ -84,7 +84,7 @@ type RuntimeConfig struct {
 	SDParamsBackend           string                 `json:"sdparamsbackend"`
 	SDRPCServers              any                    `json:"sdrpcservers"`
 	SDMaxVRAM                 any                    `json:"sdmaxvram"`
-	SDStreamLayers            int                    `json:"sdstreamlayers"`
+	SDStreamLayers            bool                   `json:"sdstreamlayers"`
 	SDStreaming               bool                   `json:"sdstreaming"`
 	SDAutoFit                 bool                   `json:"sdautofit"`
 	SDSplitMode               string                 `json:"sdsplitmode"`
@@ -234,6 +234,10 @@ func LoadRuntimeConfig(path string) (RuntimeConfig, error) {
 	if err != nil {
 		return RuntimeConfig{}, err
 	}
+	return DecodeRuntimeConfig(content)
+}
+
+func DecodeRuntimeConfig(content []byte) (RuntimeConfig, error) {
 	var values map[string]json.RawMessage
 	if err := json.Unmarshal(content, &values); err != nil {
 		return RuntimeConfig{}, err

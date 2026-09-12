@@ -2,13 +2,14 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { state } from "../state";
 import {
   comparisonClass,
+  defaultConfigForNode,
   fieldChoices,
   fieldRenderContext,
   groupedFieldKeys,
   importedConfigNameStem,
   parseImportedOptions
 } from "../simple-cook-data";
-import { optionDefinition, testInventory, testModel } from "./factories";
+import { optionDefinition, testInventory, testModel, testNode } from "./factories";
 
 describe("simple cook option data", () => {
   beforeEach(() => {
@@ -68,6 +69,22 @@ describe("simple cook option data", () => {
       }
     ]);
     expect(fieldChoices("musicvae", definition, fieldRenderContext())).toContain("music-vae.gguf");
+  });
+
+  it("defaults gpulayers to a number for a GPU node", () => {
+    const node = testNode();
+    node.hardware = {max_threads: 8, gpu_backend: "cuda", gpu_count: 1};
+    const defaults = defaultConfigForNode(node);
+    expect(typeof defaults.gpulayers).toBe("number");
+    expect(defaults.gpulayers).toBe(-1);
+  });
+
+  it("defaults gpulayers to zero for a CPU node", () => {
+    const node = testNode();
+    node.hardware = {max_threads: 8, gpu_backend: "cpu", gpu_count: 0};
+    const defaults = defaultConfigForNode(node);
+    expect(typeof defaults.gpulayers).toBe("number");
+    expect(defaults.gpulayers).toBe(0);
   });
 });
 

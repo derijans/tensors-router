@@ -217,6 +217,68 @@ func TestWriterValidatesVLLMAsSingleRuntimeConfig(t *testing.T) {
 	}
 }
 
+func TestApplyRejectsOptionValuesThatCannotDecodeIntoRuntimeConfig(t *testing.T) {
+	dir := packageTempDir(t)
+	if err := os.WriteFile(filepath.Join(dir, "text.kcpps"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writer := Writer{ConfigDir: dir, Catalog: catalog.New(dir), NodeID: "node-a"}
+	request := NodeConfigRequest{
+		ID:         "bad-gpulayers",
+		Components: []Component{{Kind: KindText, Source: SourceConfig, ModelID: "text"}},
+		Options:    Options{"gpulayers": rawJSON(t, "auto")},
+	}
+
+	if _, err := writer.Preview(request); err == nil {
+		t.Fatal("expected preview to reject an undecodable gpulayers value")
+	} else if issues, ok := IssuesFromError(err); !ok || issues[0].Field != "gpulayers" {
+		t.Fatalf("expected a ValidationError naming gpulayers, got %v (issues %#v)", err, issues)
+	}
+
+	if _, err := writer.Apply(request); err == nil {
+		t.Fatal("expected apply to reject an undecodable gpulayers value")
+	} else if _, ok := IssuesFromError(err); !ok {
+		t.Fatalf("expected a ValidationError, got %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "bad-gpulayers.kcpps")); !os.IsNotExist(err) {
+		t.Fatalf("apply must not write a file it rejected, stat error: %v", err)
+	}
+}
+
+func TestApplyRejectsStringEncodedNumbers(t *testing.T) {
+	dir := packageTempDir(t)
+	if err := os.WriteFile(filepath.Join(dir, "text.kcpps"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writer := Writer{ConfigDir: dir, Catalog: catalog.New(dir), NodeID: "node-a"}
+	request := NodeConfigRequest{
+		ID:         "bad-contextsize",
+		Components: []Component{{Kind: KindText, Source: SourceConfig, ModelID: "text"}},
+		Options:    Options{"contextsize": rawJSON(t, "4096")},
+	}
+
+	_, err := writer.Apply(request)
+	if err == nil {
+		t.Fatal("expected apply to reject a string-encoded contextsize")
+	}
+	issues, ok := IssuesFromError(err)
+	if !ok || !hasIssueCode(issues, "option_value_shape") {
+		t.Fatalf("expected an option_value_shape issue, got %v (issues %#v)", err, issues)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "bad-contextsize.kcpps")); !os.IsNotExist(err) {
+		t.Fatalf("apply must not write a file it rejected, stat error: %v", err)
+	}
+}
+
+func hasIssueCode(issues []ValidationIssue, code string) bool {
+	for _, issue := range issues {
+		if issue.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 func TestWriterComposesVoiceMusicRawFilesWithOptionKeys(t *testing.T) {
 	dir := packageTempDir(t)
 	root := packageTempDir(t)

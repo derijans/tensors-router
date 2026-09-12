@@ -24,6 +24,7 @@ func TestOptionValueTypesMatchBackendArguments(t *testing.T) {
 		{"ssl", ValueJSON, "koboldcpp --ssl: nargs='+' (cert_pem, key_pem)"},
 		{"routermode", ValueBool, "koboldcpp --routermode: action='store_true'"},
 		{"sdstreamlayers", ValueBool, "stable-diffusion.cpp --stream-layers: declared in bool_options, takes no value"},
+		{"gpulayers", ValueNumber, "koboldcpp --gpulayers: type=int, -1 = auto-guess; llama.cpp -ngl N: type=int, -1 = all layers"},
 
 		// Guard the two that look like this class but are genuinely numeric, so a future
 		// sweep does not "fix" them into the sd.cpp spelling of the same idea.

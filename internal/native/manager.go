@@ -725,7 +725,7 @@ func sdcppArguments(metadata catalog.RuntimeConfig, modelID string, host string,
 	appendStringArg(&args, "--max-vram", nativeSingleString(metadata.SDMaxVRAM))
 	// stable-diffusion.cpp declares --stream-layers among its bool options, so it takes
 	// no value; passing a count leaves the number as a stray positional argument.
-	if metadata.SDStreamLayers != 0 {
+	if metadata.SDStreamLayers {
 		args = append(args, "--stream-layers")
 	}
 	appendStringListArg(&args, "--tensor-type-rules", metadata.SDTensorTypeRules)

@@ -564,7 +564,7 @@ func TestCurrentReleaseArgumentsPreserveOptionalAndAssignmentValues(t *testing.T
 	sdcppArgs, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{
 		SDModel:        "C:/models/image.safetensors",
 		SDMaxVRAM:      "cuda0=6,vulkan0=4",
-		SDStreamLayers: 4,
+		SDStreamLayers: true,
 		SDStreaming:    true,
 		SDAutoFit:      true,
 		SDSplitMode:    "layer",
@@ -681,7 +681,7 @@ func TestSDCPPLaunchArgumentsFromKcpps(t *testing.T) {
 		"sdparamsbackend":"cpu",
 		"sdrpcservers":["127.0.0.1:9001","127.0.0.1:9002"],
 		"sdmaxvram":12288,
-		"sdstreamlayers":4,
+		"sdstreamlayers":true,
 		"sdtensortyperules":["vae=f16","clip=q8_0"],
 		"sdvaeformat":"safetensors",
 		"sdloramodeldir":"C:/models/loras",

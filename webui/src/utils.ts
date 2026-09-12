@@ -185,6 +185,8 @@ export function parseOptionInput(definition: OptionDefinition | undefined, value
       }
       return {value: trimmed.split(/[\s,]+/).filter(Boolean), warnings: []};
     }
+    case "string":
+      return {value, warnings: []};
     default:
       return {value, warnings: []};
   }

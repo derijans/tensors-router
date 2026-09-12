@@ -248,6 +248,9 @@ func (writer Writer) composedConfig(components []Component, options Options) (ma
 	if err := validateComposedVLLMConfig(body, components); err != nil {
 		return nil, "", err
 	}
+	if err := validateComposedRuntimeConfig(body); err != nil {
+		return nil, "", err
+	}
 	imagePath = rawJSONString(body["sdmodel"])
 	return body, imagePath, nil
 }
