@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/ggml-org/llama.cpp",
+  "releases": [
+    {
+      "id": "387816848",
+      "tag": "b10938",
+      "published_at": "2026-09-13T06:45:18Z",
+      "prerelease": true,
+      "payloads": [
+        {
+          "name": "llama-b10938-bin-ubuntu-x64.tar.gz",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10938/llama-b10938-bin-ubuntu-x64.tar.gz",
+          "length": 16820989,
+          "sha256": "adbd216b2453b79e3874a406bee21e59d1b0ba06df567102ab8a69aa3dd200dd"
+        }
+      ]
+    }
+  ]
+}
