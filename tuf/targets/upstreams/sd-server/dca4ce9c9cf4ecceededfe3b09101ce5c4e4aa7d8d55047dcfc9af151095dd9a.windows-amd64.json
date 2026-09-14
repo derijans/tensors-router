@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "388019065",
+      "tag": "master-866-42d6c0a",
+      "published_at": "2026-09-13T20:06:01Z",
+      "payloads": [
+        {
+          "name": "sd-master-42d6c0a-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-866-42d6c0a/sd-master-42d6c0a-bin-win-cpu-x64.zip",
+          "length": 24342573,
+          "sha256": "79efdb99598d523662ea33af3d3d0bb04ae9b4c52dce38327a659a0033ea0163"
+        }
+      ]
+    }
+  ]
+}
