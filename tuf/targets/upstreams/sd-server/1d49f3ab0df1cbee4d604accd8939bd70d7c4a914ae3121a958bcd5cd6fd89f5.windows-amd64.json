@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "388729794",
+      "tag": "master-869-07a85c7",
+      "published_at": "2026-09-14T21:39:26Z",
+      "payloads": [
+        {
+          "name": "sd-master-07a85c7-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-869-07a85c7/sd-master-07a85c7-bin-win-cpu-x64.zip",
+          "length": 17114202,
+          "sha256": "55157cc96bfa7f37c5db6e91d302a77ba956273a4dd7cc04a643495d3ac097d6"
+        }
+      ]
+    }
+  ]
+}
