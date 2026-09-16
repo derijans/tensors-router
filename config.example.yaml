@@ -173,25 +173,25 @@ cluster:
   health_interval: "15s"
   control_timeout: "30s"
   sync_concurrency: 4
-  # Image backlog offloading. A node in a routing group holds its own image queue
-  # instead of pushing it all at the backend, so surplus work can still be lent to
-  # an idle peer. scheduling_backend_depth is how many requests reach the backend
-  # at once: 2 keeps one running and one queued so the backend never idles between
-  # jobs. Offloading only engages once every member of a group has at least
+  # Backlog lending. A model with a routing link holds its own queue instead of
+  # pushing it all at the backend, so surplus work can still be lent along its
+  # one-way links to an idle helper. scheduling_backend_depth is how many requests
+  # reach the backend at once: 2 keeps one running and one queued so the backend
+  # never idles between jobs. A model is only leased once it has at least
   # scheduling_min_samples measured requests inside scheduling_sample_window.
   scheduling_refresh_interval: "60s"
   scheduling_sample_window: "24h"
   scheduling_min_samples: 20
   scheduling_backend_depth: 2
   scheduling_grant_ttl: "30s"
-  # If a routing group member is marked to restore after borrow, the node that
-  # served borrowed work on that member reloads whatever model it held before,
-  # once offload_restore_delay passes with no further borrowed work arriving.
+  # If a routing link is marked to restore after borrow, the helper that served
+  # borrowed work through that link reloads whatever model it held before, once
+  # offload_restore_delay passes with no further borrowed work arriving.
   offload_restore_delay: "1.5s"
-  # Text routing groups reuse every key above. A .kcpps that sets parallel or
+  # Text routing links reuse every key above. A .kcpps that sets parallel or
   # vllm.settings.max_number_sequences above 1 serves requests concurrently and
-  # cannot join a text group at all, which is what keeps one backend depth
-  # correct for both lanes: every groupable text model is serial, exactly like
+  # cannot be linked at all, which is what keeps one backend depth
+  # correct for both lanes: every linkable text model is serial, exactly like
   # a diffusion backend. scheduling_context_reserve is the floor on how much of
   # a context window is kept for the answer when the client states no limit;
   # the rest of the context estimate is measured from each model's own traffic

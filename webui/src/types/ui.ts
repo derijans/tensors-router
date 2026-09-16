@@ -1,4 +1,4 @@
-import type { AnalyticsQuery, AnalyticsResponse, LoadCaptureAttempt, LoadCaptureDetailResponse, LoadCaptureListResponse, LoadCaptureOutputChunk, LoadCaptureQuery, LoadErrorRecord, BenchmarkRecord, BenchmarkSection, BenchmarkType, CookComponent, DownloadCapabilitiesResponse, DownloadLibraryResponse, DownloadPlan, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, NodeState, RouterProcessStatus, RoutingGroupsResponse, WebUICatalogResponse } from "./api";
+import type { AnalyticsQuery, AnalyticsResponse, LoadCaptureAttempt, LoadCaptureDetailResponse, LoadCaptureListResponse, LoadCaptureOutputChunk, LoadCaptureQuery, LoadErrorRecord, BenchmarkRecord, BenchmarkSection, BenchmarkType, CookComponent, DownloadCapabilitiesResponse, DownloadLibraryResponse, DownloadPlan, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, NodeState, RouterProcessStatus, RoutingLane, RoutingLinksResponse, WebUICatalogResponse } from "./api";
 import type { JsonValue, Options } from "./json";
 
 export type CookMode = "quick" | "constructor";
@@ -113,7 +113,7 @@ export interface NodeRuntimeSlice {
 export interface AppState {
   csrf: string;
   inventory: InventoryResponse | null;
-  routingGroups: RoutingGroupsResponse | null;
+  routingLinks: Record<RoutingLane, RoutingLinksResponse | null>;
   router: RouterProcessStatus | null;
   nodes: {
     expanded: string[];

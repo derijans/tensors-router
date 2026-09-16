@@ -34,7 +34,7 @@ const (
 )
 
 type queuedRequest struct {
-	groupID         string
+	modelID         string
 	work            schedulingcost.Work
 	requiredContext int64
 	origin          requestOrigin
@@ -52,7 +52,7 @@ func (activity nodeActivity) idle() bool {
 }
 
 type offloadEntry struct {
-	groupID         string
+	modelID         string
 	work            schedulingcost.Work
 	requiredContext int64
 	arrived         time.Time
@@ -84,7 +84,7 @@ func (queue *offloadQueue) Enqueue(request queuedRequest, node nodeActivity, now
 	queue.sequence++
 	borrowed := request.origin == borrowedFromPeer
 	entry := &offloadEntry{
-		groupID:         request.groupID,
+		modelID:         request.modelID,
 		work:            request.work,
 		requiredContext: request.requiredContext,
 		arrived:         now,
@@ -122,7 +122,7 @@ func (queue *offloadQueue) Complete(entry *offloadEntry) {
 	queue.admitLocked()
 }
 
-func (queue *offloadQueue) WithdrawNewest(groupID string, limit int) []*offloadEntry {
+func (queue *offloadQueue) WithdrawNewest(modelID string, limit int) []*offloadEntry {
 	if limit <= 0 {
 		return nil
 	}
@@ -132,7 +132,7 @@ func (queue *offloadQueue) WithdrawNewest(groupID string, limit int) []*offloadE
 	withdrawn := make([]*offloadEntry, 0, limit)
 	for index := len(queue.pending) - 1; index >= 0 && len(withdrawn) < limit; index-- {
 		entry := queue.pending[index]
-		if entry.borrowed || entry.pinned || entry.groupID != groupID {
+		if entry.borrowed || entry.pinned || entry.modelID != modelID {
 			continue
 		}
 		queue.pending = append(queue.pending[:index], queue.pending[index+1:]...)
@@ -142,13 +142,13 @@ func (queue *offloadQueue) WithdrawNewest(groupID string, limit int) []*offloadE
 	return withdrawn
 }
 
-func (queue *offloadQueue) Requeue(groupID string, work schedulingcost.Work, requiredContext int64, now time.Time) *offloadEntry {
+func (queue *offloadQueue) Requeue(modelID string, work schedulingcost.Work, requiredContext int64, now time.Time) *offloadEntry {
 	queue.mu.Lock()
 	defer queue.mu.Unlock()
 
 	queue.sequence++
 	entry := &offloadEntry{
-		groupID:         groupID,
+		modelID:         modelID,
 		work:            work,
 		requiredContext: requiredContext,
 		arrived:         now,
@@ -184,8 +184,8 @@ func (queue *offloadQueue) BorrowedInFlight() int {
 	return count
 }
 
-type offloadGroupStats struct {
-	GroupID        string              `json:"group_id"`
+type offloadModelStats struct {
+	ModelID        string              `json:"model_id"`
 	PendingCount   int64               `json:"pending_count"`
 	PendingWork    schedulingcost.Work `json:"pending_work"`
 	PendingContext int64               `json:"pending_context,omitempty"`
@@ -193,18 +193,18 @@ type offloadGroupStats struct {
 	BacklogWork    schedulingcost.Work `json:"backlog_work"`
 }
 
-func (queue *offloadQueue) Stats() []offloadGroupStats {
+func (queue *offloadQueue) Stats() []offloadModelStats {
 	queue.mu.Lock()
 	defer queue.mu.Unlock()
 
-	byGroup := map[string]*offloadGroupStats{}
+	byModel := map[string]*offloadModelStats{}
 	var order []string
-	statsFor := func(groupID string) *offloadGroupStats {
-		stats, seen := byGroup[groupID]
+	statsFor := func(modelID string) *offloadModelStats {
+		stats, seen := byModel[modelID]
 		if !seen {
-			stats = &offloadGroupStats{GroupID: groupID}
-			byGroup[groupID] = stats
-			order = append(order, groupID)
+			stats = &offloadModelStats{ModelID: modelID}
+			byModel[modelID] = stats
+			order = append(order, modelID)
 		}
 		return stats
 	}
@@ -212,7 +212,7 @@ func (queue *offloadQueue) Stats() []offloadGroupStats {
 		if entry.borrowed {
 			continue
 		}
-		stats := statsFor(entry.groupID)
+		stats := statsFor(entry.modelID)
 		stats.PendingCount++
 		if sum, ok := stats.PendingWork.Add(entry.work); ok {
 			stats.PendingWork = sum
@@ -227,15 +227,15 @@ func (queue *offloadQueue) Stats() []offloadGroupStats {
 		if entry.borrowed {
 			continue
 		}
-		stats := statsFor(entry.groupID)
+		stats := statsFor(entry.modelID)
 		stats.BacklogCount++
 		if sum, ok := stats.BacklogWork.Add(entry.work); ok {
 			stats.BacklogWork = sum
 		}
 	}
-	result := make([]offloadGroupStats, 0, len(order))
-	for _, groupID := range order {
-		result = append(result, *byGroup[groupID])
+	result := make([]offloadModelStats, 0, len(order))
+	for _, modelID := range order {
+		result = append(result, *byModel[modelID])
 	}
 	return result
 }

@@ -1984,6 +1984,12 @@ td {
   max-width: min(38rem, calc(100vw - 2rem));
 }
 
+.routing-dialog input[type="checkbox"] {
+  width: auto;
+  min-height: 0;
+  padding: 0;
+}
+
 .dialog-note {
   margin: 0.35rem 0 1rem;
   opacity: 0.8;
@@ -2017,7 +2023,16 @@ td {
   gap: 0.65rem;
 }
 
-.routing-candidate-restore {
+.routing-direction {
+  margin-bottom: 1.25rem;
+}
+
+.routing-direction-heading {
+  margin: 0;
+  font-size: 0.95rem;
+}
+
+.routing-candidate-flag {
   display: flex;
   align-items: center;
   gap: 0.5rem;
@@ -2026,8 +2041,14 @@ td {
   opacity: 0.75;
 }
 
-.routing-candidate-restore:has(input:disabled) {
+.routing-candidate-flag:has(input:disabled) {
   opacity: 0.4;
+}
+
+.routing-candidate-ineligible {
+  margin: 0.3rem 0 0 1.8rem;
+  font-size: 0.75rem;
+  color: var(--amber, #d99022);
 }
 
 .routing-candidate-name {

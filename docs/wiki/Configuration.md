@@ -200,7 +200,7 @@ When updates are enabled, each selected backend needs either a direct binary URL
 | `cluster.slave_urls` | List of absolute URL strings | `[]` | Slave URLs permitted and polled by a master. |
 | `cluster.token` | String | Empty | Shared cluster credential. Required for master and slave roles and rejected when it is a placeholder. |
 | `cluster.store_dir` | Path string | `./router-store` | Stores registry, asset index, recipes, benchmarks, and the router database. |
-| `cluster.database_path` | Path string | Empty | SQLite path holding analytics, load captures, load errors, and routing groups. Empty uses `cluster.store_dir/analytics.sqlite`. Model assets and model state keep their own files and cannot be named here. |
+| `cluster.database_path` | Path string | Empty | SQLite path holding analytics, load captures, load errors, and routing links. Empty uses `cluster.store_dir/analytics.sqlite`. Model assets and model state keep their own files and cannot be named here. |
 | `cluster.sync_interval` | Positive duration string | `60s` | Interval between slave registry synchronization attempts. |
 | `cluster.health_interval` | Positive duration string | `15s` | Interval between cluster health checks. |
 | `cluster.control_timeout` | Positive duration string | `30s` | Total deadline for buffered cluster control requests and responses. Model load and unload are exempt: their remote work can include a peer asset transfer, so they follow the receiving node model operation deadline instead. |
@@ -213,7 +213,7 @@ When updates are enabled, each selected backend needs either a direct binary URL
 | `cluster.scheduling_refresh_interval` | Positive duration string | `60s` | How often the master refits node costs and reconsiders offload leases. |
 | `cluster.scheduling_sample_window` | Positive duration string | `24h` | History window used to fit request duration. Must stay inside `analytics.raw_retention`. |
 | `cluster.scheduling_min_samples` | Integer, at least 2 | `20` | Measured requests a node needs before it can be scheduled predictively. Below this it is never offloaded to. |
-| `cluster.scheduling_backend_depth` | Integer, at least 1 | `2` | Image requests admitted to the backend at once on a grouped model. One running plus one queued keeps the backend busy while the rest stay recallable. |
+| `cluster.scheduling_backend_depth` | Integer, at least 1 | `2` | Requests admitted to the backend at once on a linked model. One running plus one queued keeps the backend busy while the rest stay lendable. |
 | `cluster.scheduling_grant_ttl` | Positive duration string | `30s` | Lifetime of an offload lease. A lease that is not renewed expires on its own. |
 | `analytics.enabled` | Boolean | `false` | Enables persisted request and runtime analytics. |
 | `analytics.vram_enabled` | Boolean | `true` | Enables VRAM sampling when analytics is active. |
@@ -231,7 +231,7 @@ When updates are enabled, each selected backend needs either a direct binary URL
 
 ### One router database
 
-Analytics, load captures, load errors, and routing groups share a single SQLite file at `cluster.database_path`. Model assets (`model-assets.sqlite`) and model state (`model-state.sqlite`) stay in their own files, and the standalone downloader keeps its own database.
+Analytics, load captures, load errors, and routing links share a single SQLite file at `cluster.database_path`. Model assets (`model-assets.sqlite`) and model state (`model-state.sqlite`) stay in their own files, and the standalone downloader keeps its own database.
 
 The schema is created whatever the feature flags say, so a node with analytics off still carries an empty analytics table. A flag decides whether the router writes, never whether the table exists.
 

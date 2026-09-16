@@ -2,6 +2,13 @@ package cluster
 
 import "encoding/json"
 
+func ContextFits(model Model, requiredContext int) bool {
+	if requiredContext <= 0 {
+		return true
+	}
+	return model.Capabilities.Context > 0 && model.Capabilities.Context >= requiredContext
+}
+
 func statesContextWindow(model Model) bool {
 	return model.Capabilities.Context > 0
 }

@@ -16,6 +16,7 @@ import (
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/recipes"
+	"tensors-router/internal/routinggroups"
 )
 
 func borrowedRequestMustStayOnThisNode(r *http.Request, route cluster.Route) bool {
@@ -23,8 +24,8 @@ func borrowedRequestMustStayOnThisNode(r *http.Request, route cluster.Route) boo
 }
 
 func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string) {
-	hint := service.textRouteHint(service.nodeID, publicID, int64(len(body)), body)
-	model, route, release, ok := service.acquireRegistryModelRoute(r, publicID, hint)
+	hint := service.textWorkHint(service.nodeID, publicID, int64(len(body)), body)
+	model, route, release, ok := service.acquireRegistryModelRoute(r, publicID)
 	if !ok {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("model %q has no available replicas", publicID))
 		return
@@ -37,7 +38,7 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 	service.handleAcquiredRegistryModelRequest(w, r, body, publicID, model, route, release, false, hint)
 }
 
-func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string, model cluster.Model, route cluster.Route, release func(), insertModel bool, pricedHint cluster.RouteHint) {
+func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string, model cluster.Model, route cluster.Route, release func(), insertModel bool, workHint requestWorkHint) {
 	defer release()
 	modelBackendMode, backendModeErr := service.clusterModelBackendMode(model)
 	if backendModeErr != nil {
@@ -84,6 +85,10 @@ func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter
 			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 			return
 		}
+		if service.borrowedRequestWouldLoadWithoutPermission(r, routeBackendMode, readiness, route.Filename) {
+			writeOffloadReturned(w)
+			return
+		}
 		if routeBackendMode == BackendModeLlamaSDCPP && model.HasImage && !isEmbeddingsPath(r.URL.Path) {
 			if err := service.loadLocalRuntimeForRequest(r.Context(), routeBackendMode, route.PublicImageID, route.Filename, readinessImage); err != nil {
 				writeBackendFailure(w, err)
@@ -92,7 +97,7 @@ func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter
 		}
 
 		if !isEmbeddingsPath(r.URL.Path) {
-			complete, handled := service.serveTextThroughGroupQueue(w, r, body, requestBody, publicID, route, pricedHint, release)
+			complete, handled := service.serveTextThroughLendingQueue(w, r, body, requestBody, publicID, route, workHint, release)
 			if handled {
 				return
 			}
@@ -139,12 +144,12 @@ func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter
 	}
 }
 
-func (service *Service) serveTextThroughGroupQueue(w http.ResponseWriter, r *http.Request, body []byte, requestBody []byte, publicID string, route cluster.Route, pricedHint cluster.RouteHint, release func()) (complete func(), handled bool) {
-	groupID, grouped := service.textGroupID(route.NodeID, route.LocalID)
-	if !grouped {
+func (service *Service) serveTextThroughLendingQueue(w http.ResponseWriter, r *http.Request, body []byte, requestBody []byte, publicID string, route cluster.Route, workHint requestWorkHint, release func()) (complete func(), handled bool) {
+	modelID := route.LocalID
+	if !service.queuesForLending(cluster.RouteLaneText, route.NodeID, modelID) {
 		return nil, false
 	}
-	admission, queueErr := service.enterTextQueue(r.Context(), groupID, pricedHint.Work, int64(pricedHint.RequiredContext), requestIsStreaming(body), requestIsBorrowed(r))
+	admission, queueErr := service.enterTextQueue(r.Context(), modelID, workHint.Work, int64(workHint.RequiredContext), requestIsStreaming(body), requestIsBorrowed(r))
 	if queueErr != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", queueErr.Error())
 		return nil, true
@@ -154,27 +159,23 @@ func (service *Service) serveTextThroughGroupQueue(w http.ResponseWriter, r *htt
 		writeOffloadReturned(w)
 		return nil, true
 	case offloadWithdrawn:
-		handled := false
-		if helper, found := service.leasedHelperMember(cluster.RouteLaneText, groupID, route.NodeID, route.LocalID); found &&
-			service.leasedHelperContextFits(helper, admission.entry.requiredContext) {
-			forwardedBody := rewriteRequestModel(requestBody, helper.ModelID)
-			handled = service.forwardOffloadedTextRequest(w, r, r, forwardedBody, groupID, publicID, release)
-		}
-		if handled {
+		if lease, leased := service.activeOffloadLease(cluster.RouteLaneText, modelID, time.Now()); leased &&
+			service.leasedHelperContextFits(routinggroups.Endpoint{NodeID: lease.HelperNodeID, ModelID: lease.HelperModelID}, admission.entry.requiredContext) &&
+			service.forwardOffloadedTextRequest(w, r, r, requestBody, modelID, publicID, release) {
 			return nil, true
 		}
-		requeued := service.textQueue.Requeue(groupID, pricedHint.Work, int64(pricedHint.RequiredContext), time.Now())
+		requeued := service.textQueue.Requeue(modelID, workHint.Work, int64(workHint.RequiredContext), time.Now())
 		if outcome, waitErr := service.textQueue.Await(r.Context(), requeued); waitErr != nil || outcome != offloadAdmitted {
 			openai.WriteError(w, http.StatusBadGateway, "backend_error", "returned request could not be re-queued")
 			return nil, true
 		}
-		return func() { service.completeTextQueueEntry(groupID, requeued) }, false
+		return func() { service.completeTextQueueEntry(modelID, requeued) }, false
 	default:
-		return func() { service.completeTextQueueEntry(groupID, admission.entry) }, false
+		return func() { service.completeTextQueueEntry(modelID, admission.entry) }, false
 	}
 }
 
-func (service *Service) acquireRegistryModelRoute(r *http.Request, publicID string, hint cluster.RouteHint) (cluster.Model, cluster.Route, func(), bool) {
+func (service *Service) acquireRegistryModelRoute(r *http.Request, publicID string) (cluster.Model, cluster.Route, func(), bool) {
 	if isEmbeddingsPath(r.URL.Path) {
 		model, ok := service.registry.EmbeddingModel(publicID)
 		if !ok {
@@ -199,7 +200,7 @@ func (service *Service) acquireRegistryModelRoute(r *http.Request, publicID stri
 	if modelBackendMode == BackendModeVLLM {
 		readiness = vllmReadinessForTask(r.URL.Path, model.VLLMTask)
 	}
-	route, release, ok := service.registry.Acquire(publicID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readiness), hint)
+	route, release, ok := service.registry.Acquire(publicID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readiness))
 	return model, route, release, ok
 }
 
@@ -223,9 +224,14 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 		return true
 	}
 	jobBackendMode := modelBackendMode
-	route, release, ok := service.registry.AcquireImage(publicImageID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readinessImage), activeConfigFilename, imageRouteHint(r, body))
+	route, release, ok := service.registry.AcquireImage(publicImageID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readinessImage), activeConfigFilename)
 	if !ok {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("image model %q has no available replicas", publicImageID))
+		return true
+	}
+	if borrowedRequestMustStayOnThisNode(r, route) {
+		release()
+		writeOffloadReturned(w)
 		return true
 	}
 
@@ -246,11 +252,16 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 			return true
 		}
 		jobBackendMode = routeBackendMode
+		if service.borrowedRequestWouldLoadWithoutPermission(r, routeBackendMode, readinessImage, route.Filename) {
+			release()
+			writeOffloadReturned(w)
+			return true
+		}
 
-		// A grouped image model queues in the router instead of going straight to
+		// A linked image model queues in the router instead of going straight to
 		// the backend, which is what keeps its backlog recallable and lendable.
-		if groupID, grouped := service.imageGroupID(route.NodeID, route.LocalImageID); grouped {
-			admission, queueErr := service.enterImageQueue(r.Context(), groupID, imageRouteHint(r, body).Work, requestIsBorrowed(r))
+		if modelID := route.LocalImageID; service.queuesForLending(cluster.RouteLaneImage, route.NodeID, modelID) {
+			admission, queueErr := service.enterImageQueue(r.Context(), modelID, imageWorkHint(r, body).Work, requestIsBorrowed(r))
 			if queueErr != nil {
 				release()
 				openai.WriteError(w, http.StatusBadGateway, "backend_error", queueErr.Error())
@@ -262,20 +273,20 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 				writeOffloadReturned(w)
 				return true
 			case offloadWithdrawn:
-				handled := service.forwardOffloadedImageRequest(w, r, request, requestBody, groupID, publicImageID, release)
+				handled := service.forwardOffloadedImageRequest(w, r, request, requestBody, modelID, publicImageID, release)
 				if handled {
 					return true
 				}
 				// The helper could not take it after all, so this node runs it.
-				requeued := service.imageQueue.Requeue(groupID, imageRouteHint(r, body).Work, 0, time.Now())
+				requeued := service.imageQueue.Requeue(modelID, imageWorkHint(r, body).Work, 0, time.Now())
 				if outcome, waitErr := service.imageQueue.Await(r.Context(), requeued); waitErr != nil || outcome != offloadAdmitted {
 					release()
 					openai.WriteError(w, http.StatusBadGateway, "backend_error", "returned request could not be re-queued")
 					return true
 				}
-				defer service.completeImageQueueEntry(groupID, requeued)
+				defer service.completeImageQueueEntry(modelID, requeued)
 			default:
-				defer service.completeImageQueueEntry(groupID, admission.entry)
+				defer service.completeImageQueueEntry(modelID, admission.entry)
 			}
 		}
 
@@ -331,9 +342,14 @@ func (service *Service) handleRegistryImageOptions(w http.ResponseWriter, r *htt
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return true
 	}
-	route, release, ok := service.registry.AcquireImage(publicImageID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readinessImage), activeConfigFilename, imageRouteHint(r, body))
+	route, release, ok := service.registry.AcquireImage(publicImageID, service.localBackendAvailableForRoute(r.Context(), modelBackendMode, readinessImage), activeConfigFilename)
 	if !ok {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("image model %q has no available replicas", publicImageID))
+		return true
+	}
+	if borrowedRequestMustStayOnThisNode(r, route) {
+		release()
+		writeOffloadReturned(w)
 		return true
 	}
 

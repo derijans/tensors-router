@@ -21,7 +21,7 @@ type CopySpec struct {
 }
 
 func CopyRows(ctx context.Context, tx *sql.Tx, spec CopySpec) (int64, error) {
-	present, err := legacyTableExists(ctx, tx, spec.LegacySchema, spec.LegacyTable)
+	present, err := TableExists(ctx, tx, spec.LegacySchema, spec.LegacyTable)
 	if err != nil {
 		return 0, err
 	}
@@ -81,7 +81,7 @@ func SharedColumns(ctx context.Context, tx *sql.Tx, schema string, table string,
 	return shared, nil
 }
 
-func legacyTableExists(ctx context.Context, tx *sql.Tx, schema string, table string) (bool, error) {
+func TableExists(ctx context.Context, tx *sql.Tx, schema string, table string) (bool, error) {
 	var name string
 	err := tx.QueryRowContext(ctx, fmt.Sprintf(`SELECT name FROM %s.sqlite_master WHERE type = 'table' AND name = ?`, schema), table).Scan(&name)
 	if err == sql.ErrNoRows {

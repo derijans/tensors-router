@@ -3,31 +3,30 @@ package proxy
 import (
 	"encoding/json"
 
-	"tensors-router/internal/cluster"
 	"tensors-router/internal/schedulingcost"
 )
 
-func (service *Service) textRouteHint(profileNodeID string, profileModelID string, promptBytes int64, body []byte) cluster.RouteHint {
+func (service *Service) textWorkHint(profileNodeID string, profileModelID string, promptBytes int64, body []byte) requestWorkHint {
 	if promptBytes <= 0 {
-		return cluster.UnsizedRouteHint()
+		return requestWorkHint{}
 	}
 	profile, ok := service.costSource.TokenProfile(profileNodeID, profileModelID)
 	if !ok {
-		return cluster.UnsizedRouteHint()
+		return requestWorkHint{}
 	}
 	promptTokens, ok := profile.EstimatePromptTokens(promptBytes)
 	if !ok {
-		return cluster.UnsizedRouteHint()
+		return requestWorkHint{}
 	}
 	requiredContext, ok := profile.RequiredContext(promptBytes, requestedOutputTokens(body), service.schedulingContextReserve)
 	if !ok {
-		return cluster.UnsizedRouteHint()
+		return requestWorkHint{}
 	}
 	outputEstimate := requiredContext - promptTokens
 	if outputEstimate < 0 {
 		outputEstimate = 0
 	}
-	return cluster.RouteHint{
+	return requestWorkHint{
 		Work:            schedulingcost.TextWork(float64(promptTokens), float64(outputEstimate)),
 		RequiredContext: requiredContext,
 	}

@@ -41,9 +41,9 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/models/state":
 		service.handleSiteModelState(w, r)
 	case r.URL.Path == "/router/v1/site/routing-groups":
-		service.handleSiteRoutingGroups(w, r)
+		service.handleSiteRoutingLinks(w, r, imageRoutingLane)
 	case r.URL.Path == "/router/v1/site/text-routing-groups":
-		service.handleSiteTextRoutingGroups(w, r)
+		service.handleSiteRoutingLinks(w, r, textRoutingLane)
 	case r.URL.Path == "/router/v1/site/separate-runtimes":
 		service.handleSiteSeparateRuntimes(w, r)
 	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/download/capabilities":
@@ -284,6 +284,10 @@ func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Requ
 		if service.requireClusterToken(w, r) {
 			service.handleNodeOffloadRequest(w, r)
 		}
+	case r.Method == http.MethodPost && r.URL.Path == nodeRoutingLinksPath:
+		if service.requireClusterToken(w, r) {
+			service.handleNodeRoutingLinks(w, r)
+		}
 	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/webuis/load":
 		if service.requireClusterToken(w, r) {
 			service.handleNodeSiteWebUILoad(w, r)
@@ -375,10 +379,15 @@ func (service *Service) handleNodeInference(w http.ResponseWriter, r *http.Reque
 	forwarded.Header.Del(offloadMarkerHeader)
 	restoreRequested := strings.TrimSpace(forwarded.Header.Get(offloadRestoreHeader)) != ""
 	forwarded.Header.Del(offloadRestoreHeader)
+	loadAllowed := strings.TrimSpace(forwarded.Header.Get(offloadLoadHeader)) != ""
+	forwarded.Header.Del(offloadLoadHeader)
 	if borrowed {
 		forwarded = markBorrowedRequest(forwarded)
 		if restoreRequested {
 			forwarded = markBorrowRestoreRequested(forwarded)
+		}
+		if loadAllowed {
+			forwarded = markBorrowLoadAllowed(forwarded)
 		}
 	}
 	service.ServeHTTP(w, forwarded)
@@ -743,7 +752,7 @@ func (service *Service) acquireRegistryModelControlRoute(ctx context.Context, pu
 	case readinessTranscription:
 		return service.registry.AcquireVoice(publicID, healthy)
 	default:
-		return service.registry.Acquire(publicID, healthy, cluster.UnsizedRouteHint())
+		return service.registry.Acquire(publicID, healthy)
 	}
 }
 

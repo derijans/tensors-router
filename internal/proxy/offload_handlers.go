@@ -22,12 +22,13 @@ func offloadLaneFromHeader(value string) string {
 }
 
 const (
-	offloadMarkerHeader  = "X-Tensors-Offload"
-	offloadGroupHeader   = "X-Tensors-Offload-Group"
-	offloadOwnerHeader   = "X-Tensors-Offload-Owner"
-	offloadPathHeader    = "X-Tensors-Offload-Path"
-	offloadLaneHeader    = "X-Tensors-Offload-Lane"
-	offloadRestoreHeader = "X-Tensors-Offload-Restore"
+	offloadMarkerHeader     = "X-Tensors-Offload"
+	offloadOwnerModelHeader = "X-Tensors-Offload-Owner-Model"
+	offloadOwnerHeader      = "X-Tensors-Offload-Owner"
+	offloadPathHeader       = "X-Tensors-Offload-Path"
+	offloadLaneHeader       = "X-Tensors-Offload-Lane"
+	offloadRestoreHeader    = "X-Tensors-Offload-Restore"
+	offloadLoadHeader       = "X-Tensors-Offload-Load"
 
 	offloadReturnedCode = "offload_returned"
 )
@@ -60,8 +61,8 @@ func (service *Service) handleNodeOffloadGrant(w http.ResponseWriter, r *http.Re
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
-	if strings.TrimSpace(lease.GroupID) == "" || strings.TrimSpace(lease.HelperNodeID) == "" {
-		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "group_id and helper_node_id are required")
+	if strings.TrimSpace(lease.OwnerModelID) == "" || strings.TrimSpace(lease.HelperNodeID) == "" || strings.TrimSpace(lease.HelperModelID) == "" {
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "owner_model_id, helper_node_id and helper_model_id are required")
 		return
 	}
 	service.storeOffloadLease(lease)
@@ -73,15 +74,15 @@ func (service *Service) handleNodeOffloadGrant(w http.ResponseWriter, r *http.Re
 // takes custody: the response goes straight back to the owner, which is still
 // holding the client.
 func (service *Service) handleNodeOffloadRequest(w http.ResponseWriter, r *http.Request) {
-	groupID := strings.TrimSpace(r.Header.Get(offloadGroupHeader))
+	ownerModelID := strings.TrimSpace(r.Header.Get(offloadOwnerModelHeader))
 	ownerNodeID := strings.TrimSpace(r.Header.Get(offloadOwnerHeader))
 	path := strings.TrimSpace(r.Header.Get(offloadPathHeader))
 	lane := offloadLaneFromHeader(r.Header.Get(offloadLaneHeader))
-	if groupID == "" || ownerNodeID == "" || !isLocalInferencePath(path) {
-		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "offload group, owner, and path are required")
+	if ownerModelID == "" || ownerNodeID == "" || !isLocalInferencePath(path) {
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "offload owner model, owner, and path are required")
 		return
 	}
-	lease, ok := service.leaseBook.Lease(lane, groupID, ownerNodeID, time.Now())
+	lease, ok := service.leaseBook.Lease(lane, ownerNodeID, ownerModelID, time.Now())
 	if !ok {
 		openai.WriteError(w, http.StatusConflict, offloadReturnedCode, "no live offload lease for this owner")
 		return
@@ -96,7 +97,8 @@ func (service *Service) handleNodeOffloadRequest(w http.ResponseWriter, r *http.
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
-	response, err := service.forwardBorrowedRequest(r.Context(), nodeURL, path, r, body, lease.RestoreHelperModel)
+	relayed, relayedBody := requestAddressedToHelper(r, body, lease)
+	response, err := service.forwardBorrowedRequest(r.Context(), nodeURL, path, relayed, relayedBody, lease)
 	if err != nil {
 		openai.WriteError(w, http.StatusConflict, offloadReturnedCode, err.Error())
 		return
@@ -107,7 +109,14 @@ func (service *Service) handleNodeOffloadRequest(w http.ResponseWriter, r *http.
 	_, _ = io.Copy(w, response.Body)
 }
 
-func (service *Service) forwardBorrowedRequest(ctx context.Context, nodeURL string, path string, original *http.Request, body []byte, restoreHelperModel bool) (*http.Response, error) {
+func requestAddressedToHelper(r *http.Request, body []byte, lease offloadLease) (*http.Request, []byte) {
+	if lease.Lane == cluster.RouteLaneText {
+		return r, rewriteRequestModel(body, lease.HelperModelID)
+	}
+	return rewriteImageRequest(r, lease.OwnerModelID, lease.HelperModelID), rewriteImageRequestBody(body, lease.OwnerModelID, lease.HelperModelID, r)
+}
+
+func (service *Service) forwardBorrowedRequest(ctx context.Context, nodeURL string, path string, original *http.Request, body []byte, lease offloadLease) (*http.Response, error) {
 	base, err := service.clusterClient.AuthorizedBaseURL(nodeURL)
 	if err != nil {
 		return nil, err
@@ -126,8 +135,11 @@ func (service *Service) forwardBorrowedRequest(ctx context.Context, nodeURL stri
 	copyClusterRequestHeaders(request.Header, original.Header)
 	request.Header.Set("Authorization", "Bearer "+service.clusterToken)
 	request.Header.Set(offloadMarkerHeader, "1")
-	if restoreHelperModel {
+	if lease.RestoreHelperModel {
 		request.Header.Set(offloadRestoreHeader, "1")
+	}
+	if lease.LoadHelperModel {
+		request.Header.Set(offloadLoadHeader, "1")
 	}
 	request.Host = target.Host
 	return service.client.Do(request)
@@ -136,7 +148,7 @@ func (service *Service) forwardBorrowedRequest(ctx context.Context, nodeURL stri
 // sendOffloadedRequest is the owner handing one request to the master for
 // placement. It returns errOffloadReturned when the helper could not take it, in
 // which case the caller re-queues locally and answers its client itself.
-func (service *Service) sendOffloadedRequest(ctx context.Context, lane string, groupID string, r *http.Request, body []byte) (*http.Response, error) {
+func (service *Service) sendOffloadedRequest(ctx context.Context, lane string, ownerModelID string, r *http.Request, body []byte) (*http.Response, error) {
 	masterURL, err := service.clusterClient.AuthorizedBaseURL(service.masterURL)
 	if err != nil {
 		return nil, err
@@ -154,7 +166,7 @@ func (service *Service) sendOffloadedRequest(ctx context.Context, lane string, g
 	}
 	copyClusterRequestHeaders(request.Header, r.Header)
 	request.Header.Set("Authorization", "Bearer "+service.clusterToken)
-	request.Header.Set(offloadGroupHeader, groupID)
+	request.Header.Set(offloadOwnerModelHeader, ownerModelID)
 	request.Header.Set(offloadOwnerHeader, service.nodeID)
 	request.Header.Set(offloadPathHeader, r.URL.Path)
 	request.Header.Set(offloadLaneHeader, lane)

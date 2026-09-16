@@ -6,8 +6,11 @@ import (
 	"time"
 
 	"tensors-router/internal/cluster"
+	"tensors-router/internal/routinggroups"
 	"tensors-router/internal/schedulingcost"
 )
+
+var lendingLanes = []string{cluster.RouteLaneImage, cluster.RouteLaneText}
 
 func (service *Service) refreshOffloadPlan(ctx context.Context) {
 	if service.clusterRole != cluster.RoleMaster || service.registry == nil {
@@ -16,41 +19,20 @@ func (service *Service) refreshOffloadPlan(ctx context.Context) {
 	statuses := service.collectRuntimeStatuses(ctx)
 	service.applyClusterCosts(statuses)
 
-	if service.routingGroups == nil {
+	snapshot, loaded := service.installStoredRoutingLinks(ctx)
+	if !loaded {
 		return
 	}
+	service.publishRoutingLinks(ctx, snapshot)
+
 	costs := service.costSource.Table()
 	now := time.Now()
+	index := service.routingLinkIndex()
 	var planned []offloadLease
-
-	imageGroups, err := service.routingGroups.Groups(ctx)
-	if err != nil {
-		service.logger.Printf("offload plan skipped, routing groups unavailable: %v", err)
-		return
+	for _, lane := range lendingLanes {
+		owners := service.lendingOwnersForLane(lane, index, statuses)
+		planned = append(planned, planOffloadLeases(lane, owners, costs, now, service.schedulingGrantTTL)...)
 	}
-	for _, group := range imageGroups {
-		members := make([]laneGroupMember, 0, len(group.Members))
-		for _, member := range group.Members {
-			members = append(members, laneGroupMember{NodeID: member.NodeID, ModelID: member.ImageID, RestoreAfterBorrow: member.RestoreAfterBorrow})
-		}
-		candidates := service.offloadCandidatesForLane(cluster.RouteLaneImage, group.ID, members, statuses)
-		planned = append(planned, planOffloadLeases(cluster.RouteLaneImage, group.ID, candidates, costs, now, service.schedulingGrantTTL)...)
-	}
-
-	textGroups, err := service.routingGroups.TextGroups(ctx)
-	if err != nil {
-		service.logger.Printf("offload plan skipped, text routing groups unavailable: %v", err)
-		textGroups = nil
-	}
-	for _, group := range textGroups {
-		members := make([]laneGroupMember, 0, len(group.Members))
-		for _, member := range group.Members {
-			members = append(members, laneGroupMember{NodeID: member.NodeID, ModelID: member.ModelID, RestoreAfterBorrow: member.RestoreAfterBorrow})
-		}
-		candidates := service.offloadCandidatesForLane(cluster.RouteLaneText, group.ID, members, statuses)
-		planned = append(planned, planOffloadLeases(cluster.RouteLaneText, group.ID, candidates, costs, now, service.schedulingGrantTTL)...)
-	}
-
 	service.leaseBook.Replace(planned)
 	service.deliverOffloadLeases(ctx, planned)
 }
@@ -67,94 +49,101 @@ func (service *Service) collectRuntimeStatuses(ctx context.Context) map[string]N
 
 func (service *Service) applyClusterCosts(statuses map[string]NodeRuntimeStatus) {
 	costsByNode := make(map[string]schedulingcost.NodeCosts, len(statuses))
-	backlogs := make(map[string]map[string]offloadGroupStats, len(statuses))
 	for nodeID, status := range statuses {
 		costsByNode[nodeID] = status.Costs
-		byGroup := make(map[string]offloadGroupStats, len(status.ImageQueue)+len(status.TextQueue))
-		for _, stats := range status.ImageQueue {
-			byGroup[backlogKey(cluster.RouteLaneImage, stats.GroupID)] = stats
-		}
-		for _, stats := range status.TextQueue {
-			byGroup[backlogKey(cluster.RouteLaneText, stats.GroupID)] = stats
-		}
-		backlogs[nodeID] = byGroup
 	}
-	service.costSource.Replace(schedulingcost.Merge(costsByNode), backlogs)
+	service.costSource.Replace(schedulingcost.Merge(costsByNode))
 }
 
-type laneGroupMember struct {
-	NodeID             string
-	ModelID            string
-	RestoreAfterBorrow bool
-}
-
-func laneGroupStatsFor(status NodeRuntimeStatus, lane string, groupID string) offloadGroupStats {
+func laneQueueStatsFor(status NodeRuntimeStatus, lane string, modelID string) offloadModelStats {
 	queue := status.ImageQueue
 	if lane == cluster.RouteLaneText {
 		queue = status.TextQueue
 	}
 	for _, item := range queue {
-		if item.GroupID == groupID {
+		if item.ModelID == modelID {
 			return item
 		}
 	}
-	return offloadGroupStats{}
+	return offloadModelStats{}
 }
 
-func (service *Service) offloadCandidatesForLane(lane string, groupID string, members []laneGroupMember, statuses map[string]NodeRuntimeStatus) []offloadCandidate {
-	models := service.registry.Models()
-	byMember := make(map[cluster.GroupMember]cluster.Model, len(models))
-	for _, model := range models {
-		if model.Disabled {
+func (service *Service) lendingOwnersForLane(lane string, index *routingLinkIndex, statuses map[string]NodeRuntimeStatus) []lendingOwner {
+	models := lendableModelsByEndpoint(lane, service.registry.Models())
+	var owners []lendingOwner
+	for _, ownerEndpoint := range index.owners(lane) {
+		owner, ok := offloadCandidateFor(lane, ownerEndpoint, models, statuses)
+		if !ok {
 			continue
 		}
-		if lane == cluster.RouteLaneImage {
-			if !model.HasImage || model.ImageID == "" {
+		candidate := lendingOwner{owner: owner}
+		for _, link := range index.lendTargets(lane, ownerEndpoint) {
+			helper, ok := offloadCandidateFor(lane, link.Helper, models, statuses)
+			if !ok {
 				continue
 			}
-		} else if !model.HasLLM {
-			continue
+			candidate.helpers = append(candidate.helpers, offloadHelperCandidate{
+				offloadCandidate:   helper,
+				LoadIfUnloaded:     link.LoadIfUnloaded,
+				RestoreAfterBorrow: link.RestoreAfterBorrow,
+			})
 		}
-		byMember[cluster.GroupMember{Lane: lane, NodeID: model.NodeID, ModelID: model.LocalID}] = model
-		if lane == cluster.RouteLaneImage {
-			byMember[cluster.GroupMember{Lane: lane, NodeID: model.NodeID, ModelID: model.ImageID}] = model
+		if len(candidate.helpers) > 0 {
+			owners = append(owners, candidate)
 		}
 	}
+	return owners
+}
 
-	candidates := make([]offloadCandidate, 0, len(members))
-	for _, member := range members {
-		model, known := byMember[cluster.GroupMember{Lane: lane, NodeID: member.NodeID, ModelID: member.ModelID}]
-		if !known || !model.Available {
+func lendableModelsByEndpoint(lane string, models []cluster.Model) map[routinggroups.Endpoint]cluster.Model {
+	byEndpoint := make(map[routinggroups.Endpoint]cluster.Model, len(models))
+	for _, model := range models {
+		if model.Disabled || !model.Available {
 			continue
 		}
-		status, reachable := statuses[member.NodeID]
-		if !reachable {
+		if lane == cluster.RouteLaneImage {
+			if model.HasImage && model.ImageID != "" {
+				byEndpoint[routinggroups.Endpoint{NodeID: model.NodeID, ModelID: model.ImageID}] = model
+			}
 			continue
 		}
-		stats := laneGroupStatsFor(status, lane, groupID)
-		candidate := offloadCandidate{
-			NodeID:             member.NodeID,
-			ModelID:            member.ModelID,
-			ConfigFilename:     model.Filename,
-			Section:            laneSection(lane),
-			RestoreAfterBorrow: member.RestoreAfterBorrow,
-			PendingCount:       stats.PendingCount,
-			PendingWork:        stats.PendingWork,
-			BacklogCount:       stats.BacklogCount,
-			BacklogWork:        stats.BacklogWork,
+		if model.HasLLM && cluster.TextGroupEligible(model) {
+			byEndpoint[routinggroups.Endpoint{NodeID: model.NodeID, ModelID: model.LocalID}] = model
 		}
-		if lane == cluster.RouteLaneText {
-			candidate.Loaded = status.ActiveTextConfig == model.Filename
-			candidate.AcceptingBorrowed = status.AcceptingBorrowedText
-			candidate.ContextCapacity = model.Capabilities.Context
-			candidate.PendingContext = stats.PendingContext
-		} else {
-			candidate.Loaded = status.ActiveImageConfig == model.Filename
-			candidate.AcceptingBorrowed = status.AcceptingBorrowedImage
-		}
-		candidates = append(candidates, candidate)
 	}
-	return candidates
+	return byEndpoint
+}
+
+func offloadCandidateFor(lane string, endpoint routinggroups.Endpoint, models map[routinggroups.Endpoint]cluster.Model, statuses map[string]NodeRuntimeStatus) (offloadCandidate, bool) {
+	model, known := models[endpoint]
+	if !known {
+		return offloadCandidate{}, false
+	}
+	status, reachable := statuses[endpoint.NodeID]
+	if !reachable {
+		return offloadCandidate{}, false
+	}
+	stats := laneQueueStatsFor(status, lane, endpoint.ModelID)
+	candidate := offloadCandidate{
+		NodeID:         endpoint.NodeID,
+		ModelID:        endpoint.ModelID,
+		ConfigFilename: model.Filename,
+		Section:        laneSection(lane),
+		PendingCount:   stats.PendingCount,
+		PendingWork:    stats.PendingWork,
+		BacklogCount:   stats.BacklogCount,
+		BacklogWork:    stats.BacklogWork,
+	}
+	if lane == cluster.RouteLaneText {
+		candidate.Loaded = status.ActiveTextConfig == model.Filename
+		candidate.AcceptingBorrowed = status.AcceptingBorrowedText
+		candidate.ContextCapacity = model.Capabilities.Context
+		candidate.PendingContext = stats.PendingContext
+	} else {
+		candidate.Loaded = status.ActiveImageConfig == model.Filename
+		candidate.AcceptingBorrowed = status.AcceptingBorrowedImage
+	}
+	return candidate, true
 }
 
 func (service *Service) deliverOffloadLeases(ctx context.Context, leases []offloadLease) {
@@ -175,11 +164,11 @@ func (service *Service) deliverOffloadLeases(ctx context.Context, leases []offlo
 }
 
 func (service *Service) storeOffloadLease(lease offloadLease) {
-	service.offloadLeases.Store(backlogKey(lease.Lane, lease.GroupID), lease)
+	service.offloadLeases.Store(laneModelKey(lease.Lane, lease.OwnerModelID), lease)
 }
 
-func (service *Service) activeOffloadLease(lane string, groupID string, now time.Time) (offloadLease, bool) {
-	value, ok := service.offloadLeases.Load(backlogKey(lane, groupID))
+func (service *Service) activeOffloadLease(lane string, modelID string, now time.Time) (offloadLease, bool) {
+	value, ok := service.offloadLeases.Load(laneModelKey(lane, modelID))
 	if !ok {
 		return offloadLease{}, false
 	}

@@ -1,7 +1,7 @@
 import {
   deleteRecipe,
   forceKillRouter,
-  fetchRoutingGroups,
+  fetchRoutingLinks,
   getInventory,
   getRouterStatus,
   getSession,
@@ -68,7 +68,7 @@ import { bootstrapApplication } from "./bootstrap";
 import { elements } from "./elements";
 import { state } from "./state";
 import { confirmDestructive, registerSafetyDialog } from "./dialogs";
-import { openRoutingGroupDialog, registerRoutingGroupDialog } from "./routing-groups-dialog";
+import { openRoutingLinksDialog, registerRoutingLinksDialog } from "./routing-links-dialog";
 import { openSeparateRuntimeDialog, registerSeparateRuntimeDialog } from "./separate-runtime-dialog";
 import { confirmDiscardDirtyWork, markConstructorClean, markSimpleCookClean, registerDirtyStateGuard } from "./dirty-state";
 import { registerOperationRetry, runOperation } from "./operations";
@@ -171,10 +171,11 @@ async function refreshRouterStatus(): Promise<void> {
 
 async function refreshInventory(includeFiles = state.activeTab === "models"): Promise<void> {
   state.inventory = await getInventory(includeFiles);
-  // Routing groups decide what the models table shows in its routing column, so
-  // they are refreshed alongside it. A router with none configured reports an
-  // empty list, which leaves every row showing no peers.
-  state.routingGroups = await fetchRoutingGroups().catch(() => null);
+  const [imageLinks, textLinks] = await Promise.all([
+    fetchRoutingLinks("image").catch(() => null),
+    fetchRoutingLinks("text").catch(() => null)
+  ]);
+  state.routingLinks = {image: imageLinks, text: textLinks};
   renderInventory();
 }
 
@@ -417,14 +418,15 @@ elements.modelsTable.addEventListener("click", event => {
     runTask(() => loadSelectedConfig(modelID, refreshInventory), `model-load-${modelID}`, "webui", "Loading model…");
     return;
   }
+  const routingLane = target?.dataset.routingLane;
   const routingNode = target?.dataset.routingNode;
-  const routingImage = target?.dataset.routingImage;
-  if (routingNode && routingImage) {
+  const routingModel = target?.dataset.routingModel;
+  if ((routingLane === "image" || routingLane === "text") && routingNode && routingModel) {
     runTask(
-      () => openRoutingGroupDialog({node_id: routingNode, image_id: routingImage}),
-      `routing-group-${routingNode}-${routingImage}`,
+      () => openRoutingLinksDialog(routingLane, {node_id: routingNode, model_id: routingModel}),
+      `routing-links-${routingLane}-${routingNode}-${routingModel}`,
       "models",
-      "Loading routing group"
+      "Loading routing links"
     );
     return;
   }
@@ -763,7 +765,7 @@ elements.recipesList.addEventListener("click", event => {
 });
 
 registerSafetyDialog();
-registerRoutingGroupDialog(refreshInventory);
+registerRoutingLinksDialog(refreshInventory);
 registerSeparateRuntimeDialog(refreshInventory);
 registerOperationRetry();
 registerDirtyStateGuard();

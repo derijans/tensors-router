@@ -10,24 +10,21 @@ import (
 	"tensors-router/internal/schedulingcost"
 )
 
-// schedulingCostSource is the registry's view of what every node costs. It is
-// replaced wholesale on each refresh rather than mutated, so a selection always
-// reads one coherent snapshot.
+// schedulingCostSource is every node's fitted cost table. It is replaced wholesale
+// on each refresh rather than mutated, so a reader always sees one coherent snapshot.
 type schedulingCostSource struct {
-	mu       sync.RWMutex
-	table    *schedulingcost.Table
-	backlogs map[string]map[string]offloadGroupStats
+	mu    sync.RWMutex
+	table *schedulingcost.Table
 }
 
 func newSchedulingCostSource() *schedulingCostSource {
-	return &schedulingCostSource{backlogs: map[string]map[string]offloadGroupStats{}}
+	return &schedulingCostSource{}
 }
 
-func (source *schedulingCostSource) Replace(table *schedulingcost.Table, backlogs map[string]map[string]offloadGroupStats) {
+func (source *schedulingCostSource) Replace(table *schedulingcost.Table) {
 	source.mu.Lock()
 	defer source.mu.Unlock()
 	source.table = table
-	source.backlogs = backlogs
 }
 
 func (source *schedulingCostSource) Table() *schedulingcost.Table {
@@ -43,34 +40,6 @@ func laneSection(lane string) string {
 	default:
 		return routeranalytics.SectionImage
 	}
-}
-
-func (source *schedulingCostSource) PredictMS(nodeID string, modelID string, lane string, work schedulingcost.Work) (float64, bool) {
-	source.mu.RLock()
-	defer source.mu.RUnlock()
-	return source.table.PredictMS(schedulingcost.ModelKey{NodeID: nodeID, ModelID: modelID, Section: laneSection(lane)}, work)
-}
-
-func (source *schedulingCostSource) PredictQueueMS(nodeID string, modelID string, lane string, count int64, work schedulingcost.Work) (float64, bool) {
-	source.mu.RLock()
-	defer source.mu.RUnlock()
-	return source.table.PredictQueueMS(schedulingcost.ModelKey{NodeID: nodeID, ModelID: modelID, Section: laneSection(lane)}, count, work)
-}
-
-func (source *schedulingCostSource) SwitchPenaltyMS(nodeID string, configFilename string) (float64, bool) {
-	source.mu.RLock()
-	defer source.mu.RUnlock()
-	return source.table.LoadMS(schedulingcost.LoadKey{NodeID: nodeID, ConfigFilename: configFilename})
-}
-
-func (source *schedulingCostSource) NodeBacklog(nodeID string, groupID string, lane string) (int64, schedulingcost.Work) {
-	source.mu.RLock()
-	defer source.mu.RUnlock()
-	stats, ok := source.backlogs[nodeID][backlogKey(lane, groupID)]
-	if !ok {
-		return 0, schedulingcost.Work{}
-	}
-	return stats.BacklogCount, stats.BacklogWork
 }
 
 func (source *schedulingCostSource) TokenProfile(nodeID string, modelID string) (schedulingcost.TokenProfile, bool) {

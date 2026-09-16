@@ -3,6 +3,7 @@ package routinggroups
 import (
 	"context"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"tensors-router/internal/routerstore/routerstoretest"
@@ -14,206 +15,123 @@ func newTestStore(t *testing.T) *Store {
 	return NewStore(handle.DB(), handle.Reader())
 }
 
-func anchorA() Member { return Member{NodeID: "node-a", ImageID: "sdxl-juggernautXL"} }
-func memberB() Member { return Member{NodeID: "node-b", ImageID: "xl-jugg-q8"} }
-func memberC() Member { return Member{NodeID: "node-c", ImageID: "juggernaut-xl-v9"} }
+func masterFF() Endpoint { return Endpoint{NodeID: "master", ModelID: "cc-ff"} }
+func slaveFF() Endpoint  { return Endpoint{NodeID: "slave", ModelID: "cc11-ff"} }
+func thirdFF() Endpoint  { return Endpoint{NodeID: "third", ModelID: "ff-q8"} }
 
-func TestSetGroupRoundTripsFromAnyMember(t *testing.T) {
+func lend(owner Endpoint, helper Endpoint) Link {
+	return Link{Owner: owner, Helper: helper, LoadIfUnloaded: true}
+}
+
+func mustLinks(t *testing.T, store *Store, lane Lane) []Link {
+	t.Helper()
+	links, err := store.Links(context.Background(), lane)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return links
+}
+
+func TestLinksKeepTheirDirectionAndFlags(t *testing.T) {
+	store := newTestStore(t)
+	onlyMasterLends := Link{Owner: masterFF(), Helper: slaveFF(), LoadIfUnloaded: false, RestoreAfterBorrow: true}
+	if err := store.ReplaceLinksTouching(context.Background(), ImageLane, slaveFF(), []Link{onlyMasterLends}); err != nil {
+		t.Fatal(err)
+	}
+	links := mustLinks(t, store, ImageLane)
+	if !reflect.DeepEqual(links, []Link{onlyMasterLends}) {
+		t.Fatalf("links = %+v, want only master lending to slave with its flags", links)
+	}
+}
+
+func TestReplacingAnAnchorLeavesUnrelatedLinksAlone(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-
-	saved, err := store.SetGroup(ctx, anchorA(), []Member{memberB(), memberC()})
-	if err != nil {
+	if err := store.ReplaceLinksTouching(ctx, ImageLane, masterFF(), []Link{lend(masterFF(), slaveFF()), lend(slaveFF(), masterFF())}); err != nil {
 		t.Fatal(err)
 	}
-	if len(saved.Members) != 3 {
-		t.Fatalf("saved members = %d, want 3", len(saved.Members))
+	if err := store.ReplaceLinksTouching(ctx, ImageLane, thirdFF(), []Link{lend(thirdFF(), slaveFF())}); err != nil {
+		t.Fatal(err)
 	}
-
-	// Opening the dialog from any row has to reach the same group, otherwise a
-	// second group could be created that overlaps the first.
-	for _, member := range []Member{anchorA(), memberB(), memberC()} {
-		group, found, err := store.Group(ctx, member)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !found {
-			t.Fatalf("member %+v is not in any group", member)
-		}
-		if group.ID != saved.ID || len(group.Members) != 3 {
-			t.Fatalf("member %+v resolved to %+v, want the saved group", member, group)
-		}
+	if err := store.ReplaceLinksTouching(ctx, ImageLane, masterFF(), []Link{lend(masterFF(), slaveFF())}); err != nil {
+		t.Fatal(err)
+	}
+	want := []Link{lend(masterFF(), slaveFF()), lend(thirdFF(), slaveFF())}
+	if links := mustLinks(t, store, ImageLane); !reflect.DeepEqual(links, want) {
+		t.Fatalf("links = %+v, want %+v", links, want)
 	}
 }
 
-func TestGroupIsAbsentForUngroupedModels(t *testing.T) {
-	store := newTestStore(t)
-	if _, found, err := store.Group(context.Background(), anchorA()); err != nil || found {
-		t.Fatalf("found=%t err=%v, want no group", found, err)
-	}
-}
-
-// Members are keyed by the model they name, so joining a second group has to move
-// them rather than duplicate them. Without that the router would have two
-// candidate sets for one model and no way to pick between them.
-func TestJoiningAnotherGroupMovesTheMember(t *testing.T) {
+func TestReplacingWithNoLinksUnlinksTheAnchor(t *testing.T) {
 	store := newTestStore(t)
 	ctx := context.Background()
-	first, err := store.SetGroup(ctx, anchorA(), []Member{memberB()})
-	if err != nil {
+	if err := store.ReplaceLinksTouching(ctx, ImageLane, masterFF(), []Link{lend(masterFF(), slaveFF()), lend(slaveFF(), masterFF())}); err != nil {
 		t.Fatal(err)
 	}
-	second, err := store.SetGroup(ctx, memberC(), []Member{memberB()})
-	if err != nil {
+	if err := store.ReplaceLinksTouching(ctx, ImageLane, slaveFF(), nil); err != nil {
 		t.Fatal(err)
 	}
-	if first.ID == second.ID {
-		t.Fatal("expected two distinct groups")
-	}
-
-	group, found, err := store.Group(ctx, memberB())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !found || group.ID != second.ID {
-		t.Fatalf("member resolved to %+v, want the second group", group)
-	}
-
-	// The first group is now down to its anchor alone and must not survive.
-	if _, found, err := store.Group(ctx, anchorA()); err != nil || found {
-		t.Fatalf("anchor still grouped after losing its only peer (found=%t err=%v)", found, err)
-	}
-	groups, err := store.Groups(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(groups) != 1 || groups[0].ID != second.ID {
-		t.Fatalf("groups = %+v, want only the second", groups)
+	if links := mustLinks(t, store, ImageLane); len(links) != 0 {
+		t.Fatalf("links = %+v, want none", links)
 	}
 }
 
-func TestGroupOfOneIsNotStored(t *testing.T) {
+func TestLanesAreStoredSeparately(t *testing.T) {
 	store := newTestStore(t)
-	ctx := context.Background()
-	saved, err := store.SetGroup(ctx, anchorA(), nil)
-	if err != nil {
+	if err := store.ReplaceLinksTouching(context.Background(), TextLane, masterFF(), []Link{lend(masterFF(), slaveFF())}); err != nil {
 		t.Fatal(err)
 	}
-	if saved.ID != "" || len(saved.Members) != 0 {
-		t.Fatalf("saved %+v, want nothing for a group with no peers", saved)
+	if links := mustLinks(t, store, ImageLane); len(links) != 0 {
+		t.Fatalf("image links = %+v, want none", links)
 	}
-	if _, found, err := store.Group(ctx, anchorA()); err != nil || found {
-		t.Fatalf("found=%t err=%v, want no group", found, err)
+	if links := mustLinks(t, store, TextLane); len(links) != 1 {
+		t.Fatalf("text links = %+v, want one", links)
 	}
 }
 
-func TestSetGroupReplacesRatherThanAccumulates(t *testing.T) {
+func TestReplaceRejectsLinksThatDoNotTouchTheAnchor(t *testing.T) {
 	store := newTestStore(t)
-	ctx := context.Background()
-	if _, err := store.SetGroup(ctx, anchorA(), []Member{memberB(), memberC()}); err != nil {
-		t.Fatal(err)
-	}
-	saved, err := store.SetGroup(ctx, anchorA(), []Member{memberB()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(saved.Members) != 2 {
-		t.Fatalf("members = %+v, want the anchor and one peer", saved.Members)
-	}
-	if _, found, err := store.Group(ctx, memberC()); err != nil || found {
-		t.Fatalf("removed member is still grouped (found=%t err=%v)", found, err)
+	err := store.ReplaceLinksTouching(context.Background(), ImageLane, masterFF(), []Link{lend(thirdFF(), slaveFF())})
+	if err == nil {
+		t.Fatal("a link between two other models was accepted")
 	}
 }
 
-func TestDeleteGroupRemovesEveryMember(t *testing.T) {
+func TestReplaceRejectsLendingWithinOneNode(t *testing.T) {
 	store := newTestStore(t)
-	ctx := context.Background()
-	if _, err := store.SetGroup(ctx, anchorA(), []Member{memberB(), memberC()}); err != nil {
-		t.Fatal(err)
-	}
-	if err := store.DeleteGroup(ctx, memberB()); err != nil {
-		t.Fatal(err)
-	}
-	for _, member := range []Member{anchorA(), memberB(), memberC()} {
-		if _, found, err := store.Group(ctx, member); err != nil || found {
-			t.Fatalf("member %+v survived the delete (found=%t err=%v)", member, found, err)
-		}
-	}
-	groups, err := store.Groups(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(groups) != 0 {
-		t.Fatalf("groups = %+v, want none", groups)
+	sameNode := Endpoint{NodeID: "master", ModelID: "cc-ff-q4"}
+	if err := store.ReplaceLinksTouching(context.Background(), ImageLane, masterFF(), []Link{lend(masterFF(), sameNode)}); err == nil {
+		t.Fatal("a link inside one node was accepted")
 	}
 }
 
-func TestSetGroupIgnoresDuplicatesAndBlankMembers(t *testing.T) {
+func TestReplaceRejectsABlankAnchor(t *testing.T) {
 	store := newTestStore(t)
-	saved, err := store.SetGroup(context.Background(), anchorA(), []Member{
-		memberB(),
-		memberB(),
-		{NodeID: "  node-b  ", ImageID: "  xl-jugg-q8  "},
-		{NodeID: "", ImageID: "orphan"},
-		{NodeID: "node-d", ImageID: ""},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(saved.Members) != 2 {
-		t.Fatalf("members = %+v, want the anchor and one distinct peer", saved.Members)
-	}
-}
-
-func TestSetGroupRejectsABlankAnchor(t *testing.T) {
-	store := newTestStore(t)
-	if _, err := store.SetGroup(context.Background(), Member{}, []Member{memberB()}); err == nil {
+	if err := store.ReplaceLinksTouching(context.Background(), ImageLane, Endpoint{}, nil); err == nil {
 		t.Fatal("blank anchor was accepted")
 	}
 }
 
-func memberByImageID(members []Member, imageID string) (Member, bool) {
-	for _, member := range members {
-		if member.ImageID == imageID {
-			return member, true
-		}
-	}
-	return Member{}, false
-}
-
-func TestSetGroupRoundTripsRestoreAfterBorrowPerMember(t *testing.T) {
+func TestReplaceIgnoresDuplicatesAndBlankEndpoints(t *testing.T) {
 	store := newTestStore(t)
-	ctx := context.Background()
-
-	restoreB := memberB()
-	restoreB.RestoreAfterBorrow = true
-	saved, err := store.SetGroup(ctx, anchorA(), []Member{restoreB, memberC()})
+	padded := Link{Owner: Endpoint{NodeID: " master ", ModelID: " cc-ff "}, Helper: Endpoint{NodeID: "slave", ModelID: "cc11-ff  "}, LoadIfUnloaded: true}
+	err := store.ReplaceLinksTouching(context.Background(), ImageLane, masterFF(), []Link{
+		lend(masterFF(), slaveFF()),
+		padded,
+		{Owner: masterFF(), Helper: Endpoint{NodeID: "", ModelID: "orphan"}},
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if member, found := memberByImageID(saved.Members, memberB().ImageID); !found || !member.RestoreAfterBorrow {
-		t.Fatalf("memberB = %+v, want restore_after_borrow true", member)
-	}
-	if member, found := memberByImageID(saved.Members, memberC().ImageID); !found || member.RestoreAfterBorrow {
-		t.Fatalf("memberC = %+v, want restore_after_borrow false", member)
-	}
-	if member, found := memberByImageID(saved.Members, anchorA().ImageID); !found || member.RestoreAfterBorrow {
-		t.Fatalf("anchor = %+v, want restore_after_borrow false since it was not requested", member)
-	}
-
-	regrouped, err := store.SetGroup(ctx, anchorA(), []Member{restoreB, memberC()})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if member, found := memberByImageID(regrouped.Members, memberB().ImageID); !found || !member.RestoreAfterBorrow {
-		t.Fatalf("memberB after regroup = %+v, want restore_after_borrow to still be true", member)
+	if links := mustLinks(t, store, ImageLane); len(links) != 1 {
+		t.Fatalf("links = %+v, want one distinct link", links)
 	}
 }
 
-func TestGroupsSurviveReopeningTheStore(t *testing.T) {
+func TestLinksSurviveReopeningTheStore(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "analytics.sqlite")
 	handle := routerstoretest.OpenAt(t, path, SchemaModule{})
-	if _, err := NewStore(handle.DB(), handle.Reader()).SetGroup(context.Background(), anchorA(), []Member{memberB()}); err != nil {
+	if err := NewStore(handle.DB(), handle.Reader()).ReplaceLinksTouching(context.Background(), ImageLane, masterFF(), []Link{lend(masterFF(), slaveFF())}); err != nil {
 		t.Fatal(err)
 	}
 	if err := handle.Close(); err != nil {
@@ -221,11 +139,7 @@ func TestGroupsSurviveReopeningTheStore(t *testing.T) {
 	}
 
 	reopened := routerstoretest.OpenAt(t, path, SchemaModule{})
-	group, found, err := NewStore(reopened.DB(), reopened.Reader()).Group(context.Background(), memberB())
-	if err != nil || !found {
-		t.Fatalf("found=%t err=%v, want the group to persist", found, err)
-	}
-	if len(group.Members) != 2 {
-		t.Fatalf("members = %+v, want 2", group.Members)
+	if links := mustLinks(t, NewStore(reopened.DB(), reopened.Reader()), ImageLane); len(links) != 1 {
+		t.Fatalf("links = %+v, want the saved link to persist", links)
 	}
 }

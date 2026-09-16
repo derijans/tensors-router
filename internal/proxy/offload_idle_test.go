@@ -91,7 +91,7 @@ func TestBorrowedWorkAloneKeepsTheNodeIdle(t *testing.T) {
 	service, _, _ := newSplitTestServiceWithConfigContents(t, http.NotFoundHandler(), http.NotFoundHandler(), map[string]string{
 		"text-only": `{"model_param":"C:\\models\\llm.gguf"}`,
 	})
-	entry := service.textQueue.Enqueue(queuedRequest{groupID: "group", work: schedulingcost.TextWork(100, 20), requiredContext: 2048, origin: borrowedFromPeer}, nodeActivity(true), time.Now())
+	entry := service.textQueue.Enqueue(queuedRequest{modelID: "group", work: schedulingcost.TextWork(100, 20), requiredContext: 2048, origin: borrowedFromPeer}, nodeActivity(true), time.Now())
 	if outcome, ok := outcomeNow(t, entry); !ok || outcome != offloadAdmitted {
 		t.Fatalf("borrowed entry outcome = %v ok=%t, want admitted on an idle node", outcome, ok)
 	}

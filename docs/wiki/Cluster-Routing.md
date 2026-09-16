@@ -18,32 +18,47 @@ Text, embedding, multimodal, speech, and music routes use text-side readiness. I
 
 Selector-less STT scheduling uses authenticated runtime status from current nodes. It prefers a loaded local STT configuration, then a loaded healthy remote configuration with the shortest whole-node active-plus-queued workload, then a wholly idle capable node. If every node is busy, the master queues locally when compatible, otherwise it chooses the shortest remote whole-node queue. Equal candidates rotate round-robin, and the selected route is reserved before its configuration can load. Nodes without runtime-status support remain available for explicit-model requests but do not participate in automatic selection.
 
-## Image backlog offloading
+## Backlog lending
 
-Routing groups let an operator declare that several image models can serve each
-other's requests. Members are chosen by hand in the WebUI and are not required to
-share a name, a config hash, or a checkpoint. The common case is one checkpoint
-that two nodes configured differently, which the registry otherwise forks into
-separate public IDs that can never share traffic.
+Routing links let an operator declare that one model may lend queued work to a
+model on another node. A link is one-way: the **owner** lends, the **helper**
+borrows. The reverse direction is a separate link and is never implied. Links are
+chosen by hand in the WebUI and the two models are not required to share a name, a
+config hash, or a checkpoint. The common case is one checkpoint that two nodes
+configured differently.
 
-A model in no group behaves exactly as before. A model in a group with at least
-two available members is enrolled, and enrolled image requests are queued inside
-the router instead of being handed straight to the backend. Only
-`cluster.scheduling_backend_depth` requests reach the backend at once, which keeps
-one running and one queued so the backend never idles, while everything else stays
-recallable.
+Image models and LLM models are linked separately, under
+`/router/v1/site/routing-groups` and `/router/v1/site/text-routing-groups`. Both
+lanes use the same lending rules below. Each lane keeps its own cost model.
+
+### A request goes to the model it names
+
+Links never change where a request is routed. A request for `cc11-ff` is served by
+the node or nodes that hold `cc11-ff`, and replicas with the same public ID keep
+their usual rotation. A faster linked model on another node does not attract the
+request. To spread one ID across nodes, give the configs the same name instead.
+
+### What is lent
+
+A model that is an owner or a helper in any link is enrolled, and its requests are
+queued inside the router instead of being handed straight to the backend. Only
+`cluster.scheduling_backend_depth` requests reach the backend at once. With the
+default of 2, four requests for an owner mean one running, one waiting inside the
+backend, and two waiting in the router. Only those last two can be lent.
 
 The node that first received the requests owns them and keeps the client
 connections for their whole life. It lends surplus backlog; it never transfers
 custody.
 
-Offloading is master mediated. A slave cannot reach another slave, so the master
-brokers placement: it polls every node for its queue depth, whether it is
-accepting borrowed work, and the cost coefficients that node fitted from its own
-analytics. It then compares what an owner needs to drain alone against what an
-idle helper needs to return the first borrowed job, model load included, and
-leases the owner a slot on that helper. A lease carries a time to live and is
-renewed only while it still pays off.
+Lending is master mediated. A slave cannot reach another slave, so the master
+brokers placement. The master pushes the current links to every slave, polls every
+node for its queue depth, whether it is accepting borrowed work, and the cost
+coefficients that node fitted from its own analytics. For each owner with queued
+work, it considers only the helpers that owner links to. It compares what the owner
+needs to drain alone against what an idle helper needs to return the first borrowed
+job, model load included, and leases the owner a slot on the best helper. A lease
+carries a time to live and is renewed only while it still pays off. The master
+rewrites each lent request to the helper's own model ID.
 
 Borrowed work moves one request at a time. The next is sent only once the previous
 one completes, so a helper never accumulates a borrowed queue.
@@ -54,67 +69,69 @@ not started with a `409 offload_returned` response, serves its own request, and
 stops accepting borrowed work until its own queue is empty. The owner re-queues
 whatever came back and runs it. A return is not recorded as a failed request.
 
-Offloading engages only once every member of a group has enough measured requests
-to be priced, controlled by `cluster.scheduling_min_samples` and
-`cluster.scheduling_sample_window`. Until then the existing rotation runs across
-the group, which is what builds the history the remaining members are missing. A
-node is never scheduled on a guess.
+An owner or helper without enough measured requests to be priced is skipped,
+controlled by `cluster.scheduling_min_samples` and
+`cluster.scheduling_sample_window`. A node is never scheduled on a guess.
+
+### Loading the helper model
+
+Each link has a **load if unloaded** flag. When it is set, a helper that holds a
+different model may load the linked model to take lent work, and the load time is
+part of the comparison above. When it is cleared, the helper takes lent work only
+while the linked model is already loaded. A borrowed request that would still need
+a load on arrival is handed back with `409 offload_returned`.
 
 ### Reloading the model borrowed work displaced
 
-Serving a borrowed request loads the group's model on the helper, which evicts
-whatever that helper already had loaded (usually the helper's own model, which
-is normally not itself a member of the group). Nothing restores that on its own:
-the helper keeps serving the group's model until its own next request pays the
-switch cost again.
+Serving a borrowed request can load the helper model, which evicts whatever that
+helper already had loaded. Nothing restores that on its own: the helper keeps the
+linked model until its own next request pays the switch cost again.
 
-A routing group member can be marked to restore after borrow. When it is, the
-helper that served borrowed work through that member reloads the model it held
-before, once `cluster.offload_restore_delay` (default `1.5s`) passes with no
-further borrowed work arriving on either lane and the node has none of its own
-work running. A native request arriving first cancels the pending restore
-instead of competing with it, and a run of consecutive borrowed requests
-restores whatever was loaded before the run started, not an intermediate model.
-The flag lives on the member, not the group, since only some members may be
-worth restoring for.
+Each link also has a **restore after borrow** flag. When it is set, the helper
+reloads the model it held before, once `cluster.offload_restore_delay` (default
+`1.5s`) passes with no further borrowed work arriving on either lane and the node
+has none of its own work running. A native request arriving first cancels the
+pending restore instead of competing with it, and a run of consecutive borrowed
+requests restores whatever was loaded before the run started, not an intermediate
+model.
 
-### Grouping models that are not identical
+### Linking models that are not identical
 
-A group asserts that its members are interchangeable. The router cannot verify
-that. If the members really are different checkpoints, clients receive different
-images for the same model ID and nothing flags it.
+A link asserts that the helper can answer for the owner. The router cannot verify
+that. If the two really are different checkpoints, clients receive different output
+for the same model ID and nothing flags it.
 
 The picker labels every candidate using data the registry already carries. Same
-weights means the model hash matches the anchor, which is the case worth grouping.
-Different weights means it does not, and selecting such a member requires an
-explicit acknowledgement before the group can be saved.
+weights means the model hash matches the anchor. Different weights means it does
+not, and linking such a model for the first time requires an explicit
+acknowledgement before the links can be saved.
 
-## Text backlog offloading
+### Upgrading from routing groups
 
-LLM models get the same two mechanisms as image models (cost-ordered selection
-and backlog lending), through a **separate** text routing group, saved and listed
-under `/router/v1/site/text-routing-groups` rather than the image endpoint. A
-model that is both an LLM and an image model (a multimodal `.kcpps`) can sit in
-one group per lane independently; editing one lane's membership never touches the
-other's.
+Earlier releases stored symmetric routing groups, where every member could serve
+every other member. On upgrade, each pair of members on different nodes becomes two
+links, one per direction, with loading allowed and the old restore flag kept on the
+link whose helper had it. Lending therefore behaves as before until an operator
+clears the direction they do not want.
 
-**Eligibility.** A text model may join a group only if it serves requests
-one at a time (`parallel` and `vllm.settings.max_number_sequences` both `1` or
-unset: a config that serves concurrently is already outside the one-request-per-slot
+## LLM lending
+
+LLM links follow every rule above. Two things are specific to text models.
+
+**Eligibility.** A text model may be linked only if it serves requests one at a
+time (`parallel` and `vllm.settings.max_number_sequences` both `1` or unset: a
+config that serves concurrently is already outside the one-request-per-slot
 discipline the queue assumes) and states a context window (`contextsize`, or a
-vLLM config's `settings.max_model_length`). An ineligible model is listed as a
-candidate but shown disabled with the reason, never silently omitted. Editing a
-grouped model's config to become ineligible skips it at the next selection, not
-just at the next save.
+vLLM config's `settings.max_model_length`). A multimodal model links only with
+another multimodal model. An ineligible model is listed as a candidate but shown
+disabled with the reason, never silently omitted. A linked model whose config
+becomes ineligible is skipped at the next lease plan, not just at the next save.
 
-**The context gate.** Every candidate is priced first, exactly as in the image
-lane, and only then filtered by whether its context window can hold the request's
-estimated size. The gate redirects work: a member that cannot hold the request is
-dropped from contention, not the whole group. If nothing in the group fits, the
-request runs on the model the client asked for, on the local node; the router
-never rejects a request the gate itself is uncertain about. A model with no
-measured token profile is unqualified for both cost ordering and the gate, the
-same discipline `cluster.scheduling_min_samples` already applies to cost fitting.
+**The context gate.** A helper is leased only if its context window can hold the
+mean estimated size of the owner's queued requests. When a queued request is
+withdrawn for lending and does not fit the leased helper, the owner runs it itself.
+A model with no measured token profile has no size estimate, the same discipline
+`cluster.scheduling_min_samples` already applies to cost fitting.
 
 Token counts are estimated, never counted: the router divides the raw request
 body size by a bytes-per-token ratio it measures from that model's own traffic,
@@ -123,15 +140,12 @@ margin. `cluster.scheduling_context_reserve` is only the floor on how much of th
 window is reserved for the answer when the client states no `max_tokens`; the rest
 comes from the same measured history.
 
-A streaming (`stream: true`) request is still cost-ordered and gated, but is never
-withdrawn for offload: the router only buffers a replayable body for a
-non-streaming request, so a stream can never be handed to another node mid-flight.
-A request whose body was never buffered at all (larger than
-`limits.replay_buffer_mb`) skips cost ordering, the gate, and the queue entirely
-and falls back to plain rotation, matching an unsized image request.
+A streaming (`stream: true`) request is queued but never withdrawn for lending:
+the router only buffers a replayable body for a non-streaming request, so a stream
+can never be handed to another node mid-flight.
 
-A model in no text group is completely unaffected by any of this: no queue, no
-gate, no redirection, identical to a build without the text lane.
+A model with no text link is completely unaffected by any of this: no queue, no
+gate, no lending.
 
 ## Model identity
 

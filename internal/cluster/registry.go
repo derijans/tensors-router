@@ -22,8 +22,6 @@ type Registry struct {
 	next      map[string]int
 	view      []Model
 	revision  uint64
-	groups    RouteGroupSource
-	costs     RouteCostSource
 }
 
 func NewRegistry(role string, localID string, localURL string) *Registry {
@@ -292,19 +290,14 @@ func (registry *Registry) MusicModel(publicID string) (Model, bool) {
 	return Model{}, false
 }
 
-func (registry *Registry) Acquire(publicID string, localHealthy bool, hint RouteHint) (Route, func(), bool) {
+func (registry *Registry) Acquire(publicID string, localHealthy bool) (Route, func(), bool) {
 	registry.mu.Lock()
-	replicas := registry.replicasLocked(publicID)
-	groupID, replicas := registry.groupExpandedReplicasLocked(RouteLaneText, publicID, replicas, "")
-	route, ok := registry.selectGroupRouteLocked(RouteLaneText, groupID, replicas, localHealthy, hint)
-	if !ok {
-		route, ok = registry.selectRouteLocked(publicID, replicas, localHealthy, RouteLaneText)
-	}
+	route, ok := registry.selectRouteLocked(publicID, registry.replicasLocked(publicID), localHealthy, RouteLaneText)
 	if !ok {
 		registry.mu.Unlock()
 		return Route{}, func() {}, false
 	}
-	return registry.acquireRouteLocked(withRequestedPublicID(route, RouteLaneText, publicID))
+	return registry.acquireRouteLocked(route)
 }
 
 func (registry *Registry) AcquireMCP(publicID string, localHealthy bool) (Route, func(), bool) {
@@ -346,19 +339,14 @@ func (registry *Registry) AcquireSpecificEmbedding(nodeID string, filename strin
 	return Route{}, func() {}, false
 }
 
-func (registry *Registry) AcquireImage(publicImageID string, localHealthy bool, activeConfigFilename string, hint RouteHint) (Route, func(), bool) {
+func (registry *Registry) AcquireImage(publicImageID string, localHealthy bool, activeConfigFilename string) (Route, func(), bool) {
 	registry.mu.Lock()
-	replicas := registry.imageReplicasLocked(publicImageID, activeConfigFilename)
-	groupID, replicas := registry.groupExpandedReplicasLocked(RouteLaneImage, publicImageID, replicas, activeConfigFilename)
-	route, ok := registry.selectGroupRouteLocked(RouteLaneImage, groupID, replicas, localHealthy, hint)
-	if !ok {
-		route, ok = registry.selectRouteLocked(publicImageID, replicas, localHealthy, RouteLaneImage)
-	}
+	route, ok := registry.selectRouteLocked(publicImageID, registry.imageReplicasLocked(publicImageID, activeConfigFilename), localHealthy, RouteLaneImage)
 	if !ok {
 		registry.mu.Unlock()
 		return Route{}, func() {}, false
 	}
-	return registry.acquireRouteLocked(withRequestedPublicID(route, RouteLaneImage, publicImageID))
+	return registry.acquireRouteLocked(route)
 }
 
 func (registry *Registry) AcquireVoice(publicID string, localHealthy bool) (Route, func(), bool) {

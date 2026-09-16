@@ -41,7 +41,7 @@ func TestRegistryExcludesDisabledReplicasAndUsesEnabledFallback(t *testing.T) {
 	if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion, NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{remote}}); err != nil {
 		t.Fatal(err)
 	}
-	route, release, ok := registry.Acquire("shared", true, RouteHint{})
+	route, release, ok := registry.Acquire("shared", true)
 	if !ok || route.NodeID != "slave-a" || !route.Remote {
 		t.Fatalf("expected enabled remote fallback, route=%#v ok=%t", route, ok)
 	}
@@ -53,13 +53,13 @@ func TestRegistryExcludesDisabledReplicasAndUsesEnabledFallback(t *testing.T) {
 	if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion, NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{remote}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, ok := registry.Acquire("shared", true, RouteHint{}); ok {
+	if _, _, ok := registry.Acquire("shared", true); ok {
 		t.Fatal("disabled replicas remained routable")
 	}
 	if _, _, ok := registry.AcquireEmbedding("shared", true); ok {
 		t.Fatal("disabled embedding replicas remained routable")
 	}
-	if _, _, ok := registry.AcquireImage("shared-image", true, "*", RouteHint{}); ok {
+	if _, _, ok := registry.AcquireImage("shared-image", true, "*"); ok {
 		t.Fatal("disabled image replicas remained routable")
 	}
 	if _, _, ok := registry.AcquireVoice("shared", true); ok {
@@ -118,19 +118,19 @@ func TestRegistryPrefersMasterThenBalancesSlavesWhenMasterBusy(t *testing.T) {
 		}
 	}
 
-	first, releaseFirst, ok := registry.Acquire("llm", true, RouteHint{})
+	first, releaseFirst, ok := registry.Acquire("llm", true)
 	if !ok || first.Remote || first.NodeID != "master" {
 		t.Fatalf("expected master first route %#v ok=%t", first, ok)
 	}
 	defer releaseFirst()
 
-	second, releaseSecond, ok := registry.Acquire("llm", true, RouteHint{})
+	second, releaseSecond, ok := registry.Acquire("llm", true)
 	if !ok || !second.Remote || second.NodeID != "slave-a" {
 		t.Fatalf("expected first slave while master busy %#v ok=%t", second, ok)
 	}
 	releaseSecond()
 
-	third, releaseThird, ok := registry.Acquire("llm", true, RouteHint{})
+	third, releaseThird, ok := registry.Acquire("llm", true)
 	if !ok || !third.Remote || third.NodeID != "slave-b" {
 		t.Fatalf("expected second slave round robin %#v ok=%t", third, ok)
 	}
@@ -178,13 +178,13 @@ func TestRegistryKeepsSplitImageLaneLocalWhenTextLaneBusy(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	textRoute, releaseText, ok := registry.Acquire("combo", true, RouteHint{})
+	textRoute, releaseText, ok := registry.Acquire("combo", true)
 	if !ok || textRoute.Remote || textRoute.Lane != RouteLaneText {
 		t.Fatalf("expected local text route %#v ok=%t", textRoute, ok)
 	}
 	defer releaseText()
 
-	imageRoute, releaseImage, ok := registry.AcquireImage("combo-dream", true, "*", RouteHint{})
+	imageRoute, releaseImage, ok := registry.AcquireImage("combo-dream", true, "*")
 	if !ok || imageRoute.Remote || imageRoute.Lane != RouteLaneImage {
 		t.Fatalf("expected local image route while text lane busy %#v ok=%t", imageRoute, ok)
 	}
@@ -286,7 +286,7 @@ func TestRegistryMarksSlaveURLUnhealthy(t *testing.T) {
 	}
 
 	registry.MarkNodeURLHealth("http://slave-a", false)
-	route, release, ok := registry.Acquire("llm", false, RouteHint{})
+	route, release, ok := registry.Acquire("llm", false)
 	defer release()
 	if !ok || route.NodeID != "slave-b" {
 		t.Fatalf("expected healthy slave-b route %#v ok=%t", route, ok)

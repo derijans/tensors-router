@@ -103,7 +103,7 @@ func TestBorrowRestoreDoesNotFireWhileBorrowedWorkIsInFlight(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	entry := service.textQueue.Enqueue(queuedRequest{groupID: "group", origin: borrowedFromPeer}, nodeActivity(true), time.Now())
+	entry := service.textQueue.Enqueue(queuedRequest{modelID: "group", origin: borrowedFromPeer}, nodeActivity(true), time.Now())
 	if _, err := service.textQueue.Await(context.Background(), entry); err != nil {
 		t.Fatal(err)
 	}

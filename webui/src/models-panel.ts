@@ -1,9 +1,9 @@
 import { benchmarkCompactLabel } from "./benchmark-data";
 import { elements } from "./elements";
 import { filterInventoryModels, modelBackends, modelCapabilities } from "./model-inventory-data";
-import { peerCountForModel, routingButtonLabel } from "./routing-groups-data";
+import { linkCountsForModel, routingButtonLabel } from "./routing-links-data";
 import { state } from "./state";
-import type { Model, NodeInventory } from "./types";
+import type { Model, NodeInventory, RoutingEndpoint, RoutingLane } from "./types";
 import { capabilities, escapeAttribute, escapeHTML, optionSummary } from "./utils";
 
 export function renderModelsPanel(models: Model[], nodes: NodeInventory[]): void {
@@ -40,15 +40,23 @@ function modelRow(model: Model): string {
     </tr>`;
 }
 
-// Only image models can be grouped today, so other rows leave the cell empty
-// rather than offering a control that would do nothing.
 function routingCell(model: Model): string {
-  const imageID = model.image_id;
-  if (!imageID || !model.node_id) {
+  if (!model.node_id) {
     return "";
   }
-  const peers = peerCountForModel(state.routingGroups, {node_id: model.node_id, image_id: imageID});
-  return `<button type="button" data-routing-node="${escapeAttribute(model.node_id)}" data-routing-image="${escapeAttribute(imageID)}">${escapeHTML(routingButtonLabel(peers))}</button>`;
+  const buttons: string[] = [];
+  if (model.image_id) {
+    buttons.push(routingButton("image", {node_id: model.node_id, model_id: model.image_id}));
+  }
+  if (model.has_llm) {
+    buttons.push(routingButton("text", {node_id: model.node_id, model_id: model.local_id}));
+  }
+  return buttons.join(" ");
+}
+
+function routingButton(lane: RoutingLane, endpoint: RoutingEndpoint): string {
+  const label = routingButtonLabel(lane, linkCountsForModel(state.routingLinks[lane], endpoint));
+  return `<button type="button" data-routing-lane="${lane}" data-routing-node="${escapeAttribute(endpoint.node_id)}" data-routing-model="${escapeAttribute(endpoint.model_id)}">${escapeHTML(label)}</button>`;
 }
 
 // Only kobold and llama configs can run in a separate process; vLLM rows leave the

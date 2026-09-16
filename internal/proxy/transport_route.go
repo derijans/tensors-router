@@ -162,7 +162,7 @@ func (service *Service) resolveTransportTextRoute(r *http.Request, publicID stri
 		return service.transportRecipeRoute(recipe, component, publicID, component.ModelID, readiness, textAnalyticsSection(r.URL.Path), true)
 	}
 	if service.registry != nil && service.registryHasModelForOpenAIPath(publicID, r.URL.Path) {
-		model, route, release, ok := service.acquireRegistryModelRoute(r, publicID, cluster.UnsizedRouteHint())
+		model, route, release, ok := service.acquireRegistryModelRoute(r, publicID)
 		if !ok {
 			return transportRoute{}, transportRouteError{http.StatusBadGateway, "backend_error", fmt.Sprintf("model %q has no available replicas", publicID)}
 		}
@@ -244,7 +244,7 @@ func (service *Service) resolveTransportImageRoute(r *http.Request, publicID str
 			if err != nil {
 				return transportRoute{}, err
 			}
-			route, release, acquired := service.registry.AcquireImage(publicID, service.localBackendAvailableForRoute(r.Context(), mode, readinessImage), activeConfig, cluster.UnsizedRouteHint())
+			route, release, acquired := service.registry.AcquireImage(publicID, service.localBackendAvailableForRoute(r.Context(), mode, readinessImage), activeConfig)
 			if !acquired {
 				return transportRoute{}, transportRouteError{http.StatusBadGateway, "backend_error", fmt.Sprintf("image model %q has no available replicas", publicID)}
 			}

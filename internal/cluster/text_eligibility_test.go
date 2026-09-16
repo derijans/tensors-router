@@ -3,8 +3,6 @@ package cluster
 import (
 	"encoding/json"
 	"testing"
-
-	"tensors-router/internal/schedulingcost"
 )
 
 func eligibleTextModel() Model {
@@ -56,30 +54,5 @@ func TestUnknownContextIsNotGroupable(t *testing.T) {
 	model.Capabilities.Context = 0
 	if TextGroupEligible(model) {
 		t.Fatal("a model with no stated context window was accepted as groupable")
-	}
-}
-
-func TestEligibilityIsRecheckedAtSelection(t *testing.T) {
-	registry := newTextRegistryWithBothMembersLoaded(t, 8192, 8192)
-	slave := eligibleTextModel()
-	slave.NodeID = "slave-a"
-	slave.LocalID = "llama-alt"
-	slave = withOption(slave, "parallel", "4")
-	if err := registry.UpdateNode(Snapshot{ProtocolVersion: ProtocolVersion, NodeID: "slave-a", NodeURL: "http://slave-a", Models: []Model{slave}}); err != nil {
-		t.Fatal(err)
-	}
-	registry.SetGroupSource(groupOfForkedTextModels())
-	registry.SetCostSource(&fakeCostSource{
-		perJobMS: map[string]float64{"master": 8000, "slave-a": 1000},
-		backlog:  map[string]int64{"master": 1},
-	})
-
-	route, release, ok := registry.Acquire("llama", true, RouteHint{Work: schedulingcost.TextWork(200, 50)})
-	if !ok {
-		t.Fatal("no route for the eligible member")
-	}
-	defer release()
-	if route.NodeID != "master" {
-		t.Fatalf("route = %+v, want the concurrent member skipped and the local cascade used", route)
 	}
 }

@@ -3,20 +3,68 @@ package routinggroups
 import (
 	"context"
 	"database/sql"
+	"fmt"
+	"sort"
+	"strings"
 )
 
-// Member identifies one image model on one node. Members are declared by an
-// operator and are not required to share a name, a config hash, or even a
-// checkpoint with each other.
-type Member struct {
-	NodeID             string `json:"node_id"`
-	ImageID            string `json:"image_id"`
-	RestoreAfterBorrow bool   `json:"restore_after_borrow"`
+type Lane string
+
+const (
+	ImageLane Lane = "image"
+	TextLane  Lane = "text"
+)
+
+var linkTablesByLane = map[Lane]string{
+	ImageLane: "routing_image_links",
+	TextLane:  "routing_text_links",
 }
 
-type Group struct {
-	ID      string   `json:"id"`
-	Members []Member `json:"members"`
+func (lane Lane) linkTable() (string, error) {
+	table, known := linkTablesByLane[lane]
+	if !known {
+		return "", fmt.Errorf("unknown routing lane %q", lane)
+	}
+	return table, nil
+}
+
+// Endpoint names one model on one node. Endpoints are declared by an operator and
+// are not required to share a name, a config hash, or even a checkpoint.
+type Endpoint struct {
+	NodeID  string `json:"node_id"`
+	ModelID string `json:"model_id"`
+}
+
+func (endpoint Endpoint) normalized() Endpoint {
+	return Endpoint{NodeID: strings.TrimSpace(endpoint.NodeID), ModelID: strings.TrimSpace(endpoint.ModelID)}
+}
+
+func (endpoint Endpoint) blank() bool {
+	return endpoint.NodeID == "" || endpoint.ModelID == ""
+}
+
+func (endpoint Endpoint) String() string {
+	return endpoint.NodeID + "/" + endpoint.ModelID
+}
+
+func (endpoint Endpoint) sortKey() string {
+	return endpoint.NodeID + "\x00" + endpoint.ModelID
+}
+
+type Link struct {
+	Owner              Endpoint `json:"owner"`
+	Helper             Endpoint `json:"helper"`
+	LoadIfUnloaded     bool     `json:"load_if_unloaded"`
+	RestoreAfterBorrow bool     `json:"restore_after_borrow"`
+}
+
+func (link Link) touches(endpoint Endpoint) bool {
+	return link.Owner == endpoint || link.Helper == endpoint
+}
+
+type linkKey struct {
+	Owner  Endpoint
+	Helper Endpoint
 }
 
 type Store struct {
@@ -28,55 +76,111 @@ func NewStore(writer *sql.DB, reader *sql.DB) *Store {
 	return &Store{writer: writer, reader: reader}
 }
 
-func (store *Store) Group(ctx context.Context, member Member) (Group, bool, error) {
-	group, ok, err := store.laneGroup(ctx, imageLaneTables, memberToLane(member))
-	return groupFromLane(group), ok, err
-}
-
-func (store *Store) Groups(ctx context.Context) ([]Group, error) {
-	groups, err := store.laneGroups(ctx, imageLaneTables)
+func (store *Store) Links(ctx context.Context, lane Lane) ([]Link, error) {
+	if store == nil {
+		return nil, nil
+	}
+	table, err := lane.linkTable()
 	if err != nil {
 		return nil, err
 	}
-	result := make([]Group, 0, len(groups))
-	for _, group := range groups {
-		result = append(result, groupFromLane(group))
+	rows, err := store.reader.QueryContext(ctx, fmt.Sprintf(
+		`SELECT owner_node_id, owner_model_id, helper_node_id, helper_model_id, load_if_unloaded, restore_after_borrow
+		 FROM %s ORDER BY owner_node_id, owner_model_id, helper_node_id, helper_model_id`, table))
+	if err != nil {
+		return nil, err
 	}
+	defer rows.Close()
+	var links []Link
+	for rows.Next() {
+		var link Link
+		var loadIfUnloaded, restoreAfterBorrow int
+		if err := rows.Scan(&link.Owner.NodeID, &link.Owner.ModelID, &link.Helper.NodeID, &link.Helper.ModelID, &loadIfUnloaded, &restoreAfterBorrow); err != nil {
+			return nil, err
+		}
+		link.LoadIfUnloaded = loadIfUnloaded != 0
+		link.RestoreAfterBorrow = restoreAfterBorrow != 0
+		links = append(links, link)
+	}
+	return links, rows.Err()
+}
+
+func (store *Store) ReplaceLinksTouching(ctx context.Context, lane Lane, anchor Endpoint, links []Link) error {
+	if store == nil {
+		return fmt.Errorf("routing link store is not configured")
+	}
+	table, err := lane.linkTable()
+	if err != nil {
+		return err
+	}
+	anchor = anchor.normalized()
+	if anchor.blank() {
+		return fmt.Errorf("anchor node_id and model_id are required")
+	}
+	wanted, err := anchorLinks(anchor, links)
+	if err != nil {
+		return err
+	}
+
+	transaction, err := store.writer.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+
+	if _, err := transaction.ExecContext(ctx, fmt.Sprintf(
+		`DELETE FROM %s WHERE (owner_node_id = ? AND owner_model_id = ?) OR (helper_node_id = ? AND helper_model_id = ?)`, table),
+		anchor.NodeID, anchor.ModelID, anchor.NodeID, anchor.ModelID); err != nil {
+		return err
+	}
+	insert := fmt.Sprintf(
+		`INSERT INTO %s(owner_node_id, owner_model_id, helper_node_id, helper_model_id, load_if_unloaded, restore_after_borrow)
+		 VALUES (?, ?, ?, ?, ?, ?)`, table)
+	for _, link := range wanted {
+		if _, err := transaction.ExecContext(ctx, insert,
+			link.Owner.NodeID, link.Owner.ModelID, link.Helper.NodeID, link.Helper.ModelID,
+			sqliteBool(link.LoadIfUnloaded), sqliteBool(link.RestoreAfterBorrow)); err != nil {
+			return err
+		}
+	}
+	return transaction.Commit()
+}
+
+func anchorLinks(anchor Endpoint, links []Link) ([]Link, error) {
+	byKey := map[linkKey]Link{}
+	for _, link := range links {
+		link.Owner = link.Owner.normalized()
+		link.Helper = link.Helper.normalized()
+		if link.Owner.blank() || link.Helper.blank() {
+			continue
+		}
+		if !link.touches(anchor) {
+			return nil, fmt.Errorf("link %s -> %s does not involve %s", link.Owner, link.Helper, anchor)
+		}
+		if link.Owner.NodeID == link.Helper.NodeID {
+			return nil, fmt.Errorf("model %s cannot lend work to a model on its own node", link.Owner.ModelID)
+		}
+		key := linkKey{Owner: link.Owner, Helper: link.Helper}
+		if _, duplicate := byKey[key]; !duplicate {
+			byKey[key] = link
+		}
+	}
+	result := make([]Link, 0, len(byKey))
+	for _, link := range byKey {
+		result = append(result, link)
+	}
+	sort.Slice(result, func(left, right int) bool {
+		if result[left].Owner != result[right].Owner {
+			return result[left].Owner.sortKey() < result[right].Owner.sortKey()
+		}
+		return result[left].Helper.sortKey() < result[right].Helper.sortKey()
+	})
 	return result, nil
 }
 
-func (store *Store) SetGroup(ctx context.Context, anchor Member, members []Member) (Group, error) {
-	group, err := store.setLaneGroup(ctx, imageLaneTables, memberToLane(anchor), membersToLane(members))
-	return groupFromLane(group), err
-}
-
-func (store *Store) DeleteGroup(ctx context.Context, member Member) error {
-	if store == nil {
-		return nil
+func sqliteBool(value bool) int {
+	if value {
+		return 1
 	}
-	_, err := store.SetGroup(ctx, member, nil)
-	return err
-}
-
-func memberToLane(member Member) laneMember {
-	return laneMember{NodeID: member.NodeID, ModelID: member.ImageID, RestoreAfterBorrow: member.RestoreAfterBorrow}
-}
-
-func membersToLane(members []Member) []laneMember {
-	result := make([]laneMember, 0, len(members))
-	for _, member := range members {
-		result = append(result, memberToLane(member))
-	}
-	return result
-}
-
-func groupFromLane(group laneGroup) Group {
-	if group.ID == "" {
-		return Group{}
-	}
-	members := make([]Member, 0, len(group.Members))
-	for _, member := range group.Members {
-		members = append(members, Member{NodeID: member.NodeID, ImageID: member.ModelID, RestoreAfterBorrow: member.RestoreAfterBorrow})
-	}
-	return Group{ID: group.ID, Members: members}
+	return 0
 }

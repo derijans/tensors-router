@@ -23,10 +23,10 @@ import type {
   NodeUnloadRequest,
   LoadConfigRequest,
   RouterProcessStatus,
-  RoutingGroup,
-  RoutingGroupMember,
-  RoutingGroupRequest,
-  RoutingGroupsResponse,
+  RoutingEndpoint,
+  RoutingLane,
+  RoutingLinksRequest,
+  RoutingLinksResponse,
   SeparateRuntimeRequest,
   SeparateRuntimeResponse,
   SessionResponse,
@@ -132,18 +132,25 @@ export function updateModelState(request: ModelStateRequest): Promise<unknown> {
   return api("/api/models/state", {method: "POST", body: JSON.stringify(request)});
 }
 
-export function fetchRoutingGroups(member?: RoutingGroupMember): Promise<RoutingGroupsResponse> {
-  const query = member ? `?node_id=${encodeURIComponent(member.node_id)}&image_id=${encodeURIComponent(member.image_id)}` : "";
-  return api<RoutingGroupsResponse>(`/api/routing-groups${query}`);
+const routingLinksPaths: Record<RoutingLane, string> = {
+  image: "/api/routing-groups",
+  text: "/api/text-routing-groups"
+};
+
+function anchorQuery(anchor: RoutingEndpoint): string {
+  return `?node_id=${encodeURIComponent(anchor.node_id)}&model_id=${encodeURIComponent(anchor.model_id)}`;
 }
 
-export function saveRoutingGroup(request: RoutingGroupRequest): Promise<RoutingGroup> {
-  return api<RoutingGroup>("/api/routing-groups", {method: "POST", body: JSON.stringify(request)});
+export function fetchRoutingLinks(lane: RoutingLane, anchor?: RoutingEndpoint): Promise<RoutingLinksResponse> {
+  return api<RoutingLinksResponse>(`${routingLinksPaths[lane]}${anchor ? anchorQuery(anchor) : ""}`);
 }
 
-export function deleteRoutingGroup(member: RoutingGroupMember): Promise<unknown> {
-  const query = `?node_id=${encodeURIComponent(member.node_id)}&image_id=${encodeURIComponent(member.image_id)}`;
-  return api(`/api/routing-groups${query}`, {method: "DELETE"});
+export function saveRoutingLinks(lane: RoutingLane, request: RoutingLinksRequest): Promise<RoutingLinksResponse> {
+  return api<RoutingLinksResponse>(routingLinksPaths[lane], {method: "POST", body: JSON.stringify(request)});
+}
+
+export function deleteRoutingLinks(lane: RoutingLane, anchor: RoutingEndpoint): Promise<unknown> {
+  return api(`${routingLinksPaths[lane]}${anchorQuery(anchor)}`, {method: "DELETE"});
 }
 
 export function fetchSeparateRuntime(nodeId: string, localId: string): Promise<SeparateRuntimeResponse> {

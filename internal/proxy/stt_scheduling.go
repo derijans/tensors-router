@@ -21,10 +21,10 @@ type NodeRuntimeStatus struct {
 	QueuedRequests          int    `json:"queued_requests"`
 
 	AcceptingBorrowedImage bool                     `json:"accepting_borrowed"`
-	ImageQueue             []offloadGroupStats      `json:"image_queue,omitempty"`
+	ImageQueue             []offloadModelStats      `json:"image_queue,omitempty"`
 	ActiveImageConfig      string                   `json:"active_image_config,omitempty"`
 	AcceptingBorrowedText  bool                     `json:"accepting_borrowed_text"`
-	TextQueue              []offloadGroupStats      `json:"text_queue,omitempty"`
+	TextQueue              []offloadModelStats      `json:"text_queue,omitempty"`
 	ActiveTextConfig       string                   `json:"active_text_config,omitempty"`
 	Costs                  schedulingcost.NodeCosts `json:"costs,omitempty"`
 }

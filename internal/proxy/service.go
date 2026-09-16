@@ -183,6 +183,7 @@ type Service struct {
 	costSource                *schedulingCostSource
 	leaseBook                 *offloadLeaseBook
 	offloadLeases             sync.Map
+	routingLinks              atomic.Pointer[routingLinkIndex]
 	offloadInFlight           sync.Map
 	localCosts                atomic.Value
 	schedulingSampleWindow    time.Duration
@@ -499,10 +500,7 @@ func NewService(config ServiceConfig) *Service {
 	service.applySchedulingDefaults()
 	service.imageQueue = newOffloadQueue(service.schedulingBackendDepth)
 	service.textQueue = newOffloadQueue(service.schedulingBackendDepth)
-	if service.registry != nil {
-		service.registry.SetCostSource(service.costSource)
-	}
-	service.loadRoutingGroupSource()
+	service.installStoredRoutingLinks(context.Background())
 	return service
 }
 
@@ -1282,7 +1280,7 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 	if !hasModel && isEmbeddingsPath(r.URL.Path) {
 		if target, selected := service.acquireSelectorlessEmbeddingTarget(r.URL.Path, r.Context()); selected {
 			if service.registry != nil {
-				service.handleAcquiredRegistryModelRequest(w, r, body, target.publicID, target.clusterModel, target.clusterRoute, target.release, true, cluster.UnsizedRouteHint())
+				service.handleAcquiredRegistryModelRequest(w, r, body, target.publicID, target.clusterModel, target.clusterRoute, target.release, true, requestWorkHint{})
 				return
 			}
 			modelID = target.publicID

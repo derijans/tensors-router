@@ -36,12 +36,12 @@ func mustBeWaiting(t *testing.T, entry *offloadEntry, label string) {
 	}
 }
 
-func enqueueNativeOnIdleNode(queue *offloadQueue, groupID string, work float64) *offloadEntry {
-	return queue.Enqueue(queuedRequest{groupID: groupID, work: schedulingcost.ImageWork(work), origin: nativeRequest}, nodeActivity(true), time.Now())
+func enqueueNativeOnIdleNode(queue *offloadQueue, modelID string, work float64) *offloadEntry {
+	return queue.Enqueue(queuedRequest{modelID: modelID, work: schedulingcost.ImageWork(work), origin: nativeRequest}, nodeActivity(true), time.Now())
 }
 
-func enqueueBorrowedOnIdleNode(queue *offloadQueue, groupID string, work float64) *offloadEntry {
-	return queue.Enqueue(queuedRequest{groupID: groupID, work: schedulingcost.ImageWork(work), origin: borrowedFromPeer}, nodeActivity(true), time.Now())
+func enqueueBorrowedOnIdleNode(queue *offloadQueue, modelID string, work float64) *offloadEntry {
+	return queue.Enqueue(queuedRequest{modelID: modelID, work: schedulingcost.ImageWork(work), origin: borrowedFromPeer}, nodeActivity(true), time.Now())
 }
 
 // The whole point of the queue is that the backend keeps exactly one job running
@@ -181,7 +181,7 @@ func TestQueueAcceptsBorrowedWorkAgainOnceItsOwnQueueDrains(t *testing.T) {
 
 func TestQueueRefusesBorrowedWorkWhileTheNodeIsBusyElsewhere(t *testing.T) {
 	queue := newOffloadQueue(2)
-	borrowed := queue.Enqueue(queuedRequest{groupID: "group", work: schedulingcost.ImageWork(10), origin: borrowedFromPeer}, nodeActivity(false), time.Now())
+	borrowed := queue.Enqueue(queuedRequest{modelID: "group", work: schedulingcost.ImageWork(10), origin: borrowedFromPeer}, nodeActivity(false), time.Now())
 	outcome, ok := outcomeNow(t, borrowed)
 	if !ok || outcome != offloadReturned {
 		t.Fatalf("borrowed outcome = %v ok=%t, want returned when the node is not idle", outcome, ok)
@@ -234,14 +234,14 @@ func TestStatsReportPendingOwnWorkPerGroup(t *testing.T) {
 	enqueueNativeOnIdleNode(queue, "other", 40)
 
 	stats := queue.Stats()
-	byGroup := map[string]offloadGroupStats{}
+	byModel := map[string]offloadModelStats{}
 	for _, item := range stats {
-		byGroup[item.GroupID] = item
+		byModel[item.ModelID] = item
 	}
-	if got := byGroup["group"]; got.PendingCount != 2 || got.PendingWork.Term(0) != 30 {
+	if got := byModel["group"]; got.PendingCount != 2 || got.PendingWork.Term(0) != 30 {
 		t.Fatalf("group stats = %+v, want 2 pending totalling 30", got)
 	}
-	if got := byGroup["other"]; got.PendingCount != 1 || got.PendingWork.Term(0) != 40 {
+	if got := byModel["other"]; got.PendingCount != 1 || got.PendingWork.Term(0) != 40 {
 		t.Fatalf("other group stats = %+v, want 1 pending totalling 40", got)
 	}
 }
@@ -303,10 +303,10 @@ func TestStatsCountABacklogThatIsOnlyRunningWork(t *testing.T) {
 
 func TestTextQueueRefusesBorrowedWorkWhileNativeWorkIsPending(t *testing.T) {
 	queue := newOffloadQueue(1)
-	native := queue.Enqueue(queuedRequest{groupID: "group", work: schedulingcost.TextWork(200, 50), requiredContext: 4096, origin: nativeRequest}, nodeActivity(true), time.Now())
+	native := queue.Enqueue(queuedRequest{modelID: "group", work: schedulingcost.TextWork(200, 50), requiredContext: 4096, origin: nativeRequest}, nodeActivity(true), time.Now())
 	mustBeAdmitted(t, native, "native")
 
-	borrowed := queue.Enqueue(queuedRequest{groupID: "group", work: schedulingcost.TextWork(200, 50), requiredContext: 4096, origin: borrowedFromPeer}, nodeActivity(true), time.Now())
+	borrowed := queue.Enqueue(queuedRequest{modelID: "group", work: schedulingcost.TextWork(200, 50), requiredContext: 4096, origin: borrowedFromPeer}, nodeActivity(true), time.Now())
 	outcome, ok := outcomeNow(t, borrowed)
 	if !ok || outcome != offloadReturned {
 		t.Fatalf("borrowed outcome = %v ok=%t, want returned", outcome, ok)
@@ -315,9 +315,9 @@ func TestTextQueueRefusesBorrowedWorkWhileNativeWorkIsPending(t *testing.T) {
 
 func TestPinnedEntryCountsTowardBacklogButIsNeverWithdrawn(t *testing.T) {
 	queue := newOffloadQueue(2)
-	running := queue.Enqueue(queuedRequest{groupID: "group", work: schedulingcost.TextWork(100, 20), requiredContext: 2048, origin: nativeRequest}, nodeActivity(true), time.Now())
+	running := queue.Enqueue(queuedRequest{modelID: "group", work: schedulingcost.TextWork(100, 20), requiredContext: 2048, origin: nativeRequest}, nodeActivity(true), time.Now())
 	mustBeAdmitted(t, running, "running")
-	pinned := queue.Enqueue(queuedRequest{groupID: "group", work: schedulingcost.TextWork(100, 20), requiredContext: 2048, origin: nativeRequest, withdrawal: pinnedToThisNode}, nodeActivity(true), time.Now())
+	pinned := queue.Enqueue(queuedRequest{modelID: "group", work: schedulingcost.TextWork(100, 20), requiredContext: 2048, origin: nativeRequest, withdrawal: pinnedToThisNode}, nodeActivity(true), time.Now())
 	mustBeAdmitted(t, pinned, "pinned")
 
 	if withdrawn := queue.WithdrawNewest("group", 5); len(withdrawn) != 0 {
@@ -332,9 +332,9 @@ func TestPinnedEntryCountsTowardBacklogButIsNeverWithdrawn(t *testing.T) {
 
 func TestTextQueueStatsCarryBothWorkTermsAndContext(t *testing.T) {
 	queue := newOffloadQueue(1)
-	running := queue.Enqueue(queuedRequest{groupID: "group", work: schedulingcost.TextWork(100, 20), requiredContext: 2048, origin: nativeRequest}, nodeActivity(true), time.Now())
+	running := queue.Enqueue(queuedRequest{modelID: "group", work: schedulingcost.TextWork(100, 20), requiredContext: 2048, origin: nativeRequest}, nodeActivity(true), time.Now())
 	mustBeAdmitted(t, running, "running")
-	queue.Enqueue(queuedRequest{groupID: "group", work: schedulingcost.TextWork(200, 40), requiredContext: 4096, origin: nativeRequest}, nodeActivity(true), time.Now())
+	queue.Enqueue(queuedRequest{modelID: "group", work: schedulingcost.TextWork(200, 40), requiredContext: 4096, origin: nativeRequest}, nodeActivity(true), time.Now())
 
 	stats := queue.Stats()
 	if len(stats) != 1 {

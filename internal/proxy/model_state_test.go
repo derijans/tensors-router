@@ -158,7 +158,7 @@ func TestDisabledModelUnloadsOnlyAfterActiveRuntimeReleaseAndReenableCancels(t *
 	if disabled.Code != http.StatusOK {
 		t.Fatalf("disable status=%d body=%s", disabled.Code, disabled.Body.String())
 	}
-	if _, _, ok := registry.Acquire("model-a", true, cluster.RouteHint{}); ok {
+	if _, _, ok := registry.Acquire("model-a", true); ok {
 		t.Fatal("new request acquired disabled model")
 	}
 	if backend.unloads.Load() != 0 {

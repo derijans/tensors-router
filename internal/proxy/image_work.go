@@ -4,21 +4,17 @@ import (
 	"net/http"
 
 	routeranalytics "tensors-router/internal/analytics"
-	"tensors-router/internal/cluster"
 	"tensors-router/internal/schedulingcost"
 )
 
-// imageRouteHint prices the request before it is dispatched, reusing the same
-// extraction that fills the analytics row the cost model was fitted from.
-//
-// A request whose body was never buffered, or that does not state its size,
-// yields a zero hint. That is not a fallback to a guess: an unpriced request skips
-// cost ordering entirely and takes the existing rotation.
-func imageRouteHint(r *http.Request, body []byte) cluster.RouteHint {
+// imageWorkHint prices the request before it is queued, reusing the same
+// extraction that fills the analytics row the cost model was fitted from. A request
+// whose body was never buffered yields a zero hint rather than a guess.
+func imageWorkHint(r *http.Request, body []byte) requestWorkHint {
 	if len(body) == 0 {
-		return cluster.UnsizedRouteHint()
+		return requestWorkHint{}
 	}
 	event := routeranalytics.Event{Section: routeranalytics.SectionImage}
 	routeranalytics.ApplyRequest(&event, r.URL.Path, body, r.Header.Get("Content-Type"))
-	return cluster.RouteHint{Work: schedulingcost.ImageWork(routeranalytics.ImageWork(event))}
+	return requestWorkHint{Work: schedulingcost.ImageWork(routeranalytics.ImageWork(event))}
 }

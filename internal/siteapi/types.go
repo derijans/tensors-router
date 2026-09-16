@@ -7,6 +7,7 @@ import (
 	"tensors-router/internal/hardware"
 	"tensors-router/internal/inventory"
 	"tensors-router/internal/recipes"
+	"tensors-router/internal/routinggroups"
 	"tensors-router/internal/vllm"
 )
 
@@ -150,81 +151,51 @@ type InventoryResponse struct {
 	ObservedOptions []cook.OptionDefinition `json:"observed_options"`
 }
 
-// RoutingGroupMember names one image model on one node. Members are declared by
-// an operator, not derived from hashes, so they need not share a name or a config.
-type RoutingGroupMember struct {
-	NodeID             string `json:"node_id"`
-	ImageID            string `json:"image_id"`
-	RestoreAfterBorrow bool   `json:"restore_after_borrow"`
+// RoutingLinkState describes one direction between the anchor and a candidate.
+// LoadIfUnloaded and RestoreAfterBorrow belong to whichever side is the helper.
+type RoutingLinkState struct {
+	Selected           bool `json:"selected"`
+	LoadIfUnloaded     bool `json:"load_if_unloaded"`
+	RestoreAfterBorrow bool `json:"restore_after_borrow"`
 }
 
-type RoutingGroup struct {
-	ID      string               `json:"id"`
-	Members []RoutingGroupMember `json:"members"`
+// RoutingCandidate is a model on another node that the anchor could lend work to or
+// borrow work from. WeightsMatch reports whether it is the same checkpoint under a
+// different config. A candidate where it is false answers requests with genuinely
+// different output, and the router has no way to detect that, so the UI has to say
+// so before it is chosen.
+type RoutingCandidate struct {
+	NodeID           string           `json:"node_id"`
+	ModelID          string           `json:"model_id"`
+	Filename         string           `json:"filename"`
+	ModelHash        string           `json:"model_hash,omitempty"`
+	ConfigHash       string           `json:"config_hash,omitempty"`
+	ContextSize      int              `json:"context_size,omitempty"`
+	Multimodal       bool             `json:"multimodal,omitempty"`
+	WeightsMatch     bool             `json:"weights_match"`
+	Eligible         bool             `json:"eligible"`
+	IneligibleReason string           `json:"ineligible_reason,omitempty"`
+	LendsTo          RoutingLinkState `json:"lends_to"`
+	BorrowsFrom      RoutingLinkState `json:"borrows_from"`
 }
 
-// RoutingGroupCandidate is an image model that could join the anchor's group.
-// WeightsMatch reports whether it is the same checkpoint under a different config,
-// which is the case worth grouping. A candidate where it is false will answer
-// requests for the anchor with genuinely different images, and the router has no
-// way to detect that, so the UI has to say so before it is chosen.
-type RoutingGroupCandidate struct {
-	NodeID             string `json:"node_id"`
-	ImageID            string `json:"image_id"`
-	Filename           string `json:"filename"`
-	ModelHash          string `json:"model_hash,omitempty"`
-	ConfigHash         string `json:"config_hash,omitempty"`
-	WeightsMatch       bool   `json:"weights_match"`
-	Selected           bool   `json:"selected"`
-	RestoreAfterBorrow bool   `json:"restore_after_borrow"`
+type RoutingLinksResponse struct {
+	Links      []routinggroups.Link    `json:"links"`
+	Anchor     *routinggroups.Endpoint `json:"anchor,omitempty"`
+	Candidates []RoutingCandidate      `json:"candidates,omitempty"`
 }
 
-type RoutingGroupsResponse struct {
-	Groups     []RoutingGroup          `json:"groups"`
-	Anchor     *RoutingGroupMember     `json:"anchor,omitempty"`
-	Candidates []RoutingGroupCandidate `json:"candidates,omitempty"`
-}
-
-type RoutingGroupRequest struct {
-	Anchor  RoutingGroupMember   `json:"anchor"`
-	Members []RoutingGroupMember `json:"members"`
-}
-
-type TextRoutingGroupMember struct {
+type RoutingLinkChoice struct {
 	NodeID             string `json:"node_id"`
 	ModelID            string `json:"model_id"`
+	LoadIfUnloaded     bool   `json:"load_if_unloaded"`
 	RestoreAfterBorrow bool   `json:"restore_after_borrow"`
 }
 
-type TextRoutingGroup struct {
-	ID      string                   `json:"id"`
-	Members []TextRoutingGroupMember `json:"members"`
-}
-
-type TextRoutingGroupCandidate struct {
-	NodeID             string `json:"node_id"`
-	ModelID            string `json:"model_id"`
-	Filename           string `json:"filename"`
-	ModelHash          string `json:"model_hash,omitempty"`
-	ConfigHash         string `json:"config_hash,omitempty"`
-	ContextSize        int    `json:"context_size"`
-	Multimodal         bool   `json:"multimodal"`
-	WeightsMatch       bool   `json:"weights_match"`
-	Selected           bool   `json:"selected"`
-	Eligible           bool   `json:"eligible"`
-	IneligibleReason   string `json:"ineligible_reason,omitempty"`
-	RestoreAfterBorrow bool   `json:"restore_after_borrow"`
-}
-
-type TextRoutingGroupsResponse struct {
-	Groups     []TextRoutingGroup          `json:"groups"`
-	Anchor     *TextRoutingGroupMember     `json:"anchor,omitempty"`
-	Candidates []TextRoutingGroupCandidate `json:"candidates,omitempty"`
-}
-
-type TextRoutingGroupRequest struct {
-	Anchor  TextRoutingGroupMember   `json:"anchor"`
-	Members []TextRoutingGroupMember `json:"members"`
+type RoutingLinksRequest struct {
+	Anchor      routinggroups.Endpoint `json:"anchor"`
+	LendsTo     []RoutingLinkChoice    `json:"lends_to"`
+	BorrowsFrom []RoutingLinkChoice    `json:"borrows_from"`
 }
 
 type SeparateRuntimeSettings struct {

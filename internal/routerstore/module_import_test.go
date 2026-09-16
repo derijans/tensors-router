@@ -169,8 +169,8 @@ func TestRouterModulesImportEveryLegacyDatabase(t *testing.T) {
 	if got := scalarInt(t, reader, `SELECT occurrences FROM load_errors WHERE fingerprint = 'print-1'`); got != 4 {
 		t.Fatalf("load error occurrences = %d, want 4", got)
 	}
-	if got := scalarInt(t, reader, `SELECT COUNT(*) FROM routing_group_members WHERE group_id = 'group-1'`); got != 2 {
-		t.Fatalf("routing group members = %d, want 2", got)
+	if got := scalarInt(t, reader, `SELECT COUNT(*) FROM routing_image_links`); got != 2 {
+		t.Fatalf("routing image links = %d, want 2 (one per direction)", got)
 	}
 	for module, path := range legacy {
 		if _, err := os.Stat(path + ".migrated"); err != nil {
@@ -285,11 +285,13 @@ func TestSubsystemsShareOneHandleWithoutRacing(t *testing.T) {
 	go func() {
 		defer waiting.Done()
 		for round := 0; round < rounds; round++ {
-			if _, err := groupStore.SetGroup(context.Background(), routinggroups.Member{NodeID: "node-a", ImageID: "sdxl"}, []routinggroups.Member{{NodeID: "node-b", ImageID: "sdxl-q8"}}); err != nil {
+			owner := routinggroups.Endpoint{NodeID: "node-a", ModelID: "sdxl"}
+			helper := routinggroups.Endpoint{NodeID: "node-b", ModelID: "sdxl-q8"}
+			if err := groupStore.ReplaceLinksTouching(context.Background(), routinggroups.ImageLane, owner, []routinggroups.Link{{Owner: owner, Helper: helper}}); err != nil {
 				failures <- err
 				return
 			}
-			if _, err := groupStore.Groups(context.Background()); err != nil {
+			if _, err := groupStore.Links(context.Background(), routinggroups.ImageLane); err != nil {
 				failures <- err
 				return
 			}
@@ -310,7 +312,7 @@ func TestSubsystemsShareOneHandleWithoutRacing(t *testing.T) {
 	if got := scalarInt(t, handle.Reader(), `SELECT occurrences FROM load_errors`); got != rounds {
 		t.Fatalf("load error occurrences = %d, want %d", got, rounds)
 	}
-	if got := scalarInt(t, handle.Reader(), `SELECT COUNT(*) FROM routing_group_members`); got != 2 {
-		t.Fatalf("routing group members = %d, want 2", got)
+	if got := scalarInt(t, handle.Reader(), `SELECT COUNT(*) FROM routing_image_links`); got != 1 {
+		t.Fatalf("routing image links = %d, want 1", got)
 	}
 }

@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,13 +14,13 @@ import (
 
 const txt2imgBody = `{"sd_model_checkpoint":"combo-dream","width":512,"height":512,"steps":30,"batch_size":1}`
 
-// newGroupedImageService builds a node holding one image model, with a backend
+// newLinkedImageService builds a node holding one image model, with a backend
 // that blocks until the test releases it so queue states can be observed.
 //
-// The peer is declared as a group member but is deliberately not a routable
-// replica: grouping is what makes the model queue in the router, and keeping
-// selection local is what lets these tests observe that queue directly.
-func newGroupedImageService(t *testing.T, gate chan struct{}, grouped bool) *Service {
+// The peer is named by a link but is deliberately not a routable replica: the
+// link is what makes the model queue in the router, and keeping selection local
+// is what lets these tests observe that queue directly.
+func newLinkedImageService(t *testing.T, gate chan struct{}, linked bool) *Service {
 	t.Helper()
 	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if gate != nil {
@@ -41,14 +42,11 @@ func newGroupedImageService(t *testing.T, gate chan struct{}, grouped bool) *Ser
 	if err := registry.UpdateLocal([]cluster.Model{local}); err != nil {
 		t.Fatal(err)
 	}
-	if grouped {
-		registry.SetGroupSource(newRoutingGroupLookup([]routinggroups.Group{{
-			ID: "group",
-			Members: []routinggroups.Member{
-				{NodeID: service.nodeID, ImageID: "combo-dream"},
-				{NodeID: "slave-a", ImageID: "combo-alt-dream"},
-			},
-		}}, nil))
+	if linked {
+		service.installRoutingLinks(routingLinkSnapshot{Image: []routinggroups.Link{{
+			Owner:  routinggroups.Endpoint{NodeID: service.nodeID, ModelID: "combo-dream"},
+			Helper: routinggroups.Endpoint{NodeID: "slave-a", ModelID: "combo-alt-dream"},
+		}}})
 	}
 	service.registry = registry
 	return service
@@ -63,10 +61,16 @@ func postImage(service *Service) *httptest.ResponseRecorder {
 }
 
 func postBorrowedImage(service *Service) *httptest.ResponseRecorder {
+	return postBorrowedImageRequest(service, func(request *http.Request) *http.Request {
+		return markBorrowLoadAllowed(markBorrowedRequest(request))
+	})
+}
+
+func postBorrowedImageRequest(service *Service, mark func(*http.Request) *http.Request) *httptest.ResponseRecorder {
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/sdapi/v1/txt2img", strings.NewReader(txt2imgBody))
 	request.Header.Set("Content-Type", "application/json")
-	service.ServeHTTP(recorder, markBorrowedRequest(request))
+	service.ServeHTTP(recorder, mark(request))
 	return recorder
 }
 
@@ -84,12 +88,12 @@ func waitForBacklog(t *testing.T, service *Service, want int64) {
 	t.Fatalf("queue never reached a backlog of %d: %+v", want, service.imageQueue.Stats())
 }
 
-// A grouped model routes through the router-held queue, and the queue reports the
+// A linked model routes through the router-held queue, and the queue reports the
 // backlog a master needs in order to decide whether to lend it out. Without this
 // the requests would already be inside the backend and could not be moved.
-func TestGroupedImageRequestsQueueInTheRouter(t *testing.T) {
+func TestLinkedImageRequestsQueueInTheRouter(t *testing.T) {
 	gate := make(chan struct{})
-	service := newGroupedImageService(t, gate, true)
+	service := newLinkedImageService(t, gate, true)
 
 	done := make(chan int, 3)
 	for index := 0; index < 3; index++ {
@@ -98,8 +102,8 @@ func TestGroupedImageRequestsQueueInTheRouter(t *testing.T) {
 	waitForBacklog(t, service, 3)
 
 	stats := service.imageQueue.Stats()
-	if len(stats) != 1 || stats[0].GroupID != "group" {
-		t.Fatalf("stats = %+v, want one group", stats)
+	if len(stats) != 1 || stats[0].ModelID != "combo-dream" {
+		t.Fatalf("stats = %+v, want the backlog reported under the model", stats)
 	}
 	if stats[0].PendingCount == 0 {
 		t.Fatalf("stats = %+v, want work still withdrawable behind the backend", stats)
@@ -113,16 +117,16 @@ func TestGroupedImageRequestsQueueInTheRouter(t *testing.T) {
 	}
 }
 
-// A model in no group must not be queued at all, so nothing changes for traffic
+// A model with no link must not be queued at all, so nothing changes for traffic
 // that was never enrolled.
-func TestUngroupedImageRequestsBypassTheQueue(t *testing.T) {
-	service := newGroupedImageService(t, nil, false)
+func TestUnlinkedImageRequestsBypassTheQueue(t *testing.T) {
+	service := newLinkedImageService(t, nil, false)
 
 	if code := postImage(service).Code; code != http.StatusOK {
 		t.Fatalf("status %d, want 200", code)
 	}
 	if stats := service.imageQueue.Stats(); len(stats) != 0 {
-		t.Fatalf("stats = %+v, want nothing queued for an ungrouped model", stats)
+		t.Fatalf("stats = %+v, want nothing queued for an unlinked model", stats)
 	}
 }
 
@@ -130,7 +134,7 @@ func TestUngroupedImageRequestsBypassTheQueue(t *testing.T) {
 // of its own, and the owner sees a distinct code rather than a failure.
 func TestBorrowedRequestIsReturnedWhileTheNodeHasItsOwnWork(t *testing.T) {
 	gate := make(chan struct{})
-	service := newGroupedImageService(t, gate, true)
+	service := newLinkedImageService(t, gate, true)
 
 	native := make(chan int, 1)
 	go func() { native <- postImage(service).Code }()
@@ -152,10 +156,33 @@ func TestBorrowedRequestIsReturnedWhileTheNodeHasItsOwnWork(t *testing.T) {
 
 // An idle node lends: borrowed work is served exactly like its own.
 func TestIdleNodeServesBorrowedWork(t *testing.T) {
-	service := newGroupedImageService(t, nil, true)
+	service := newLinkedImageService(t, nil, true)
 
 	if recorder := postBorrowedImage(service); recorder.Code != http.StatusOK {
 		t.Fatalf("status %d body %s, want the borrowed request served", recorder.Code, recorder.Body.String())
+	}
+}
+
+func TestBorrowedWorkIsReturnedWhenServingItWouldLoadAForbiddenModel(t *testing.T) {
+	service := newLinkedImageService(t, nil, true)
+
+	recorder := postBorrowedImageRequest(service, markBorrowedRequest)
+	if recorder.Code != http.StatusConflict || !strings.Contains(recorder.Body.String(), offloadReturnedCode) {
+		t.Fatalf("status %d body %s, want 409 offload_returned when the link forbids loading", recorder.Code, recorder.Body.String())
+	}
+	if filename := service.activeImageConfigFilename(); filename != "" {
+		t.Fatalf("active image config = %q, want nothing loaded for the refused request", filename)
+	}
+}
+
+func TestBorrowedWorkWithoutLoadPermissionIsServedWhileTheModelIsLoaded(t *testing.T) {
+	service := newLinkedImageService(t, nil, true)
+	if code := postImage(service).Code; code != http.StatusOK {
+		t.Fatalf("native status %d, want 200", code)
+	}
+
+	if recorder := postBorrowedImageRequest(service, markBorrowedRequest); recorder.Code != http.StatusOK {
+		t.Fatalf("status %d body %s, want the borrowed request served by the already loaded model", recorder.Code, recorder.Body.String())
 	}
 }
 
@@ -163,7 +190,7 @@ func TestIdleNodeServesBorrowedWork(t *testing.T) {
 // this node still has to do, and whether it can take anything more.
 func TestRuntimeStatusReportsQueueAndBorrowingState(t *testing.T) {
 	gate := make(chan struct{})
-	service := newGroupedImageService(t, gate, true)
+	service := newLinkedImageService(t, gate, true)
 
 	done := make(chan int, 1)
 	go func() { done <- postImage(service).Code }()
@@ -173,8 +200,8 @@ func TestRuntimeStatusReportsQueueAndBorrowingState(t *testing.T) {
 	if status.AcceptingBorrowedImage {
 		t.Fatal("node advertises it is accepting borrowed work while running its own")
 	}
-	if len(status.ImageQueue) != 1 || status.ImageQueue[0].GroupID != "group" {
-		t.Fatalf("image queue = %+v, want the group backlog", status.ImageQueue)
+	if len(status.ImageQueue) != 1 || status.ImageQueue[0].ModelID != "combo-dream" {
+		t.Fatalf("image queue = %+v, want the model backlog", status.ImageQueue)
 	}
 
 	close(gate)
@@ -197,7 +224,7 @@ func TestOffloadMarkerIsOnlyTrustedFromTheNodeEndpoint(t *testing.T) {
 	}
 
 	gate := make(chan struct{})
-	service := newGroupedImageService(t, gate, true)
+	service := newLinkedImageService(t, gate, true)
 	native := make(chan int, 1)
 	go func() { native <- postImage(service).Code }()
 	waitForBacklog(t, service, 1)
@@ -233,5 +260,26 @@ func TestOffloadMarkerIsOnlyTrustedFromTheNodeEndpoint(t *testing.T) {
 	}
 	if code := <-fromClient; code != http.StatusOK {
 		t.Fatalf("client request carrying the marker got %d, want it served normally", code)
+	}
+}
+
+func TestRelayAddressesImageWorkToTheHelpersOwnModel(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/router/v1/node/offload/request?sd_model_checkpoint=cc11-ff", strings.NewReader(`{"sd_model_checkpoint":"cc11-ff","prompt":"cat"}`))
+	request.Header.Set("Content-Type", "application/json")
+	lease := offloadLease{Lane: cluster.RouteLaneImage, OwnerModelID: "cc11-ff", HelperNodeID: "master", HelperModelID: "cc-ff"}
+
+	relayed, body := requestAddressedToHelper(request, []byte(`{"sd_model_checkpoint":"cc11-ff","prompt":"cat"}`), lease)
+
+	var decoded struct {
+		Checkpoint string `json:"sd_model_checkpoint"`
+	}
+	if err := json.Unmarshal(body, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	if decoded.Checkpoint != "cc-ff" {
+		t.Fatalf("relayed checkpoint = %q, want the helper's cc-ff", decoded.Checkpoint)
+	}
+	if got := relayed.URL.Query().Get("sd_model_checkpoint"); got != "cc-ff" {
+		t.Fatalf("relayed query checkpoint = %q, want the helper's cc-ff", got)
 	}
 }
