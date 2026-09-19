@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "391702625",
+      "tag": "master-874-656a135",
+      "published_at": "2026-09-18T18:44:38Z",
+      "payloads": [
+        {
+          "name": "sd-master-656a135-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-874-656a135/sd-master-656a135-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 25282756,
+          "sha256": "2af1a5277edba207ec3f9b2b1d4a602d2cb97318c4e4df9b92aab7d21876fd66"
+        }
+      ]
+    }
+  ]
+}
