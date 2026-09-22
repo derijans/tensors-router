@@ -6,6 +6,10 @@ func firstNumber(root map[string]any, paths ...[]string) float64 {
 	return jsonpath.FirstNumber(root, paths...)
 }
 
+func numberAt(root map[string]any, path []string) (float64, bool) {
+	return jsonpath.Number(root, path)
+}
+
 func firstString(root map[string]any, paths ...[]string) string {
 	return jsonpath.FirstString(root, paths...)
 }

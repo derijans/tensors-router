@@ -90,6 +90,7 @@ export interface AnalyticsSummary {
   output_tokens: number;
   total_tokens: number;
   image_count: number;
+  embedding_count: number;
   audio_seconds: number;
   audio_tokens: number;
   average_duration_ms: number;
@@ -109,6 +110,7 @@ export interface AnalyticsTimeline {
   output_tokens: number;
   total_tokens: number;
   image_count: number;
+  embedding_count: number;
   audio_seconds: number;
   load_count: number;
   vram_peak_mb: number;
@@ -122,6 +124,7 @@ export interface AnalyticsSectionUsage {
   request_count: number;
   total_tokens: number;
   image_count: number;
+  embedding_count: number;
   audio_seconds: number;
   load_count: number;
   vram_peak_mb: number;
@@ -135,6 +138,7 @@ export interface AnalyticsModelUsage {
   request_count: number;
   total_tokens: number;
   image_count: number;
+  embedding_count: number;
   audio_seconds: number;
   load_count: number;
   average_load_duration_ms: number;
@@ -148,6 +152,7 @@ export interface AnalyticsNodeUsage {
   request_count: number;
   total_tokens: number;
   image_count: number;
+  embedding_count: number;
   audio_seconds: number;
   load_count: number;
   average_load_duration_ms: number;
@@ -174,6 +179,7 @@ export interface AnalyticsRecentEvent {
   total_tokens?: number;
   tokens_per_second?: number;
   image_count?: number;
+  embedding_count?: number;
   image_width?: number;
   image_height?: number;
   image_type?: string;

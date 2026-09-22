@@ -27,6 +27,7 @@ func rollupMergeRules() []rollupMergeRule {
 		{"tokens_per_second_sum", mergeBySum},
 		{"tokens_per_second_count", mergeBySum},
 		{"image_count", mergeBySum},
+		{"embedding_count", mergeBySum},
 		{"audio_seconds", mergeBySum},
 		{"audio_tokens", mergeBySum},
 		{"load_count", mergeBySum},

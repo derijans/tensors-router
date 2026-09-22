@@ -89,7 +89,7 @@ func ApplyResponse(event *Event, contentType string, body []byte) {
 	if !ok {
 		return
 	}
-	applyTokenResponse(event, root)
+	applyLatestTokenReport(event, root)
 	applyFinishReason(event, root)
 	if event.Section == SectionImage {
 		applyImageResponse(event, root)
@@ -111,7 +111,7 @@ func ApplyEventStreamData(event *Event, data []byte) {
 	if !ok {
 		return
 	}
-	applyTokenResponse(event, root)
+	applyLatestTokenReport(event, root)
 	applyFinishReason(event, root)
 }
 
@@ -228,53 +228,76 @@ func applyAudioResponse(event *Event, root map[string]any) {
 	}
 }
 
-func applyTokenResponse(event *Event, root map[string]any) {
-	if event.InputTokens == 0 {
-		event.InputTokens = int64(firstNumber(root,
-			[]string{"usage", "prompt_tokens"},
-			[]string{"prompt_tokens"},
-			[]string{"timings", "prompt_n"},
-			[]string{"prompt_eval_count"},
-			[]string{"results", "0", "prompt_tokens"},
-			[]string{"usage", "input_tokens"},
-			[]string{"response", "usage", "input_tokens"},
-			[]string{"message", "usage", "input_tokens"},
-		))
+func applyLatestTokenReport(event *Event, root map[string]any) {
+	if input := reportedInputTokens(root); input > 0 {
+		event.InputTokens = input
 	}
-	if event.OutputTokens == 0 {
-		event.OutputTokens = int64(firstNumber(root,
-			[]string{"usage", "completion_tokens"},
-			[]string{"completion_tokens"},
-			[]string{"timings", "predicted_n"},
-			[]string{"eval_count"},
-			[]string{"results", "0", "completion_tokens"},
-			[]string{"usage", "output_tokens"},
-			[]string{"response", "usage", "output_tokens"},
-			[]string{"message", "usage", "output_tokens"},
-		))
+	if output := reportedOutputTokens(root); output > 0 {
+		event.OutputTokens = output
 	}
-	if event.TotalTokens == 0 {
-		event.TotalTokens = int64(firstNumber(root,
-			[]string{"usage", "total_tokens"},
-			[]string{"total_tokens"},
-			[]string{"response", "usage", "total_tokens"},
-		))
+	if total := int64(firstNumber(root,
+		[]string{"usage", "total_tokens"},
+		[]string{"total_tokens"},
+		[]string{"response", "usage", "total_tokens"},
+	)); total > 0 {
+		event.TotalTokens = total
 	}
-	if event.TokensPerSecond == 0 {
-		event.TokensPerSecond = firstNumber(root,
-			[]string{"usage", "tokens_per_second"},
-			[]string{"tokens_per_second"},
-			[]string{"timings", "predicted_per_second"},
-			[]string{"predicted_per_second"},
-		)
+	if tokensPerSecond := reportedTokensPerSecond(root); tokensPerSecond > 0 {
+		event.TokensPerSecond = tokensPerSecond
 	}
-	if event.TokensPerSecond == 0 {
-		evalCount := firstNumber(root, []string{"eval_count"})
-		evalDuration := firstNumber(root, []string{"eval_duration"})
-		if evalCount > 0 && evalDuration >= float64(shortestCredibleEvalDuration) {
-			event.TokensPerSecond = evalCount / (evalDuration / float64(time.Second))
+}
+
+func reportedInputTokens(root map[string]any) int64 {
+	if usage := int64(firstNumber(root, []string{"usage", "prompt_tokens"}, []string{"prompt_tokens"})); usage > 0 {
+		return usage
+	}
+	if evaluated, ok := numberAt(root, []string{"timings", "prompt_n"}); ok {
+		cached := firstNumber(root, []string{"timings", "cache_n"})
+		if evaluated+cached > 0 {
+			return int64(evaluated + cached)
 		}
 	}
+	return int64(firstNumber(root,
+		[]string{"prompt_eval_count"},
+		[]string{"results", "0", "prompt_tokens"},
+		[]string{"usage", "input_tokens"},
+		[]string{"response", "usage", "input_tokens"},
+		[]string{"message", "usage", "input_tokens"},
+	))
+}
+
+func reportedOutputTokens(root map[string]any) int64 {
+	return int64(firstNumber(root,
+		[]string{"usage", "completion_tokens"},
+		[]string{"completion_tokens"},
+		[]string{"timings", "predicted_n"},
+		[]string{"eval_count"},
+		[]string{"results", "0", "completion_tokens"},
+		[]string{"usage", "output_tokens"},
+		[]string{"response", "usage", "output_tokens"},
+		[]string{"message", "usage", "output_tokens"},
+	))
+}
+
+func reportedTokensPerSecond(root map[string]any) float64 {
+	if reported := firstNumber(root, []string{"usage", "tokens_per_second"}, []string{"tokens_per_second"}); reported > 0 {
+		return reported
+	}
+	predictedMS, predictedMSReported := numberAt(root, []string{"timings", "predicted_ms"})
+	if !predictedMSReported || time.Duration(predictedMS*float64(time.Millisecond)) >= shortestCredibleEvalDuration {
+		if reported := firstNumber(root, []string{"timings", "predicted_per_second"}); reported > 0 {
+			return reported
+		}
+	}
+	if reported := firstNumber(root, []string{"predicted_per_second"}); reported > 0 {
+		return reported
+	}
+	evalCount := firstNumber(root, []string{"eval_count"})
+	evalDuration := firstNumber(root, []string{"eval_duration"})
+	if evalCount > 0 && evalDuration >= float64(shortestCredibleEvalDuration) {
+		return evalCount / (evalDuration / float64(time.Second))
+	}
+	return 0
 }
 
 const shortestCredibleEvalDuration = time.Millisecond
@@ -287,9 +310,20 @@ func deriveTokenTotals(event *Event) {
 	if event.TotalTokens == 0 && (event.InputTokens > 0 || event.OutputTokens > 0) {
 		event.TotalTokens = event.InputTokens + event.OutputTokens
 	}
-	if event.TokensPerSecond == 0 && event.OutputTokens > 0 && event.DurationMS > 0 {
-		event.TokensPerSecond = float64(event.OutputTokens) / (float64(event.DurationMS) / 1000)
+	if event.TokensPerSecond == 0 && event.OutputTokens > 0 {
+		event.TokensPerSecond = derivedTokensPerSecond(event)
 	}
+}
+
+func derivedTokensPerSecond(event *Event) float64 {
+	generationMS := event.DurationMS
+	if event.DecodeMS > 0 {
+		generationMS = event.DecodeMS
+	}
+	if generationMS <= 0 {
+		return 0
+	}
+	return float64(event.OutputTokens) / (float64(generationMS) / 1000)
 }
 
 func imageRequestCount(root map[string]any) int64 {
@@ -317,5 +351,3 @@ func looksJSON(body []byte, contentType string) bool {
 	trimmed := bytes.TrimSpace(body)
 	return len(trimmed) > 0 && trimmed[0] == '{'
 }
-
-

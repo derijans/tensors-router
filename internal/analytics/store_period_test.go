@@ -82,3 +82,26 @@ func TestQueryPeriodNarrowsRecentEvents(t *testing.T) {
 		t.Fatalf("all recent = %d events, want 2", len(all.Recent))
 	}
 }
+
+func TestQueryTimelineCoversTheFirstPartialBucket(t *testing.T) {
+	store := newTestStore(t, "node-a")
+	now := time.Now().UTC()
+	windowStart := now.Add(-5 * 24 * time.Hour)
+	finished := windowStart.Add(time.Minute)
+	store.Record(Event{ModelID: "llm-a", Section: SectionLLM, StatusCode: 200, Success: true, StartedAt: finished, FinishedAt: finished, OutputTokens: 5})
+	if err := store.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := store.Query(context.Background(), Query{Period: Period7Days, StartMS: windowStart.UnixMilli(), EndMS: now.UnixMilli()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	timelineRequests := int64(0)
+	for _, bucket := range response.Timeline {
+		timelineRequests += bucket.RequestCount
+	}
+	if response.Summary.RequestCount != 1 || timelineRequests != 1 {
+		t.Fatalf("timeline must include the request the summary counts, summary %d timeline %#v", response.Summary.RequestCount, response.Timeline)
+	}
+}

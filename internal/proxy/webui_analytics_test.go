@@ -43,6 +43,28 @@ func TestWebUIProxyRecordsInferenceAnalytics(t *testing.T) {
 	}
 }
 
+func TestWebUIProxyStreamRecordsUsageTheClientNeverSees(t *testing.T) {
+	service := newAnalyticsWebUIService(t)
+	loadWebUIForTest(t, service, "kobold-lite", "text", "")
+	service.webUISession.set("kobold-lite", true)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/router/webuis/kobold-lite/v1/chat/completions", strings.NewReader(`{"messages":[],"stream":true}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected proxy status %d body %s", recorder.Code, recorder.Body.String())
+	}
+
+	if strings.Contains(recorder.Body.String(), "usage") {
+		t.Fatalf("the injected usage chunk must not reach the webui %s", recorder.Body.String())
+	}
+	response := queryProxyAnalytics(t, service.analyticsStore)
+	if response.Summary.InputTokens != 2 || response.Summary.OutputTokens != 3 {
+		t.Fatalf("webui stream usage was not recorded %#v", response.Summary)
+	}
+}
+
 func TestWebUIProxySkipsStaticAssets(t *testing.T) {
 	service := newAnalyticsWebUIService(t)
 	loadWebUIForTest(t, service, "kobold-lite", "text", "")
@@ -75,6 +97,17 @@ func newAnalyticsWebUIService(t *testing.T) *Service {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
 			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"ready"}]}`))
+		case r.URL.Path == "/v1/chat/completions":
+			w.Header().Set("Content-Type", "text/event-stream")
+			body, err := io.ReadAll(r.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n"))
+			if strings.Contains(string(body), `"include_usage":true`) {
+				_, _ = w.Write([]byte("data: {\"choices\":[],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":3,\"total_tokens\":5}}\n\n"))
+			}
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
 		case r.URL.Path == "/api/v1/generate":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"results":[{"text":"hi","prompt_tokens":11,"completion_tokens":153}]}`))

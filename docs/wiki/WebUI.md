@@ -46,6 +46,16 @@ The Routing column opens the lending links of a model: "Image routing" for an im
 
 The Separate column on each kobold or `llama_sdcpp` model opens its separate-runtime settings for that node. Toggling "Run in its own process" moves the config into the [separate-runtime pool](Backends#separate-runtimes). The trigger groups (lanes, backend families, and named sibling configs) choose which loads on the shared runtime evict the pooled runtime; "Do not unload" means no trigger evicts it, though a full pool still unloads the least-recently-used one. The setting is stored per node in the model-state database and never rewrites the `.kcpps`.
 
+## Analytics
+
+The Analytics tab reports requests, tokens, generation speed, images, embedding vectors, audio, VRAM peaks and model loads for the selected period, nodes, models and section.
+
+Token counts come from the backend report: the OpenAI `usage` object, llama.cpp `timings` (prompt tokens include the cached prefix) or the KoboldCpp and Ollama native counters. A streamed reply repeats those counters, and the last report wins. When a backend streams without any usage report, the request is recorded with no token counts rather than an estimate.
+
+Generation speed is measured over the decode window, between the first and the last streamed content, so queue waiting, model loading and prompt evaluation stay out of the rate.
+
+**Vectors** counts the embeddings a request returned. The count survives responses larger than the observed body limit, and so do the usage fields of such a response.
+
 ## Load captures
 
 The Load Captures tab appears when at least one selected node has `analytics.load_capture_enabled`. It can filter and merge attempt summaries across nodes, inspect sanitized KCPPS and asset identities, and fetch bounded stdout/stderr output incrementally. Reused loads link back to their physical attempt output.

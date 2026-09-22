@@ -36,8 +36,8 @@ func TestStoreFlushesAndQueriesAnalytics(t *testing.T) {
 		Section:     SectionImage,
 		BackendMode: "llama_sdcpp",
 		Route:       "/sdapi/v1/*",
-		StatusCode:  500,
-		Success:     false,
+		StatusCode:  200,
+		Success:     true,
 		StartedAt:   now.Add(-time.Second),
 		FinishedAt:  now.Add(time.Second),
 		DurationMS:  1000,
@@ -45,6 +45,17 @@ func TestStoreFlushesAndQueriesAnalytics(t *testing.T) {
 		ImageWidth:  512,
 		ImageHeight: 768,
 		ImageType:   "txt2img",
+	})
+	store.Record(Event{
+		ModelID:     "llm-a",
+		Section:     SectionLLM,
+		BackendMode: "kobold",
+		Route:       "/v1/chat/*",
+		StatusCode:  500,
+		Success:     false,
+		StartedAt:   now.Add(-3 * time.Second),
+		FinishedAt:  now.Add(-2 * time.Second),
+		DurationMS:  1000,
 	})
 
 	if err := store.Flush(context.Background()); err != nil {
@@ -62,7 +73,7 @@ func TestStoreFlushesAndQueriesAnalytics(t *testing.T) {
 	if !response.Enabled {
 		t.Fatalf("expected enabled response")
 	}
-	if response.Summary.RequestCount != 2 || response.Summary.SuccessCount != 1 || response.Summary.FailureCount != 1 {
+	if response.Summary.RequestCount != 3 || response.Summary.SuccessCount != 2 || response.Summary.FailureCount != 1 {
 		t.Fatalf("unexpected summary counts %#v", response.Summary)
 	}
 	if response.Summary.InputTokens != 10 || response.Summary.OutputTokens != 5 || response.Summary.TotalTokens != 15 {
@@ -71,10 +82,10 @@ func TestStoreFlushesAndQueriesAnalytics(t *testing.T) {
 	if response.Summary.ImageCount != 2 {
 		t.Fatalf("unexpected image summary %#v", response.Summary)
 	}
-	if len(response.Timeline) != 1 || response.Timeline[0].RequestCount != 2 {
+	if len(response.Timeline) != 1 || response.Timeline[0].RequestCount != 3 {
 		t.Fatalf("unexpected timeline %#v", response.Timeline)
 	}
-	if len(response.Recent) != 2 || response.Recent[0].ModelID != "image-a" {
+	if len(response.Recent) != 3 || response.Recent[0].ModelID != "image-a" {
 		t.Fatalf("unexpected recent rows %#v", response.Recent)
 	}
 	if response.Recent[1].RequestBytes != 123 || response.Recent[1].ResponseBytes != 456 {
@@ -536,5 +547,23 @@ func TestStoreRejectsNegativeRawRetention(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected raw retention validation error")
+	}
+}
+
+func TestStoreCountsNoImagesForFailedGenerations(t *testing.T) {
+	store := newTestStore(t, "node-a")
+	now := time.Now().UTC()
+	store.Record(Event{ModelID: "image-a", Section: SectionImage, Route: "/sdapi/v1/*", StatusCode: 500, Success: false, StartedAt: now, FinishedAt: now, ImageCount: 2})
+	store.Record(Event{ModelID: "image-a", Section: SectionImage, Route: "/sdapi/v1/*", StatusCode: 200, Success: true, StartedAt: now, FinishedAt: now, ImageCount: 1})
+	if err := store.Flush(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	response, err := store.Query(context.Background(), Query{Period: Period24Hours})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if response.Summary.RequestCount != 2 || response.Summary.ImageCount != 1 {
+		t.Fatalf("a failed generation produced no image %#v", response.Summary)
 	}
 }

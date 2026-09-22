@@ -44,8 +44,8 @@ describe("analytics data helpers", () => {
 
   it("scales timeline points against the largest request bucket", () => {
     const series = chartPoints([
-      {bucket_start: Date.UTC(2026, 5, 1), request_count: 5, input_tokens: 0, output_tokens: 0, total_tokens: 0, image_count: 0, audio_seconds: 0, load_count: 0, vram_peak_mb: 0, vram_peak_percent: 0, vram_total_mb: 0, model_vram_estimate_mb: 0},
-      {bucket_start: Date.UTC(2026, 5, 2), request_count: 10, input_tokens: 0, output_tokens: 0, total_tokens: 0, image_count: 0, audio_seconds: 0, load_count: 0, vram_peak_mb: 0, vram_peak_percent: 0, vram_total_mb: 0, model_vram_estimate_mb: 0}
+      {bucket_start: Date.UTC(2026, 5, 1), request_count: 5, input_tokens: 0, output_tokens: 0, total_tokens: 0, image_count: 0, embedding_count: 0, audio_seconds: 0, load_count: 0, vram_peak_mb: 0, vram_peak_percent: 0, vram_total_mb: 0, model_vram_estimate_mb: 0},
+      {bucket_start: Date.UTC(2026, 5, 2), request_count: 10, input_tokens: 0, output_tokens: 0, total_tokens: 0, image_count: 0, embedding_count: 0, audio_seconds: 0, load_count: 0, vram_peak_mb: 0, vram_peak_percent: 0, vram_total_mb: 0, model_vram_estimate_mb: 0}
     ], 100, 50);
 
     expect(series.points).toHaveLength(2);

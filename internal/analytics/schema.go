@@ -14,7 +14,7 @@ var _ routerstore.Module = SchemaModule{}
 
 func (SchemaModule) Name() string { return "analytics" }
 
-func (SchemaModule) Version() int { return 7 }
+func (SchemaModule) Version() int { return 8 }
 
 func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 	statements := []string{
@@ -40,6 +40,7 @@ func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 			total_tokens INTEGER NOT NULL DEFAULT 0,
 			tokens_per_second REAL NOT NULL DEFAULT 0,
 			image_count INTEGER NOT NULL DEFAULT 0,
+			embedding_count INTEGER NOT NULL DEFAULT 0,
 			image_width INTEGER NOT NULL DEFAULT 0,
 			image_height INTEGER NOT NULL DEFAULT 0,
 			image_steps INTEGER NOT NULL DEFAULT 0,
@@ -85,6 +86,7 @@ func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 			tokens_per_second_sum REAL NOT NULL DEFAULT 0,
 			tokens_per_second_count INTEGER NOT NULL DEFAULT 0,
 			image_count INTEGER NOT NULL DEFAULT 0,
+			embedding_count INTEGER NOT NULL DEFAULT 0,
 			audio_seconds REAL NOT NULL DEFAULT 0,
 			audio_tokens INTEGER NOT NULL DEFAULT 0,
 			load_count INTEGER NOT NULL DEFAULT 0,
@@ -179,12 +181,14 @@ func migrationColumns() []migrationColumn {
 		{"analytics_events", "max_gap_ms", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_events", "finish_reason", "TEXT NOT NULL DEFAULT ''"},
 		{"analytics_events", "aborted", "INTEGER NOT NULL DEFAULT 0"},
+		{"analytics_events", "embedding_count", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_rollups", "load_count", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_rollups", "load_duration_ms_total", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_rollups", "vram_peak_mb", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_rollups", "vram_peak_percent", "REAL NOT NULL DEFAULT 0"},
 		{"analytics_rollups", "vram_total_mb", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_rollups", "model_vram_estimate_mb", "INTEGER NOT NULL DEFAULT 0"},
+		{"analytics_rollups", "embedding_count", "INTEGER NOT NULL DEFAULT 0"},
 	}
 }
 

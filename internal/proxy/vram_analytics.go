@@ -2,10 +2,13 @@ package proxy
 
 import (
 	"context"
+	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	routeranalytics "tensors-router/internal/analytics"
+	"tensors-router/internal/catalog"
 	"tensors-router/internal/hardware"
 )
 
@@ -76,7 +79,7 @@ func (service *Service) recordVRAMLoad(modelID string, configFilename string, re
 	event := routeranalytics.Event{
 		NodeID:         service.nodeID,
 		ModelID:        modelID,
-		Section:        readinessAnalyticsSection(readiness),
+		Section:        service.loadAnalyticsSection(configFilename, readiness),
 		BackendMode:    backendMode,
 		EventType:      routeranalytics.EventTypeModelLoad,
 		Route:          "model_load",
@@ -209,6 +212,47 @@ func (service *Service) sampleVRAM(ctx context.Context) (hardware.VRAMInfo, bool
 		return hardware.VRAMInfo{}, false
 	}
 	return service.vramSource.VRAM(ctx)
+}
+
+func (service *Service) loadAnalyticsSection(configFilename string, readiness backendReadiness) string {
+	if readiness == readinessText && service.textRuntimeHoldsOnlyEmbeddings(configFilename) {
+		return routeranalytics.SectionEmbed
+	}
+	return readinessAnalyticsSection(readiness)
+}
+
+func (service *Service) textRuntimeHoldsOnlyEmbeddings(filename string) bool {
+	path := service.configPathForFilename(filename)
+	if path == "" {
+		return false
+	}
+	metadata, err := catalog.LoadRuntimeConfig(path)
+	if err != nil {
+		return false
+	}
+	embeddingsModel := strings.TrimSpace(metadata.EmbeddingsModel)
+	return embeddingsModel != "" && metadata.TextModelPath() == embeddingsModel
+}
+
+func (service *Service) configPathForFilename(filename string) string {
+	if filename == "" || filename != filepath.Base(filename) {
+		return ""
+	}
+	if service.catalog != nil {
+		models, err := service.catalog.List()
+		if err != nil {
+			return ""
+		}
+		for _, model := range models {
+			if model.Filename == filename {
+				return model.Path
+			}
+		}
+	}
+	if service.configDir == "" {
+		return ""
+	}
+	return filepath.Join(service.configDir, filename)
 }
 
 func readinessAnalyticsSection(readiness backendReadiness) string {

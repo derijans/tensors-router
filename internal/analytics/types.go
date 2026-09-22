@@ -40,6 +40,7 @@ type Event struct {
 	TotalTokens     int64     `json:"total_tokens,omitempty"`
 	TokensPerSecond float64   `json:"tokens_per_second,omitempty"`
 	ImageCount      int64     `json:"image_count,omitempty"`
+	EmbeddingCount  int64     `json:"embedding_count,omitempty"`
 	ImageWidth      int64     `json:"image_width,omitempty"`
 	ImageHeight     int64     `json:"image_height,omitempty"`
 	ImageSteps      int64     `json:"image_steps,omitempty"`
@@ -101,6 +102,7 @@ type Summary struct {
 	OutputTokens    int64   `json:"output_tokens"`
 	TotalTokens     int64   `json:"total_tokens"`
 	ImageCount      int64   `json:"image_count"`
+	EmbeddingCount  int64   `json:"embedding_count"`
 	AudioSeconds    float64 `json:"audio_seconds"`
 	AudioTokens     int64   `json:"audio_tokens"`
 	AverageDuration float64 `json:"average_duration_ms"`
@@ -114,57 +116,61 @@ type Summary struct {
 }
 
 type Timeline struct {
-	BucketStart  int64   `json:"bucket_start"`
-	RequestCount int64   `json:"request_count"`
-	InputTokens  int64   `json:"input_tokens"`
-	OutputTokens int64   `json:"output_tokens"`
-	TotalTokens  int64   `json:"total_tokens"`
-	ImageCount   int64   `json:"image_count"`
-	AudioSeconds float64 `json:"audio_seconds"`
-	LoadCount    int64   `json:"load_count"`
-	VRAMPeakMB   int64   `json:"vram_peak_mb"`
-	VRAMPeakPct  float64 `json:"vram_peak_percent"`
-	VRAMTotalMB  int64   `json:"vram_total_mb"`
-	ModelVRAMMB  int64   `json:"model_vram_estimate_mb"`
+	BucketStart    int64   `json:"bucket_start"`
+	RequestCount   int64   `json:"request_count"`
+	InputTokens    int64   `json:"input_tokens"`
+	OutputTokens   int64   `json:"output_tokens"`
+	TotalTokens    int64   `json:"total_tokens"`
+	ImageCount     int64   `json:"image_count"`
+	EmbeddingCount int64   `json:"embedding_count"`
+	AudioSeconds   float64 `json:"audio_seconds"`
+	LoadCount      int64   `json:"load_count"`
+	VRAMPeakMB     int64   `json:"vram_peak_mb"`
+	VRAMPeakPct    float64 `json:"vram_peak_percent"`
+	VRAMTotalMB    int64   `json:"vram_total_mb"`
+	ModelVRAMMB    int64   `json:"model_vram_estimate_mb"`
 }
 
 type SectionUsage struct {
-	Section      string  `json:"section"`
-	RequestCount int64   `json:"request_count"`
-	TotalTokens  int64   `json:"total_tokens"`
-	ImageCount   int64   `json:"image_count"`
-	AudioSeconds float64 `json:"audio_seconds"`
-	LoadCount    int64   `json:"load_count"`
-	VRAMPeakMB   int64   `json:"vram_peak_mb"`
-	VRAMPeakPct  float64 `json:"vram_peak_percent"`
-	ModelVRAMMB  int64   `json:"model_vram_estimate_mb"`
+	Section        string  `json:"section"`
+	RequestCount   int64   `json:"request_count"`
+	TotalTokens    int64   `json:"total_tokens"`
+	ImageCount     int64   `json:"image_count"`
+	EmbeddingCount int64   `json:"embedding_count"`
+	AudioSeconds   float64 `json:"audio_seconds"`
+	LoadCount      int64   `json:"load_count"`
+	VRAMPeakMB     int64   `json:"vram_peak_mb"`
+	VRAMPeakPct    float64 `json:"vram_peak_percent"`
+	ModelVRAMMB    int64   `json:"model_vram_estimate_mb"`
 }
 
 type ModelUsage struct {
-	NodeID        string  `json:"node_id"`
-	ModelID       string  `json:"model_id"`
-	RequestCount  int64   `json:"request_count"`
-	TotalTokens   int64   `json:"total_tokens"`
-	ImageCount    int64   `json:"image_count"`
-	AudioSeconds  float64 `json:"audio_seconds"`
-	LoadCount     int64   `json:"load_count"`
-	AverageLoadMS float64 `json:"average_load_duration_ms"`
-	VRAMPeakMB    int64   `json:"vram_peak_mb"`
-	VRAMPeakPct   float64 `json:"vram_peak_percent"`
-	ModelVRAMMB   int64   `json:"model_vram_estimate_mb"`
+	NodeID         string  `json:"node_id"`
+	ModelID        string  `json:"model_id"`
+	RequestCount   int64   `json:"request_count"`
+	TotalTokens    int64   `json:"total_tokens"`
+	ImageCount     int64   `json:"image_count"`
+	EmbeddingCount int64   `json:"embedding_count"`
+	AudioSeconds   float64 `json:"audio_seconds"`
+	LoadCount      int64   `json:"load_count"`
+	AverageLoadMS  float64 `json:"average_load_duration_ms"`
+	VRAMPeakMB     int64   `json:"vram_peak_mb"`
+	VRAMPeakPct    float64 `json:"vram_peak_percent"`
+	ModelVRAMMB    int64   `json:"model_vram_estimate_mb"`
 }
 
 type NodeUsage struct {
-	NodeID        string  `json:"node_id"`
-	RequestCount  int64   `json:"request_count"`
-	TotalTokens   int64   `json:"total_tokens"`
-	ImageCount    int64   `json:"image_count"`
-	AudioSeconds  float64 `json:"audio_seconds"`
-	LoadCount     int64   `json:"load_count"`
-	AverageLoadMS float64 `json:"average_load_duration_ms"`
-	VRAMPeakMB    int64   `json:"vram_peak_mb"`
-	VRAMPeakPct   float64 `json:"vram_peak_percent"`
-	ModelVRAMMB   int64   `json:"model_vram_estimate_mb"`
+	NodeID         string  `json:"node_id"`
+	RequestCount   int64   `json:"request_count"`
+	TotalTokens    int64   `json:"total_tokens"`
+	ImageCount     int64   `json:"image_count"`
+	EmbeddingCount int64   `json:"embedding_count"`
+	AudioSeconds   float64 `json:"audio_seconds"`
+	LoadCount      int64   `json:"load_count"`
+	AverageLoadMS  float64 `json:"average_load_duration_ms"`
+	VRAMPeakMB     int64   `json:"vram_peak_mb"`
+	VRAMPeakPct    float64 `json:"vram_peak_percent"`
+	ModelVRAMMB    int64   `json:"model_vram_estimate_mb"`
 }
 
 type RecentEvent struct {
@@ -188,6 +194,7 @@ type RecentEvent struct {
 	TotalTokens     int64   `json:"total_tokens,omitempty"`
 	TokensPerSecond float64 `json:"tokens_per_second,omitempty"`
 	ImageCount      int64   `json:"image_count,omitempty"`
+	EmbeddingCount  int64   `json:"embedding_count,omitempty"`
 	ImageWidth      int64   `json:"image_width,omitempty"`
 	ImageHeight     int64   `json:"image_height,omitempty"`
 	ImageSteps      int64   `json:"image_steps,omitempty"`

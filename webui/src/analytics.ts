@@ -114,6 +114,7 @@ function renderAnalyticsSummary(): void {
     metricCard("Tokens", formatCount(summary.total_tokens), `${formatCount(summary.input_tokens)} in / ${formatCount(summary.output_tokens)} out`),
     metricCard("Speed", `${formatDecimal(summary.average_tokens_per_second, 1)} tok/s`, `${formatDecimal(summary.average_duration_ms, 0)}ms avg`),
     metricCard("Images", formatCount(summary.image_count), "generated or returned"),
+    metricCard("Vectors", formatCount(summary.embedding_count), "embeddings returned"),
     metricCard("Audio", formatDurationSeconds(summary.audio_seconds), `${formatCount(summary.audio_tokens)} tokens`),
     metricCard("VRAM", formatMegabytes(summary.vram_peak_mb), `${formatPercent(summary.vram_peak_percent)} peak / ${formatMegabytes(summary.vram_total_mb)} total`),
     metricCard("Loads", formatCount(summary.load_count), `${formatDecimal(summary.average_load_duration_ms, 0)}ms avg / ${formatMegabytes(summary.model_vram_estimate_mb)} model`)
@@ -228,6 +229,7 @@ function modelRow(model: AnalyticsModelUsage): string {
       <td>${formatMegabytes(model.vram_peak_mb)} / ${formatPercent(model.vram_peak_percent)}</td>
       <td>${formatCount(model.total_tokens)}</td>
       <td>${formatCount(model.image_count)}</td>
+      <td>${formatCount(model.embedding_count)}</td>
       <td>${formatDurationSeconds(model.audio_seconds)}</td>
     </tr>
   `;
@@ -242,6 +244,7 @@ function nodeRow(node: AnalyticsNodeUsage): string {
       <td>${formatMegabytes(node.vram_peak_mb)} / ${formatPercent(node.vram_peak_percent)}</td>
       <td>${formatCount(node.total_tokens)}</td>
       <td>${formatCount(node.image_count)}</td>
+      <td>${formatCount(node.embedding_count)}</td>
       <td>${formatDurationSeconds(node.audio_seconds)}</td>
     </tr>
   `;
@@ -254,6 +257,8 @@ function recentRow(event: AnalyticsRecentEvent): string {
     ? loadDetail(event)
     : event.section === "image"
     ? imageDetail(event)
+    : event.section === "embed"
+    ? embeddingDetail(event)
     : event.section === "voice" || event.section === "music"
       ? audioDetail(event)
       : tokenDetail(event);
@@ -303,6 +308,10 @@ function streamDetail(event: AnalyticsRecentEvent): string {
 function tokenDetail(event: AnalyticsRecentEvent): string {
   const speed = event.tokens_per_second ? ` / ${formatDecimal(event.tokens_per_second, 1)} tok/s` : "";
   return `${formatCount(event.input_tokens)} in / ${formatCount(event.output_tokens)} out${speed}${workVRAMDetail(event)}`;
+}
+
+function embeddingDetail(event: AnalyticsRecentEvent): string {
+  return `${formatCount(event.input_tokens)} in / ${formatCount(event.embedding_count)} vectors${workVRAMDetail(event)}`;
 }
 
 function imageDetail(event: AnalyticsRecentEvent): string {

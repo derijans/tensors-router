@@ -150,3 +150,29 @@ func TestStreamPayloadCarriesContent(t *testing.T) {
 		}
 	}
 }
+
+func TestResponseObserverDerivesStreamSpeedFromDecodeWindow(t *testing.T) {
+	sink := &recordingEventSink{}
+	stream := &pacedStream{
+		delay: 20 * time.Millisecond,
+		chunks: []string{
+			`data: {"choices":[{"delta":{"content":"one two"}}]}` + "\n\n",
+			`data: {"choices":[{"delta":{"content":" three"}}]}` + "\n\n",
+			`data: {"choices":[{"finish_reason":"length","delta":{"content":" four"}}]}` + "\n\n",
+			`data: {"choices":[],"usage":{"prompt_tokens":18,"completion_tokens":40,"total_tokens":58}}` + "\n\n",
+			"data: [DONE]\n\n",
+		},
+	}
+	queuedAndLoadedSince := time.Now().Add(-10 * time.Second)
+	observer := NewResponseObserver(sink, Event{StartedAt: queuedAndLoadedSince}, "text/event-stream", stream)
+	if _, err := io.ReadAll(observer); err != nil {
+		t.Fatal(err)
+	}
+
+	recorded := sink.events[0]
+	wallClockSpeed := float64(recorded.OutputTokens) / (float64(recorded.DurationMS) / 1000)
+	decodeSpeed := float64(recorded.OutputTokens) / (float64(recorded.DecodeMS) / 1000)
+	if recorded.DecodeMS <= 0 || recorded.TokensPerSecond != decodeSpeed || recorded.TokensPerSecond <= wallClockSpeed*10 {
+		t.Fatalf("speed must be measured over the decode window, got %.2f (wall clock %.2f) %#v", recorded.TokensPerSecond, wallClockSpeed, recorded)
+	}
+}

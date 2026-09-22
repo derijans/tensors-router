@@ -216,6 +216,10 @@ func (store *Store) requeue(events []Event) {
 	store.buffer = combined
 }
 
+func requestProducedOutput(event Event) bool {
+	return event.EventType != EventTypeRequest || event.Success
+}
+
 func (store *Store) normalizeEvent(event Event) Event {
 	event.NodeID = strings.TrimSpace(event.NodeID)
 	if event.NodeID == "" {
@@ -239,6 +243,9 @@ func (store *Store) normalizeEvent(event Event) Event {
 	}
 	if event.Section == "" {
 		event.Section = SectionLLM
+	}
+	if !requestProducedOutput(event) {
+		event.ImageCount = 0
 	}
 	if event.StartedAt.IsZero() {
 		event.StartedAt = time.Now()
@@ -282,12 +289,12 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 	insertEvent, err := tx.PrepareContext(ctx, `INSERT INTO analytics_events (
 		node_id, model_id, section, backend_mode, event_type, route, config_filename, status_code, success,
 		started_at, finished_at, duration_ms, request_bytes, prompt_bytes, response_bytes, input_tokens, output_tokens,
-		total_tokens, tokens_per_second, image_count, image_width, image_height, image_steps,
+		total_tokens, tokens_per_second, image_count, embedding_count, image_width, image_height, image_steps,
 		image_type, audio_seconds, audio_tokens, audio_language, audio_task, load_vram_before_mb, load_vram_after_mb,
 		load_vram_delta_mb, work_vram_start_mb, work_vram_max_mb, work_vram_end_mb,
 		model_vram_estimate_mb, vram_total_mb, vram_peak_percent,
 		ttft_ms, decode_ms, max_gap_ms, finish_reason, aborted
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -322,6 +329,7 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 			event.TotalTokens,
 			event.TokensPerSecond,
 			event.ImageCount,
+			event.EmbeddingCount,
 			event.ImageWidth,
 			event.ImageHeight,
 			event.ImageSteps,
@@ -387,6 +395,7 @@ func (store *Store) writeRollups(ctx context.Context, statement *sql.Stmt, event
 			event.TokensPerSecond,
 			tokensPerSecondCount(event.TokensPerSecond),
 			event.ImageCount,
+			event.EmbeddingCount,
 			event.AudioSeconds,
 			event.AudioTokens,
 			loadCount,

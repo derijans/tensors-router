@@ -27,6 +27,7 @@ type ResponseObserver struct {
 	finalizers     []func(*Event)
 	lineBuffer     []byte
 	bodyBuffer     bytes.Buffer
+	vectorDigest   *embeddingResponseDigest
 	firstContentAt time.Time
 	lastContentAt  time.Time
 	streamComplete bool
@@ -34,7 +35,7 @@ type ResponseObserver struct {
 }
 
 func NewResponseObserver(sink EventSink, event Event, contentType string, body io.ReadCloser, finalizers ...func(*Event)) *ResponseObserver {
-	return &ResponseObserver{
+	observer := &ResponseObserver{
 		body:        body,
 		sink:        sink,
 		event:       event,
@@ -42,6 +43,10 @@ func NewResponseObserver(sink EventSink, event Event, contentType string, body i
 		bodyKind:    observedBodyKindOf(contentType),
 		finalizers:  append([]func(*Event){}, finalizers...),
 	}
+	if observer.bodyKind == observedBodyBuffered && event.Section == SectionEmbed {
+		observer.vectorDigest = &embeddingResponseDigest{}
+	}
+	return observer
 }
 
 func (observer *ResponseObserver) Read(p []byte) (int, error) {
@@ -63,6 +68,10 @@ func (observer *ResponseObserver) Close() error {
 }
 
 func (observer *ResponseObserver) observe(chunk []byte) {
+	if observer.vectorDigest != nil {
+		observer.vectorDigest.Write(chunk)
+		return
+	}
 	if observer.bodyKind == observedBodyBuffered {
 		observer.bufferBody(chunk)
 		return
@@ -151,7 +160,7 @@ func (observer *ResponseObserver) finish() {
 			observer.event.DurationMS = observer.event.FinishedAt.Sub(observer.event.StartedAt).Milliseconds()
 		}
 		if observer.bodyKind == observedBodyBuffered {
-			ApplyResponse(&observer.event, observer.contentType, observer.bodyBuffer.Bytes())
+			observer.applyBufferedResponse()
 		}
 		observer.applyStreamTimings()
 		deriveTokenTotals(&observer.event)
@@ -162,6 +171,18 @@ func (observer *ResponseObserver) finish() {
 		}
 		observer.sink.Record(observer.event)
 	})
+}
+
+func (observer *ResponseObserver) applyBufferedResponse() {
+	if observer.vectorDigest != nil {
+		observer.vectorDigest.apply(&observer.event, observer.contentType)
+		return
+	}
+	ApplyResponse(&observer.event, observer.contentType, observer.bodyBuffer.Bytes())
+	producesAudio := observer.event.Section == SectionVoice || observer.event.Section == SectionMusic
+	if producesAudio && observer.event.AudioSeconds == 0 {
+		observer.event.AudioSeconds = waveDurationSeconds(observer.bodyBuffer.Bytes(), observer.event.ResponseBytes)
+	}
 }
 
 func (observer *ResponseObserver) applyStreamTimings() {

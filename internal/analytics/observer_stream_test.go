@@ -117,3 +117,42 @@ func TestResponseObserverIgnoresNonJSONLinesInNDJSONBody(t *testing.T) {
 		t.Fatalf("unexpected recorded events %#v", sink.events)
 	}
 }
+
+func TestResponseObserverKeepsFinalCountsFromLlamaPerTokenTimings(t *testing.T) {
+	body := strings.Join([]string{
+		`data: {"choices":[{"finish_reason":null,"index":0,"delta":{"role":"assistant","content":null}}],"timings":{"cache_n":20,"prompt_n":5,"prompt_ms":188.772,"predicted_n":1,"predicted_ms":0.001,"predicted_per_second":1000000.0}}`,
+		"",
+		`data: {"choices":[{"finish_reason":null,"index":0,"delta":{"reasoning_content":"Thinking"}}],"timings":{"cache_n":20,"prompt_n":5,"prompt_ms":188.772,"predicted_n":4,"predicted_ms":239.71,"predicted_per_second":16.686829919486044}}`,
+		"",
+		`data: {"choices":[{"finish_reason":"length","index":0,"delta":{}}],"timings":{"cache_n":20,"prompt_n":5,"prompt_ms":188.772,"predicted_n":40,"predicted_ms":2927.63,"predicted_per_second":13.66292871708515}}`,
+		"",
+		"data: [DONE]",
+		"",
+	}, "\n")
+	sink := &recordingEventSink{}
+	observer := NewResponseObserver(sink, Event{DurationMS: 3137}, "text/event-stream", io.NopCloser(strings.NewReader(body)))
+	if _, err := io.ReadAll(observer); err != nil {
+		t.Fatal(err)
+	}
+
+	recorded := sink.events[0]
+	if recorded.InputTokens != 25 || recorded.OutputTokens != 40 || recorded.TotalTokens != 65 {
+		t.Fatalf("counts must come from the last timings report, got %#v", recorded)
+	}
+	if recorded.TokensPerSecond < 13.66 || recorded.TokensPerSecond > 13.67 {
+		t.Fatalf("tokens per second must come from the last timings report, got %.2f", recorded.TokensPerSecond)
+	}
+}
+
+func TestResponseObserverIgnoresFirstTokenTimingsSpeed(t *testing.T) {
+	body := `data: {"choices":[{"finish_reason":"stop","index":0,"delta":{}}],"timings":{"cache_n":0,"prompt_n":9,"predicted_n":1,"predicted_ms":0.001,"predicted_per_second":1000000.0}}` + "\n\ndata: [DONE]\n\n"
+	sink := &recordingEventSink{}
+	observer := NewResponseObserver(sink, Event{DurationMS: 500}, "text/event-stream", io.NopCloser(strings.NewReader(body)))
+	if _, err := io.ReadAll(observer); err != nil {
+		t.Fatal(err)
+	}
+
+	if recorded := sink.events[0]; recorded.OutputTokens != 1 || recorded.TokensPerSecond > 2 {
+		t.Fatalf("a sub-millisecond generation time is not a credible speed, got %#v", recorded)
+	}
+}

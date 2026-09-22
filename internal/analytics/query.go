@@ -203,6 +203,7 @@ func addSummary(left *Summary, right Summary) {
 	left.OutputTokens += right.OutputTokens
 	left.TotalTokens += right.TotalTokens
 	left.ImageCount += right.ImageCount
+	left.EmbeddingCount += right.EmbeddingCount
 	left.AudioSeconds += right.AudioSeconds
 	left.AudioTokens += right.AudioTokens
 	left.LoadCount += right.LoadCount
@@ -221,6 +222,7 @@ func addTimeline(left *Timeline, right Timeline) {
 	left.OutputTokens += right.OutputTokens
 	left.TotalTokens += right.TotalTokens
 	left.ImageCount += right.ImageCount
+	left.EmbeddingCount += right.EmbeddingCount
 	left.AudioSeconds += right.AudioSeconds
 	left.LoadCount += right.LoadCount
 	left.VRAMPeakMB = maxInt64(left.VRAMPeakMB, right.VRAMPeakMB)
@@ -233,6 +235,7 @@ func addSection(left *SectionUsage, right SectionUsage) {
 	left.RequestCount += right.RequestCount
 	left.TotalTokens += right.TotalTokens
 	left.ImageCount += right.ImageCount
+	left.EmbeddingCount += right.EmbeddingCount
 	left.AudioSeconds += right.AudioSeconds
 	left.LoadCount += right.LoadCount
 	left.VRAMPeakMB = maxInt64(left.VRAMPeakMB, right.VRAMPeakMB)
@@ -245,6 +248,7 @@ func addModel(left *ModelUsage, right ModelUsage) {
 	left.RequestCount += right.RequestCount
 	left.TotalTokens += right.TotalTokens
 	left.ImageCount += right.ImageCount
+	left.EmbeddingCount += right.EmbeddingCount
 	left.AudioSeconds += right.AudioSeconds
 	left.LoadCount += right.LoadCount
 	left.AverageLoadMS = weightedAverage(previousLoads, left.AverageLoadMS, right.LoadCount, right.AverageLoadMS)
@@ -258,6 +262,7 @@ func addNode(left *NodeUsage, right NodeUsage) {
 	left.RequestCount += right.RequestCount
 	left.TotalTokens += right.TotalTokens
 	left.ImageCount += right.ImageCount
+	left.EmbeddingCount += right.EmbeddingCount
 	left.AudioSeconds += right.AudioSeconds
 	left.LoadCount += right.LoadCount
 	left.AverageLoadMS = weightedAverage(previousLoads, left.AverageLoadMS, right.LoadCount, right.AverageLoadMS)

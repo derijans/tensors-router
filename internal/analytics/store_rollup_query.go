@@ -32,6 +32,7 @@ func (store *Store) queryRollupSummary(ctx context.Context, query Query) (Summar
 		COALESCE(SUM(output_tokens), 0),
 		COALESCE(SUM(total_tokens), 0),
 		COALESCE(SUM(image_count), 0),
+		COALESCE(SUM(embedding_count), 0),
 		COALESCE(SUM(audio_seconds), 0),
 		COALESCE(SUM(audio_tokens), 0),
 		COALESCE(CAST(SUM(duration_ms_total) AS REAL) / NULLIF(SUM(request_count), 0), 0),
@@ -51,6 +52,7 @@ func (store *Store) queryRollupSummary(ctx context.Context, query Query) (Summar
 		&summary.OutputTokens,
 		&summary.TotalTokens,
 		&summary.ImageCount,
+		&summary.EmbeddingCount,
 		&summary.AudioSeconds,
 		&summary.AudioTokens,
 		&summary.AverageDuration,
@@ -75,6 +77,7 @@ func (store *Store) queryRollupSections(ctx context.Context, query Query) ([]Sec
 		COALESCE(SUM(request_count), 0),
 		COALESCE(SUM(total_tokens), 0),
 		COALESCE(SUM(image_count), 0),
+		COALESCE(SUM(embedding_count), 0),
 		COALESCE(SUM(audio_seconds), 0),
 		COALESCE(SUM(load_count), 0),
 		COALESCE(MAX(vram_peak_mb), 0),
@@ -90,7 +93,7 @@ func (store *Store) queryRollupSections(ctx context.Context, query Query) ([]Sec
 	result := []SectionUsage{}
 	for rows.Next() {
 		var item SectionUsage
-		if err := rows.Scan(&item.Section, &item.RequestCount, &item.TotalTokens, &item.ImageCount, &item.AudioSeconds, &item.LoadCount, &item.VRAMPeakMB, &item.VRAMPeakPct, &item.ModelVRAMMB); err != nil {
+		if err := rows.Scan(&item.Section, &item.RequestCount, &item.TotalTokens, &item.ImageCount, &item.EmbeddingCount, &item.AudioSeconds, &item.LoadCount, &item.VRAMPeakMB, &item.VRAMPeakPct, &item.ModelVRAMMB); err != nil {
 			return nil, err
 		}
 		result = append(result, item)
@@ -106,6 +109,7 @@ func (store *Store) queryRollupModels(ctx context.Context, query Query) ([]Model
 		COALESCE(SUM(request_count), 0),
 		COALESCE(SUM(total_tokens), 0),
 		COALESCE(SUM(image_count), 0),
+		COALESCE(SUM(embedding_count), 0),
 		COALESCE(SUM(audio_seconds), 0),
 		COALESCE(SUM(load_count), 0),
 		COALESCE(CAST(SUM(load_duration_ms_total) AS REAL) / NULLIF(SUM(load_count), 0), 0),
@@ -123,7 +127,7 @@ func (store *Store) queryRollupModels(ctx context.Context, query Query) ([]Model
 	result := []ModelUsage{}
 	for rows.Next() {
 		var item ModelUsage
-		if err := rows.Scan(&item.NodeID, &item.ModelID, &item.RequestCount, &item.TotalTokens, &item.ImageCount, &item.AudioSeconds, &item.LoadCount, &item.AverageLoadMS, &item.VRAMPeakMB, &item.VRAMPeakPct, &item.ModelVRAMMB); err != nil {
+		if err := rows.Scan(&item.NodeID, &item.ModelID, &item.RequestCount, &item.TotalTokens, &item.ImageCount, &item.EmbeddingCount, &item.AudioSeconds, &item.LoadCount, &item.AverageLoadMS, &item.VRAMPeakMB, &item.VRAMPeakPct, &item.ModelVRAMMB); err != nil {
 			return nil, err
 		}
 		result = append(result, item)
@@ -138,6 +142,7 @@ func (store *Store) queryRollupNodes(ctx context.Context, query Query) ([]NodeUs
 		COALESCE(SUM(request_count), 0),
 		COALESCE(SUM(total_tokens), 0),
 		COALESCE(SUM(image_count), 0),
+		COALESCE(SUM(embedding_count), 0),
 		COALESCE(SUM(audio_seconds), 0),
 		COALESCE(SUM(load_count), 0),
 		COALESCE(CAST(SUM(load_duration_ms_total) AS REAL) / NULLIF(SUM(load_count), 0), 0),
@@ -154,7 +159,7 @@ func (store *Store) queryRollupNodes(ctx context.Context, query Query) ([]NodeUs
 	result := []NodeUsage{}
 	for rows.Next() {
 		var item NodeUsage
-		if err := rows.Scan(&item.NodeID, &item.RequestCount, &item.TotalTokens, &item.ImageCount, &item.AudioSeconds, &item.LoadCount, &item.AverageLoadMS, &item.VRAMPeakMB, &item.VRAMPeakPct, &item.ModelVRAMMB); err != nil {
+		if err := rows.Scan(&item.NodeID, &item.RequestCount, &item.TotalTokens, &item.ImageCount, &item.EmbeddingCount, &item.AudioSeconds, &item.LoadCount, &item.AverageLoadMS, &item.VRAMPeakMB, &item.VRAMPeakPct, &item.ModelVRAMMB); err != nil {
 			return nil, err
 		}
 		result = append(result, item)

@@ -64,3 +64,12 @@ func TestApplyResponseIgnoresMissingArrayElement(t *testing.T) {
 		t.Fatalf("empty results array should not produce counts %#v", event)
 	}
 }
+
+func TestApplyEventStreamDataCountsCachedPromptTokensFromLlamaTimings(t *testing.T) {
+	event := Event{}
+	ApplyEventStreamData(&event, []byte(`{"choices":[{"finish_reason":"length","index":0,"delta":{}}],"timings":{"cache_n":20,"prompt_n":5,"predicted_n":40,"predicted_ms":2927.63,"predicted_per_second":13.66}}`))
+
+	if event.InputTokens != 25 {
+		t.Fatalf("prompt tokens must include the cached prefix, got %d", event.InputTokens)
+	}
+}

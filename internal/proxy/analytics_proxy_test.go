@@ -72,6 +72,34 @@ func TestAnalyticsRecordsStreamingUsage(t *testing.T) {
 	}
 }
 
+func TestAnalyticsRecordsEmbeddingOnlyConfigAsEmbedding(t *testing.T) {
+	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"backend","object":"list","usage":{"prompt_tokens":6,"total_tokens":6},"data":[{"embedding":[0.1,0.2],"index":0},{"embedding":[0.3,0.4],"index":1}]}`))
+	}), map[string]string{
+		"embed": `{"embeddingsmodel":"embed.gguf"}`,
+	})
+	service.analyticsStore = newProxyAnalyticsStore(t, "local")
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(`{"model":"embed","input":["a","b"]}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	response := queryProxyAnalytics(t, service.analyticsStore)
+	requestEvent := recentEventOfType(t, response, routeranalytics.EventTypeRequest)
+	if requestEvent.Section != routeranalytics.SectionEmbed || requestEvent.EmbeddingCount != 2 || requestEvent.InputTokens != 6 {
+		t.Fatalf("unexpected embedding request analytics %#v", requestEvent)
+	}
+	loadEvent := recentEventOfType(t, response, routeranalytics.EventTypeModelLoad)
+	if loadEvent.Section != routeranalytics.SectionEmbed {
+		t.Fatalf("an embedding-only config load belongs to the embed section %#v", loadEvent)
+	}
+}
+
 func TestAnalyticsRecordsImageMetadata(t *testing.T) {
 	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
