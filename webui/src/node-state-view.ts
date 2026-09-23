@@ -1,5 +1,6 @@
+import { SafeHTML, emptyHTML, html } from "./safe-html";
 import type { BackendLaunchOptions, NodeInventory, NodeState, NodeStateBackend, NodeStateModelRow } from "./types";
-import { chip, escapeAttribute, escapeHTML, formatBytes } from "./utils";
+import { chip, formatBytes } from "./utils";
 
 const backendOrder = ["koboldcpp", "llama-server", "vllm", "sd-server", "whisper-server"];
 
@@ -7,13 +8,13 @@ export function nodeStatePanelID(nodeID: string): string {
   return `nodeStatePanel-${nodeID}`;
 }
 
-export function renderNodeCard(node: NodeInventory, expanded: boolean): string {
+export function renderNodeCard(node: NodeInventory, expanded: boolean): SafeHTML {
   const hardware = node.hardware;
   const nodeID = node.node_id || node.node_url || "unknown";
-  return `
-    <button class="node-card${expanded ? " selected" : ""}" type="button" data-node-select="${escapeAttribute(node.node_id)}" aria-expanded="${expanded}" aria-controls="${escapeAttribute(nodeStatePanelID(node.node_id))}">
-      <strong>${escapeHTML(nodeID)}</strong>
-      <span class="muted">${escapeHTML(node.node_url || "local")}</span>
+  return html`
+    <button class="node-card${expanded ? " selected" : ""}" type="button" data-node-select="${node.node_id}" aria-expanded="${expanded}" aria-controls="${nodeStatePanelID(node.node_id)}">
+      <strong>${nodeID}</strong>
+      <span class="muted">${node.node_url || "local"}</span>
       <span class="node-meta">
         ${chip(node.role || "unknown", roleColor(node.role))}
         ${chip(node.source || "unknown", "violet")}
@@ -22,7 +23,7 @@ export function renderNodeCard(node: NodeInventory, expanded: boolean): string {
         ${chip(`${hardware.max_threads || "?"} threads`, "magenta")}
         ${chip(`${hardware.gpu_backend || "unknown"} gpu`, "cyan")}
       </span>
-      ${node.error ? `<span class="error-text">${escapeHTML(node.error)}</span>` : ""}
+      ${node.error ? html`<span class="error-text">${node.error}</span>` : ""}
     </button>
   `;
 }
@@ -37,15 +38,15 @@ function roleColor(role: string): string {
   return "magenta";
 }
 
-export function renderNodeStateSnapshot(nodeID: string, snapshot: NodeState, pendingUnload: string, pendingBackendAction = ""): string {
+export function renderNodeStateSnapshot(nodeID: string, snapshot: NodeState, pendingUnload: string, pendingBackendAction = ""): SafeHTML {
   const backends = [...(snapshot.backends || [])].sort((left, right) => backendRank(left.id) - backendRank(right.id));
-  return `
+  return html`
     <div class="node-state-backends">
-      ${backends.length > 0 ? backends.map(backend => renderBackend(nodeID, backend, pendingUnload, pendingBackendAction)).join("") : `<p class="muted node-state-empty">No backend binaries detected.</p>`}
+      ${backends.length > 0 ? html`${backends.map(backend => renderBackend(nodeID, backend, pendingUnload, pendingBackendAction))}` : html`<p class="muted node-state-empty">No backend binaries detected.</p>`}
     </div>
     <section class="node-active-requests" aria-label="Active requests">
       <h4>Active requests</h4>
-      ${snapshot.active_requests.length > 0 ? `<ul>${snapshot.active_requests.map(modelID => `<li>${escapeHTML(modelID)}</li>`).join("")}</ul>` : `<p class="muted node-state-empty">No active requests.</p>`}
+      ${snapshot.active_requests.length > 0 ? html`<ul>${snapshot.active_requests.map(modelID => html`<li>${modelID}</li>`)}</ul>` : html`<p class="muted node-state-empty">No active requests.</p>`}
     </section>
     ${renderFFmpegAvailability(snapshot)}
   `;
@@ -54,20 +55,20 @@ export function renderNodeStateSnapshot(nodeID: string, snapshot: NodeState, pen
 // A node that reports nothing predates ffmpeg reporting, which a cluster can
 // contain part-way through a rolling upgrade; saying so beats claiming the
 // tool is missing.
-function renderFFmpegAvailability(snapshot: NodeState): string {
+function renderFFmpegAvailability(snapshot: NodeState): SafeHTML {
   if (snapshot.ffmpeg_available === undefined) {
-    return "";
+    return emptyHTML;
   }
   if (!snapshot.ffmpeg_available) {
-    return `
+    return html`
     <section class="node-ffmpeg" aria-label="ffmpeg">
       <h4>ffmpeg</h4>
       <p class="muted node-state-empty">Not available. Video generation and non-WAV transcription will fail on this node.</p>
     </section>
   `;
   }
-  const path = snapshot.ffmpeg_path ? `<code>${escapeHTML(snapshot.ffmpeg_path)}</code>` : "Available";
-  return `
+  const path = snapshot.ffmpeg_path ? html`<code>${snapshot.ffmpeg_path}</code>` : "Available";
+  return html`
     <section class="node-ffmpeg" aria-label="ffmpeg">
       <h4>ffmpeg</h4>
       <p class="muted">${path}</p>
@@ -75,14 +76,14 @@ function renderFFmpegAvailability(snapshot: NodeState): string {
   `;
 }
 
-function renderBackend(nodeID: string, backend: NodeStateBackend, pendingUnload: string, pendingBackendAction: string): string {
+function renderBackend(nodeID: string, backend: NodeStateBackend, pendingUnload: string, pendingBackendAction: string): SafeHTML {
   const initializationPending = pendingBackendAction === backendActionKey("init", backend.id);
   const cancellationPending = pendingBackendAction === backendActionKey("cancel", backend.id);
   const lifecycleState = initializationPending ? "initializing" : backend.lifecycle_state || "ready";
-  return `
+  return html`
     <article class="node-state-backend">
       <div class="node-backend-heading">
-        <h4>${escapeHTML(backend.display_name)}</h4>
+        <h4>${backend.display_name}</h4>
         <div class="node-backend-chips">
           ${chip(backend.mode, "cyan")}
           ${chip(lifecycleState, lifecycleColor(lifecycleState))}
@@ -93,35 +94,35 @@ function renderBackend(nodeID: string, backend: NodeStateBackend, pendingUnload:
   `;
 }
 
-function renderReadyBackend(nodeID: string, backend: NodeStateBackend, pendingUnload: string): string {
-  return `
+function renderReadyBackend(nodeID: string, backend: NodeStateBackend, pendingUnload: string): SafeHTML {
+  return html`
     ${renderRuntimeIdentity(backend)}
-    ${backend.loaded_models.length > 0 ? `<div class="node-loaded-models">${backend.loaded_models.map(model => renderLoadedModel(nodeID, backend.id, model, pendingUnload)).join("")}</div>` : `<p class="muted node-state-empty">No loaded models.</p>`}
+    ${backend.loaded_models.length > 0 ? html`<div class="node-loaded-models">${backend.loaded_models.map(model => renderLoadedModel(nodeID, backend.id, model, pendingUnload))}</div>` : html`<p class="muted node-state-empty">No loaded models.</p>`}
     ${renderLaunchOptions(nodeID, backend)}
   `;
 }
 
-function renderBackendLifecycle(nodeID: string, backend: NodeStateBackend, lifecycleState: string, cancellationPending: boolean): string {
+function renderBackendLifecycle(nodeID: string, backend: NodeStateBackend, lifecycleState: string, cancellationPending: boolean): SafeHTML {
   if (lifecycleState === "initializing") {
-    return `
+    return html`
       ${renderRuntimeIdentity(backend)}
       <div class="node-backend-lifecycle">
-        <strong>${escapeHTML(backend.initialization_phase || "Initializing")}</strong>
+        <strong>${backend.initialization_phase || "Initializing"}</strong>
         ${renderInitializationProgress(backend)}
         <div class="node-backend-actions">
           <button class="chip amber node-backend-init-action" type="button" disabled>backend needs init</button>
-          <button type="button" data-node-backend-init-cancel data-node-id="${escapeAttribute(nodeID)}" data-backend-id="${escapeAttribute(backend.id)}"${cancellationPending ? " disabled" : ""}>${cancellationPending ? "Cancelling..." : "Cancel"}</button>
+          <button type="button" data-node-backend-init-cancel data-node-id="${nodeID}" data-backend-id="${backend.id}"${cancellationPending ? " disabled" : ""}>${cancellationPending ? "Cancelling..." : "Cancel"}</button>
         </div>
       </div>
     `;
   }
   const reason = backend.error || lifecycleReason(lifecycleState);
   const initializationAction = lifecycleState === "needs_init" || (lifecycleState === "failed" && backend.retryable);
-  return `
+  return html`
     ${renderRuntimeIdentity(backend)}
     <div class="node-backend-lifecycle">
-      ${reason ? `<p class="${lifecycleState === "failed" ? "error-text" : "muted"} node-state-message">${escapeHTML(reason)}</p>` : ""}
-      ${initializationAction ? `<button class="chip amber node-backend-init-action" type="button" data-node-backend-init data-node-id="${escapeAttribute(nodeID)}" data-backend-id="${escapeAttribute(backend.id)}"${backend.selected_profile ? ` data-profile="${escapeAttribute(backend.selected_profile)}"` : ""}>backend needs init</button>` : ""}
+      ${reason ? html`<p class="${lifecycleState === "failed" ? "error-text" : "muted"} node-state-message">${reason}</p>` : ""}
+      ${initializationAction ? html`<button class="chip amber node-backend-init-action" type="button" data-node-backend-init data-node-id="${nodeID}" data-backend-id="${backend.id}"${backend.selected_profile ? html` data-profile="${backend.selected_profile}"` : ""}>backend needs init</button>` : ""}
     </div>
     ${renderLaunchOptions(nodeID, backend)}
   `;
@@ -136,50 +137,50 @@ const launchOptionFields: {key: keyof BackendLaunchOptions; label: string}[] = [
 // Launch options only exist for the vLLM companion, and only matter once it can
 // actually start a runtime. Applying them unloads any loaded runtime, so the control is
 // explicit rather than auto-saving on every toggle.
-function renderLaunchOptions(nodeID: string, backend: NodeStateBackend): string {
+function renderLaunchOptions(nodeID: string, backend: NodeStateBackend): SafeHTML {
   if (backend.mode !== "vllm" || !backend.launch_options) {
-    return "";
+    return emptyHTML;
   }
   const options = backend.launch_options;
-  const checkboxes = launchOptionFields.map(field => {
+  const checkboxes = html`${launchOptionFields.map(field => {
     const checked = options[field.key] ? " checked" : "";
-    return `<label class="node-backend-launch-option"><input type="checkbox" data-node-backend-launch-option="${escapeAttribute(field.key)}" data-node-id="${escapeAttribute(nodeID)}" data-backend-id="${escapeAttribute(backend.id)}"${checked}> ${escapeHTML(field.label)}</label>`;
-  }).join("");
-  return `
+    return html`<label class="node-backend-launch-option"><input type="checkbox" data-node-backend-launch-option="${field.key}" data-node-id="${nodeID}" data-backend-id="${backend.id}"${checked}> ${field.label}</label>`;
+  })}`;
+  return html`
     <div class="node-backend-launch-options">
       <p class="muted">Launch environment</p>
       ${checkboxes}
-      <button type="button" class="chip" data-node-backend-launch-apply data-node-id="${escapeAttribute(nodeID)}" data-backend-id="${escapeAttribute(backend.id)}">Apply and reload</button>
+      <button type="button" class="chip" data-node-backend-launch-apply data-node-id="${nodeID}" data-backend-id="${backend.id}">Apply and reload</button>
     </div>
   `;
 }
 
-function renderRuntimeIdentity(backend: NodeStateBackend): string {
+function renderRuntimeIdentity(backend: NodeStateBackend): SafeHTML {
   const rows = [
     backend.runtime_version ? `Version: ${backend.runtime_version}` : "",
     backend.selected_profile ? `Profile: ${backend.selected_profile}` : "",
     backend.detected_profile && backend.detected_profile !== backend.selected_profile ? `Detected: ${backend.detected_profile}` : "",
     backend.manifest_trust && backend.manifest_trust !== "tuf" && backend.manifest_trust !== "unverified" ? `Manifest trust: ${backend.manifest_trust}` : ""
   ].filter(Boolean);
-  const identity = rows.length > 0 ? `<div class="muted node-backend-runtime">${rows.map(value => `<span>${escapeHTML(value)}</span>`).join("")}</div>` : "";
+  const identity = rows.length > 0 ? html`<div class="muted node-backend-runtime">${rows.map(value => html`<span>${value}</span>`)}</div>` : "";
   // Unlike every other trust tier, "unverified" pins nothing at all - it is called
   // out on its own line, not folded into the muted identity row, so it cannot be
   // mistaken for routine metadata.
-  const unverifiedWarning = backend.manifest_trust === "unverified" ? `<p class="error-text node-backend-unverified">Unverified install: no manifest, no digest pinning - installed straight from PyPI</p>` : "";
-  return identity + unverifiedWarning;
+  const unverifiedWarning = backend.manifest_trust === "unverified" ? html`<p class="error-text node-backend-unverified">Unverified install: no manifest, no digest pinning - installed straight from PyPI</p>` : "";
+  return html`${identity}${unverifiedWarning}`;
 }
 
-function renderInitializationProgress(backend: NodeStateBackend): string {
+function renderInitializationProgress(backend: NodeStateBackend): SafeHTML {
   const completedBytes = positiveBytes(backend.initialization_bytes);
   const totalBytes = positiveBytes(backend.initialization_total_bytes);
   if (totalBytes === 0) {
     const label = completedBytes > 0 ? `${formatBytes(completedBytes)} completed` : "Waiting for progress";
-    return `<progress class="node-backend-progress" aria-label="Initialization progress"></progress><span class="muted">${escapeHTML(label)}</span>`;
+    return html`<progress class="node-backend-progress" aria-label="Initialization progress"></progress><span class="muted">${label}</span>`;
   }
   const boundedCompleted = Math.min(completedBytes, totalBytes);
   const percent = Math.floor((boundedCompleted / totalBytes) * 100);
   const label = `${formatBytes(completedBytes)} / ${formatBytes(totalBytes)} (${percent}%)`;
-  return `<progress class="node-backend-progress" aria-label="Initialization progress" value="${boundedCompleted}" max="${totalBytes}"></progress><span class="muted">${escapeHTML(label)}</span>`;
+  return html`<progress class="node-backend-progress" aria-label="Initialization progress" value="${boundedCompleted}" max="${totalBytes}"></progress><span class="muted">${label}</span>`;
 }
 
 function positiveBytes(value: number | undefined): number {
@@ -210,15 +211,15 @@ function backendActionKey(action: string, backendID: string): string {
   return `${action} ${backendID}`;
 }
 
-function renderLoadedModel(nodeID: string, backendID: string, model: NodeStateModelRow, pendingUnload: string): string {
+function renderLoadedModel(nodeID: string, backendID: string, model: NodeStateModelRow, pendingUnload: string): SafeHTML {
   const pending = pendingUnload === `${backendID} ${model.runtime_id}`;
-  return `
+  return html`
     <div class="node-loaded-model">
       <div>
-        <strong>${escapeHTML(model.model_id)}</strong>
-        <div class="muted">${escapeHTML(model.lane)} / ${escapeHTML(model.runtime_id)}</div>
+        <strong>${model.model_id}</strong>
+        <div class="muted">${model.lane} / ${model.runtime_id}</div>
       </div>
-      <button type="button" data-node-unload data-node-id="${escapeAttribute(nodeID)}" data-backend-id="${escapeAttribute(backendID)}" data-runtime-id="${escapeAttribute(model.runtime_id)}" data-generation="${model.generation}"${pending ? " disabled" : ""}>${pending ? "Unloading..." : "Unload"}</button>
+      <button type="button" data-node-unload data-node-id="${nodeID}" data-backend-id="${backendID}" data-runtime-id="${model.runtime_id}" data-generation="${model.generation}"${pending ? " disabled" : ""}>${pending ? "Unloading..." : "Unload"}</button>
     </div>
   `;
 }

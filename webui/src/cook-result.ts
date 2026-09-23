@@ -1,7 +1,7 @@
-import { escapeHTML } from "./utils";
+import { SafeHTML, emptyHTML, html } from "./safe-html";
 import type { ConfigFileResponse, CookResponse, ErrorResponse } from "./types";
 
-export function cookResultHTML(value: CookResponse | ConfigFileResponse | ErrorResponse): string {
+export function cookResultHTML(value: CookResponse | ConfigFileResponse | ErrorResponse): SafeHTML {
   if (isCookResponse(value)) {
     const configs = value.plan.configs ?? [];
     const validation = value.validation ?? [];
@@ -13,8 +13,8 @@ export function cookResultHTML(value: CookResponse | ConfigFileResponse | ErrorR
         ["Configs", String(configs.length)],
         ["Master recipe", value.plan.requires_master_recipe ? "required" : "not required"]
       ],
-      `${configs.map(config => `<li>${escapeHTML(config.node_id)} / ${escapeHTML(config.filename)} / ${escapeHTML(config.kinds.join(", "))}${config.would_overwrite ? " / overwrite" : ""}</li>`).join("")}`,
-      validation.map(issue => `<li>${escapeHTML(issue.severity)} / ${escapeHTML(issue.field || issue.code)} / ${escapeHTML(issue.message)}</li>`).join(""),
+      html`${configs.map(config => html`<li>${config.node_id} / ${config.filename} / ${config.kinds.join(", ")}${config.would_overwrite ? " / overwrite" : ""}</li>`)}`,
+      html`${validation.map(issue => html`<li>${issue.severity} / ${issue.field || issue.code} / ${issue.message}</li>`)}`,
       value
     );
   }
@@ -27,13 +27,13 @@ export function cookResultHTML(value: CookResponse | ConfigFileResponse | ErrorR
         ["File", value.filename],
         ["Overwrite", value.would_overwrite ? "yes" : "no"]
       ],
-      "",
-      "",
+      emptyHTML,
+      emptyHTML,
       value
     );
   }
   const error = typeof value.error === "string" ? value.error : value.error?.message || "Operation failed";
-  return resultShell("Operation failed", [["Error", error]], "", (value.validation ?? []).map(issue => `<li>${escapeHTML(issue.message)}</li>`).join(""), value);
+  return resultShell("Operation failed", [["Error", error]], emptyHTML, html`${(value.validation ?? []).map(issue => html`<li>${issue.message}</li>`)}`, value);
 }
 
 function isCookResponse(value: CookResponse | ConfigFileResponse | ErrorResponse): value is CookResponse {
@@ -44,16 +44,16 @@ function isConfigFileResponse(value: CookResponse | ConfigFileResponse | ErrorRe
   return "id" in value && "filename" in value;
 }
 
-function resultShell(title: string, facts: Array<[string, string]>, items: string, validation: string, raw: unknown): string {
-  return `
+function resultShell(title: string, facts: Array<[string, string]>, items: SafeHTML, validation: SafeHTML, raw: unknown): SafeHTML {
+  return html`
     <section class="cook-result-grid">
-      <h3>${escapeHTML(title)}</h3>
+      <h3>${title}</h3>
       <div class="status-grid">
-        ${facts.map(([label, value]) => `<div class="status-item"><div class="status-label">${escapeHTML(label)}</div><div class="status-value">${escapeHTML(value)}</div></div>`).join("")}
+        ${facts.map(([label, value]) => html`<div class="status-item"><div class="status-label">${label}</div><div class="status-value">${value}</div></div>`)}
       </div>
-      ${items ? `<ul>${items}</ul>` : ""}
-      ${validation ? `<div><strong>Validation</strong><ul>${validation}</ul></div>` : ""}
-      <details><summary>Raw diagnostic</summary><pre>${escapeHTML(JSON.stringify(raw, null, 2))}</pre></details>
+      ${items.isEmpty() ? "" : html`<ul>${items}</ul>`}
+      ${validation.isEmpty() ? "" : html`<div><strong>Validation</strong><ul>${validation}</ul></div>`}
+      <details><summary>Raw diagnostic</summary><pre>${JSON.stringify(raw, null, 2)}</pre></details>
     </section>
   `;
 }

@@ -5,6 +5,8 @@ import (
 	"net"
 	"net/url"
 	"strings"
+
+	"tensors-router/internal/credential"
 )
 
 const (
@@ -104,6 +106,7 @@ func validateWebUIConfig(cfg Config) (Config, error) {
 			return cfg, fmt.Errorf("router.args cannot override the managed security profile")
 		}
 	}
+	cfg.Warnings = append(cfg.Warnings, webUICredentialWarnings(cfg)...)
 	return cfg, nil
 }
 
@@ -120,15 +123,21 @@ func validateBackendUIPublicURL(value string) error {
 }
 
 func validateWebUICredential(name string, value string) error {
-	value = strings.TrimSpace(value)
-	if value == "" {
+	if strings.TrimSpace(value) == "" {
 		return nil
 	}
-	switch strings.ToLower(value) {
-	case "change-me", "changeme", "replace-me", "replace_me":
-		return fmt.Errorf("%s contains a known placeholder", name)
+	return credential.RejectPlaceholder(name, value)
+}
+
+func webUICredentialWarnings(cfg Config) []string {
+	var warnings []string
+	if warning, short := credential.ShortCredentialWarning("server.admin_token", cfg.Server.AdminToken); short {
+		warnings = append(warnings, warning)
 	}
-	return nil
+	if warning, short := credential.ShortCredentialWarning("router.token", cfg.Router.Token); short {
+		warnings = append(warnings, warning)
+	}
+	return warnings
 }
 
 func webUILoopbackBind(bind string) bool {

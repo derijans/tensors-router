@@ -157,7 +157,6 @@ func (writer Writer) composedConfig(components []Component, options Options) (ma
 		break
 	}
 
-	imagePath := ""
 	for _, component := range components {
 		source := componentSource(component)
 		switch component.Kind {
@@ -198,7 +197,6 @@ func (writer Writer) composedConfig(components []Component, options Options) (ma
 					return nil, "", err
 				}
 				setJSONString(body, "sdmodel", filePath)
-				imagePath = filePath
 				continue
 			}
 			sourceBody, err := writer.configBody(component)
@@ -206,9 +204,6 @@ func (writer Writer) composedConfig(components []Component, options Options) (ma
 				return nil, "", err
 			}
 			copyPrefix(body, sourceBody, "sd")
-			if raw := strings.TrimSpace(rawJSONString(sourceBody["sdmodel"])); raw != "" {
-				imagePath = raw
-			}
 		case KindVoice:
 			if source == SourceFile {
 				filePath, err := writer.validateRawFile(component.FilePath)
@@ -251,8 +246,7 @@ func (writer Writer) composedConfig(components []Component, options Options) (ma
 	if err := validateComposedRuntimeConfig(body); err != nil {
 		return nil, "", err
 	}
-	imagePath = rawJSONString(body["sdmodel"])
-	return body, imagePath, nil
+	return body, rawJSONString(body["sdmodel"]), nil
 }
 
 func validateComposedVLLMConfig(body map[string]json.RawMessage, components []Component) error {

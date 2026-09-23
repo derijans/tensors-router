@@ -266,7 +266,7 @@ func TestTransportResponsePreservesBinaryBodyAndAddsContentTypeProtection(t *tes
 	response := testHTTPResponse(http.StatusOK, "application/octet-stream", string(body))
 	recorder := httptest.NewRecorder()
 
-	if err := service.writeTransportResponse(recorder, response, "", false); err != nil {
+	if err := service.writeProxyResponse(recorder, response, "", false); err != nil {
 		t.Fatal(err)
 	}
 	if recorder.Code != http.StatusOK {

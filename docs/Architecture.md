@@ -1,0 +1,93 @@
+# Architecture
+
+This page maps the code to its responsibilities. For operating the router, start with the [wiki](wiki/Home.md).
+
+## Binaries (`cmd/`)
+
+| Binary | Role |
+|---|---|
+| `tensors-router` | The router process. Also runs the `download` and `benchmark` subcommands. |
+| `tensor-router-webui` | Management UI server. Serves the Vite bundle embedded from `internal/webui/assets`, terminates TLS, and can supervise the router process. |
+| `tensor-router-downloader` | Standalone model downloader. |
+| `tensor-router-vllm` | Resident vLLM companion. The router talks to it over a line protocol (`internal/vllm/protocol.go`). Built only for linux/amd64, linux/arm64, and darwin/arm64. |
+| `tensor-router-tuf-*` | TUF tooling that publishes, validates, and rotates signed release and vLLM runtime metadata. |
+
+The WebUI binary embeds the built frontend, so run `cd webui && npm ci && npm run build` before building Go.
+
+## Request path
+
+Every request enters `proxy.Service.ServeHTTP` (`internal/proxy/service.go`). There is no router mux. The order is:
+
+1. vLLM realtime and response operations.
+2. Transport admission: reserve working memory for inference bodies and pick the path (see below).
+3. `/router/mcp`, then `/router/v1/*` admin and cluster endpoints (`internal/proxy/router_handlers.go`).
+4. The site WebUI proxy, Ollama paths, `/v1/models`, `/ping`, and `/sdapi/v1/*`.
+5. Capability lanes: voice and music, then image, then text.
+
+### Buffered and streaming bodies
+
+`internal/transportbody` decides how an inference body travels.
+
+- A body up to the replay buffer (64 MiB by default) is buffered and replayable. It takes the buffered path, which can retry, reload a failed backend, wait for a backend that is still loading, and route across the cluster.
+- A larger body streams. It needs a model selector outside the body (`?model=` or `X-Tensors-Model`), it is rewritten on the fly by the streaming JSON processor (`internal/transportbody/json.go`), and it retries only if no bytes reached the backend.
+
+Both paths restore the public model ID in JSON, SSE, and NDJSON responses (`writeProxyResponse` and `writeModelProxyResponse` in `internal/proxy/service.go`), using the same JSON processor.
+
+## Packages (`internal/`)
+
+### Routing core
+
+| Package | Responsibility |
+|---|---|
+| `proxy` | The HTTP service: dispatch, lanes, model load and switch (`lane.go`), cluster forwarding, offload, WebUI proxying, analytics hooks, benchmarks, model assets. |
+| `transportbody` | Memory budget for inference bodies, replayable and streaming bodies, the streaming JSON and multipart rewriters. |
+| `catalog` | Discovers `.kcpps` model configs and classifies their capabilities. The filename stem is the model ID. |
+| `cluster` | Node registry, per-lane route acquisition, and the authenticated client for the `/router/v1/node/*` peer API. |
+| `backendmode` | The backend families: `kobold`, `llama_sdcpp`, `vllm`. |
+| `unloadpolicy` | How a config's `router_unload_policy` decides between reuse, reload, and restart. |
+| `schedulingcost` | Fits load and token costs from history to price queues and offload decisions. |
+| `routinggroups` | Operator-declared links that let one node lend work to another. |
+| `openai`, `ollama` | Wire formats and error shapes for the OpenAI and Ollama APIs. |
+
+### Backends
+
+| Package | Responsibility |
+|---|---|
+| `kobold` | Launches and supervises KoboldCpp. |
+| `native` | Launches llama.cpp, stable-diffusion.cpp, and whisper.cpp and maps `.kcpps` fields to their CLI arguments. |
+| `vllm` | Drives the vLLM companion, its runtime installs, and its manifests. |
+| `backendendpoint`, `portalloc` | Loopback backend addresses and router-allocated ports. |
+| `backendreadiness`, `backenddiagnostic` | Read backend output to tell loading from failure, and attach the decisive log line to errors. |
+| `processcontrol` | Start and stop child processes per platform. |
+| `companion` | Find sibling executables next to the router binary. |
+| `ffmpeg`, `comfyvideo` | Optional media conversion and ComfyUI video workflow support. |
+| `hardware` | GPU detection and VRAM sampling. |
+
+### State and storage
+
+| Package | Responsibility |
+|---|---|
+| `routerstore` | The single SQLite file shared by analytics, load capture, load errors, and routing groups. Owns pragmas, permissions, and schema versions. |
+| `analytics`, `loadcapture`, `loaderrors` | Request analytics, captured backend load output, and pre-load failure records. |
+| `modelstate` | Per-node model enablement and separate-runtime settings. |
+| `modelassets`, `inventory` | Model file hashing, peer transfer, Hugging Face resolution, and file inventory. |
+| `recipes`, `cook` | Composite model recipes and config authoring. |
+| `benchmark` | Benchmark runs and history. |
+| `atomicfile` | Crash-safe file replacement. |
+
+### Configuration, security, and delivery
+
+| Package | Responsibility |
+|---|---|
+| `config` | Loads the router YAML, applies the `secure` or `trusted_lan` profile, and reports deprecations and credential warnings. |
+| `auth` | CIDR allowlist and the inference, admin, and cluster credential classes per route. |
+| `credential` | Credential file resolution, placeholder rejection, and strength warnings. |
+| `webui` | The management UI server and its config. |
+| `mcp` | Per-model MCP servers and the gateway behind `/router/mcp`. |
+| `downloader` | Hugging Face search, plans, and resumable downloads. |
+| `update`, `tufpublish` | TUF-verified self and backend updates, and the publishing side. |
+| `siteapi`, `jsonpath`, `buildinfo` | Shared request types, JSON path helpers, and build metadata. |
+
+## WebUI (`webui/`)
+
+Vanilla TypeScript and Vite. Markup is built only with the `html` tagged template from `webui/src/safe-html.ts`, which escapes every interpolated value, and reaches the DOM only through `setHTML`. ESLint rejects direct `innerHTML`, `outerHTML`, and `insertAdjacentHTML`, and rejects markup in untagged templates or string literals.

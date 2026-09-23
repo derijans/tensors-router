@@ -1,43 +1,29 @@
+import { SafeHTML, displayText, emptyHTML, html } from "./safe-html";
 import { isJsonValue } from "./json";
 import type { CookComponent, FileRecord, JsonValue, Model, OptionDefinition, ParseResult, ValidationIssue } from "./types";
 
-export function escapeHTML(value: unknown): string {
-  const entities: Record<string, string> = {
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    "\"": "&quot;",
-    "'": "&#39;"
-  };
-  return displayText(value).replace(/[&<>"']/g, character => entities[character] ?? character);
-}
-
-export function escapeAttribute(value: unknown): string {
-  return escapeHTML(value).replace(/`/g, "&#96;");
-}
-
-export function statusItem(label: string, value: string): string {
-  return `
+export function statusItem(label: string, value: string): SafeHTML {
+  return html`
     <div class="status-item">
-      <div class="status-label">${escapeHTML(label)}</div>
-      <div class="status-value">${escapeHTML(value)}</div>
+      <div class="status-label">${label}</div>
+      <div class="status-value">${value}</div>
     </div>
   `;
 }
 
-export function chip(label: unknown, color: string): string {
+export function chip(label: unknown, color: string): SafeHTML {
   const value = displayText(label).trim();
   if (!value) {
-    return "";
+    return emptyHTML;
   }
-  return `<span class="chip ${escapeAttribute(color)}">${escapeHTML(value)}</span>`;
+  return html`<span class="chip ${color}">${value}</span>`;
 }
 
-export function renderIssue(item: ValidationIssue): string {
-  return `
+export function renderIssue(item: ValidationIssue): SafeHTML {
+  return html`
     <div class="issue ${item.severity === "error" ? "error" : ""}">
-      <strong>${escapeHTML(item.severity)} / ${escapeHTML(item.code)}</strong>
-      <span>${escapeHTML(item.message)}</span>
+      <strong>${item.severity} / ${item.code}</strong>
+      <span>${item.message}</span>
     </div>
   `;
 }
@@ -227,18 +213,4 @@ export function formatBytes(value: number): string {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
   return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
-}
-
-function displayText(value: unknown): string {
-  if (value === null || value === undefined) {
-    return "";
-  }
-  if (typeof value === "string") {
-    return value;
-  }
-  if (typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
-    return value.toString();
-  }
-  const json = JSON.stringify(value);
-  return json ?? "";
 }

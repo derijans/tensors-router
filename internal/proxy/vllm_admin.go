@@ -71,7 +71,7 @@ func (service *Service) handleVLLMAdmin(w http.ResponseWriter, r *http.Request) 
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
-	if err := service.writeTransportResponse(w, response, "", false); err != nil {
+	if err := service.writeProxyResponse(w, response, "", false); err != nil {
 		service.logger.Printf("vLLM admin response failed path=%s error=%v", r.URL.Path, err)
 	}
 }

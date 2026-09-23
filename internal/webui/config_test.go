@@ -23,7 +23,7 @@ server:
   cert_hosts:
     - "webui.local"
     - "172.81.90.24"
-  admin_token: "secret"
+  admin_token: "webui-admin-token-01"
 
 router:
   url: "https://router.local:8080"
@@ -43,7 +43,7 @@ router:
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Server.Bind != "0.0.0.0:9443" || cfg.Server.AdminToken != "secret" {
+	if cfg.Server.Bind != "0.0.0.0:9443" || cfg.Server.AdminToken != "webui-admin-token-01" {
 		t.Fatalf("unexpected server config %#v", cfg.Server)
 	}
 	if cfg.Server.BackendUIBind != "0.0.0.0:9444" || cfg.Server.BackendUIPublicURL != "https://webui.local:9444" {

@@ -23,7 +23,7 @@ func runtimeConfigFieldShapes() map[string]runtimeConfigFieldShape {
 			continue
 		}
 		fieldType := field.Type
-		for fieldType.Kind() == reflect.Ptr {
+		for fieldType.Kind() == reflect.Pointer {
 			fieldType = fieldType.Elem()
 		}
 		shape := runtimeConfigFieldShape{kind: fieldType.Kind()}

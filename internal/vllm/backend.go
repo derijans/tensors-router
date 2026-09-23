@@ -29,16 +29,21 @@ func NewBackend(service Service, kind RuntimeKind, configDir ...string) *Backend
 		directory = configDir[0]
 	}
 	backend := &Backend{service: service, kind: kind, configDir: directory}
-	backend.client = &http.Client{Transport: &http.Transport{
-		Proxy:                 nil,
-		ForceAttemptHTTP2:     false,
-		DisableCompression:    true,
-		MaxIdleConns:          16,
-		MaxIdleConnsPerHost:   16,
-		IdleConnTimeout:       30 * time.Second,
-		ResponseHeaderTimeout: 5 * time.Minute,
-		DialContext:           backend.dialContext,
-	}}
+	backend.client = &http.Client{
+		Transport: &http.Transport{
+			Proxy:                 nil,
+			ForceAttemptHTTP2:     false,
+			DisableCompression:    true,
+			MaxIdleConns:          16,
+			MaxIdleConnsPerHost:   16,
+			IdleConnTimeout:       30 * time.Second,
+			ResponseHeaderTimeout: 5 * time.Minute,
+			DialContext:           backend.dialContext,
+		},
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
 	return backend
 }
 

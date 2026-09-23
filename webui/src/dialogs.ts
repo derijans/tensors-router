@@ -1,5 +1,6 @@
+import { SafeHTML, html, setHTML } from "./safe-html";
 import { elements } from "./elements";
-import { escapeAttribute, escapeHTML, optionValueLabel } from "./utils";
+import { optionValueLabel } from "./utils";
 import type { ConversionWarning } from "./types";
 
 interface DialogChoice {
@@ -11,7 +12,7 @@ interface DialogChoice {
 interface DialogRequest {
   title: string;
   message: string;
-  details?: string;
+  details?: SafeHTML;
   choices: DialogChoice[];
 }
 
@@ -47,18 +48,18 @@ export async function confirmDestructive(title: string, message: string, confirm
 }
 
 export async function reviewConversions(warnings: ConversionWarning[]): Promise<boolean> {
-  const rows = warnings.map(warning => `
+  const rows = html`${warnings.map(warning => html`
     <tr>
-      <td><code>${escapeHTML(warning.field)}</code></td>
-      <td>${escapeHTML(warning.original)}</td>
-      <td>${escapeHTML(optionValueLabel(warning.proposed))}</td>
-      <td>${escapeHTML(warning.reason)}</td>
+      <td><code>${warning.field}</code></td>
+      <td>${warning.original}</td>
+      <td>${optionValueLabel(warning.proposed)}</td>
+      <td>${warning.reason}</td>
     </tr>
-  `).join("");
+  `)}`;
   const choice = await showDialog({
     title: "Review lossy conversions",
     message: "These inputs will change meaning when saved.",
-    details: `
+    details: html`
       <table class="conversion-table">
         <thead><tr><th>Field</th><th>Original</th><th>Proposed</th><th>Reason</th></tr></thead>
         <tbody>${rows}</tbody>
@@ -76,14 +77,14 @@ async function showDialog(request: DialogRequest): Promise<string> {
   if (resolveDialog) {
     finishDialog("");
   }
-  elements.safetyDialogBody.innerHTML = `
-    <h2>${escapeHTML(request.title)}</h2>
-    <p class="dialog-warning">${escapeHTML(request.message)}</p>
-    ${request.details || ""}
+  setHTML(elements.safetyDialogBody, html`
+    <h2>${request.title}</h2>
+    <p class="dialog-warning">${request.message}</p>
+    ${request.details}
     <div class="dialog-actions">
-      ${request.choices.map(choice => `<button type="button" data-dialog-choice="${escapeAttribute(choice.value)}"${choice.danger ? " class=\"danger\"" : ""}>${escapeHTML(choice.label)}</button>`).join("")}
+      ${request.choices.map(choice => html`<button type="button" data-dialog-choice="${choice.value}"${choice.danger ? html` class="danger"` : ""}>${choice.label}</button>`)}
     </div>
-  `;
+  `);
   elements.safetyDialog.showModal();
   return new Promise(resolve => {
     resolveDialog = resolve;

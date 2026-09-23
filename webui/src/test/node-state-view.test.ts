@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { renderNodeCard, renderNodeStateSnapshot } from "../node-state-view";
+import { renderNodeCard as renderNodeCardMarkup, renderNodeStateSnapshot as renderNodeStateSnapshotMarkup } from "../node-state-view";
+import { SafeHTML } from "../safe-html";
 import type { BackendLifecycleState, NodeInventory, NodeState, NodeStateBackend } from "../types";
 
 function snapshot(): NodeState {
@@ -27,6 +28,9 @@ function snapshot(): NodeState {
     active_requests: ["model <one>", "model <one>"]
   };
 }
+
+const renderNodeCard = (...args: Parameters<typeof renderNodeCardMarkup>): string => SafeHTML.render(renderNodeCardMarkup(...args));
+const renderNodeStateSnapshot = (...args: Parameters<typeof renderNodeStateSnapshotMarkup>): string => SafeHTML.render(renderNodeStateSnapshotMarkup(...args));
 
 describe("node state view", () => {
   it("renders escaped values, fixed backend order, and duplicate active model names", () => {

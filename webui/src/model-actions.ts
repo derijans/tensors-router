@@ -1,10 +1,10 @@
+import { html, setHTML } from "./safe-html";
 import { createModelAssetResolutionJob, getModelAssetResolutionJob, loadModelConfig } from "./api";
 import type { ModelAssetResolutionJob } from "./api";
 import { filterInventoryModels, inventoryModels } from "./model-inventory-data";
 import { modelAssetHandoff } from "./model-asset-handoff";
 import { elements } from "./elements";
 import { state } from "./state";
-import { escapeAttribute, escapeHTML } from "./utils";
 
 export async function loadSelectedConfig(modelID: string, refreshInventory: () => Promise<void>): Promise<void> {
   const id = modelID.trim();
@@ -114,11 +114,11 @@ function renderResolutionProgress(results: ResolutionOutcome[], total: number): 
       ? `${completed} resolved, ${failed.length} failed`
       : `${completed} visible configs resolved`;
   elements.modelsActionStatus.classList.toggle("error-text", results.length === total && failed.length > 0);
-  elements.modelsActionStatus.innerHTML = `<p>${escapeHTML(summary)}</p><div class="resolution-results">${results.map(result => {
+  setHTML(elements.modelsActionStatus, html`<p>${summary}</p><div class="resolution-results">${results.map(result => {
     const failedResult = result.error || result.job?.state === "failed";
     const fieldSummary = result.job?.results?.map(field => `${field.field}: ${field.resolved ? field.source || "verified" : field.failure || "unavailable"}`).join(", ") || result.error || result.job?.state || "completed";
-    return `<div class="resolution-result"><span>${escapeHTML(result.request.id)} · ${escapeHTML(fieldSummary)}</span>${failedResult ? `<button type="button" data-model-resolution-retry="${escapeAttribute(resolutionRequestKey(result.request))}">Retry</button>` : ""}</div>`;
-  }).join("")}</div>`;
+    return html`<div class="resolution-result"><span>${result.request.id} · ${fieldSummary}</span>${failedResult ? html`<button type="button" data-model-resolution-retry="${resolutionRequestKey(result.request)}">Retry</button>` : ""}</div>`;
+  })}</div>`);
 }
 
 function resolutionRequestKey(request: ResolutionRequest): string {

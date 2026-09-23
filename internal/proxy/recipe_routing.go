@@ -397,7 +397,3 @@ func audioClusterLane(lane string) string {
 func sameRecipeComponent(left recipes.Component, right recipes.Component) bool {
 	return left.NodeID == right.NodeID && left.ConfigFilename == right.ConfigFilename && left.ModelID == right.ModelID
 }
-
-func recipeMissingError(publicID string) error {
-	return fmt.Errorf("recipe %q was not found", publicID)
-}

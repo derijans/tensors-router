@@ -6,7 +6,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"runtime"
 
 	"tensors-router/internal/companion"
 	"tensors-router/internal/config"
@@ -93,11 +92,4 @@ func closeDownloader(service downloader.Service) error {
 		return nil
 	}
 	return service.Close()
-}
-
-func downloaderExecutableName() string {
-	if runtime.GOOS == "windows" {
-		return "tensor-router-downloader.exe"
-	}
-	return "tensor-router-downloader"
 }

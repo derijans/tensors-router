@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"path"
 	"strings"
 	"sync"
 	"time"
@@ -353,12 +352,4 @@ func jsonStatus(value json.RawMessage) string {
 		return stringValue
 	}
 	return "pending"
-}
-
-func fileNameMatches(candidate string, selected string) bool {
-	if candidate == selected {
-		return true
-	}
-	base := path.Base(selected)
-	return path.Base(candidate) == base
 }

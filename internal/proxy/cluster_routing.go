@@ -80,9 +80,9 @@ func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter
 	if route.Remote {
 		response, err = service.forwardRemote(r.Context(), r, requestBody, route)
 	} else {
-		routeBackendMode, err := service.clusterRouteBackendMode(route, model)
-		if err != nil {
-			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		routeBackendMode, modeErr := service.clusterRouteBackendMode(route, model)
+		if modeErr != nil {
+			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", modeErr.Error())
 			return
 		}
 		if service.borrowedRequestWouldLoadWithoutPermission(r, routeBackendMode, readiness, route.Filename) {

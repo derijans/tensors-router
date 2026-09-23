@@ -140,29 +140,37 @@ func (service *Service) doTransportAttempts(ctx context.Context, original *http.
 	if !transportAttemptFailed(response, err) {
 		return response, nil
 	}
+	if consumed == 0 && body.CanRetry() && !errors.Is(err, transportbody.ErrRequestTooLarge) {
+		closeTransportResponse(response)
+		response, consumed, err = service.doTransportAttempt(ctx, original, target, body, backend, clusterRequest)
+		if !transportAttemptFailed(response, err) {
+			return response, nil
+		}
+	}
+	return nil, finalTransportFailure(response, err, consumed)
+}
+
+func finalTransportFailure(response *http.Response, err error, consumed int64) error {
+	if err == nil && response != nil && response.Body != nil {
+		status := response.StatusCode
+		return backendStatusError(status, drainResponseBodyPreview(response))
+	}
+	closeTransportResponse(response)
 	cause := transportAttemptCause(response, err)
 	if errors.Is(cause, transportbody.ErrRequestTooLarge) {
-		closeTransportResponse(response)
-		return nil, transportbody.ErrRequestTooLarge
+		return transportbody.ErrRequestTooLarge
 	}
 	if consumed > 0 {
-		closeTransportResponse(response)
-		return nil, nonReplayableTransportError{cause: cause}
+		return nonReplayableTransportError{cause: cause}
 	}
-	closeTransportResponse(response)
-	if !body.CanRetry() {
-		return nil, cause
+	return cause
+}
+
+func backendStatusError(status int, bodyPreview string) error {
+	if bodyPreview == "" {
+		return fmt.Errorf("backend returned status %d", status)
 	}
-	response, consumed, err = service.doTransportAttempt(ctx, original, target, body, backend, clusterRequest)
-	if !transportAttemptFailed(response, err) {
-		return response, nil
-	}
-	cause = transportAttemptCause(response, err)
-	closeTransportResponse(response)
-	if consumed > 0 {
-		return nil, nonReplayableTransportError{cause: cause}
-	}
-	return nil, cause
+	return fmt.Errorf("backend returned status %d: %s", status, bodyPreview)
 }
 
 func (service *Service) doTransportAttempt(ctx context.Context, original *http.Request, target *url.URL, body transportbody.Body, backend Backend, clusterRequest bool) (*http.Response, int64, error) {
@@ -185,11 +193,7 @@ func (service *Service) doTransportAttempt(ctx context.Context, original *http.R
 		request.ContentLength = size
 	}
 	request.Host = target.Host
-	client := *service.backendHTTPClient(backend)
-	client.CheckRedirect = func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-	response, requestErr := client.Do(request)
+	response, requestErr := service.backendHTTPClient(backend).Do(request)
 	consumed := attempt.BytesRead()
 	_ = attempt.Close()
 	return response, consumed, requestErr
@@ -213,43 +217,6 @@ func closeTransportResponse(response *http.Response) {
 	if response != nil && response.Body != nil {
 		_ = response.Body.Close()
 	}
-}
-
-func (service *Service) writeTransportResponse(w http.ResponseWriter, response *http.Response, virtualModelID string, rewriteModel bool) error {
-	if response == nil || response.Body == nil {
-		return writeMissingBackendResponse(w)
-	}
-	defer response.Body.Close()
-	if response.ContentLength > service.transportLimits.MaxResponseBytes {
-		writeTransportError(w, transportbody.ErrResponseTooLarge)
-		return nil
-	}
-	response.Body = &readerReadCloser{
-		Reader: transportbody.LimitResponse(response.Body, service.transportLimits.MaxResponseBytes),
-		Closer: response.Body,
-	}
-	if rewriteModel && response.StatusCode >= 200 && response.StatusCode < 300 && isEventStream(response.Header) {
-		return writeEventStreamResponse(w, response, virtualModelID)
-	}
-	source := io.ReadCloser(response.Body)
-	transformed := false
-	if rewriteModel && response.StatusCode >= 200 && response.StatusCode < 300 && isJSONResponse(response.Header) {
-		source = transportbody.NewJSONTransformReadCloser(response.Body, transportbody.JSONRewrite{
-			Replacements: map[string]transportbody.StringReplacement{
-				transportbody.PathModel: {To: virtualModelID},
-			},
-			EscapeHTML: true,
-		})
-		transformed = true
-		defer source.Close()
-	}
-	copyResponseHeaders(w.Header(), response.Header)
-	if transformed {
-		w.Header().Del("Content-Length")
-	}
-	w.WriteHeader(response.StatusCode)
-	_, err := transportbody.CopyResponse(flushingWriter{ResponseWriter: w}, source, service.transportLimits.MaxResponseBytes)
-	return err
 }
 
 func writeTransportForwardError(w http.ResponseWriter, err error) {

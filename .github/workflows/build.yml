@@ -46,11 +46,14 @@ jobs:
         working-directory: webui
         run: npm run check
 
+      - name: Lint Go
+        run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.2 run ./...
+
       - name: Test Go
         run: go test ./...
 
       - name: Test concurrent state
-        run: go test -race ./internal/routerstore ./internal/recipes ./internal/benchmark ./internal/catalog ./internal/proxy ./internal/vllm ./internal/portalloc ./internal/backendendpoint ./internal/native ./internal/kobold
+        run: go test -race ./internal/routerstore ./internal/recipes ./internal/benchmark ./internal/catalog ./internal/proxy ./internal/vllm ./internal/portalloc ./internal/backendendpoint ./internal/native ./internal/kobold ./internal/transportbody ./internal/cluster ./internal/auth
 
       - name: Check Go vulnerabilities
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...

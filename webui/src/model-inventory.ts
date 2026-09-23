@@ -1,3 +1,4 @@
+import { html, setHTML } from "./safe-html";
 import { elements } from "./elements";
 import { renderFilesPanel } from "./files-panel";
 import { changedNodeSelection, defaultNodeSelection, retainedNodeSelection } from "./model-filter-data";
@@ -5,7 +6,6 @@ import { inventoryFiles, inventoryModels } from "./model-inventory-data";
 import { renderModelsPanel } from "./models-panel";
 import { state } from "./state";
 import type { ModelInventorySubtab } from "./types";
-import { escapeAttribute, escapeHTML } from "./utils";
 
 export function renderModelInventory(): void {
   const nodes = state.inventory?.nodes ?? [];
@@ -50,7 +50,7 @@ function syncNodeFilters(nodeIDs: string[]): void {
 }
 
 function renderNodeFilter(select: HTMLSelectElement, nodeIDs: string[], selected: string[]): void {
-  select.innerHTML = `<option value="*"${selected.includes("*") ? " selected" : ""}>All Nodes</option>${nodeIDs.map(nodeID => `<option value="${escapeAttribute(nodeID)}"${selected.includes(nodeID) ? " selected" : ""}>${escapeHTML(nodeID)}</option>`).join("")}`;
+  setHTML(select, html`<option value="*"${selected.includes("*") ? " selected" : ""}>All Nodes</option>${nodeIDs.map(nodeID => html`<option value="${nodeID}"${selected.includes(nodeID) ? " selected" : ""}>${nodeID}</option>`)}`);
 }
 
 function renderSubtab(): void {

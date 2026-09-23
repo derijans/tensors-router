@@ -1,3 +1,4 @@
+import { SafeHTML, html, listOrFallback, setHTML } from "./safe-html";
 import { elements } from "./elements";
 import { backendModeKey, backendModeLabels, backendModes, compareOptionKeys, isLaneKind, jinjaKwargsKey, jinjaKwargsPrecedenceKey, jinjaKwargsPrecedenceLabels, laneKinds, laneMetadata, type BackendMode } from "./constants";
 import { requiresOptionAssignment } from "./constructor-field-data";
@@ -16,8 +17,6 @@ import { localValidation } from "./constructor-data";
 import { clearConstructorConversions, clearConversionScope, discardConversion, invalidateAcceptedConversions, recordConversion } from "./conversions";
 import {
   chip,
-  escapeAttribute,
-  escapeHTML,
   kindColor,
   optionInputValue,
   optionValueLabel,
@@ -161,10 +160,10 @@ export function updateConstructorBackendMode(value: string): void {
 
 function renderBackendSelector(): void {
   const value = constructorBackendModeValue();
-  elements.advancedBackendSelect.innerHTML = backendModes.map(mode => {
+  setHTML(elements.advancedBackendSelect, html`${backendModes.map(mode => {
     const selected = mode === value ? " selected" : "";
-    return `<option value="${escapeAttribute(mode)}"${selected}>${escapeHTML(backendModeLabels[mode])}</option>`;
-  }).join("");
+    return html`<option value="${mode}"${selected}>${backendModeLabels[mode]}</option>`;
+  })}`);
   elements.advancedBackendSelect.classList.toggle("virtual-backend-select", !state.constructor.backendTouched);
 }
 
@@ -172,28 +171,28 @@ function renderPalette(): void {
   const query = elements.constructorFilterInput.value.trim().toLowerCase();
   const entries = paletteEntries().filter(entry => !query || JSON.stringify(entry).toLowerCase().includes(query));
   state.palettePayloads = {};
-  elements.paletteList.innerHTML = entries.map(entry => {
+  setHTML(elements.paletteList, listOrFallback(entries.map(entry => {
     const payloadID = `payload-${Object.keys(state.palettePayloads).length}`;
     state.palettePayloads[payloadID] = entry.payload;
     const addButton = entry.payload.type === "option"
-      ? `<button type="button" data-add-option="${escapeAttribute(entry.payload.key)}">Add</button>`
-      : `<button type="button" data-select-payload="${escapeAttribute(payloadID)}">Use</button>`;
-    return `
-      <article class="palette-item" draggable="true" data-drag-payload="${escapeAttribute(payloadID)}">
+      ? html`<button type="button" data-add-option="${entry.payload.key}">Add</button>`
+      : html`<button type="button" data-select-payload="${payloadID}">Use</button>`;
+    return html`
+      <article class="palette-item" draggable="true" data-drag-payload="${payloadID}">
         <div class="palette-title">
-          <strong>${escapeHTML(entry.title)}</strong>
+          <strong>${entry.title}</strong>
           ${chip(entry.badge, entry.color)}
         </div>
-        <div class="muted">${escapeHTML(entry.subtitle)}</div>
-        <div class="palette-meta">${entry.meta.map(item => chip(item, "")).join("")}</div>
+        <div class="muted">${entry.subtitle}</div>
+        <div class="palette-meta">${entry.meta.map(item => chip(item, ""))}</div>
         ${addButton}
       </article>
     `;
-  }).join("") || `<div class="detail-empty">No items</div>`;
+  }), html`<div class="detail-empty">No items</div>`));
 }
 
 function renderLanes(): void {
-  elements.constructorLanes.innerHTML = laneKinds.map(laneShell).join("");
+  setHTML(elements.constructorLanes, html`${laneKinds.map(laneShell)}`);
   for (const lane of laneKinds) {
     const drop = document.querySelector(`[data-drop-lane="${lane}"]`);
     if (!(drop instanceof HTMLElement)) {
@@ -201,42 +200,42 @@ function renderLanes(): void {
     }
     const selected = state.constructor.lanes[lane];
     if (!selected) {
-      drop.innerHTML = `<div class="lane-empty">${escapeHTML(laneMetadata[lane].dropLabel)}</div>`;
+      setHTML(drop, html`<div class="lane-empty">${laneMetadata[lane].dropLabel}</div>`);
       continue;
     }
     const overrideCount = Object.keys(state.constructor.laneOptions[lane] ?? {}).length;
-    drop.innerHTML = `
+    setHTML(drop, html`
       <article class="selected-card">
-        <strong>${escapeHTML(selected.label)}</strong>
-        <div class="muted">${escapeHTML(selected.subtitle)}</div>
-        <div class="palette-meta">${selected.meta.map(item => chip(item, "")).join("")}</div>
-        ${selected.component.option_key ? `<div class="muted">Assigned to ${escapeHTML(selected.component.option_key)}</div>` : ""}
+        <strong>${selected.label}</strong>
+        <div class="muted">${selected.subtitle}</div>
+        <div class="palette-meta">${selected.meta.map(item => chip(item, ""))}</div>
+        ${selected.component.option_key ? html`<div class="muted">Assigned to ${selected.component.option_key}</div>` : ""}
         <label>
           Target node
-          <select data-lane-target="${escapeAttribute(lane)}">${targetNodeOptions(lane, selected)}</select>
+          <select data-lane-target="${lane}">${targetNodeOptions(lane, selected)}</select>
         </label>
         <div class="lane-card-actions">
-          <button type="button" data-edit-lane-fields="${escapeAttribute(lane)}">Edit fields</button>
+          <button type="button" data-edit-lane-fields="${lane}">Edit fields</button>
           ${overrideCount ? chip(`${overrideCount} overrides`, laneMetadata[lane].accent) : ""}
         </div>
       </article>
-    `;
+    `);
   }
 }
 
 function renderInspector(): void {
   renderValidation();
   const used = usedModelRows();
-  elements.usedModelsList.innerHTML = limitedRows(used, state.constructor.showUsedAll, "used").join("") || `<div class="detail-empty">No models selected</div>`;
+  setHTML(elements.usedModelsList, used.length ? html`${limitedRows(used, state.constructor.showUsedAll, "used")}` : html`<div class="detail-empty">No models selected</div>`);
   const options = selectedOptionRows();
-  elements.selectedOptionsList.innerHTML = limitedRows(options, state.constructor.showOptionsAll, "options").join("") || `<div class="detail-empty">No options selected</div>`;
+  setHTML(elements.selectedOptionsList, options.length ? html`${limitedRows(options, state.constructor.showOptionsAll, "options")}` : html`<div class="detail-empty">No options selected</div>`);
 }
 
 function renderValidation(): void {
   const validation = localValidation();
-  elements.validationList.innerHTML = validation.length
-    ? validation.map(renderIssue).join("")
-    : `<div class="detail-empty">Clean</div>`;
+  setHTML(elements.validationList, validation.length
+    ? html`${validation.map(renderIssue)}`
+    : html`<div class="detail-empty">Clean</div>`);
 }
 
 function paletteEntries(): PaletteEntry[] {
@@ -249,46 +248,46 @@ function paletteEntries(): PaletteEntry[] {
   return configPaletteEntries();
 }
 
-function usedModelRows(): string[] {
-  const rows: string[] = [];
+function usedModelRows(): SafeHTML[] {
+  const rows: SafeHTML[] = [];
   for (const lane of laneKinds) {
     const selected = state.constructor.lanes[lane];
     if (!selected) {
       continue;
     }
-    rows.push(`
+    rows.push(html`
       <div class="used-row">
         ${chip(laneMetadata[lane].shortLabel, kindColor(lane))}
-        <span>${escapeHTML(selected.label)}</span>
+        <span>${selected.label}</span>
       </div>
     `);
     for (const value of usedPaths(selected)) {
-      rows.push(`<div class="muted">${escapeHTML(value)}</div>`);
+      rows.push(html`<div class="muted">${value}</div>`);
     }
   }
   return rows;
 }
 
-function selectedOptionRows(): string[] {
-  const rows: string[] = [];
+function selectedOptionRows(): SafeHTML[] {
+  const rows: SafeHTML[] = [];
   const merged = selectedOptionsForInspector();
   for (const [key, value] of Object.entries(merged).sort(([left], [right]) => compareOptionKeys(left, right))) {
     if (Object.hasOwn(state.constructor.options, key)) {
       rows.push(optionEditorRow(key, state.constructor.options[key]));
     } else if (laneOverrideForKey(key)) {
       const lane = laneOverrideForKey(key);
-      rows.push(`
+      rows.push(html`
         <div class="option-row">
           ${chip(key, "")}
           ${lane ? chip(`${laneMetadata[lane].shortLabel} override`, laneMetadata[lane].accent) : ""}
-          <span class="muted">${escapeHTML(optionValueLabel(value))}</span>
+          <span class="muted">${optionValueLabel(value)}</span>
         </div>
       `);
     } else {
-      rows.push(`
+      rows.push(html`
         <div class="option-row">
           ${chip(key, "")}
-          <span class="muted">${escapeHTML(optionValueLabel(value))}</span>
+          <span class="muted">${optionValueLabel(value)}</span>
         </div>
       `);
     }
@@ -296,18 +295,18 @@ function selectedOptionRows(): string[] {
   return rows;
 }
 
-function laneShell(lane: LaneKind): string {
+function laneShell(lane: LaneKind): SafeHTML {
   const metadata = laneMetadata[lane];
-  return `
-    <section class="lane ${escapeAttribute(metadata.accent)}" data-lane="${escapeAttribute(lane)}">
+  return html`
+    <section class="lane ${metadata.accent}" data-lane="${lane}">
       <div class="lane-head">
         <div>
-          <h3>${escapeHTML(metadata.label)}</h3>
-          <span>${escapeHTML(metadata.section)}</span>
+          <h3>${metadata.label}</h3>
+          <span>${metadata.section}</span>
         </div>
-        <button type="button" data-clear-lane="${escapeAttribute(lane)}">Clear</button>
+        <button type="button" data-clear-lane="${lane}">Clear</button>
       </div>
-      <div class="lane-drop" data-drop-lane="${escapeAttribute(lane)}"></div>
+      <div class="lane-drop" data-drop-lane="${lane}"></div>
     </section>
   `;
 }
@@ -316,37 +315,37 @@ function laneOverrideForKey(key: string): LaneKind | null {
   return laneKinds.find(lane => Object.hasOwn(state.constructor.laneOptions[lane] ?? {}, key)) ?? null;
 }
 
-function optionEditorRow(key: string, value: JsonValue | undefined): string {
+function optionEditorRow(key: string, value: JsonValue | undefined): SafeHTML {
   if (key === jinjaKwargsPrecedenceKey) {
     const selectedValue = value === "client" ? "client" : "config";
-    return `
+    return html`
       <div class="option-editor">
-        <span>${escapeHTML(key)}</span>
-        <select data-option-input="${escapeAttribute(key)}">${Object.entries(jinjaKwargsPrecedenceLabels).map(([precedence, label]) => `<option value="${escapeAttribute(precedence)}"${precedence === selectedValue ? " selected" : ""}>${escapeHTML(label)}</option>`).join("")}</select>
-        <button type="button" data-remove-option="${escapeAttribute(key)}">Remove</button>
+        <span>${key}</span>
+        <select data-option-input="${key}">${Object.entries(jinjaKwargsPrecedenceLabels).map(([precedence, label]) => html`<option value="${precedence}"${precedence === selectedValue ? " selected" : ""}>${label}</option>`)}</select>
+        <button type="button" data-remove-option="${key}">Remove</button>
       </div>
     `;
   }
-  return `
+  return html`
     <div class="option-editor">
-      <span>${escapeHTML(key)}</span>
-      <input data-option-input="${escapeAttribute(key)}" value="${escapeAttribute(optionInputValue(value))}">
-      <button type="button" data-remove-option="${escapeAttribute(key)}">Remove</button>
+      <span>${key}</span>
+      <input data-option-input="${key}" value="${optionInputValue(value)}">
+      <button type="button" data-remove-option="${key}">Remove</button>
     </div>
   `;
 }
 
-function limitedRows(rows: string[], showAll: boolean, target: string): string[] {
+function limitedRows(rows: SafeHTML[], showAll: boolean, target: string): SafeHTML[] {
   const limit = 9;
   if (rows.length <= limit || showAll) {
     if (rows.length > limit) {
-      return [...rows, `<button class="link-button" type="button" data-toggle-list="${target}">Show less</button>`];
+      return [...rows, html`<button class="link-button" type="button" data-toggle-list="${target}">Show less</button>`];
     }
     return rows;
   }
   return [
     ...rows.slice(0, limit),
-    `<button class="link-button" type="button" data-toggle-list="${target}">Show all ${rows.length}</button>`
+    html`<button class="link-button" type="button" data-toggle-list="${target}">Show all ${rows.length}</button>`
   ];
 }
 
@@ -363,16 +362,16 @@ function defaultOptionValue(definition: OptionDefinition): JsonValue {
   }
 }
 
-function targetNodeOptions(lane: LaneKind, selected: PaletteComponentPayload): string {
+function targetNodeOptions(lane: LaneKind, selected: PaletteComponentPayload): SafeHTML {
   const nodes = state.inventory?.nodes ?? [];
   const current = state.constructor.targetNodes[lane] || selected.component.node_id || nodes[0]?.node_id || "";
   if (!state.constructor.targetNodes[lane]) {
     state.constructor.targetNodes[lane] = current;
   }
-  return nodes.map(node => {
+  return html`${nodes.map(node => {
     const selectedAttribute = node.node_id === current ? " selected" : "";
-    return `<option value="${escapeAttribute(node.node_id)}"${selectedAttribute}>${escapeHTML(node.node_id || "node")}</option>`;
-  }).join("");
+    return html`<option value="${node.node_id}"${selectedAttribute}>${node.node_id || "node"}</option>`;
+  })}`;
 }
 
 function constructorBackendModeValue(): string {

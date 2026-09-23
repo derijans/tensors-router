@@ -1,3 +1,4 @@
+import { setHTML } from "./safe-html";
 import { deleteRoutingLinks, fetchRoutingLinks, saveRoutingLinks } from "./api";
 import { elements } from "./elements";
 import {
@@ -111,6 +112,6 @@ function renderRoutingDialog(): void {
   if (!session) {
     return;
   }
-  elements.routingDialogBody.innerHTML = routingDialogMarkup(session);
+  setHTML(elements.routingDialogBody, routingDialogMarkup(session));
   setRoutingStatus("", false);
 }

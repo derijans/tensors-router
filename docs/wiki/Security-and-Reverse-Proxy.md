@@ -16,11 +16,15 @@ Inference keys authorize model APIs. Admin keys authorize management routes, ben
 
 A non-loopback secure router bind requires at least one inference key and one admin key. A non-loopback secure WebUI bind requires `server.admin_token`.
 
-Startup rejects missing router configuration files and known placeholder credential values.
+Startup rejects missing router configuration files and known placeholder credential values, such as `change-me`, `secret`, `password`, or values starting with `your-`, `replace-with`, or `example`.
+
+Startup warns, without failing, when a credential is shorter than 16 characters, and when a `secure` router runs with no inference or admin keys. With no keys, every route on the loopback bind is open to any local process.
 
 ### Trusted LAN
 
 `trusted_lan` skips router inference and administration checks and skips WebUI login and CSRF checks.
+
+The MCP endpoint `/router/mcp` is the exception: it always requires an admin bearer key, in every profile. Enabling MCP without `auth.admin_keys` is a startup error.
 
 It does not disable cluster authentication, CIDR checks, managed backend isolation, header filtering, body limits, or transport memory limits.
 
@@ -40,6 +44,8 @@ Do not reuse example or placeholder values. Do not put credentials in public URL
 ## CIDR enforcement
 
 `server.allowed_cidrs` evaluates the direct peer address. The router does not use `X-Forwarded-For` to make access-control decisions.
+
+The default allowlist is loopback plus the private ranges `10.0.0.0/8`, `172.16.0.0/12`, and `192.168.0.0/16`. The default bind is loopback, so the private ranges only matter after `server.bind` is changed to a non-loopback address. Set `server.allowed_cidrs` explicitly to narrow it to the hosts that need access.
 
 When a reverse proxy is used, allow the proxy address and enforce original-client policy at the proxy.
 

@@ -1,3 +1,4 @@
+import { setHTML } from "./safe-html";
 import { applyCook, errorBody, previewCook } from "./api";
 import { elements } from "./elements";
 import { advancedCookRequest, localValidation } from "./constructor-data";
@@ -22,7 +23,7 @@ export async function applyAdvancedCook(refreshInventory: RefreshInventory): Pro
   const errors = localValidation().filter(item => item.severity === "error");
   if (errors.length > 0) {
     renderConstructor();
-    elements.cookOutput.innerHTML = cookResultHTML({error: "Validation failed", validation: errors});
+    setHTML(elements.cookOutput, cookResultHTML({error: "Validation failed", validation: errors}));
     return;
   }
   const request = advancedCookRequest();
@@ -38,10 +39,10 @@ export async function applyAdvancedCook(refreshInventory: RefreshInventory): Pro
 async function submitCook(submit: (request: CookRequest) => Promise<unknown>, request: CookRequest): Promise<void> {
   try {
     const result = await submit(request);
-    elements.cookOutput.innerHTML = cookResultHTML(result as CookResponse);
+    setHTML(elements.cookOutput, cookResultHTML(result as CookResponse));
     renderConstructor();
   } catch (error) {
-    elements.cookOutput.innerHTML = cookResultHTML(errorBody(error));
+    setHTML(elements.cookOutput, cookResultHTML(errorBody(error)));
     renderConstructor();
     throw error;
   }

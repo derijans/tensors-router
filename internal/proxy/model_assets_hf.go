@@ -9,11 +9,6 @@ import (
 	"tensors-router/internal/modelassets"
 )
 
-func (service *Service) resolveAssetReference(reference modelassets.Reference) (string, bool) {
-	resolution, found := service.resolveAssetReferenceDetailed(reference)
-	return resolution.Path, found
-}
-
 func (service *Service) resolveAssetReferenceDetailed(reference modelassets.Reference) (modelassets.Resolution, bool) {
 	if path, found := service.assetIndex.Find(reference.Hash, reference.Filename); found {
 		return modelassets.Resolution{Path: path, Source: "local", Verification: "sha256"}, true

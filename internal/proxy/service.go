@@ -10,7 +10,6 @@ import (
 	"html"
 	"io"
 	"log"
-	"math"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -338,8 +337,6 @@ type imageModelObject struct {
 	Config    string `json:"config"`
 }
 
-var quotedModelFieldName = []byte(`"model"`)
-
 var errMissingBackendResponse = errors.New("backend returned no response")
 
 func NewService(config ServiceConfig) *Service {
@@ -472,7 +469,8 @@ func NewService(config ServiceConfig) *Service {
 		ffmpeg:                    config.FFmpeg,
 		comfyVideoJobs:            newComfyVideoJobStore(config.FFmpegScratchDir),
 		client: &http.Client{
-			Timeout: 0,
+			Timeout:       0,
+			CheckRedirect: returnRedirectToCaller,
 		},
 		backendRetryAttempts:          defaultBackendRetryAttempts,
 		backendInferenceRetryAttempts: defaultBackendInferenceRetryAttempts,
@@ -982,7 +980,6 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 			writeImageModelError(service, w, r, modelID, err)
 			return
 		}
-		modelID = model.ImageID
 		hasModel = true
 	}
 	modelBackendMode, err := service.catalogModelBackendMode(model)
@@ -1478,16 +1475,17 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 }
 
 func (service *Service) forwardWithFallbackObserved(ctx context.Context, original *http.Request, body []byte, modelID string, configFilename string, hasModel bool, readiness backendReadiness, mode string) (*http.Response, analyticsEventFinalizer, error) {
-	runtime, err := service.runtimeForBackendMode(mode, readiness)
-	if err != nil {
+	if _, err := service.runtimeForBackendMode(mode, readiness); err != nil {
 		return nil, nil, err
 	}
+	var runtime *backendRuntime
+	var err error
 	loadedFresh := false
 	modelContext := ctx
-	cancelModelContext := func() {}
 	releaseModel := func() {}
 	var workFinalizer analyticsEventFinalizer
 	if hasModel {
+		var cancelModelContext context.CancelFunc
 		modelContext, cancelModelContext = context.WithTimeout(context.WithoutCancel(ctx), modelOperationTimeout)
 		defer cancelModelContext()
 
@@ -1524,7 +1522,7 @@ func (service *Service) forwardWithFallbackObserved(ctx context.Context, origina
 
 	if service.shouldRecoverBackend(runtime, ctx, retryResult) {
 		var recoveryErr error
-		releaseModel, loadedFresh, recoveryErr = service.recoverBackendForModel(runtime, modelContext, releaseModel, modelID, configFilename, readiness, original.URL.Path, retryResult.err)
+		releaseModel, recoveryErr = service.recoverBackendForModel(runtime, modelContext, releaseModel, modelID, configFilename, readiness, original.URL.Path, retryResult.err)
 		if recoveryErr != nil {
 			return nil, workFinalizer, recoveryErr
 		}
@@ -1576,7 +1574,7 @@ func (service *Service) forwardWithFallbackObserved(ctx context.Context, origina
 
 		if !recoveredBackend && service.shouldRecoverBackend(runtime, ctx, retryResult) {
 			var recoveryErr error
-			releaseModel, loadedFresh, recoveryErr = service.recoverBackendForModel(runtime, modelContext, releaseModel, modelID, configFilename, readiness, original.URL.Path, retryResult.err)
+			releaseModel, recoveryErr = service.recoverBackendForModel(runtime, modelContext, releaseModel, modelID, configFilename, readiness, original.URL.Path, retryResult.err)
 			if recoveryErr != nil {
 				return nil, workFinalizer, recoveryErr
 			}
@@ -1650,17 +1648,17 @@ func (service *Service) shouldRecoverBackend(runtime *backendRuntime, ctx contex
 	return !runtime.backend.Healthy(ctx)
 }
 
-func (service *Service) recoverBackendForModel(runtime *backendRuntime, ctx context.Context, releaseModel func(), modelID string, configFilename string, readiness backendReadiness, path string, cause error) (func(), bool, error) {
+func (service *Service) recoverBackendForModel(runtime *backendRuntime, ctx context.Context, releaseModel func(), modelID string, configFilename string, readiness backendReadiness, path string, cause error) (func(), error) {
 	service.logger.Printf("backend transport recovery attempt path=%s model=%q config=%q error=%v", path, modelID, configFilename, cause)
 	// Keep the lease. Releasing it here let a request for another model take the runtime
 	// mid-recovery and switch it away, which is how the model this request needs ended up
 	// being swapped out from under it.
 	if err := service.reloadHeldModelConfig(runtime, ctx, modelID, configFilename, readiness); err != nil {
 		releaseModel()
-		return nil, false, err
+		return nil, err
 	}
 	service.logger.Printf("backend transport recovery succeeded path=%s model=%q config=%q reloaded=true", path, modelID, configFilename)
-	return releaseModel, true, nil
+	return releaseModel, nil
 }
 
 func (service *Service) waitForInactiveBackend(runtime *backendRuntime, ctx context.Context, readiness backendReadiness, modelID string, configFilename string, path string) error {
@@ -2097,19 +2095,6 @@ func (family *backendFamily) startBackend(ctx context.Context) error {
 	return family.start(ctx)
 }
 
-func (family *backendFamily) stopBackend(ctx context.Context) error {
-	if family.stop != nil {
-		return family.stop(ctx)
-	}
-	var firstErr error
-	for _, runtime := range uniqueBackendRuntimes(family) {
-		if err := runtime.backend.Unload(ctx); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
-}
-
 func (family *backendFamily) stopPrimaryBackend(ctx context.Context) error {
 	if family.stopPrimary != nil {
 		return family.stopPrimary(ctx)
@@ -2207,23 +2192,6 @@ func (service *Service) imageCatalogConfigSelector() string {
 		return catalog.AllImageConfigs
 	}
 	return service.currentImageConfigFilename()
-}
-
-func (service *Service) runtimeForReadiness(readiness backendReadiness) *backendRuntime {
-	runtime, err := service.runtimeForBackendMode(service.currentBackendMode(), readiness)
-	if err == nil && runtime != nil {
-		return runtime
-	}
-	if readiness == readinessImage {
-		return service.imageRuntime
-	}
-	if readiness == readinessEmbeddings {
-		return service.embeddingsRuntime
-	}
-	if readiness == readinessTranscription {
-		return service.transcriptionRuntime
-	}
-	return service.textRuntime
 }
 
 func responseWithRelease(response *http.Response, release func()) *http.Response {
@@ -2590,7 +2558,7 @@ func (service *Service) forward(runtime *backendRuntime, ctx context.Context, or
 		return nil, err
 	}
 
-	copyRequestHeaders(request.Header, original.Header)
+	copyBackendHeaders(request.Header, original.Header)
 	request.Header.Del("X-Tensors-Whisper-Response-Format")
 	request.Host = target.Host
 
@@ -2763,6 +2731,9 @@ func writeProxyResponseWithLimit(w http.ResponseWriter, response *http.Response,
 	if rewriteModel && response.StatusCode >= 200 && response.StatusCode < 300 && isEventStream(response.Header) {
 		return writeEventStreamResponse(w, response, virtualModelID)
 	}
+	if rewriteModel && response.StatusCode >= 200 && response.StatusCode < 300 && isNDJSONResponse(response.Header) {
+		return writeNDJSONResponseWithVirtualModel(w, response, virtualModelID)
+	}
 	if rewriteModel && response.StatusCode >= 200 && response.StatusCode < 300 && isJSONResponse(response.Header) {
 		return writeJSONResponseWithVirtualModel(w, response, virtualModelID, maxResponseBytes)
 	}
@@ -2851,12 +2822,12 @@ func writeEventStreamResponse(w http.ResponseWriter, response *http.Response, vi
 }
 
 func rewriteJSONModel(body []byte, virtualModelID string) []byte {
-	quotedModelID, ok := htmlEscapedJSONStringLiteral(virtualModelID)
-	if !ok {
-		return body
-	}
-	rewritten, ok := rewriteTopLevelStringField(body, quotedModelFieldName, quotedModelID)
-	if !ok {
+	rewritten, err := transportbody.RewriteJSON(body, transportbody.JSONRewrite{
+		Replacements: map[string]transportbody.StringReplacement{
+			transportbody.PathModel: {To: virtualModelID},
+		},
+	})
+	if err != nil {
 		return body
 	}
 	return rewritten
@@ -2905,16 +2876,6 @@ func rewriteEventDataModel(data string, virtualModelID string) ([]byte, bool) {
 	return htmlEscapeJSON(rewriteJSONModel(body, virtualModelID)), true
 }
 
-func htmlEscapedJSONStringLiteral(value string) ([]byte, bool) {
-	var buffer bytes.Buffer
-	encoder := json.NewEncoder(&buffer)
-	encoder.SetEscapeHTML(true)
-	if err := encoder.Encode(value); err != nil {
-		return nil, false
-	}
-	return bytes.TrimSuffix(buffer.Bytes(), []byte("\n")), true
-}
-
 func htmlEscapeJSON(body []byte) []byte {
 	if !bytes.ContainsAny(body, "<>&") {
 		return body
@@ -2923,121 +2884,6 @@ func htmlEscapeJSON(body []byte) []byte {
 	buffer.Grow(len(body))
 	json.HTMLEscape(&buffer, body)
 	return buffer.Bytes()
-}
-
-func rewriteTopLevelStringField(body []byte, quotedFieldName []byte, quotedFieldValue []byte) ([]byte, bool) {
-	depth := 0
-	inString := false
-	escaped := false
-
-	for index := 0; index < len(body); index++ {
-		char := body[index]
-		if inString {
-			if escaped {
-				escaped = false
-				continue
-			}
-			if char == '\\' {
-				escaped = true
-				continue
-			}
-			if char == '"' {
-				inString = false
-			}
-			continue
-		}
-
-		switch char {
-		case '"':
-			if depth != 1 {
-				inString = true
-				continue
-			}
-			keyEnd := findJSONStringEnd(body, index)
-			if keyEnd == -1 {
-				return body, false
-			}
-			if !bytes.Equal(body[index:keyEnd], quotedFieldName) {
-				index = keyEnd - 1
-				continue
-			}
-			colonIndex := skipWhitespace(body, keyEnd)
-			if colonIndex >= len(body) || body[colonIndex] != ':' {
-				return body, false
-			}
-			valueStart := skipWhitespace(body, colonIndex+1)
-			if valueStart >= len(body) || body[valueStart] != '"' {
-				return body, false
-			}
-			valueEnd := findJSONStringEnd(body, valueStart)
-			if valueEnd == -1 {
-				return body, false
-			}
-			rewrittenCapacity, ok := replacementBufferCapacity(len(body), len(quotedFieldValue), valueEnd-valueStart)
-			if !ok {
-				return body, false
-			}
-			rewritten := make([]byte, 0, rewrittenCapacity)
-			rewritten = append(rewritten, body[:valueStart]...)
-			rewritten = append(rewritten, quotedFieldValue...)
-			rewritten = append(rewritten, body[valueEnd:]...)
-			return rewritten, true
-		case '{', '[':
-			depth++
-		case '}', ']':
-			if depth > 0 {
-				depth--
-			}
-		}
-	}
-
-	return body, true
-}
-
-func replacementBufferCapacity(originalLength int, replacementLength int, replacedLength int) (int, bool) {
-	if originalLength < 0 || replacementLength < 0 || replacedLength < 0 || replacedLength > originalLength {
-		return 0, false
-	}
-	preservedLength := originalLength - replacedLength
-	if replacementLength > math.MaxInt-preservedLength {
-		return 0, false
-	}
-	return preservedLength + replacementLength, true
-}
-
-func findJSONStringEnd(body []byte, start int) int {
-	escaped := false
-	for index := start + 1; index < len(body); index++ {
-		char := body[index]
-		if escaped {
-			escaped = false
-			continue
-		}
-		if char == '\\' {
-			escaped = true
-			continue
-		}
-		if char == '"' {
-			return index + 1
-		}
-	}
-	return -1
-}
-
-func skipWhitespace(body []byte, start int) int {
-	for start < len(body) {
-		switch body[start] {
-		case ' ', '\n', '\r', '\t':
-			start++
-		default:
-			return start
-		}
-	}
-	return start
-}
-
-func copyRequestHeaders(dst http.Header, src http.Header) {
-	copyBackendHeaders(dst, src)
 }
 
 func copyResponseHeaders(dst http.Header, src http.Header) {
@@ -3051,15 +2897,6 @@ func copyResponseHeaders(dst http.Header, src http.Header) {
 		}
 	}
 	dst.Set("X-Content-Type-Options", "nosniff")
-}
-
-func isHopByHopHeader(key string) bool {
-	switch strings.ToLower(key) {
-	case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization", "te", "trailer", "transfer-encoding", "upgrade":
-		return true
-	default:
-		return false
-	}
 }
 
 func isJSONResponse(header http.Header) bool {

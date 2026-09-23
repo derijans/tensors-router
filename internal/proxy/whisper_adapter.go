@@ -323,11 +323,11 @@ func whisperTimestamp(seconds float64, vtt bool) string {
 	duration -= hours * time.Hour
 	minutes := duration / time.Minute
 	duration -= minutes * time.Minute
-	wholeSeconds := duration / time.Second
-	milliseconds := (duration - wholeSeconds*time.Second) / time.Millisecond
+	secondComponent := duration / time.Second
+	milliseconds := (duration - secondComponent*time.Second) / time.Millisecond
 	separator := ","
 	if vtt {
 		separator = "."
 	}
-	return fmt.Sprintf("%02d:%02d:%02d%s%03d", hours, minutes, wholeSeconds, separator, milliseconds)
+	return fmt.Sprintf("%02d:%02d:%02d%s%03d", hours, minutes, secondComponent, separator, milliseconds)
 }

@@ -1,6 +1,6 @@
+import { html, setHTML } from "./safe-html";
 import { elements } from "./elements";
 import { state } from "./state";
-import { escapeAttribute, escapeHTML } from "./utils";
 
 const modelMutationGroups = new Set(["router", "cook", "cook-selection", "webui", "benchmark"]);
 
@@ -73,15 +73,15 @@ function renderOperations(): void {
   });
   const pending = operations.find(operation => operation.pending);
   if (pending) {
-    elements.operationStatus.innerHTML = `<span>${escapeHTML(pending.label)}</span>`;
+    setHTML(elements.operationStatus, html`<span>${pending.label}</span>`);
     return;
   }
   const failed = operations.find(operation => operation.error);
   if (failed) {
-    elements.operationStatus.innerHTML = `
-      <span class="error-text">${escapeHTML(failed.error)}</span>
-      <button type="button" data-retry-operation="${escapeAttribute(failed.key)}">Retry</button>
-    `;
+    setHTML(elements.operationStatus, html`
+      <span class="error-text">${failed.error}</span>
+      <button type="button" data-retry-operation="${failed.key}">Retry</button>
+    `);
     return;
   }
   elements.operationStatus.textContent = "";

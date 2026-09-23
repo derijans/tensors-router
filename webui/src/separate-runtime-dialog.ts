@@ -1,3 +1,4 @@
+import { SafeHTML, emptyHTML, html, setHTML } from "./safe-html";
 import { fetchSeparateRuntime, saveSeparateRuntime } from "./api";
 import { unloadPolicyLabels } from "./constants";
 import { elements } from "./elements";
@@ -9,7 +10,6 @@ import {
   triggersFromSelection
 } from "./separate-runtime-data";
 import type { SeparateRuntimeCandidates } from "./types";
-import { escapeAttribute, escapeHTML } from "./utils";
 
 interface DialogSession {
   nodeId: string;
@@ -113,8 +113,8 @@ function render(): void {
   if (!session) {
     return;
   }
-  elements.separateRuntimeDialogBody.innerHTML = `
-    <h2>Separate runtime · ${escapeHTML(session.localId)}</h2>
+  setHTML(elements.separateRuntimeDialogBody, html`
+    <h2>Separate runtime · ${session.localId}</h2>
     <p class="dialog-note">A separate config runs in its own backend process on this node, so another config's load, switch or unload never touches it.</p>
     <label class="routing-candidate">
       <input type="checkbox" data-separate-run-toggle${session.runSeparate ? " checked" : ""}>
@@ -125,14 +125,14 @@ function render(): void {
       <button type="button" data-separate-action="cancel">Cancel</button>
       <button type="button" data-separate-action="save">Save</button>
     </div>
-  `;
+  `);
   setStatus("", false);
 }
 
-function triggerSection(current: DialogSession): string {
+function triggerSection(current: DialogSession): SafeHTML {
   const groups = groupTriggersByKind(current.candidates);
   const doNotUnload = doNotUnloadSelected({run_separate: current.runSeparate, triggers: [...current.selected]});
-  return `
+  return html`
     <p class="dialog-note">Pick which loads on the shared runtime evict this one. A full pool still unloads the least-recently-used separate runtime regardless.</p>
     <label class="routing-candidate">
       <input type="checkbox" data-separate-do-not-unload${doNotUnload ? " checked" : ""}>
@@ -144,17 +144,17 @@ function triggerSection(current: DialogSession): string {
   `;
 }
 
-function triggerGroup(title: string, triggers: string[], selected: Set<string>): string {
+function triggerGroup(title: string, triggers: string[], selected: Set<string>): SafeHTML {
   if (triggers.length === 0) {
-    return "";
+    return emptyHTML;
   }
-  const rows = triggers.map(trigger => `
+  const rows = html`${triggers.map(trigger => html`
     <label class="routing-candidate">
-      <input type="checkbox" data-separate-trigger="${escapeAttribute(trigger)}"${selected.has(trigger) ? " checked" : ""}>
-      <span class="routing-candidate-name">${escapeHTML(triggerLabel(trigger))}</span>
+      <input type="checkbox" data-separate-trigger="${trigger}"${selected.has(trigger) ? " checked" : ""}>
+      <span class="routing-candidate-name">${triggerLabel(trigger)}</span>
     </label>
-  `).join("");
-  return `<div class="routing-node"><h3>${escapeHTML(title)}</h3>${rows}</div>`;
+  `)}`;
+  return html`<div class="routing-node"><h3>${title}</h3>${rows}</div>`;
 }
 
 function triggerLabel(trigger: string): string {

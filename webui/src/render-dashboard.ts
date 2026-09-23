@@ -1,3 +1,4 @@
+import { html, setHTML } from "./safe-html";
 import { state } from "./state";
 import { elements } from "./elements";
 import { renderAnalytics } from "./analytics";
@@ -7,8 +8,6 @@ import { renderSimpleCook } from "./simple-cook";
 import { renderModelInventory } from "./model-inventory";
 import { renderNodesPanel } from "./nodes-state";
 import {
-  escapeAttribute,
-  escapeHTML,
   statusItem
 } from "./utils";
 
@@ -39,7 +38,7 @@ export function renderRouterStatus(): void {
   elements.restartButton.disabled = !router?.managed;
   elements.shutdownButton.disabled = !router?.can_shutdown;
   elements.forceKillButton.disabled = !router?.can_force_kill;
-  elements.routerStatus.innerHTML = [
+  setHTML(elements.routerStatus, html`${[
     statusItem("Managed", router?.managed ? "yes" : "no"),
     statusItem("Running", router?.running ? "yes" : "no"),
     statusItem("URL", router?.url || "unknown"),
@@ -47,7 +46,7 @@ export function renderRouterStatus(): void {
     statusItem("Can shutdown", router?.can_shutdown ? "yes" : "no"),
     statusItem("Can force kill", router?.can_force_kill ? "yes" : "no"),
     statusItem("Last error", router?.error || "none")
-  ].join("");
+  ]}`);
 }
 
 export function renderTables(): void {
@@ -57,13 +56,13 @@ export function renderTables(): void {
 export function renderRecipes(): void {
   const recipes = state.inventory?.recipes ?? [];
   elements.recipeCount.textContent = `${recipes.length} recipes`;
-  elements.recipesList.innerHTML = recipes.map(recipe => `
+  setHTML(elements.recipesList, html`${recipes.map(recipe => html`
     <article class="recipe-item">
       <div>
-        <strong>${escapeHTML(recipe.public_id || recipe.id)}</strong>
-        <div class="muted">${escapeHTML(recipe.public_image_id || "")}</div>
+        <strong>${recipe.public_id || recipe.id}</strong>
+        <div class="muted">${recipe.public_image_id || ""}</div>
       </div>
-      <button type="button" data-delete-recipe="${escapeAttribute(recipe.id)}">Delete</button>
+      <button type="button" data-delete-recipe="${recipe.id}">Delete</button>
     </article>
-  `).join("");
+  `)}`);
 }

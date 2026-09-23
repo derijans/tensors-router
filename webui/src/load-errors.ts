@@ -1,7 +1,7 @@
+import { SafeHTML, emptyHTML, html, setHTML } from "./safe-html";
 import { getLoadErrors } from "./api";
 import { elements } from "./elements";
 import { state } from "./state";
-import { escapeAttribute, escapeHTML } from "./utils";
 import { stripTerminalControls } from "./terminal-output";
 import { reportErrorToConsole } from "./console-report";
 import type { LoadErrorRecord } from "./types";
@@ -55,41 +55,41 @@ function ensurePhaseOptions(): void {
 }
 
 function renderLoadErrors(): void {
-  const parts: string[] = [];
+  const parts: SafeHTML[] = [];
   if (state.loadErrors.loading) {
-    parts.push(`<p class="action-status">Loading…</p>`);
+    parts.push(html`<p class="action-status">Loading…</p>`);
   }
   if (state.loadErrors.error) {
-    parts.push(`<p class="error-text">${escapeHTML(state.loadErrors.error)}</p>`);
+    parts.push(html`<p class="error-text">${state.loadErrors.error}</p>`);
     reportErrorToConsole("load-errors panel", new Error(state.loadErrors.error));
   }
   for (const nodeError of state.loadErrors.nodeErrors) {
-    parts.push(`<p class="error-text">${escapeHTML(nodeError.node_id)}: ${escapeHTML(nodeError.error)}</p>`);
+    parts.push(html`<p class="error-text">${nodeError.node_id}: ${nodeError.error}</p>`);
   }
   if (!state.loadErrors.loading && state.loadErrors.records.length === 0 && !state.loadErrors.error) {
-    parts.push(`<p class="muted">No pre-load errors recorded.</p>`);
+    parts.push(html`<p class="muted">No pre-load errors recorded.</p>`);
   }
-  elements.loadErrorStatus.innerHTML = parts.join("");
+  setHTML(elements.loadErrorStatus, html`${parts}`);
 
-  elements.loadErrorRows.innerHTML = state.loadErrors.records.map(record => {
-    const selected = record.id === state.loadErrors.selectedID ? " class=\"selected\"" : "";
-    return `<tr data-load-error-id="${escapeAttribute(record.id)}"${selected}>
-      <td>${escapeHTML(formatTimestamp(record.last_seen_at))}</td>
-      <td>${escapeHTML(record.node_id || "")}</td>
-      <td>${escapeHTML(record.phase)}</td>
-      <td>${escapeHTML(record.severity)}</td>
-      <td>${escapeHTML(record.source || "")}</td>
+  setHTML(elements.loadErrorRows, html`${state.loadErrors.records.map(record => {
+    const selected = record.id === state.loadErrors.selectedID ? html` class="selected"` : emptyHTML;
+    return html`<tr data-load-error-id="${record.id}"${selected}>
+      <td>${formatTimestamp(record.last_seen_at)}</td>
+      <td>${record.node_id || ""}</td>
+      <td>${record.phase}</td>
+      <td>${record.severity}</td>
+      <td>${record.source || ""}</td>
       <td>${record.occurrences}</td>
-      <td>${escapeHTML(truncate(record.message, 140))}</td>
+      <td>${truncate(record.message, 140)}</td>
     </tr>`;
-  }).join("");
+  })}`);
 
   const detail = state.loadErrors.records.find(record => record.id === state.loadErrors.selectedID);
-  elements.loadErrorDetail.innerHTML = detail ? renderDetail(detail) : "";
+  setHTML(elements.loadErrorDetail, detail ? renderDetail(detail) : emptyHTML);
   elements.loadErrorOutput.textContent = detail?.output ? stripTerminalControls(detail.output) : "";
 }
 
-function renderDetail(record: LoadErrorRecord): string {
+function renderDetail(record: LoadErrorRecord): SafeHTML {
   const rows: [string, string][] = [
     ["Phase", record.phase],
     ["Severity", record.severity],
@@ -104,10 +104,10 @@ function renderDetail(record: LoadErrorRecord): string {
     ["Exit", record.exit_error || ""],
     ["Truncated", record.truncated ? "yes" : "no"]
   ];
-  return `
-    <h3>${escapeHTML(record.message)}</h3>
+  return html`
+    <h3>${record.message}</h3>
     <dl class="load-error-detail">
-      ${rows.filter(([, value]) => value !== "").map(([label, value]) => `<div><dt>${escapeHTML(label)}</dt><dd>${escapeHTML(value)}</dd></div>`).join("")}
+      ${rows.filter(([, value]) => value !== "").map(([label, value]) => html`<div><dt>${label}</dt><dd>${value}</dd></div>`)}
     </dl>
   `;
 }

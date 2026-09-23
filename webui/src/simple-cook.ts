@@ -1,3 +1,4 @@
+import { SafeHTML, html, setHTML } from "./safe-html";
 import { applyConfigFile, deleteConfigFile, errorBody, exportPortableConfig, previewConfigFile } from "./api";
 import { elements } from "./elements";
 import { state } from "./state";
@@ -39,8 +40,6 @@ import {
   importedConfigNameStem
 } from "./simple-cook-data";
 import {
-  escapeAttribute,
-  escapeHTML,
   optionInputList,
   optionInputValue,
   optionValueLabel,
@@ -307,10 +306,10 @@ function renderAddFieldSelect(): void {
   const options = allOptionDefinitions()
     .filter(definition => !primaryRuntimeKeys.includes(definition.key) && !Object.hasOwn(fields, definition.key))
     .sort((left, right) => `${sectionForDefinition(left)}:${left.key}`.localeCompare(`${sectionForDefinition(right)}:${right.key}`));
-  elements.simpleAddFieldSelect.innerHTML = options.map(definition => {
+  setHTML(elements.simpleAddFieldSelect, html`${options.map(definition => {
     const label = `${sectionLabels[sectionForDefinition(definition)] || "Other"} / ${definition.key}`;
-    return `<option value="${escapeAttribute(definition.key)}">${escapeHTML(label)}</option>`;
-  }).join("");
+    return html`<option value="${definition.key}">${label}</option>`;
+  })}`);
 }
 
 function renderConfigEditor(): void {
@@ -324,79 +323,79 @@ function renderConfigEditor(): void {
         .filter(key => !query || `${key} ${optionValueLabel(fieldValue(key))}`.toLowerCase().includes(query));
       const rows = keys
         .map(key => fieldRow(key, fieldValue(key), group.section, context, (key === backendModeKey && !Object.hasOwn(fields, backendModeKey)) || (key === jinjaKwargsPrecedenceKey && !Object.hasOwn(fields, jinjaKwargsPrecedenceKey))))
-        .join("");
-      if (!rows) {
+        .filter(row => !row.isEmpty());
+      if (rows.length === 0) {
         return null;
       }
       const sectionLabel = sectionLabels[group.section] || group.section;
       return {
         section: group.section,
-        html: `
-        <details class="config-section" data-simple-section="${escapeAttribute(group.section)}"${openSections.has(group.section) ? " open" : ""}>
+        html: html`
+        <details class="config-section" data-simple-section="${group.section}"${openSections.has(group.section) ? " open" : ""}>
           <summary>
-            <span>${escapeHTML(sectionLabel)}</span>
-            <span class="section-count">${escapeHTML(fieldCountLabel(keys.length))}</span>
+            <span>${sectionLabel}</span>
+            <span class="section-count">${fieldCountLabel(keys.length)}</span>
           </summary>
           <div class="config-fields">${rows}</div>
         </details>
       `
       };
     })
-    .filter((group): group is { section: string; html: string } => group !== null);
-  elements.simpleConfigEditor.innerHTML = groups.length
-    ? groups.map(group => group.html).join("")
-    : `<div class="detail-empty">No fields</div>`;
+    .filter((group): group is { section: string; html: SafeHTML } => group !== null);
+  setHTML(elements.simpleConfigEditor, groups.length
+    ? html`${groups.map(group => group.html)}`
+    : html`<div class="detail-empty">No fields</div>`);
 }
 
 function renderFieldSidebar(): void {
   const sidebar = state.simpleCook.sidebar;
   if (!sidebar) {
-    elements.simpleFieldSidebar.innerHTML = `<div class="detail-empty">Field values</div>`;
+    setHTML(elements.simpleFieldSidebar, html`<div class="detail-empty">Field values</div>`);
     return;
   }
   const rows = sidebarValueRows(sidebar.key, sidebar.type, optionDefinition, fieldRenderContext());
-  elements.simpleFieldSidebar.innerHTML = `
+  setHTML(elements.simpleFieldSidebar, html`
     <div class="field-sidebar-head">
       <div>
-        <h3>${escapeHTML(sidebar.key)}</h3>
-        <p class="muted">${escapeHTML(sidebar.type === "model" ? "same model file" : "same field")}</p>
+        <h3>${sidebar.key}</h3>
+        <p class="muted">${sidebar.type === "model" ? "same model file" : "same field"}</p>
       </div>
       <button type="button" data-close-field-sidebar>x</button>
     </div>
     <div class="detail-list">
-      ${rows.length ? rows.map(sidebarValueRow).join("") : `<div class="detail-empty">No values</div>`}
+      ${rows.length ? html`${rows.map(sidebarValueRow)}` : html`<div class="detail-empty">No values</div>`}
     </div>
-  `;
+  `);
 }
 
-function fieldRow(key: string, value: JsonValue | undefined, section: string, context: ReturnType<typeof fieldRenderContext>, virtual = false): string {
+function fieldRow(key: string, value: JsonValue | undefined, section: string, context: ReturnType<typeof fieldRenderContext>, virtual = false): SafeHTML {
   const definition = optionDefinition(key);
   const datalistID = `field-values-${safeID(key)}`;
   const choices = fieldChoices(key, definition, context);
   const compareClass = comparisonClass(key, section, context);
   const input = simpleFieldInput(key, value, datalistID, choices, virtual);
   const modelButton = sectionModelKeys[section]
-    ? `<button class="icon-button" type="button" title="Same model values" data-field-model-values="${escapeAttribute(key)}">M</button>`
+    ? html`<button class="icon-button" type="button" title="Same model values" data-field-model-values="${key}">M</button>`
     : "";
-  return `
+  return html`
     <div class="config-field ${compareClass}${virtual ? " backend-virtual" : ""}">
       <div class="field-label">
-        <span>${escapeHTML(definition?.name || key)}</span>
-        <code>${escapeHTML(key)}</code>
+        <span>${definition?.name || key}</span>
+        <code>${key}</code>
       </div>
       <div class="field-control">
         ${input}
       </div>
       <div class="field-buttons">
-        <button class="icon-button" type="button" title="Other config values" data-field-values="${escapeAttribute(key)}">V</button>
+        <button class="icon-button" type="button" title="Other config values" data-field-values="${key}">V</button>
         ${modelButton}
-        ${virtual ? "" : `<button class="icon-button" type="button" title="Remove field" data-remove-simple-field="${escapeAttribute(key)}">x</button>`}
+        ${virtual ? "" : html`<button class="icon-button" type="button" title="Remove field" data-remove-simple-field="${key}">x</button>`}
       </div>
     </div>
   `;
 }
 
-function simpleFieldInput(key: string, value: JsonValue | undefined, datalistID: string, choices: string[], virtual: boolean): string {
+function simpleFieldInput(key: string, value: JsonValue | undefined, datalistID: string, choices: string[], virtual: boolean): SafeHTML {
   if (key === backendModeKey) {
     return backendModeSelect(simpleBackendModeValue(), virtual);
   }
@@ -406,52 +405,51 @@ function simpleFieldInput(key: string, value: JsonValue | undefined, datalistID:
   if (key === jinjaKwargsPrecedenceKey) {
     return jinjaKwargsPrecedenceSelect(optionInputValue(value), virtual);
   }
-  return `
-    <input data-simple-field="${escapeAttribute(key)}" list="${escapeAttribute(datalistID)}" value="${escapeAttribute(optionInputValue(value))}">
-    <datalist id="${escapeAttribute(datalistID)}">
-      ${choices.map(choice => `<option value="${escapeAttribute(choice)}"></option>`).join("")}
+  return html`
+    <input data-simple-field="${key}" list="${datalistID}" value="${optionInputValue(value)}">
+    <datalist id="${datalistID}">
+      ${choices.map(choice => html`<option value="${choice}"></option>`)}
     </datalist>
   `;
 }
 
-function backendModeSelect(value: string, virtual: boolean): string {
+function backendModeSelect(value: string, virtual: boolean): SafeHTML {
   const selectedValue = backendModes.includes(value as BackendMode) ? value : "kobold";
-  return `
+  return html`
     <select data-simple-backend-mode class="${virtual ? "virtual-backend-select virtual-runtime-select" : ""}">
-      ${backendModes.map(mode => `<option value="${escapeAttribute(mode)}"${mode === selectedValue ? " selected" : ""}>${escapeHTML(backendModeLabels[mode])}</option>`).join("")}
+      ${backendModes.map(mode => html`<option value="${mode}"${mode === selectedValue ? " selected" : ""}>${backendModeLabels[mode]}</option>`)}
     </select>
   `;
 }
 
-function unloadPolicySelect(values: string[], virtual: boolean): string {
+function unloadPolicySelect(values: string[], virtual: boolean): SafeHTML {
   const selected = new Set(values);
   const known = new Set<string>(unloadPolicies);
-  const customOptions = values
+  const customOptions = html`${values
     .filter(value => !known.has(value))
-    .map(value => `<option value="${escapeAttribute(value)}" selected>${escapeHTML(value)}</option>`)
-    .join("");
-  return `
-    <select multiple data-simple-field="${escapeAttribute(unloadPolicyKey)}" class="${virtual ? "virtual-runtime-select" : ""}">
+    .map(value => html`<option value="${value}" selected>${value}</option>`)}`;
+  return html`
+    <select multiple data-simple-field="${unloadPolicyKey}" class="${virtual ? "virtual-runtime-select" : ""}">
       ${customOptions}
-      ${unloadPolicies.map(policy => `<option value="${escapeAttribute(policy)}"${selected.has(policy) ? " selected" : ""}>${escapeHTML(unloadPolicyLabels[policy])}</option>`).join("")}
+      ${unloadPolicies.map(policy => html`<option value="${policy}"${selected.has(policy) ? " selected" : ""}>${unloadPolicyLabels[policy]}</option>`)}
     </select>
   `;
 }
 
-function jinjaKwargsPrecedenceSelect(value: string, virtual: boolean): string {
+function jinjaKwargsPrecedenceSelect(value: string, virtual: boolean): SafeHTML {
   const selectedValue = value === "client" ? "client" : "config";
-  return `
-    <select data-simple-field="${escapeAttribute(jinjaKwargsPrecedenceKey)}" class="${virtual ? "virtual-runtime-select" : ""}">
-      ${Object.entries(jinjaKwargsPrecedenceLabels).map(([precedence, label]) => `<option value="${escapeAttribute(precedence)}"${precedence === selectedValue ? " selected" : ""}>${escapeHTML(label)}</option>`).join("")}
+  return html`
+    <select data-simple-field="${jinjaKwargsPrecedenceKey}" class="${virtual ? "virtual-runtime-select" : ""}">
+      ${Object.entries(jinjaKwargsPrecedenceLabels).map(([precedence, label]) => html`<option value="${precedence}"${precedence === selectedValue ? " selected" : ""}>${label}</option>`)}
     </select>
   `;
 }
 
-function sidebarValueRow(row: { value: string; config: string }): string {
-  return `
+function sidebarValueRow(row: { value: string; config: string }): SafeHTML {
+  return html`
     <div class="sidebar-value">
-      <strong>${escapeHTML(row.value)}</strong>
-      <span class="muted">${escapeHTML(row.config)}</span>
+      <strong>${row.value}</strong>
+      <span class="muted">${row.config}</span>
     </div>
   `;
 }
@@ -459,7 +457,7 @@ function sidebarValueRow(row: { value: string; config: string }): string {
 async function submitSimpleConfig(submitter: ConfigSubmitter): Promise<ConfigFileResponse | null> {
   try {
     const result = await submitter(simpleConfigRequest());
-    elements.cookOutput.innerHTML = cookResultHTML(result);
+    setHTML(elements.cookOutput, cookResultHTML(result));
     return result;
   } catch (error) {
     showSimpleCookError(error);
@@ -542,14 +540,14 @@ function loadSimpleConfig(model: Model | null): void {
 
 function fillSelect(select: HTMLSelectElement, options: SelectChoice[]): void {
   const selected = select.value;
-  select.innerHTML = options.map(option => `<option value="${escapeAttribute(option.value)}">${escapeHTML(option.label)}</option>`).join("");
+  setHTML(select, html`${options.map(option => html`<option value="${option.value}">${option.label}</option>`)}`);
   if (Array.from(select.options).some(option => option.value === selected)) {
     select.value = selected;
   }
 }
 
 function showSimpleCookError(error: unknown): void {
-  elements.cookOutput.innerHTML = cookResultHTML(errorBody(error));
+  setHTML(elements.cookOutput, cookResultHTML(errorBody(error)));
 }
 
 function sectionForDefinition(definition: { section?: string }): string {

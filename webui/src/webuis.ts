@@ -1,7 +1,8 @@
+import { SafeHTML, html, setHTML } from "./safe-html";
 import { getWebUIs, loadWebUI, setWebUISession } from "./api";
 import { elements } from "./elements";
 import { state } from "./state";
-import { chip, escapeAttribute, escapeHTML, kindColor } from "./utils";
+import { chip, kindColor } from "./utils";
 import {
   filteredWebUIEntries,
   groupWebUIs,
@@ -106,34 +107,34 @@ export function renderWebUIs(): void {
   const entries = filteredWebUIEntries(state.webuis.data?.data ?? [], state.webuis.filter);
   elements.webuiStatus.textContent = webUIStatusText(entries.length);
   elements.webuiStatus.classList.toggle("error-text", state.webuis.error !== "");
-  elements.webuiGrid.innerHTML = entries.length ? groupWebUIs(entries).map(renderWebUIGroup).join("") : `<div class="detail-empty">No WebUIs</div>`;
+  setHTML(elements.webuiGrid, entries.length ? html`${groupWebUIs(entries).map(renderWebUIGroup)}` : html`<div class="detail-empty">No WebUIs</div>`);
 }
 
-function renderWebUIGroup(group: WebUIGroup): string {
-  return `
+function renderWebUIGroup(group: WebUIGroup): SafeHTML {
+  return html`
     <section class="webui-node-group">
       <div class="webui-node-head">
-        <h3>${escapeHTML(group.nodeID)}</h3>
+        <h3>${group.nodeID}</h3>
         <span class="pill">${group.entries.length} WebUIs</span>
       </div>
       <div class="webui-cards">
-        ${group.entries.map(renderWebUICard).join("")}
+        ${group.entries.map(renderWebUICard)}
       </div>
     </section>
   `;
 }
 
-function renderWebUICard(entry: WebUIEntry): string {
+function renderWebUICard(entry: WebUIEntry): SafeHTML {
   const status = webUIOpenStatus(entry);
-  return `
+  return html`
     <article class="webui-card">
       <div class="webui-card-head">
         <div>
-          <strong>${escapeHTML(entry.name)}</strong>
-          <div class="webui-url">${escapeHTML(entry.url)}</div>
+          <strong>${entry.name}</strong>
+          <div class="webui-url">${entry.url}</div>
         </div>
         <label class="toggle-row">
-          <input type="checkbox" data-operation-group="webui" data-webui-toggle="${escapeAttribute(entry.id)}" ${entry.enabled ? "checked" : ""}>
+          <input type="checkbox" data-operation-group="webui" data-webui-toggle="${entry.id}" ${entry.enabled ? "checked" : ""}>
           <span>Enable</span>
         </label>
       </div>
@@ -143,10 +144,10 @@ function renderWebUICard(entry: WebUIEntry): string {
         ${chip(entry.lane, kindColor(entry.lane))}
         ${chip(entry.active ? "active" : "idle", entry.active ? "lime" : "amber")}
       </div>
-      <div class="webui-model-summary">${escapeHTML(webUIModelSummary(entry))}</div>
+      <div class="webui-model-summary">${webUIModelSummary(entry)}</div>
       <div class="webui-actions">
-        <button type="button" data-webui-open="${escapeAttribute(entry.id)}">Open</button>
-        <button type="button" data-webui-details="${escapeAttribute(entry.id)}">${status.openable ? "Models" : "Resolve"}</button>
+        <button type="button" data-webui-open="${entry.id}">Open</button>
+        <button type="button" data-webui-details="${entry.id}">${status.openable ? "Models" : "Resolve"}</button>
       </div>
     </article>
   `;
@@ -154,37 +155,37 @@ function renderWebUICard(entry: WebUIEntry): string {
 
 function showWebUIDialog(entry: WebUIEntry): void {
   const data = webUIDialogData(entry);
-  elements.webuiDialogBody.innerHTML = `
+  setHTML(elements.webuiDialogBody, html`
     <div class="field-dialog-head">
       <div>
-        <h2>${escapeHTML(data.title)}</h2>
-        <p class="muted">${escapeHTML(data.message)}</p>
+        <h2>${data.title}</h2>
+        <p class="muted">${data.message}</p>
       </div>
       <button type="button" data-webui-dialog-close>Close</button>
     </div>
-    <div class="webui-url">${escapeHTML(entry.url)}</div>
+    <div class="webui-url">${entry.url}</div>
     <div class="webui-dialog-actions">
-      ${data.canEnable ? `<button type="button" data-operation-group="webui" data-webui-enable="${escapeAttribute(entry.id)}">Enable</button>` : ""}
+      ${data.canEnable ? html`<button type="button" data-operation-group="webui" data-webui-enable="${entry.id}">Enable</button>` : ""}
     </div>
     <div class="webui-model-list">
-      ${data.canLoad ? data.models.map(model => renderWebUIModelRow(entry, model)).join("") : `<div class="detail-empty">No compatible models</div>`}
+      ${data.canLoad ? html`${data.models.map(model => renderWebUIModelRow(entry, model))}` : html`<div class="detail-empty">No compatible models</div>`}
     </div>
-  `;
+  `);
   elements.webuiDialog.showModal();
 }
 
-function renderWebUIModelRow(entry: WebUIEntry, model: WebUICompatibleModel): string {
-  return `
+function renderWebUIModelRow(entry: WebUIEntry, model: WebUICompatibleModel): SafeHTML {
+  return html`
     <div class="webui-model-row">
       <div>
-        <strong>${escapeHTML(model.id)}</strong>
-        <div class="muted">${escapeHTML(model.filename)}</div>
+        <strong>${model.id}</strong>
+        <div class="muted">${model.filename}</div>
       </div>
       <div class="node-meta">
         ${chip(model.node_id, "cyan")}
         ${chip(model.active ? "active" : "available", model.active ? "lime" : "amber")}
       </div>
-      <button type="button" data-operation-group="webui" data-webui-load="${escapeAttribute(entry.id)}" data-webui-load-model="${escapeAttribute(model.model_id)}" data-webui-load-image="${escapeAttribute(model.image_id || "")}">Load</button>
+      <button type="button" data-operation-group="webui" data-webui-load="${entry.id}" data-webui-load-model="${model.model_id}" data-webui-load-image="${model.image_id || ""}">Load</button>
     </div>
   `;
 }

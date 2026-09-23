@@ -20,14 +20,14 @@ const (
 )
 
 type State struct {
-	LifecycleState           string `json:"lifecycle_state"`
-	SelectedProfile          string `json:"selected_profile,omitempty"`
-	DetectedProfile          string `json:"detected_profile,omitempty"`
-	RuntimeVersion           string `json:"runtime_version,omitempty"`
-	InitializationJobID      string `json:"initialization_job_id,omitempty"`
-	InitializationPhase      string `json:"initialization_phase,omitempty"`
-	InitializationBytes      int64  `json:"initialization_bytes,omitempty"`
-	InitializationTotalBytes int64  `json:"initialization_total_bytes,omitempty"`
+	LifecycleState           string        `json:"lifecycle_state"`
+	SelectedProfile          string        `json:"selected_profile,omitempty"`
+	DetectedProfile          string        `json:"detected_profile,omitempty"`
+	RuntimeVersion           string        `json:"runtime_version,omitempty"`
+	InitializationJobID      string        `json:"initialization_job_id,omitempty"`
+	InitializationPhase      string        `json:"initialization_phase,omitempty"`
+	InitializationBytes      int64         `json:"initialization_bytes,omitempty"`
+	InitializationTotalBytes int64         `json:"initialization_total_bytes,omitempty"`
 	ManifestTrust            string        `json:"manifest_trust,omitempty"`
 	LaunchOptions            LaunchOptions `json:"launch_options"`
 	Error                    string        `json:"error,omitempty"`

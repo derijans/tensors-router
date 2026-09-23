@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"tensors-router/internal/credential"
 	"tensors-router/internal/transportbody"
 )
 
@@ -106,7 +107,31 @@ func validateSecurity(cfg *Config) error {
 			return fmt.Errorf("auth.admin_keys is required for non-loopback secure bind")
 		}
 	}
+	cfg.Warnings = append(cfg.Warnings, credentialWarnings(cfg)...)
 	return nil
+}
+
+func credentialWarnings(cfg *Config) []string {
+	var warnings []string
+	if cfg.Security.Profile == SecurityProfileSecure && !hasCredential(cfg.Auth.InferenceKeys) && !hasCredential(cfg.Auth.AdminKeys) {
+		warnings = append(warnings, "security.profile is secure but no auth keys are configured; the admin API is open to any local process")
+	}
+	named := []struct {
+		name   string
+		values []string
+	}{
+		{name: "auth.inference_keys", values: cfg.Auth.InferenceKeys},
+		{name: "auth.admin_keys", values: cfg.Auth.AdminKeys},
+		{name: "cluster.token", values: []string{cfg.Cluster.Token}},
+	}
+	for _, role := range named {
+		for _, value := range role.values {
+			if warning, short := credential.ShortCredentialWarning(role.name, value); short {
+				warnings = append(warnings, warning)
+			}
+		}
+	}
+	return warnings
 }
 
 func validateCredentialRoleSeparation(cfg *Config) error {
@@ -199,11 +224,7 @@ func validateCredential(name string, value string, required bool) error {
 		}
 		return nil
 	}
-	switch strings.ToLower(value) {
-	case "change-me", "changeme", "replace-me", "replace_me":
-		return fmt.Errorf("%s contains a known placeholder", name)
-	}
-	return nil
+	return credential.RejectPlaceholder(name, value)
 }
 
 func loopbackBind(bind string) bool {

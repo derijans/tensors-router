@@ -145,11 +145,7 @@ func (service *Service) openRemoteRealtime(r *http.Request, route cluster.Route,
 	copyRealtimeHeaders(request.Header, r.Header)
 	request.Header.Set("Authorization", "Bearer "+service.clusterToken)
 	request.Host = target.Host
-	client := *service.client
-	client.CheckRedirect = func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-	return client.Do(request)
+	return service.client.Do(request)
 }
 
 func registryVLLMVoiceModelForServedName(models []cluster.Model, servedName string) (cluster.Model, bool) {

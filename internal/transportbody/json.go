@@ -2,6 +2,7 @@ package transportbody
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,16 +13,20 @@ import (
 const (
 	selectorValueLimit = 1024
 	maxJSONNesting     = 1024
+	streamBufferBytes  = 32 * 1024
+	minBufferBytes     = 16
 )
 
 const (
 	PathModel              = "model"
 	PathImageModel         = "sd_model_checkpoint"
 	PathOverrideImageModel = "override_settings.sd_model_checkpoint"
-	objectKeyState         = iota
+	objectFirstKeyState    = iota
+	objectKeyState
 	objectColonState
 	objectValueState
 	objectCommaState
+	arrayFirstValueState
 	arrayValueState
 	arrayCommaState
 )
@@ -80,6 +85,16 @@ func TransformJSON(body Body, rewrite JSONRewrite) Body {
 	})
 }
 
+func RewriteJSON(body []byte, rewrite JSONRewrite) ([]byte, error) {
+	var output bytes.Buffer
+	output.Grow(len(body))
+	bufferBytes := max(minBufferBytes, min(len(body), streamBufferBytes))
+	if _, err := runJSONProcessor(bufio.NewReaderSize(bytes.NewReader(body), bufferBytes), bufio.NewWriterSize(&output, bufferBytes), rewrite); err != nil {
+		return nil, err
+	}
+	return output.Bytes(), nil
+}
+
 func NewJSONTransformReadCloser(source io.ReadCloser, rewrite JSONRewrite) io.ReadCloser {
 	return newLazyTransformReadCloser(source, func(reader io.Reader, writer io.Writer) error {
 		_, err := processJSON(reader, writer, rewrite)
@@ -108,6 +123,10 @@ type jsonProcessor struct {
 }
 
 func processJSON(source io.Reader, destination io.Writer, rewrite JSONRewrite) (JSONFields, error) {
+	return runJSONProcessor(bufio.NewReaderSize(source, streamBufferBytes), bufio.NewWriterSize(destination, streamBufferBytes), rewrite)
+}
+
+func runJSONProcessor(reader *bufio.Reader, writer *bufio.Writer, rewrite JSONRewrite) (JSONFields, error) {
 	if rewrite.ChatTemplateKwargs != nil {
 		if _, err := mergeChatTemplateKwargs(rewrite.ChatTemplateKwargs.Configured, nil, rewrite.ChatTemplateKwargs.ConfigWins); err != nil {
 			return JSONFields{}, err
@@ -119,8 +138,8 @@ func processJSON(source io.Reader, destination io.Writer, rewrite JSONRewrite) (
 		}
 	}
 	processor := &jsonProcessor{
-		reader:  bufio.NewReaderSize(source, 32*1024),
-		writer:  bufio.NewWriterSize(destination, 32*1024),
+		reader:  reader,
+		writer:  writer,
 		rewrite: rewrite,
 	}
 	if rewrite.Replacements == nil {
@@ -160,7 +179,7 @@ func (processor *jsonProcessor) run() error {
 			if err := processor.writer.WriteByte(value); err != nil {
 				return err
 			}
-			processor.stack = append(processor.stack, jsonContainer{kind: '{', state: objectKeyState, root: true})
+			processor.stack = append(processor.stack, jsonContainer{kind: '{', state: objectFirstKeyState, root: true})
 			continue
 		}
 		if err := processor.consume(value); err != nil {
@@ -174,8 +193,8 @@ func (processor *jsonProcessor) consume(value byte) error {
 	container := &processor.stack[index]
 	if container.kind == '{' {
 		switch container.state {
-		case objectKeyState:
-			if value == '}' {
+		case objectFirstKeyState, objectKeyState:
+			if value == '}' && container.state == objectFirstKeyState {
 				return processor.closeContainer(value)
 			}
 			if value != '"' {
@@ -229,8 +248,8 @@ func (processor *jsonProcessor) consume(value byte) error {
 		}
 	}
 	switch container.state {
-	case arrayValueState:
-		if value == ']' {
+	case arrayFirstValueState, arrayValueState:
+		if value == ']' && container.state == arrayFirstValueState {
 			return processor.closeContainer(value)
 		}
 		return processor.consumeValue(value, index)
@@ -295,8 +314,10 @@ func (processor *jsonProcessor) consumeValue(value byte, parentIndex int) error 
 			if err := processor.writer.WriteByte('"'); err != nil {
 				return err
 			}
-			if _, err := processor.writer.Write(raw); err != nil {
-				return err
+			for _, value := range raw {
+				if err := processor.writeStringByte(value, processor.rewrite.EscapeHTML); err != nil {
+					return err
+				}
 			}
 			return processor.writer.WriteByte('"')
 		}
@@ -313,7 +334,7 @@ func (processor *jsonProcessor) consumeValue(value byte, parentIndex int) error 
 			return err
 		}
 		override := parent.root && parent.key == "override_settings"
-		processor.stack = append(processor.stack, jsonContainer{kind: '{', state: objectKeyState, override: override})
+		processor.stack = append(processor.stack, jsonContainer{kind: '{', state: objectFirstKeyState, override: override})
 		return nil
 	case '[':
 		if len(processor.stack) >= maxJSONNesting {
@@ -322,7 +343,7 @@ func (processor *jsonProcessor) consumeValue(value byte, parentIndex int) error 
 		if err := processor.writer.WriteByte(value); err != nil {
 			return err
 		}
-		processor.stack = append(processor.stack, jsonContainer{kind: '[', state: arrayValueState})
+		processor.stack = append(processor.stack, jsonContainer{kind: '[', state: arrayFirstValueState})
 		return nil
 	default:
 		token, err := processor.copyPrimitive(value)
@@ -418,7 +439,7 @@ func (processor *jsonProcessor) valuePath(container jsonContainer) string {
 }
 
 func (processor *jsonProcessor) copyString(captureLimit int, escapeHTML bool) ([]byte, bool, error) {
-	raw := make([]byte, 0, minInt(captureLimit, 64))
+	raw := make([]byte, 0, min(captureLimit, 64))
 	overflow := false
 	for {
 		value, err := processor.reader.ReadByte()
@@ -485,23 +506,32 @@ func (processor *jsonProcessor) copyString(captureLimit int, escapeHTML bool) ([
 			}
 			continue
 		}
-		if escapeHTML {
-			switch value {
-			case '<':
-				_, err = processor.writer.WriteString(`\u003c`)
-			case '>':
-				_, err = processor.writer.WriteString(`\u003e`)
-			case '&':
-				_, err = processor.writer.WriteString(`\u0026`)
-			default:
-				err = processor.writer.WriteByte(value)
-			}
-		} else {
-			err = processor.writer.WriteByte(value)
-		}
-		if err != nil {
+		if err := processor.writeStringByte(value, escapeHTML); err != nil {
 			return nil, overflow, err
 		}
+	}
+}
+
+func (processor *jsonProcessor) writeStringByte(value byte, escapeHTML bool) error {
+	if escapeHTML {
+		if escaped := htmlStringEscape(value); escaped != "" {
+			_, err := processor.writer.WriteString(escaped)
+			return err
+		}
+	}
+	return processor.writer.WriteByte(value)
+}
+
+func htmlStringEscape(value byte) string {
+	switch value {
+	case '<':
+		return `\u003c`
+	case '>':
+		return `\u003e`
+	case '&':
+		return `\u0026`
+	default:
+		return ""
 	}
 }
 
@@ -624,8 +654,10 @@ func replacementPath(path string) bool {
 }
 
 func decodeJSONString(raw []byte) (string, error) {
-	value, err := strconv.Unquote(`"` + string(raw) + `"`)
-	if err != nil {
+	quoted := make([]byte, 0, len(raw)+2)
+	quoted = append(append(append(quoted, '"'), raw...), '"')
+	var value string
+	if err := json.Unmarshal(quoted, &value); err != nil {
 		return "", fmt.Errorf("%w: %v", ErrInvalidJSON, err)
 	}
 	return value, nil
@@ -637,11 +669,4 @@ func isJSONWhitespace(value byte) bool {
 
 func isJSONDelimiter(value byte) bool {
 	return isJSONWhitespace(value) || value == ',' || value == '}' || value == ']'
-}
-
-func minInt(left int, right int) int {
-	if left < right {
-		return left
-	}
-	return right
 }

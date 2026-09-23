@@ -1,26 +1,26 @@
+import { SafeHTML, html, setHTML } from "./safe-html";
 import { getBenchmarkRecord, runBenchmark } from "./api";
 import { benchmarkSections } from "./benchmark-data";
 import { allNodeModels } from "./data";
 import { elements } from "./elements";
 import { state } from "./state";
 import type { BenchmarkRecord, BenchmarkSection, BenchmarkSummary, Model } from "./types";
-import { escapeAttribute, escapeHTML } from "./utils";
 
 export function renderBenchmarks(): void {
   ensureBenchmarkSelection();
-  elements.benchmarkModelSelect.innerHTML = benchmarkModels().map(model => `
-    <option value="${escapeAttribute(modelKey(model))}" ${modelKey(model) === state.benchmark.modelKey ? "selected" : ""}>
-      ${escapeHTML(modelLabel(model))}
+  setHTML(elements.benchmarkModelSelect, html`${benchmarkModels().map(model => html`
+    <option value="${modelKey(model)}" ${modelKey(model) === state.benchmark.modelKey ? "selected" : ""}>
+      ${modelLabel(model)}
     </option>
-  `).join("");
+  `)}`);
   elements.benchmarkTypeSelect.value = state.benchmark.type;
   elements.benchmarkAllSections.checked = selectedAllSections();
-  elements.benchmarkSections.innerHTML = benchmarkSections.map(section => `
+  setHTML(elements.benchmarkSections, html`${benchmarkSections.map(section => html`
     <label class="toggle-row">
-      <input type="checkbox" value="${escapeAttribute(section)}" data-operation-group="benchmark" data-benchmark-section="${escapeAttribute(section)}" ${state.benchmark.sections.includes(section) ? "checked" : ""} ${state.benchmark.type === "general" || selectedAllSections() ? "disabled" : ""}>
-      <span>${escapeHTML(section)}</span>
+      <input type="checkbox" value="${section}" data-operation-group="benchmark" data-benchmark-section="${section}" ${state.benchmark.sections.includes(section) ? "checked" : ""} ${state.benchmark.type === "general" || selectedAllSections() ? "disabled" : ""}>
+      <span>${section}</span>
     </label>
-  `).join("");
+  `)}`);
   elements.runBenchmarkButton.disabled = state.benchmark.running || !selectedModel();
   renderBenchmarkLatest();
   renderBenchmarkHistory();
@@ -92,49 +92,49 @@ function renderBenchmarkLatest(): void {
   const record = currentBenchmarkRecord();
   const latest = record?.latest;
   if (state.benchmark.error) {
-    elements.benchmarkLatest.innerHTML = `<div class="error-text">${escapeHTML(state.benchmark.error)}</div>`;
+    setHTML(elements.benchmarkLatest, html`<div class="error-text">${state.benchmark.error}</div>`);
     return;
   }
   if (!latest) {
-    elements.benchmarkLatest.innerHTML = `<div class="detail-empty">No benchmark data</div>`;
+    setHTML(elements.benchmarkLatest, html`<div class="detail-empty">No benchmark data</div>`);
     return;
   }
   const sections = benchmarkSections
     .map(section => record?.sections?.[section])
     .filter((summary): summary is BenchmarkSummary => Boolean(summary));
-  elements.benchmarkLatest.innerHTML = [
+  setHTML(elements.benchmarkLatest, html`${[
     summaryCard("Latest", latest),
     ...sections.map(summary => summaryCard(summary.section, summary))
-  ].join("");
+  ]}`);
 }
 
 function renderBenchmarkHistory(): void {
   const history = currentBenchmarkRecord()?.history ?? [];
   if (history.length === 0) {
-    elements.benchmarkHistory.innerHTML = `<div class="detail-empty">No history yet</div>`;
+    setHTML(elements.benchmarkHistory, html`<div class="detail-empty">No history yet</div>`);
     return;
   }
-  elements.benchmarkHistory.innerHTML = history.slice().reverse().map(summary => `
+  setHTML(elements.benchmarkHistory, html`${history.slice().reverse().map(summary => html`
     <article class="benchmark-row">
       <div>
-        <strong>${escapeHTML(summary.section)} / ${escapeHTML(summary.status)}</strong>
+        <strong>${summary.section} / ${summary.status}</strong>
         <div class="muted">${formatDate(summary.finished_at)} / ${summary.duration_ms || 0}ms</div>
       </div>
       <div class="change-list">${optionChanges(summary)}</div>
     </article>
-  `).join("");
+  `)}`);
 }
 
-function summaryCard(title: string, summary: BenchmarkSummary): string {
-  return `
+function summaryCard(title: string, summary: BenchmarkSummary): SafeHTML {
+  return html`
     <article class="benchmark-card">
-      <strong>${escapeHTML(title)}</strong>
-      <div class="benchmark-status ${escapeAttribute(summary.status)}">${escapeHTML(summary.status)}</div>
+      <strong>${title}</strong>
+      <div class="benchmark-status ${summary.status}">${summary.status}</div>
       <div class="muted">${summary.duration_ms || 0}ms / ${formatDate(summary.finished_at)}</div>
-      ${summary.error ? `<div class="error-text">${escapeHTML(summary.error)}</div>` : ""}
-      <div class="metric-list">${(summary.metrics ?? []).map(metric => `
-        <span>${escapeHTML(metric.name)}: ${escapeHTML(formatMetricValue(metric))}</span>
-      `).join("")}</div>
+      ${summary.error ? html`<div class="error-text">${summary.error}</div>` : ""}
+      <div class="metric-list">${(summary.metrics ?? []).map(metric => html`
+        <span>${metric.name}: ${formatMetricValue(metric)}</span>
+      `)}</div>
     </article>
   `;
 }
@@ -159,14 +159,14 @@ function formatNumber(value: number): string {
   return value.toFixed(2);
 }
 
-function optionChanges(summary: BenchmarkSummary): string {
+function optionChanges(summary: BenchmarkSummary): SafeHTML {
   const changes = summary.option_changes ?? [];
   if (changes.length === 0) {
-    return `<span class="muted">no option changes</span>`;
+    return html`<span class="muted">no option changes</span>`;
   }
-  return changes.map(change => `
-    <span class="chip amber">${escapeHTML(change.key)} ${escapeHTML(change.kind)}</span>
-  `).join("");
+  return html`${changes.map(change => html`
+    <span class="chip amber">${change.key} ${change.kind}</span>
+  `)}`;
 }
 
 function currentBenchmarkRecord(): BenchmarkRecord | null {

@@ -253,16 +253,12 @@ func (service *Service) forwardWebUIRequestBody(ctx context.Context, original *h
 	if err != nil {
 		return nil, err
 	}
-	copyRequestHeaders(request.Header, original.Header)
+	copyBackendHeaders(request.Header, original.Header)
 	if service.clusterToken != "" && strings.HasPrefix(path, nodeWebUIProxyPrefix) {
 		request.Header.Set("Authorization", "Bearer "+service.clusterToken)
 	}
 	request.Host = target.Host
-	client := *service.client
-	client.CheckRedirect = func(*http.Request, []*http.Request) error {
-		return http.ErrUseLastResponse
-	}
-	return client.Do(request)
+	return service.client.Do(request)
 }
 
 func readProxyRequestBody(original *http.Request) ([]byte, error) {

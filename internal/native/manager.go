@@ -399,10 +399,6 @@ func (exitErr *backendExitedError) Unwrap() error {
 	return exitErr.err
 }
 
-func unexpectedExitError(name string, err error) error {
-	return &backendExitedError{name: name, err: err}
-}
-
 // exitError builds the startup failure for this manager, enriched with the decisive line
 // from the captured output when the backend explained itself before dying.
 func (manager *Manager) exitError(err error) error {

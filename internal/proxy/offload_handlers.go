@@ -103,10 +103,9 @@ func (service *Service) handleNodeOffloadRequest(w http.ResponseWriter, r *http.
 		openai.WriteError(w, http.StatusConflict, offloadReturnedCode, err.Error())
 		return
 	}
-	defer func() { _ = response.Body.Close() }()
-	copyBackendHeaders(w.Header(), response.Header)
-	w.WriteHeader(response.StatusCode)
-	_, _ = io.Copy(w, response.Body)
+	if err := service.writeProxyResponse(w, response, "", false); err != nil {
+		service.logger.Printf("offload relay response failed path=%s owner=%q error=%v", path, ownerNodeID, err)
+	}
 }
 
 func requestAddressedToHelper(r *http.Request, body []byte, lease offloadLease) (*http.Request, []byte) {

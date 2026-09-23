@@ -20,10 +20,10 @@ server:
 
 auth:
   bearer_keys:
-    - "alpha"
-    - "beta"
+    - "alpha-inference-key-01"
+    - "beta-inference-key-002"
   admin_keys:
-    - "admin-alpha"
+    - "admin-alpha-key-00001"
 
 models:
   config_dir: "./models"
@@ -100,7 +100,7 @@ cluster:
   master_url: ""
   slave_urls:
     - "http://127.0.0.1:8081"
-  token: "cluster-secret"
+  token: "cluster-secret-token-01"
   store_dir: "./store"
   sync_interval: "30s"
   health_interval: "5s"
@@ -123,10 +123,10 @@ analytics:
 	if cfg.Server.Bind != "127.0.0.1:9999" {
 		t.Fatalf("unexpected bind %q", cfg.Server.Bind)
 	}
-	if !reflect.DeepEqual(cfg.Auth.BearerKeys, []string{"alpha", "beta"}) {
+	if !reflect.DeepEqual(cfg.Auth.BearerKeys, []string{"alpha-inference-key-01", "beta-inference-key-002"}) {
 		t.Fatalf("unexpected bearer keys %#v", cfg.Auth.BearerKeys)
 	}
-	if !reflect.DeepEqual(cfg.Auth.InferenceKeys, []string{"alpha", "beta"}) || !reflect.DeepEqual(cfg.Auth.AdminKeys, []string{"admin-alpha"}) {
+	if !reflect.DeepEqual(cfg.Auth.InferenceKeys, []string{"alpha-inference-key-01", "beta-inference-key-002"}) || !reflect.DeepEqual(cfg.Auth.AdminKeys, []string{"admin-alpha-key-00001"}) {
 		t.Fatalf("unexpected split auth %#v", cfg.Auth)
 	}
 	if !reflect.DeepEqual(cfg.Kobold.ExtraArgs, []string{"--flashattention", "--quiet"}) {
@@ -210,7 +210,7 @@ analytics:
 	if !reflect.DeepEqual(cfg.Cluster.SlaveURLs, []string{"http://127.0.0.1:8081"}) {
 		t.Fatalf("unexpected slave urls %#v", cfg.Cluster.SlaveURLs)
 	}
-	if cfg.Cluster.Token != "cluster-secret" || cfg.Cluster.StoreDir != "./store" {
+	if cfg.Cluster.Token != "cluster-secret-token-01" || cfg.Cluster.StoreDir != "./store" {
 		t.Fatalf("unexpected cluster config %#v", cfg.Cluster)
 	}
 	if cfg.Cluster.SyncInterval != 30*time.Second || cfg.Cluster.HealthInterval != 5*time.Second {
@@ -280,7 +280,7 @@ func TestLoadRejectsSlaveClusterWithoutRequiredFields(t *testing.T) {
 cluster:
   role: "slave"
   node_id: "slave-a"
-  token: "secret"
+  token: "slave-cluster-token-01"
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}

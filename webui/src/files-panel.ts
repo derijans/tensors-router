@@ -1,8 +1,9 @@
+import { SafeHTML, html, setHTML } from "./safe-html";
 import { elements } from "./elements";
 import { fileExtensionOptions, fileRoleOptions, filterInventoryFiles } from "./model-inventory-data";
 import { state } from "./state";
 import type { FileRecord, NodeInventory } from "./types";
-import { escapeAttribute, escapeHTML, fileRoles, formatBytes } from "./utils";
+import { fileRoles, formatBytes } from "./utils";
 
 export function renderFilesPanel(files: FileRecord[], nodes: NodeInventory[]): void {
   renderSelect(elements.fileRoleFilter, "All roles", fileRoleOptions(files), state.models.fileRoleFilter);
@@ -15,17 +16,17 @@ export function renderFilesPanel(files: FileRecord[], nodes: NodeInventory[]): v
     hash: state.models.fileHashFilter
   });
   elements.filesRowCount.textContent = `${filtered.length} of ${files.length} files`;
-  elements.filesScanNotices.innerHTML = scanNotices(nodes);
-  elements.filesTable.innerHTML = filtered.length > 0 ? filtered.map(fileRow).join("") : `<tr><td class="inventory-empty" colspan="6">No files match the current filters.</td></tr>`;
+  setHTML(elements.filesScanNotices, scanNotices(nodes));
+  setHTML(elements.filesTable, filtered.length > 0 ? html`${filtered.map(fileRow)}` : html`<tr><td class="inventory-empty" colspan="6">No files match the current filters.</td></tr>`);
 }
 
-function fileRow(file: FileRecord): string {
-  return `
+function fileRow(file: FileRecord): SafeHTML {
+  return html`
     <tr>
-      <td title="${escapeAttribute(file.path)}">${escapeHTML(file.basename)}</td>
-      <td>${escapeHTML(file.node_id || "")}</td>
-      <td>${escapeHTML(fileRoles(file).join(", "))}</td>
-      <td>${escapeHTML(normalizedExtension(file))}</td>
+      <td title="${file.path}">${file.basename}</td>
+      <td>${file.node_id || ""}</td>
+      <td>${fileRoles(file).join(", ")}</td>
+      <td>${normalizedExtension(file)}</td>
       <td>${formatBytes(file.size || 0)}</td>
       <td>${fileHashCell(file.node_id || "", file.path, file.sha256 || "")}</td>
     </tr>`;
@@ -36,17 +37,17 @@ function normalizedExtension(file: FileRecord): string {
   return extension && !extension.startsWith(".") ? `.${extension}` : extension;
 }
 
-function fileHashCell(nodeID: string, path: string, hash: string): string {
+function fileHashCell(nodeID: string, path: string, hash: string): SafeHTML {
   if (!hash) {
-    return `<button type="button" data-operation-group="models" data-hash-file-node="${escapeAttribute(nodeID)}" data-hash-file-path="${escapeAttribute(path)}">Hash</button>`;
+    return html`<button type="button" data-operation-group="models" data-hash-file-node="${nodeID}" data-hash-file-path="${path}">Hash</button>`;
   }
-  return `<span title="${escapeAttribute(hash)}"><code>${escapeHTML(hash.slice(0, 8))}</code> <button type="button" data-copy-file-hash="${escapeAttribute(hash)}">Copy</button></span>`;
+  return html`<span title="${hash}"><code>${hash.slice(0, 8)}</code> <button type="button" data-copy-file-hash="${hash}">Copy</button></span>`;
 }
 
 function renderSelect(select: HTMLSelectElement, allLabel: string, values: string[], selected: string): void {
-  select.innerHTML = `<option value="">${escapeHTML(allLabel)}</option>${values.map(value => `<option value="${escapeAttribute(value)}"${value === selected ? " selected" : ""}>${escapeHTML(value)}</option>`).join("")}`;
+  setHTML(select, html`<option value="">${allLabel}</option>${values.map(value => html`<option value="${value}"${value === selected ? " selected" : ""}>${value}</option>`)}`);
 }
 
-function scanNotices(nodes: NodeInventory[]): string {
-  return nodes.filter(node => node.error).map(node => `<div class="inventory-notice error-text">${escapeHTML(node.node_id || node.node_url || "unknown node")}: ${escapeHTML(node.error || "scan failed")}</div>`).join("");
+function scanNotices(nodes: NodeInventory[]): SafeHTML {
+  return html`${nodes.filter(node => node.error).map(node => html`<div class="inventory-notice error-text">${node.node_id || node.node_url || "unknown node"}: ${node.error || "scan failed"}</div>`)}`;
 }

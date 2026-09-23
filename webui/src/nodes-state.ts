@@ -1,9 +1,9 @@
+import { SafeHTML, html, setHTML, setOuterHTML } from "./safe-html";
 import { applyNodeBackendLaunchOptions, cancelNodeBackendInitialization, getNodeState, initializeNodeBackend, unloadNodeRuntime } from "./api";
 import { closestElement } from "./dom";
 import { elements } from "./elements";
 import { state } from "./state";
 import type { BackendInitializationJob, BackendInitializationRequest, BackendLaunchOptions, NodeInventory, NodeRuntimeSlice, NodeStateBackend } from "./types";
-import { escapeAttribute, escapeHTML } from "./utils";
 import { nodeStatePanelID, renderNodeCard, renderNodeStateSnapshot } from "./node-state-view";
 import { reportErrorToConsole } from "./console-report";
 
@@ -14,15 +14,14 @@ export function renderNodesPanel(): void {
   const nodes = state.inventory?.nodes ?? [];
   reconcileNodeStateSelection(nodes);
   elements.nodeCount.textContent = `${nodes.length} node${nodes.length === 1 ? "" : "s"}`;
-  elements.nodesScanNotices.innerHTML = scanNotices(nodes);
-  elements.nodesGrid.innerHTML = nodes.map(node => renderNodeCard(node, state.nodes.expanded.includes(node.node_id))).join("");
-  elements.nodesDetail.innerHTML = nodes
+  setHTML(elements.nodesScanNotices, scanNotices(nodes));
+  setHTML(elements.nodesGrid, html`${nodes.map(node => renderNodeCard(node, state.nodes.expanded.includes(node.node_id)))}`);
+  setHTML(elements.nodesDetail, html`${nodes
     .filter(node => state.nodes.expanded.includes(node.node_id))
-    .map(node => nodeStatePanel(node.node_id))
-    .join("");
+    .map(node => nodeStatePanel(node.node_id))}`);
 }
 
-function scanNotices(nodes: NodeInventory[]): string {
+function scanNotices(nodes: NodeInventory[]): SafeHTML {
   const failing = nodes.filter(node => node.error);
   const live = new Set(failing.map(node => `${node.node_id}:${node.error}`));
   for (const key of reportedNodeScanErrors) {
@@ -37,9 +36,8 @@ function scanNotices(nodes: NodeInventory[]): string {
       reportErrorToConsole(`node scan ${node.node_id || node.node_url || "unknown"}`, new Error(node.error || "scan failed"));
     }
   }
-  return failing
-    .map(node => `<div class="inventory-notice error-text">${escapeHTML(node.node_id || node.node_url || "unknown node")}: ${escapeHTML(node.error || "scan failed")}</div>`)
-    .join("");
+  return html`${failing
+    .map(node => html`<div class="inventory-notice error-text">${node.node_id || node.node_url || "unknown node"}: ${node.error || "scan failed"}</div>`)}`;
 }
 
 export function handleNodesClick(event: Event): void {
@@ -422,20 +420,20 @@ function pollingCurrent(nodeID: string, generation: number): boolean {
 function renderNodePanel(nodeID: string): void {
   const panel = document.getElementById(nodeStatePanelID(nodeID));
   if (panel) {
-    panel.outerHTML = nodeStatePanel(nodeID);
+    setOuterHTML(panel, nodeStatePanel(nodeID));
   }
 }
 
-function nodeStatePanel(nodeID: string): string {
+function nodeStatePanel(nodeID: string): SafeHTML {
   const current = slice(nodeID) ?? defaultNodeSlice();
-  return `
-    <section id="${escapeAttribute(nodeStatePanelID(nodeID))}" class="node-state-panel" aria-label="Runtime state for ${escapeAttribute(nodeID)}">
+  return html`
+    <section id="${nodeStatePanelID(nodeID)}" class="node-state-panel" aria-label="Runtime state for ${nodeID}">
       <div class="node-state-header">
-        <h3>Runtime state - ${escapeHTML(nodeID)}</h3>
-        <button type="button" data-node-close data-node-id="${escapeAttribute(nodeID)}">Close</button>
+        <h3>Runtime state - ${nodeID}</h3>
+        <button type="button" data-node-close data-node-id="${nodeID}">Close</button>
       </div>
-      ${current.loading && !current.snapshot ? `<p class="muted node-state-message">Loading runtime state...</p>` : ""}
-      ${current.error ? `<div class="error-text node-state-message" role="alert">${escapeHTML(current.error)}</div>` : ""}
+      ${current.loading && !current.snapshot ? html`<p class="muted node-state-message">Loading runtime state...</p>` : ""}
+      ${current.error ? html`<div class="error-text node-state-message" role="alert">${current.error}</div>` : ""}
       ${current.snapshot ? renderNodeStateSnapshot(nodeID, current.snapshot, current.pendingUnload, current.pendingBackendAction) : ""}
     </section>
   `;

@@ -1,0 +1,13 @@
+version: "2"
+
+linters:
+  default: standard
+  settings:
+    staticcheck:
+      checks: ["all", "-ST1000", "-ST1003", "-ST1005", "-ST1016", "-ST1020", "-ST1021", "-ST1022", "-QF*"]
+  exclusions:
+    presets:
+      - std-error-handling
+    rules:
+      - linters: [errcheck]
+        text: 'Error return value of `[^`]*\.Rollback` is not checked'

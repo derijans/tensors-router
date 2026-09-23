@@ -109,7 +109,7 @@ func extractAuthorizedArchive(ctx context.Context, archivePath string, destinati
 			if err := createArchiveDirectory(destinationRoot, normalized); err != nil {
 				return err
 			}
-		case tar.TypeReg, tar.TypeRegA:
+		case tar.TypeReg:
 			if header.Size < 0 || header.Size > artifact.UnpackedSize-unpacked {
 				return fmt.Errorf("%s archive exceeds authorized unpacked size", artifactKind)
 			}

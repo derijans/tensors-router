@@ -11,6 +11,7 @@ import {
   updateLinkDraft
 } from "../routing-links-data";
 import { routingDialogMarkup } from "../routing-links-markup";
+import { SafeHTML } from "../safe-html";
 import type { RoutingCandidate, RoutingLinksResponse } from "../types";
 
 const unlinked = {selected: false, load_if_unloaded: false, restore_after_borrow: false};
@@ -140,13 +141,13 @@ describe("groupCandidatesByNode", () => {
 
 describe("routingDialogMarkup", () => {
   function markupFor(candidates: RoutingCandidate[]): string {
-    return routingDialogMarkup({
+    return SafeHTML.render(routingDialogMarkup({
       lane: "text",
       anchor: slaveAnchor,
       candidates,
       drafts: draftsFromCandidates(candidates),
       acknowledged: false
-    });
+    }));
   }
 
   function checkboxTag(markup: string, direction: string, field: string): string {

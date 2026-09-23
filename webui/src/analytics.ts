@@ -1,3 +1,4 @@
+import { SafeHTML, emptyHTML, html, setHTML } from "./safe-html";
 import { flushAnalytics, getAnalytics } from "./api";
 import {
   analyticsModelChoices,
@@ -15,7 +16,6 @@ import {
 import { elements } from "./elements";
 import { state } from "./state";
 import type { AnalyticsModelUsage, AnalyticsNodeUsage, AnalyticsQuery, AnalyticsRecentEvent, AnalyticsSectionUsage, AnalyticsTimeline, SelectChoice } from "./types";
-import { escapeAttribute, escapeHTML } from "./utils";
 
 export async function loadAnalytics(): Promise<void> {
   state.analytics.loading = true;
@@ -44,13 +44,13 @@ export function renderAnalytics(): void {
   renderAnalyticsControls();
   const data = state.analytics.data;
   if (state.analytics.error) {
-    elements.analyticsStatus.innerHTML = `<div class="error-text">${escapeHTML(state.analytics.error)}</div>`;
+    setHTML(elements.analyticsStatus, html`<div class="error-text">${state.analytics.error}</div>`);
   } else if (state.analytics.loading) {
-    elements.analyticsStatus.innerHTML = `<div class="detail-empty">Loading analytics</div>`;
+    setHTML(elements.analyticsStatus, html`<div class="detail-empty">Loading analytics</div>`);
   } else if (!data?.enabled) {
-    elements.analyticsStatus.innerHTML = `<div class="detail-empty">Analytics disabled</div>`;
+    setHTML(elements.analyticsStatus, html`<div class="detail-empty">Analytics disabled</div>`);
   } else {
-    elements.analyticsStatus.innerHTML = "";
+    setHTML(elements.analyticsStatus, emptyHTML);
   }
   renderAnalyticsSummary();
   renderAnalyticsTimeline();
@@ -97,19 +97,19 @@ function renderAnalyticsControls(): void {
   elements.analyticsRecentDetailHeader.textContent = state.analytics.showDetails ? "Stream metrics" : "Metadata";
   const query = normalizedAnalyticsQuery(state.analytics.query);
   const filters = state.analytics.data?.filters;
-  elements.analyticsPeriodSelect.innerHTML = optionsHTML(analyticsPeriods, query.period);
-  elements.analyticsNodeSelect.innerHTML = optionsHTML(choicesWithSelected(analyticsNodeChoices(state.inventory, filters?.node_ids), query.node_id), query.node_id || "");
-  elements.analyticsModelSelect.innerHTML = optionsHTML(choicesWithSelected(analyticsModelChoices(state.inventory, filters?.model_ids), query.model_id), query.model_id || "");
-  elements.analyticsSectionSelect.innerHTML = optionsHTML(analyticsSections, query.section || "");
+  setHTML(elements.analyticsPeriodSelect, optionsHTML(analyticsPeriods, query.period));
+  setHTML(elements.analyticsNodeSelect, optionsHTML(choicesWithSelected(analyticsNodeChoices(state.inventory, filters?.node_ids), query.node_id), query.node_id || ""));
+  setHTML(elements.analyticsModelSelect, optionsHTML(choicesWithSelected(analyticsModelChoices(state.inventory, filters?.model_ids), query.model_id), query.model_id || ""));
+  setHTML(elements.analyticsSectionSelect, optionsHTML(analyticsSections, query.section || ""));
 }
 
 function renderAnalyticsSummary(): void {
   const summary = state.analytics.data?.summary;
   if (!state.analytics.data?.enabled || !summary) {
-    elements.analyticsSummary.innerHTML = "";
+    setHTML(elements.analyticsSummary, emptyHTML);
     return;
   }
-  elements.analyticsSummary.innerHTML = [
+  setHTML(elements.analyticsSummary, html`${[
     metricCard("Requests", formatCount(summary.request_count), `${formatCount(summary.success_count)} ok / ${formatCount(summary.failure_count)} failed`),
     metricCard("Tokens", formatCount(summary.total_tokens), `${formatCount(summary.input_tokens)} in / ${formatCount(summary.output_tokens)} out`),
     metricCard("Speed", `${formatDecimal(summary.average_tokens_per_second, 1)} tok/s`, `${formatDecimal(summary.average_duration_ms, 0)}ms avg`),
@@ -118,99 +118,99 @@ function renderAnalyticsSummary(): void {
     metricCard("Audio", formatDurationSeconds(summary.audio_seconds), `${formatCount(summary.audio_tokens)} tokens`),
     metricCard("VRAM", formatMegabytes(summary.vram_peak_mb), `${formatPercent(summary.vram_peak_percent)} peak / ${formatMegabytes(summary.vram_total_mb)} total`),
     metricCard("Loads", formatCount(summary.load_count), `${formatDecimal(summary.average_load_duration_ms, 0)}ms avg / ${formatMegabytes(summary.model_vram_estimate_mb)} model`)
-  ].join("");
+  ]}`);
 }
 
 function renderAnalyticsTimeline(): void {
   const timeline = state.analytics.data?.timeline ?? [];
   if (!state.analytics.data?.enabled || timeline.length === 0) {
-    elements.analyticsTimeline.innerHTML = "";
+    setHTML(elements.analyticsTimeline, emptyHTML);
     return;
   }
   const width = 720;
   const plotHeight = 170;
   const height = 220;
   const series = chartPoints(timeline, width, plotHeight);
-  elements.analyticsTimeline.innerHTML = `
+  setHTML(elements.analyticsTimeline, html`
     <div class="analytics-chart-head">
       <strong>Timeline</strong>
-      <span class="muted">${escapeHTML(state.analytics.data.granularity)}</span>
+      <span class="muted">${state.analytics.data.granularity}</span>
     </div>
     <svg class="analytics-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Analytics timeline">
-      <path class="analytics-line" d="${escapeAttribute(series.linePath)}"></path>
+      <path class="analytics-line" d="${series.linePath}"></path>
       ${series.points.map((chartPoint, index) => {
         const point = timeline[index];
         if (!point) {
           return "";
         }
-        return `
+        return html`
         <circle class="analytics-point" cx="${chartPoint.x.toFixed(2)}" cy="${chartPoint.y.toFixed(2)}" r="${chartPoint.radius.toFixed(2)}">
-          <title>${escapeHTML(formatBucket(point))}: ${formatCount(point.request_count)} requests</title>
+          <title>${formatBucket(point)}: ${formatCount(point.request_count)} requests</title>
         </circle>
       `;
-      }).join("")}
+      })}
       <line class="analytics-axis" x1="4" y1="${plotHeight + 10}" x2="${width - 4}" y2="${plotHeight + 10}"></line>
-      ${series.ticks.map(tick => `
+      ${series.ticks.map(tick => html`
         <g class="analytics-tick">
           <line class="analytics-axis" x1="${tick.x.toFixed(2)}" y1="${plotHeight + 5}" x2="${tick.x.toFixed(2)}" y2="${plotHeight + 15}"></line>
-          <text class="analytics-tick-label" x="${tick.x.toFixed(2)}" y="${plotHeight + 34}">${escapeHTML(tick.label)}</text>
+          <text class="analytics-tick-label" x="${tick.x.toFixed(2)}" y="${plotHeight + 34}">${tick.label}</text>
         </g>
-      `).join("")}
+      `)}
     </svg>
-  `;
+  `);
 }
 
 function renderAnalyticsBreakdown(): void {
   const sections = state.analytics.data?.sections ?? [];
   if (!state.analytics.data?.enabled || sections.length === 0) {
-    elements.analyticsSections.innerHTML = "";
+    setHTML(elements.analyticsSections, emptyHTML);
     return;
   }
   const max = Math.max(...sections.map(section => section.request_count), 1);
-  elements.analyticsSections.innerHTML = `
+  setHTML(elements.analyticsSections, html`
     <div class="analytics-chart-head">
       <strong>Sections</strong>
       <span class="muted">requests by lane</span>
     </div>
     <div class="analytics-section-bars">
-      ${sections.map(section => sectionBar(section, max)).join("")}
+      ${sections.map(section => sectionBar(section, max))}
     </div>
-  `;
+  `);
 }
 
 function renderAnalyticsTables(): void {
   const data = state.analytics.data;
   if (!data?.enabled) {
-    elements.analyticsModelsTable.innerHTML = "";
-    elements.analyticsNodesTable.innerHTML = "";
-    elements.analyticsRecentTable.innerHTML = "";
-    elements.analyticsNodeErrors.innerHTML = "";
+    setHTML(elements.analyticsModelsTable, emptyHTML);
+    setHTML(elements.analyticsNodesTable, emptyHTML);
+    setHTML(elements.analyticsRecentTable, emptyHTML);
+    setHTML(elements.analyticsNodeErrors, emptyHTML);
     return;
   }
-  elements.analyticsModelsTable.innerHTML = data.models.map(modelRow).join("");
-  elements.analyticsNodesTable.innerHTML = data.nodes.map(nodeRow).join("");
-  elements.analyticsRecentTable.innerHTML = data.recent.map(recentRow).join("");
-  elements.analyticsNodeErrors.innerHTML = (data.node_errors ?? []).map(error => `
-    <div class="error-text">${escapeHTML(error.node_id || error.node_url || "node")}: ${escapeHTML(error.error)}</div>
-  `).join("");
+  setHTML(elements.analyticsModelsTable, html`${data.models.map(modelRow)}`);
+  setHTML(elements.analyticsNodesTable, html`${data.nodes.map(nodeRow)}`);
+  setHTML(elements.analyticsRecentTable, html`${data.recent.map(recentRow)}`);
+  setHTML(elements.analyticsNodeErrors, html`${(data.node_errors ?? []).map(error => html`
+    <div class="error-text">${error.node_id || error.node_url || "node"}: ${error.error}</div>
+  `)}`);
 }
 
-function metricCard(label: string, value: string, detail: string): string {
-  return `
+function metricCard(label: string, value: string, detail: string): SafeHTML {
+  return html`
     <article class="analytics-metric">
-      <span>${escapeHTML(label)}</span>
-      <strong>${escapeHTML(value)}</strong>
-      <small>${escapeHTML(detail)}</small>
+      <span>${label}</span>
+      <strong>${value}</strong>
+      <small>${detail}</small>
     </article>
   `;
 }
 
-function sectionBar(section: AnalyticsSectionUsage, max: number): string {
+function sectionBar(section: AnalyticsSectionUsage, max: number): SafeHTML {
   const width = Math.max(1, Math.round((section.request_count / max) * 100));
-  return `
+  return html`
     <div class="analytics-section-row">
-      <span>${escapeHTML(sectionLabel(section.section))}</span>
-      <svg viewBox="0 0 100 8" role="img" aria-label="${escapeAttribute(section.section)} requests">
+      <span>${sectionLabel(section.section)}</span>
+      <svg viewBox="0 0 100 8" role="img" aria-label="${section.section} requests">
         <rect class="analytics-bar-track" x="0" y="0" width="100" height="8"></rect>
         <rect class="analytics-bar" x="0" y="0" width="${width}" height="8"></rect>
       </svg>
@@ -219,11 +219,11 @@ function sectionBar(section: AnalyticsSectionUsage, max: number): string {
   `;
 }
 
-function modelRow(model: AnalyticsModelUsage): string {
-  return `
+function modelRow(model: AnalyticsModelUsage): SafeHTML {
+  return html`
     <tr>
-      <td>${escapeHTML(model.node_id)}</td>
-      <td>${escapeHTML(model.model_id || "unknown")}</td>
+      <td>${model.node_id}</td>
+      <td>${model.model_id || "unknown"}</td>
       <td>${formatCount(model.request_count)}</td>
       <td>${formatCount(model.load_count)}</td>
       <td>${formatMegabytes(model.vram_peak_mb)} / ${formatPercent(model.vram_peak_percent)}</td>
@@ -235,10 +235,10 @@ function modelRow(model: AnalyticsModelUsage): string {
   `;
 }
 
-function nodeRow(node: AnalyticsNodeUsage): string {
-  return `
+function nodeRow(node: AnalyticsNodeUsage): SafeHTML {
+  return html`
     <tr>
-      <td>${escapeHTML(node.node_id)}</td>
+      <td>${node.node_id}</td>
       <td>${formatCount(node.request_count)}</td>
       <td>${formatCount(node.load_count)}</td>
       <td>${formatMegabytes(node.vram_peak_mb)} / ${formatPercent(node.vram_peak_percent)}</td>
@@ -250,7 +250,7 @@ function nodeRow(node: AnalyticsNodeUsage): string {
   `;
 }
 
-function recentRow(event: AnalyticsRecentEvent): string {
+function recentRow(event: AnalyticsRecentEvent): SafeHTML {
   const media = state.analytics.showDetails
     ? streamDetail(event)
     : event.event_type === "model_load"
@@ -262,15 +262,15 @@ function recentRow(event: AnalyticsRecentEvent): string {
     : event.section === "voice" || event.section === "music"
       ? audioDetail(event)
       : tokenDetail(event);
-  return `
+  return html`
     <tr>
-      <td>${escapeHTML(formatDate(event.finished_at))}</td>
-      <td>${escapeHTML(event.node_id)}</td>
-      <td>${escapeHTML(event.model_id || "unknown")}</td>
-      <td>${escapeHTML(sectionLabel(event.section))}</td>
-      <td>${escapeHTML(event.backend_mode || "")}</td>
-      <td>${escapeHTML(event.success ? "ok" : String(event.status_code))}</td>
-      <td>${escapeHTML(media)}</td>
+      <td>${formatDate(event.finished_at)}</td>
+      <td>${event.node_id}</td>
+      <td>${event.model_id || "unknown"}</td>
+      <td>${sectionLabel(event.section)}</td>
+      <td>${event.backend_mode || ""}</td>
+      <td>${event.success ? "ok" : String(event.status_code)}</td>
+      <td>${media}</td>
     </tr>
   `;
 }
@@ -338,10 +338,10 @@ function workVRAMDetail(event: AnalyticsRecentEvent): string {
   return ` / VRAM ${formatMegabytes(event.work_vram_max_mb)} (${formatPercent(event.vram_peak_percent)}) / model ${formatMegabytes(event.model_vram_estimate_mb)}`;
 }
 
-function optionsHTML(options: SelectChoice[], selected: string): string {
-  return options.map(option => `
-    <option value="${escapeAttribute(option.value)}" ${option.value === selected ? "selected" : ""}>${escapeHTML(option.label)}</option>
-  `).join("");
+function optionsHTML(options: SelectChoice[], selected: string): SafeHTML {
+  return html`${options.map(option => html`
+    <option value="${option.value}" ${option.value === selected ? "selected" : ""}>${option.label}</option>
+  `)}`;
 }
 
 function choicesWithSelected(options: SelectChoice[], selected: string | undefined): SelectChoice[] {

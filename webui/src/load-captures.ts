@@ -1,7 +1,7 @@
+import { SafeHTML, emptyHTML, html, setHTML } from "./safe-html";
 import { getLoadCaptureDetail, getLoadCaptureOutput, getLoadCaptures } from "./api";
 import { elements } from "./elements";
 import { state } from "./state";
-import { escapeHTML } from "./utils";
 import type { LoadCaptureAttempt, LoadCaptureQuery } from "./types";
 import { safeTerminalText } from "./terminal-output";
 
@@ -62,13 +62,13 @@ export async function loadMoreCaptureOutput(): Promise<void> {
 export function renderLoadCaptures(): void {
   renderNodeChoices();
   if (state.loadCaptures.error) {
-    elements.loadCaptureStatus.innerHTML = `<div class="error-text">${escapeHTML(state.loadCaptures.error)}</div>`;
+    setHTML(elements.loadCaptureStatus, html`<div class="error-text">${state.loadCaptures.error}</div>`);
   } else if (state.loadCaptures.loading) {
     elements.loadCaptureStatus.textContent = "Loading captures...";
   } else {
-    elements.loadCaptureStatus.innerHTML = (state.loadCaptures.data?.node_errors || []).map(error => `<div class="error-text">${escapeHTML(error.node_id)}: ${escapeHTML(error.error)}</div>`).join("");
+    setHTML(elements.loadCaptureStatus, html`${(state.loadCaptures.data?.node_errors || []).map(error => html`<div class="error-text">${error.node_id}: ${error.error}</div>`)}`);
   }
-  elements.loadCaptureRows.innerHTML = state.loadCaptures.attempts.map(captureRow).join("");
+  setHTML(elements.loadCaptureRows, html`${state.loadCaptures.attempts.map(captureRow)}`);
   elements.loadCaptureMoreButton.hidden = !state.loadCaptures.nextCursor;
   renderLoadCaptureDetail();
 }
@@ -76,35 +76,35 @@ export function renderLoadCaptures(): void {
 function renderNodeChoices(): void {
   const nodes = state.loadCaptures.data?.nodes || [];
   const selected = new Set(state.loadCaptures.query.node_ids);
-  elements.loadCaptureNodeSelect.innerHTML = nodes.map(node => `<option value="${escapeHTML(node.node_id)}"${selected.has(node.node_id) ? " selected" : ""}>${escapeHTML(node.node_id)}${node.enabled ? "" : " (disabled)"}</option>`).join("");
+  setHTML(elements.loadCaptureNodeSelect, html`${nodes.map(node => html`<option value="${node.node_id}"${selected.has(node.node_id) ? " selected" : ""}>${node.node_id}${node.enabled ? "" : " (disabled)"}</option>`)}`);
 }
 
-function captureRow(attempt: LoadCaptureAttempt): string {
+function captureRow(attempt: LoadCaptureAttempt): SafeHTML {
   const duration = attempt.duration_ms > 0 ? `${attempt.duration_ms} ms` : "N/A";
-  return `<tr>
-    <td>${escapeHTML(new Date(attempt.started_at).toLocaleString())}</td>
-    <td>${escapeHTML(attempt.node_id)}</td>
-    <td>${escapeHTML(attempt.kind)}</td>
-    <td>${escapeHTML(attempt.status)}</td>
-    <td>${escapeHTML(attempt.backend_mode)}</td>
-    <td>${escapeHTML(attempt.runtime)} / ${escapeHTML(attempt.lane)}</td>
-    <td>${escapeHTML(duration)}</td>
-    <td><code>${escapeHTML(attempt.snapshot_sha256.slice(0, 16))}</code><div class="muted">${escapeHTML((attempt.model_hashes || []).map(value => value.slice(0, 24)).join(" "))}</div></td>
+  return html`<tr>
+    <td>${new Date(attempt.started_at).toLocaleString()}</td>
+    <td>${attempt.node_id}</td>
+    <td>${attempt.kind}</td>
+    <td>${attempt.status}</td>
+    <td>${attempt.backend_mode}</td>
+    <td>${attempt.runtime} / ${attempt.lane}</td>
+    <td>${duration}</td>
+    <td><code>${attempt.snapshot_sha256.slice(0, 16)}</code><div class="muted">${(attempt.model_hashes || []).map(value => value.slice(0, 24)).join(" ")}</div></td>
     <td>${attempt.truncated ? "Yes" : "No"}</td>
-    <td><button type="button" data-load-capture-node="${escapeHTML(attempt.node_id)}" data-load-capture-id="${escapeHTML(attempt.id)}">Inspect</button></td>
+    <td><button type="button" data-load-capture-node="${attempt.node_id}" data-load-capture-id="${attempt.id}">Inspect</button></td>
   </tr>`;
 }
 
 function renderLoadCaptureDetail(): void {
   const detail = state.loadCaptures.detail;
   if (!detail) {
-    elements.loadCaptureDetail.innerHTML = "";
+    setHTML(elements.loadCaptureDetail, emptyHTML);
     elements.loadCaptureOutput.textContent = "";
     elements.loadCaptureOutputMoreButton.hidden = true;
     return;
   }
   const assets = detail.assets.map(asset => `${asset.role}[${asset.position}] sha256:${asset.sha256}`).join("\n");
-  elements.loadCaptureDetail.innerHTML = `<h3>Sanitized KCPPS</h3><pre>${escapeHTML(JSON.stringify(detail.kcpps, null, 2))}</pre><h3>Model hashes</h3><pre>${escapeHTML(assets || "None")}</pre>${detail.attempt.failure_message ? `<h3>Failure</h3><pre>${escapeHTML(detail.attempt.failure_class + ": " + detail.attempt.failure_message)}</pre>` : ""}`;
+  setHTML(elements.loadCaptureDetail, html`<h3>Sanitized KCPPS</h3><pre>${JSON.stringify(detail.kcpps, null, 2)}</pre><h3>Model hashes</h3><pre>${assets || "None"}</pre>${detail.attempt.failure_message ? html`<h3>Failure</h3><pre>${detail.attempt.failure_class + ": " + detail.attempt.failure_message}</pre>` : ""}`);
   elements.loadCaptureOutput.textContent = combinedOutput();
   elements.loadCaptureOutputMoreButton.hidden = !state.loadCaptures.outputMore;
 }

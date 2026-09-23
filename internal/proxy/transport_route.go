@@ -96,7 +96,7 @@ func (service *Service) handleStreamingRequest(w http.ResponseWriter, r *http.Re
 	if event.ModelID != "" {
 		response = service.responseWithAnalytics(response, event, finalizer)
 	}
-	if err := service.writeTransportResponse(w, response, route.publicID, route.rewriteModel); err != nil {
+	if err := service.writeProxyResponse(w, response, route.publicID, route.rewriteModel); err != nil {
 		return
 	}
 }

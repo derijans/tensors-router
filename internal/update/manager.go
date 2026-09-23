@@ -452,7 +452,7 @@ func extractTarGzPayload(archivePath string, outputDir string, target downloadTa
 		if header.Typeflag == tar.TypeSymlink {
 			return fmt.Errorf("archive symlink %q is not supported", header.Name)
 		}
-		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeRegA && header.Typeflag != tar.TypeDir {
+		if header.Typeflag != tar.TypeReg && header.Typeflag != tar.TypeDir {
 			continue
 		}
 		if strings.Contains(header.Name, "..") {
@@ -501,7 +501,7 @@ func tarGzArchiveBinaryPath(archivePath string, target downloadTarget) (string, 
 		if err != nil {
 			return "", err
 		}
-		if header.Typeflag == tar.TypeReg || header.Typeflag == tar.TypeRegA {
+		if header.Typeflag == tar.TypeReg {
 			names = append(names, header.Name)
 		}
 	}

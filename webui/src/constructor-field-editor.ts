@@ -1,3 +1,4 @@
+import { SafeHTML, emptyHTML, html, listOrFallback, setHTML } from "./safe-html";
 import { compareOptionKeys, jinjaKwargsPrecedenceKey, jinjaKwargsPrecedenceLabels, laneMetadata } from "./constants";
 import {
   changedDraftValues,
@@ -15,8 +16,6 @@ import { defaultFieldValue } from "./simple-cook-data";
 import { invalidateAcceptedConversions, recordConversion } from "./conversions";
 import {
   chip,
-  escapeAttribute,
-  escapeHTML,
   optionInputValue,
   optionValueLabel,
   parseOptionInput
@@ -53,7 +52,7 @@ export function openFieldEditor(lane: LaneKind, pendingPayload?: PaletteComponen
 export function closeFieldEditor(): void {
   state.constructor.fieldEditor = null;
   elements.constructorFieldDialog.close();
-  elements.constructorFieldDialogBody.innerHTML = "";
+  setHTML(elements.constructorFieldDialogBody, emptyHTML);
 }
 
 export function renderFieldEditor(): void {
@@ -68,11 +67,11 @@ export function renderFieldEditor(): void {
   const metadata = laneMetadata[lane];
   const source = sourceOptionsForEditor(editor.pendingPayload ?? state.constructor.lanes[lane]);
   const fieldKeys = editorFieldKeys(lane, source, editor.draft);
-  elements.constructorFieldDialogBody.innerHTML = `
+  setHTML(elements.constructorFieldDialogBody, html`
     <div class="field-dialog-head">
       <div>
-        <h3>${escapeHTML(metadata.label)} Fields</h3>
-        <p class="muted">${escapeHTML(metadata.section)} staged overrides</p>
+        <h3>${metadata.label} Fields</h3>
+        <p class="muted">${metadata.section} staged overrides</p>
       </div>
       <button class="icon-button" type="button" title="Close" data-field-modal-action="cancel">x</button>
     </div>
@@ -97,7 +96,7 @@ export function renderFieldEditor(): void {
       <button type="button" data-field-modal-action="add-field">Add Field</button>
     </div>
     <div class="field-diff-grid">
-      ${fieldKeys.map(key => fieldDiffRow(key, source[key], editor.draft)).join("") || `<div class="detail-empty">No fields in this section</div>`}
+      ${listOrFallback(fieldKeys.map(key => fieldDiffRow(key, source[key], editor.draft)), html`<div class="detail-empty">No fields in this section</div>`)}
     </div>
     <div class="field-dialog-actions">
       <button type="button" data-field-modal-action="reset-section">Reset Section</button>
@@ -105,7 +104,7 @@ export function renderFieldEditor(): void {
       <button type="button" data-field-modal-action="cancel">Cancel</button>
       <button type="button" data-field-modal-action="apply">Apply</button>
     </div>
-  `;
+  `);
 }
 
 export function handleFieldEditorInput(target: EventTarget | null): void {
@@ -247,7 +246,7 @@ function savePresetFromEditor(): void {
   renderFieldEditor();
 }
 
-function fieldDiffRow(key: string, sourceValue: JsonValue | undefined, draft: Options): string {
+function fieldDiffRow(key: string, sourceValue: JsonValue | undefined, draft: Options): SafeHTML {
   const definition = optionDefinition(key);
   const effectiveSourceValue = key === jinjaKwargsPrecedenceKey && (sourceValue === undefined || sourceValue === null)
     ? "config"
@@ -257,16 +256,16 @@ function fieldDiffRow(key: string, sourceValue: JsonValue | undefined, draft: Op
   const changed = hasOverride && comparableJsonValue(draftValue) !== comparableJsonValue(effectiveSourceValue);
   const input = key === jinjaKwargsPrecedenceKey
     ? jinjaKwargsPrecedenceInput(key, hasOverride ? draftValue : effectiveSourceValue)
-    : `<input data-field-draft="${escapeAttribute(key)}" value="${escapeAttribute(hasOverride ? optionInputValue(draftValue) : "")}" placeholder="inherit">`;
-  return `
+    : html`<input data-field-draft="${key}" value="${hasOverride ? optionInputValue(draftValue) : ""}" placeholder="inherit">`;
+  return html`
     <div class="field-diff-row ${changed ? "changed" : ""}">
       <div class="field-label">
-        <span>${escapeHTML(definition?.name || key)}</span>
-        <code>${escapeHTML(key)}</code>
+        <span>${definition?.name || key}</span>
+        <code>${key}</code>
       </div>
       <div class="field-source">
         <span class="muted">Source</span>
-        <strong>${escapeHTML(optionValueLabel(effectiveSourceValue) || "inherit")}</strong>
+        <strong>${optionValueLabel(effectiveSourceValue) || "inherit"}</strong>
       </div>
       <label class="field-override">
         Override
@@ -274,32 +273,32 @@ function fieldDiffRow(key: string, sourceValue: JsonValue | undefined, draft: Op
       </label>
       <div class="field-state">
         ${hasOverride ? chip(changed ? "changed" : "same", changed ? "amber" : "violet") : chip("source", "")}
-        <button class="icon-button" type="button" title="Reset field" data-field-modal-action="reset-field" data-field-key="${escapeAttribute(key)}">x</button>
+        <button class="icon-button" type="button" title="Reset field" data-field-modal-action="reset-field" data-field-key="${key}">x</button>
       </div>
     </div>
   `;
 }
 
-function jinjaKwargsPrecedenceInput(key: string, value: JsonValue | undefined): string {
+function jinjaKwargsPrecedenceInput(key: string, value: JsonValue | undefined): SafeHTML {
   const selectedValue = value === "client" ? "client" : "config";
-  return `<select data-field-draft="${escapeAttribute(key)}">${Object.entries(jinjaKwargsPrecedenceLabels).map(([precedence, label]) => `<option value="${escapeAttribute(precedence)}"${precedence === selectedValue ? " selected" : ""}>${escapeHTML(label)}</option>`).join("")}</select>`;
+  return html`<select data-field-draft="${key}">${Object.entries(jinjaKwargsPrecedenceLabels).map(([precedence, label]) => html`<option value="${precedence}"${precedence === selectedValue ? " selected" : ""}>${label}</option>`)}</select>`;
 }
 
-function assignmentBlock(lane: LaneKind, payload: PaletteComponentPayload): string {
+function assignmentBlock(lane: LaneKind, payload: PaletteComponentPayload): SafeHTML {
   if (!requiresOptionAssignment(payload, lane)) {
-    return "";
+    return emptyHTML;
   }
   const keys = rawFileKeysForLane(lane);
-  return `
+  return html`
     <div class="assignment-panel">
       <div>
-        <strong>${escapeHTML(payload.label)}</strong>
-        <p class="muted">${escapeHTML(payload.subtitle)}</p>
+        <strong>${payload.label}</strong>
+        <p class="muted">${payload.subtitle}</p>
       </div>
       <label>
         Assign file to
         <select data-file-option-key>
-          ${keys.map(key => `<option value="${escapeAttribute(key)}">${escapeHTML(key)}</option>`).join("")}
+          ${keys.map(key => html`<option value="${key}">${key}</option>`)}
         </select>
       </label>
     </div>
@@ -323,20 +322,18 @@ function editorFieldKeys(lane: LaneKind, source: Options, draft: Options): strin
   return Array.from(keys).sort(compareOptionKeys);
 }
 
-function addFieldOptions(lane: LaneKind, usedKeys: string[]): string {
+function addFieldOptions(lane: LaneKind, usedKeys: string[]): SafeHTML {
   const used = new Set(usedKeys);
   const section = laneMetadata[lane].section;
-  return allOptionDefinitions()
+  return html`${allOptionDefinitions()
     .filter(definition => (definition.section || "other") === section && !used.has(definition.key))
     .sort(compareDefinitions)
-    .map(definition => `<option value="${escapeAttribute(definition.key)}">${escapeHTML(definition.key)}</option>`)
-    .join("");
+    .map(definition => html`<option value="${definition.key}">${definition.key}</option>`)}`;
 }
 
-function presetOptions(lane: LaneKind): string {
-  return matchingPresets(lane)
-    .map(preset => `<option value="${escapeAttribute(fieldPresetID(preset))}">${escapeHTML(preset.name)}</option>`)
-    .join("");
+function presetOptions(lane: LaneKind): SafeHTML {
+  return html`${matchingPresets(lane)
+    .map(preset => html`<option value="${fieldPresetID(preset)}">${preset.name}</option>`)}`;
 }
 
 function matchingPresets(lane: LaneKind): FieldPreset[] {

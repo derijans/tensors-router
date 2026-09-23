@@ -220,23 +220,6 @@ func (service *Service) assetPeerURLs() []string {
 	return values
 }
 
-func (service *Service) pullPeerAsset(nodeURL string, hash string, filename string) bool {
-	if !modelassets.ValidHash(hash) || !modelassets.SafeFilename(filename) || service.assetIndex == nil {
-		return false
-	}
-	var lookup assetLookupResponse
-	lookupContext, cancelLookup := context.WithTimeout(context.Background(), service.assetLookupTimeout)
-	defer cancelLookup()
-	if err := service.clusterClient.JSON(lookupContext, http.MethodPost, nodeURL, "/router/v1/node/assets/lookup", assetLookupRequest{Hashes: []string{hash}}, &lookup); err != nil {
-		return false
-	}
-	if len(lookup.Assets) != 1 || lookup.Assets[0].SHA256 != hash || lookup.Assets[0].Filename != filename || lookup.Assets[0].Size < 0 || lookup.Assets[0].Size > service.transportLimits.MaxResponseBytes {
-		return false
-	}
-	lookup.Assets[0].NodeURL = nodeURL
-	return service.pullKnownPeerAsset(lookup.Assets[0], hash, filename)
-}
-
 func (service *Service) pullKnownPeerAsset(source assetLookupRecord, hash string, filename string) bool {
 	if source.SHA256 != hash || source.Filename != filename || source.Size < 0 || source.Size > service.transportLimits.MaxResponseBytes || source.NodeURL == "" {
 		return false
