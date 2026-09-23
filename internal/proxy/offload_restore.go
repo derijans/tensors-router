@@ -73,6 +73,16 @@ func (service *Service) clearBorrowRestore(runtime *backendRuntime) {
 	stopBorrowRestoreLocked(state)
 }
 
+func (service *Service) stopBorrowRestores() {
+	service.borrowRestore.Range(func(_, value any) bool {
+		state := value.(*borrowRestoreState)
+		state.mu.Lock()
+		defer state.mu.Unlock()
+		stopBorrowRestoreLocked(state)
+		return true
+	})
+}
+
 func stopBorrowRestoreLocked(state *borrowRestoreState) {
 	if state.timer != nil {
 		state.timer.Stop()

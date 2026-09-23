@@ -384,6 +384,28 @@ func TestLeaseBookDropsWhatIsNoLongerPlanned(t *testing.T) {
 	}
 }
 
+func TestOffloadLeaseBookReplaceAndLeaseAreSafeConcurrently(t *testing.T) {
+	book := newOffloadLeaseBook()
+	now := time.Now()
+	planned := []offloadLease{imageLeaseFor("node-a", "img-node-a", now.Add(30*time.Second))}
+	const rounds = 1000
+	replaced := make(chan struct{})
+	go func() {
+		defer close(replaced)
+		for range rounds {
+			book.Replace(planned)
+		}
+	}()
+	for range rounds {
+		book.Lease(cluster.RouteLaneImage, "node-a", "img-node-a", now)
+	}
+	<-replaced
+
+	if _, ok := book.Lease(cluster.RouteLaneImage, "node-a", "img-node-a", now); !ok {
+		t.Fatal("lease installed by the last replace was not found")
+	}
+}
+
 func TestOffloadLeasesAreKeyedByLaneAndOwnerModel(t *testing.T) {
 	book := newOffloadLeaseBook()
 	now := time.Now()

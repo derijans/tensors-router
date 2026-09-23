@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"sort"
+	"sync"
 	"time"
 
 	"tensors-router/internal/schedulingcost"
@@ -175,6 +176,7 @@ func offloadModelKey(candidate offloadCandidate) schedulingcost.ModelKey {
 // that goes busy, or a master that stops polling, ends the arrangement without a
 // message having to arrive.
 type offloadLeaseBook struct {
+	mu     sync.RWMutex
 	leases map[string]offloadLease
 }
 
@@ -194,10 +196,14 @@ func (book *offloadLeaseBook) Replace(planned []offloadLease) {
 	for _, lease := range planned {
 		live[offloadLeaseBookKey(lease.Lane, lease.OwnerNodeID, lease.OwnerModelID)] = lease
 	}
+	book.mu.Lock()
+	defer book.mu.Unlock()
 	book.leases = live
 }
 
 func (book *offloadLeaseBook) Lease(lane string, ownerNodeID string, ownerModelID string, now time.Time) (offloadLease, bool) {
+	book.mu.RLock()
+	defer book.mu.RUnlock()
 	lease, ok := book.leases[offloadLeaseBookKey(lane, ownerNodeID, ownerModelID)]
 	if !ok || !lease.ExpiresAt.After(now) {
 		return offloadLease{}, false

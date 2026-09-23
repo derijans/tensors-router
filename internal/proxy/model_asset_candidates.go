@@ -76,11 +76,11 @@ type hfAssetCandidate struct {
 }
 
 func (service *Service) findHFCandidates(ctx context.Context, reference modelassets.Reference, token string) []hfAssetCandidate {
-	if service.downloader == nil || !modelassets.ValidHash(reference.Hash) || !modelassets.SafeFilename(reference.Filename) {
+	if service.downloads.Downloader() == nil || !modelassets.ValidHash(reference.Hash) || !modelassets.SafeFilename(reference.Filename) {
 		return nil
 	}
 	stem := strings.TrimSuffix(reference.Filename, path.Ext(reference.Filename))
-	results, err := service.downloader.Search(ctx, downloader.SearchRequest{Query: stem, Limit: 20}, token)
+	results, err := service.downloads.Downloader().Search(ctx, downloader.SearchRequest{Query: stem, Limit: 20}, token)
 	if err != nil {
 		return nil
 	}
@@ -99,7 +99,7 @@ func (service *Service) findHFCandidates(ctx context.Context, reference modelass
 		go func() {
 			defer group.Done()
 			for result := range jobs {
-				details, err := service.downloader.Repository(ctx, downloader.RepositoryRequest{Repository: result.ID, Token: token})
+				details, err := service.downloads.Downloader().Repository(ctx, downloader.RepositoryRequest{Repository: result.ID, Token: token})
 				if err != nil {
 					continue
 				}

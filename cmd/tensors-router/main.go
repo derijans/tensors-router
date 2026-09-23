@@ -428,14 +428,14 @@ func closeRouterRuntime(router *proxy.Service, modelCatalog *catalog.Catalog, an
 	shutdownContext, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	var closeErr error
-	if analyticsStore != nil {
-		closeErr = errors.Join(closeErr, analyticsStore.Close(shutdownContext))
+	if router != nil {
+		closeErr = errors.Join(closeErr, router.Close(shutdownContext))
 	}
 	if modelCatalog != nil {
 		closeErr = errors.Join(closeErr, modelCatalog.Close())
 	}
-	if router != nil {
-		closeErr = errors.Join(closeErr, router.Close(shutdownContext))
+	if analyticsStore != nil {
+		closeErr = errors.Join(closeErr, analyticsStore.Close(shutdownContext))
 	}
 	for _, shutdownBackend := range shutdownBackends {
 		if err := shutdownBackend(shutdownContext); err != nil {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -229,25 +228,4 @@ func writeTransportForwardError(w http.ResponseWriter, err error) {
 	default:
 		writeBackendFailure(w, err)
 	}
-}
-
-type readerReadCloser struct {
-	io.Reader
-	Closer io.Closer
-}
-
-func (reader *readerReadCloser) Close() error {
-	return reader.Closer.Close()
-}
-
-type flushingWriter struct {
-	http.ResponseWriter
-}
-
-func (writer flushingWriter) Write(content []byte) (int, error) {
-	written, err := writer.ResponseWriter.Write(content)
-	if flusher, ok := writer.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
-	}
-	return written, err
 }

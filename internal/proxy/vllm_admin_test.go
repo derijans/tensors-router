@@ -30,7 +30,7 @@ func TestVLLMAdminAllowlistAndFeatureGates(t *testing.T) {
 			BackendModeVLLM: {TextBackend: backend, EmbeddingsBackend: backend, TranscriptionBackend: backend},
 		},
 	})
-	service.textRuntime.state.filename = "generation.kcpps"
+	defaultFamilyRuntime(t, service, readinessText).state.filename = "generation.kcpps"
 
 	health := httptest.NewRequest(http.MethodGet, "/router/v1/vllm/health", nil)
 	health.Header.Set("Authorization", "Bearer admin-secret")
@@ -79,7 +79,7 @@ func TestVLLMAdminUsesSelectedLoadedRuntime(t *testing.T) {
 			},
 		},
 	})
-	service.embeddingsRuntime.state.filename = "pooling.kcpps"
+	defaultFamilyRuntime(t, service, readinessEmbeddings).state.filename = "pooling.kcpps"
 
 	recorder := httptest.NewRecorder()
 	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/router/v1/vllm/tokenizer-info?runtime=pooling", nil))
@@ -97,7 +97,7 @@ func TestVLLMAdminRejectsOversizedRequestBody(t *testing.T) {
 		},
 		VLLMDynamicLoRAEnabled: true,
 	})
-	service.textRuntime.state.filename = "generation.kcpps"
+	defaultFamilyRuntime(t, service, readinessText).state.filename = "generation.kcpps"
 	service.transportLimits.MaxRequestBytes = 4
 	recorder := httptest.NewRecorder()
 	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/v1/vllm/lora/load", strings.NewReader("12345")))

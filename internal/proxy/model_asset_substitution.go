@@ -47,7 +47,7 @@ func (service *Service) handleNodeModelAssetSubstitution(w http.ResponseWriter, 
 }
 
 func (service *Service) substituteLocalModelAsset(w http.ResponseWriter, r *http.Request, request siteapi.ModelAssetSubstitutionRequest) {
-	if !request.Confirm || service.assetIndex == nil || service.downloader == nil || !modelassets.ValidHash(request.SHA256) || !modelassets.ValidHash(request.ExpectedSHA256) || request.SHA256 == request.ExpectedSHA256 {
+	if !request.Confirm || service.assetIndex == nil || service.downloads.Downloader() == nil || !modelassets.ValidHash(request.SHA256) || !modelassets.ValidHash(request.ExpectedSHA256) || request.SHA256 == request.ExpectedSHA256 {
 		openai.WriteError(w, http.StatusBadRequest, "confirmation_required", "explicit model replacement confirmation is required")
 		return
 	}
@@ -56,7 +56,7 @@ func (service *Service) substituteLocalModelAsset(w http.ResponseWriter, r *http
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "invalid Hugging Face origin")
 		return
 	}
-	details, err := service.downloader.Repository(r.Context(), downloader.RepositoryRequest{Repository: origin.Repository, Revision: origin.Commit, Token: request.Token})
+	details, err := service.downloads.Downloader().Repository(r.Context(), downloader.RepositoryRequest{Repository: origin.Repository, Revision: origin.Commit, Token: request.Token})
 	if err != nil || details.Commit != origin.Commit || !repositoryFileHasHash(details, origin.Path, request.SHA256) {
 		openai.WriteError(w, http.StatusBadRequest, "model_asset_mismatch", "replacement candidate could not be verified")
 		return

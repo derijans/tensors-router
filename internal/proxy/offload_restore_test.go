@@ -29,12 +29,12 @@ func waitForLoadedModel(t *testing.T, service *Service, want string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, filename := service.textRuntime.state.loadedModel(); filename == want {
+		if _, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel(); filename == want {
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	_, filename := service.textRuntime.state.loadedModel()
+	_, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel()
 	t.Fatalf("loaded model = %q, want %q", filename, want)
 }
 
@@ -48,7 +48,7 @@ func TestBorrowRestoreReloadsTheDisplacedModel(t *testing.T) {
 	if err := service.loadLocalConfig(borrowedRestoreContext(), mode, "b", "b.kcpps", readinessText); err != nil {
 		t.Fatal(err)
 	}
-	if _, filename := service.textRuntime.state.loadedModel(); filename != "b.kcpps" {
+	if _, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel(); filename != "b.kcpps" {
 		t.Fatalf("loaded model = %q, want b.kcpps immediately after the borrowed acquire", filename)
 	}
 
@@ -67,7 +67,7 @@ func TestBorrowRestoreDoesNothingWithoutTheRestoreMarker(t *testing.T) {
 	}
 
 	time.Sleep(3 * service.offloadRestoreDelay)
-	if _, filename := service.textRuntime.state.loadedModel(); filename != "b.kcpps" {
+	if _, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel(); filename != "b.kcpps" {
 		t.Fatalf("loaded model = %q, want b.kcpps to stay loaded with no restore requested", filename)
 	}
 }
@@ -87,7 +87,7 @@ func TestBorrowRestoreIsCancelledByNativeTraffic(t *testing.T) {
 	}
 
 	time.Sleep(3 * service.offloadRestoreDelay)
-	if _, filename := service.textRuntime.state.loadedModel(); filename != "b.kcpps" {
+	if _, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel(); filename != "b.kcpps" {
 		t.Fatalf("loaded model = %q, want b.kcpps to stay loaded once native traffic claimed it", filename)
 	}
 }
@@ -109,9 +109,29 @@ func TestBorrowRestoreDoesNotFireWhileBorrowedWorkIsInFlight(t *testing.T) {
 	}
 
 	time.Sleep(3 * service.offloadRestoreDelay)
-	if _, filename := service.textRuntime.state.loadedModel(); filename != "b.kcpps" {
+	if _, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel(); filename != "b.kcpps" {
 		t.Fatalf("loaded model = %q, want b.kcpps to stay loaded while borrowed work is in flight", filename)
 	}
 
 	service.textQueue.Complete(entry)
+}
+
+func TestCloseStopsAPendingBorrowRestore(t *testing.T) {
+	service := newBorrowRestoreTestService(t)
+	mode := service.currentBackendMode()
+
+	if err := service.loadLocalConfig(context.Background(), mode, "a", "a.kcpps", readinessText); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.loadLocalConfig(borrowedRestoreContext(), mode, "b", "b.kcpps", readinessText); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	time.Sleep(3 * service.offloadRestoreDelay)
+	if _, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel(); filename != "b.kcpps" {
+		t.Fatalf("loaded model = %q, want b.kcpps: the restore timer fired after Close", filename)
+	}
 }

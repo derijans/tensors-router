@@ -77,7 +77,7 @@ func TestLocalModelStateValidatesPersistsAndRequiresClusterAuth(t *testing.T) {
 
 func TestDisabledModelRejectedOnInferencePath(t *testing.T) {
 	service, _, registry := newModelStateTestService(t)
-	backend := service.backend.(*fakeBackend)
+	backend := defaultFamilyRuntime(t, service, readinessText).backend.(*fakeBackend)
 
 	disabled := postModelState(service, "/router/v1/site/models/state", siteapi.ModelStateRequest{NodeID: "node-a", LocalID: "model-a", Enabled: false}, "")
 	if disabled.Code != http.StatusOK {
@@ -147,8 +147,8 @@ func TestMasterModelStateUsesRegisteredNodeAndRefreshesSnapshot(t *testing.T) {
 
 func TestDisabledModelUnloadsOnlyAfterActiveRuntimeReleaseAndReenableCancels(t *testing.T) {
 	service, _, registry := newModelStateTestService(t)
-	backend := service.backend.(*fakeBackend)
-	state := service.textRuntime.state
+	backend := defaultFamilyRuntime(t, service, readinessText).backend.(*fakeBackend)
+	state := defaultFamilyRuntime(t, service, readinessText).state
 	state.mu.Lock()
 	state.filename = "model-a.kcpps"
 	state.users = 1

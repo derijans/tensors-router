@@ -1,4 +1,4 @@
-package proxy
+package clusterfan
 
 import (
 	"context"
@@ -16,7 +16,7 @@ func TestFanOutNodesLimitsConcurrencyAndOrdersResults(t *testing.T) {
 	}
 	var active atomic.Int32
 	var maximum atomic.Int32
-	results := fanOutNodesWithin(context.Background(), targets, time.Second, 3, func(context.Context, string) (string, error) {
+	results := NodesWithin(context.Background(), targets, time.Second, 3, func(context.Context, string) (string, error) {
 		current := active.Add(1)
 		for {
 			observed := maximum.Load()
@@ -41,7 +41,7 @@ func TestFanOutNodesLimitsConcurrencyAndOrdersResults(t *testing.T) {
 
 func TestFanOutNodesUsesOneTimeoutBudget(t *testing.T) {
 	started := time.Now()
-	results := fanOutNodesWithin(context.Background(), []string{"a", "b", "c"}, 25*time.Millisecond, 2, func(ctx context.Context, target string) (string, error) {
+	results := NodesWithin(context.Background(), []string{"a", "b", "c"}, 25*time.Millisecond, 2, func(ctx context.Context, target string) (string, error) {
 		<-ctx.Done()
 		return target, ctx.Err()
 	})

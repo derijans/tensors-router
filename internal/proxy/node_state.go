@@ -79,7 +79,7 @@ func (service *Service) handleSiteNodeState(w http.ResponseWriter, r *http.Reque
 	openai.WriteJSON(w, http.StatusOK, state)
 }
 
-func (service *Service) handleNodeState(w http.ResponseWriter) {
+func (service *Service) handleNodeState(w http.ResponseWriter, _ *http.Request) {
 	openai.WriteJSON(w, http.StatusOK, service.localNodeState())
 }
 

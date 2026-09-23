@@ -18,14 +18,14 @@ type textBenchmarkStats struct {
 	promptTokensPerSecond float64
 }
 
-func (service *Service) textBenchmarkMetrics(ctx context.Context, path string, body string, iterations int) []routerbenchmark.Metric {
+func (runner *benchmarkRunner) textBenchmarkMetrics(ctx context.Context, path string, body string, iterations int) []routerbenchmark.Metric {
 	var total time.Duration
 	stats := textBenchmarkStats{}
 	tokensPerSecondSamples := 0
 	promptTokensPerSecondSamples := 0
 	for index := 0; index < iterations; index++ {
 		started := time.Now()
-		status, responseBody, err := service.performBenchmarkRequest(ctx, path, body)
+		status, responseBody, err := runner.performBenchmarkRequest(ctx, path, body)
 		duration := time.Since(started)
 		total += duration
 		if err != nil {

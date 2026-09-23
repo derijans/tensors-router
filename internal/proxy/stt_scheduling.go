@@ -8,6 +8,8 @@ import (
 
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/cluster"
+	"tensors-router/internal/openai"
+	"tensors-router/internal/proxy/clusterfan"
 	"tensors-router/internal/schedulingcost"
 )
 
@@ -33,6 +35,10 @@ type sttCandidate struct {
 	model  cluster.Model
 	status NodeRuntimeStatus
 	local  bool
+}
+
+func (service *Service) handleNodeRuntimeStatus(w http.ResponseWriter, _ *http.Request) {
+	openai.WriteJSON(w, http.StatusOK, service.localRuntimeStatus())
 }
 
 func (service *Service) localRuntimeStatus() NodeRuntimeStatus {
@@ -166,7 +172,7 @@ func isVLLMSpeechTask(task string) bool {
 }
 
 func (service *Service) remoteRuntimeStatuses(ctx context.Context) map[string]NodeRuntimeStatus {
-	results := fanOutNodes(ctx, service.remoteInventoryURLs(), func(nodeContext context.Context, nodeURL string) (NodeRuntimeStatus, error) {
+	results := clusterfan.Nodes(ctx, service.remoteInventoryURLs(), func(nodeContext context.Context, nodeURL string) (NodeRuntimeStatus, error) {
 		var status NodeRuntimeStatus
 		err := service.clusterClient.JSON(nodeContext, http.MethodGet, nodeURL, "/router/v1/node/runtime-status", nil, &status)
 		return status, err

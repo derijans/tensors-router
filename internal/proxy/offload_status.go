@@ -63,23 +63,45 @@ func (service *Service) refreshLocalCosts(ctx context.Context) {
 
 // StartSchedulingRefresh keeps the fitted costs current and, on a master, keeps
 // offload leases current with them. It returns immediately; the loop stops with
-// the context.
+// the context or with Close, whichever comes first.
 func (service *Service) StartSchedulingRefresh(ctx context.Context) {
 	if service.imageQueue == nil && service.textQueue == nil {
 		return
 	}
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan struct{})
+	service.schedulingRefreshCancel = cancel
+	service.schedulingRefreshDone = done
 	go func() {
-		ticker := time.NewTicker(service.schedulingRefreshInterval)
-		defer ticker.Stop()
-		service.refreshLocalCosts(ctx)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				service.refreshLocalCosts(ctx)
-				service.refreshOffloadPlan(ctx)
-			}
-		}
+		defer close(done)
+		service.runSchedulingRefresh(ctx)
 	}()
+}
+
+func (service *Service) runSchedulingRefresh(ctx context.Context) {
+	ticker := time.NewTicker(service.schedulingRefreshInterval)
+	defer ticker.Stop()
+	service.refreshLocalCosts(ctx)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			service.refreshLocalCosts(ctx)
+			service.refreshOffloadPlan(ctx)
+		}
+	}
+}
+
+func (service *Service) stopSchedulingRefresh(ctx context.Context) error {
+	if service.schedulingRefreshCancel == nil {
+		return nil
+	}
+	service.schedulingRefreshCancel()
+	select {
+	case <-service.schedulingRefreshDone:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

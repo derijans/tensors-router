@@ -22,347 +22,6 @@ type modelControlRequest struct {
 	Target string `json:"target"`
 }
 
-func (service *Service) handleRouterEndpoint(w http.ResponseWriter, r *http.Request) {
-	switch {
-	case strings.HasPrefix(r.URL.Path, "/router/v1/vllm/"):
-		service.handleVLLMAdmin(w, r)
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/inventory":
-		service.handleSiteInventory(w, r)
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/nodes/state":
-		service.handleSiteNodeState(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/nodes/unload":
-		service.handleSiteNodeUnload(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/nodes/backends/init":
-		service.handleSiteBackendInitialization(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/nodes/backends/init/cancel":
-		service.handleSiteBackendInitializationCancel(w, r)
-	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && r.URL.Path == "/router/v1/site/nodes/backends/launch-options":
-		service.handleSiteBackendLaunchOptions(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/models/state":
-		service.handleSiteModelState(w, r)
-	case r.URL.Path == "/router/v1/site/routing-groups":
-		service.handleSiteRoutingLinks(w, r, imageRoutingLane)
-	case r.URL.Path == "/router/v1/site/text-routing-groups":
-		service.handleSiteRoutingLinks(w, r, textRoutingLane)
-	case r.URL.Path == "/router/v1/site/separate-runtimes":
-		service.handleSiteSeparateRuntimes(w, r)
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/download/capabilities":
-		service.handleSiteDownloadCapabilities(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/download/search":
-		service.handleSiteDownloadSearch(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/download/search-page":
-		service.handleSiteDownloadSearchPage(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/download/repository":
-		service.handleSiteDownloadRepository(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/download/plan":
-		service.handleSiteDownloadPlan(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/download/jobs":
-		service.handleSiteDownloadCreateJob(w, r)
-	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/site/download/jobs/") && strings.HasSuffix(r.URL.Path, "/events"):
-		service.handleSiteDownloadEvents(w, r)
-	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/site/download/jobs/"):
-		service.handleSiteDownloadJob(w, r)
-	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/router/v1/site/download/jobs/") && strings.HasSuffix(r.URL.Path, "/pause"):
-		service.handleSiteDownloadPause(w, r)
-	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/router/v1/site/download/jobs/") && strings.HasSuffix(r.URL.Path, "/resume"):
-		service.handleSiteDownloadResume(w, r)
-	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/router/v1/site/download/jobs/") && strings.HasSuffix(r.URL.Path, "/cancel"):
-		service.handleSiteDownloadCancel(w, r)
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/download/library":
-		service.handleSiteDownloadLibrary(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/download/rescan":
-		service.handleSiteDownloadRescan(w, r)
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/webuis":
-		service.handleSiteWebUIs(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/webuis/session":
-		service.handleSiteWebUISession(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/webuis/load":
-		service.handleSiteWebUILoad(w, r)
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/benchmarks":
-		service.handleBenchmarks(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/benchmarks/run":
-		service.handleBenchmarkRun(w, r)
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/analytics":
-		service.handleSiteAnalytics(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/analytics/flush":
-		service.handleSiteAnalyticsFlush(w, r)
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/load-captures":
-		service.handleSiteLoadCaptures(w, r)
-	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/site/load-captures/"):
-		service.handleSiteLoadCaptureRecord(w, r)
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/site/load-errors":
-		service.handleSiteLoadErrors(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/cook/preview":
-		service.handleSiteCookPreview(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/cook/apply":
-		service.handleSiteCookApply(w, r)
-	case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/router/v1/site/cook/"):
-		service.handleSiteCookDelete(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/config-file/preview":
-		service.handleSiteConfigFilePreview(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/config-file/apply":
-		service.handleSiteConfigFileApply(w, r)
-	case r.Method == http.MethodDelete && r.URL.Path == "/router/v1/site/config-file":
-		service.handleSiteConfigFileDelete(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-assets/export":
-		service.handleSiteModelAssetExport(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-files/hash":
-		service.handleSiteModelFileHash(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-assets/resolve":
-		service.handleSiteModelAssetResolve(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-assets/resolve-batch":
-		service.handleSiteModelAssetResolveBatch(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-assets/jobs":
-		service.handleSiteModelAssetCreateJob(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-assets/bind":
-		service.handleSiteModelAssetBinding(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-assets/candidates":
-		service.handleSiteModelAssetCandidates(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/site/model-assets/substitute":
-		service.handleSiteModelAssetSubstitution(w, r)
-	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/site/model-assets/jobs/"):
-		service.handleSiteModelAssetJob(w, r)
-	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/site/model-assets/"):
-		service.handleSiteModelAssetLookup(w, r)
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/models":
-		service.handleRouterModels(w)
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/version":
-		service.handleRouterVersion(w)
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/models":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeModels(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/mcp":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeMCP(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/models/state":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeModelState(w, r)
-		}
-	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && r.URL.Path == nodeSeparateRuntimesPath:
-		if service.requireClusterToken(w, r) {
-			service.handleNodeSeparateRuntimes(w, r)
-		}
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/state":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeState(w)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/state/unload":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeStateUnload(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/backends/init":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeBackendInitialization(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/backends/init/cancel":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeBackendInitializationCancel(w, r)
-		}
-	case (r.Method == http.MethodGet || r.Method == http.MethodPost) && r.URL.Path == "/router/v1/node/backends/launch-options":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeBackendLaunchOptions(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/resolve":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeModelAssetResolve(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/export":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeModelAssetExport(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-files/hash":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeModelFileHash(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/jobs":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeModelAssetCreateJob(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/bind":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeModelAssetBinding(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/candidates":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeModelAssetCandidates(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/model-assets/substitute":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeModelAssetSubstitution(w, r)
-		}
-	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/node/site/model-assets/jobs/"):
-		if service.requireClusterToken(w, r) {
-			service.handleNodeModelAssetJob(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/assets/lookup":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeAssetLookup(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/assets/lookup-cluster":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeClusterAssetLookup(w, r)
-		}
-	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/node/assets/"):
-		if service.requireClusterToken(w, r) {
-			service.handleNodeAssetStream(w, r)
-		}
-	case strings.HasPrefix(r.URL.Path, "/router/v1/node/inference/"):
-		if service.requireClusterToken(w, r) {
-			service.handleNodeInference(w, r)
-		}
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/site/inventory":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeSiteInventory(w, r)
-		}
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/site/download/capabilities":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeDownloadCapabilities(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/download/search":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeDownloadSearch(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/download/search-page":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeDownloadSearchPage(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/download/repository":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeDownloadRepository(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/download/plan":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeDownloadPlan(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/download/jobs":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeDownloadCreateJob(w, r)
-		}
-	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/node/site/download/jobs/") && strings.HasSuffix(r.URL.Path, "/events"):
-		if service.requireClusterToken(w, r) {
-			service.handleNodeDownloadEvents(w, r)
-		}
-	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/node/site/download/jobs/"):
-		if service.requireClusterToken(w, r) {
-			service.handleNodeDownloadJob(w, r)
-		}
-	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/router/v1/node/site/download/jobs/") && strings.HasSuffix(r.URL.Path, "/pause"):
-		if service.requireClusterToken(w, r) {
-			service.handleNodeDownloadPause(w, r)
-		}
-	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/router/v1/node/site/download/jobs/") && strings.HasSuffix(r.URL.Path, "/resume"):
-		if service.requireClusterToken(w, r) {
-			service.handleNodeDownloadResume(w, r)
-		}
-	case r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/router/v1/node/site/download/jobs/") && strings.HasSuffix(r.URL.Path, "/cancel"):
-		if service.requireClusterToken(w, r) {
-			service.handleNodeDownloadCancel(w, r)
-		}
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/site/download/library":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeDownloadLibrary(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/download/rescan":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeDownloadRescan(w, r)
-		}
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/site/webuis":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeSiteWebUIs(w, r)
-		}
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/runtime-status":
-		if service.requireClusterToken(w, r) {
-			openai.WriteJSON(w, http.StatusOK, service.localRuntimeStatus())
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/offload/grant":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeOffloadGrant(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/offload/request":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeOffloadRequest(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == nodeRoutingLinksPath:
-		if service.requireClusterToken(w, r) {
-			service.handleNodeRoutingLinks(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/webuis/load":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeSiteWebUILoad(w, r)
-		}
-	case strings.HasPrefix(r.URL.Path, nodeWebUIProxyPrefix):
-		if service.requireClusterToken(w, r) {
-			service.handleNodeWebUIProxy(w, r)
-		}
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/benchmarks":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeBenchmarks(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/benchmarks/run":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeBenchmarkRun(w, r)
-		}
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/analytics":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeAnalytics(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/analytics/flush":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeAnalyticsFlush(w, r)
-		}
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/load-captures":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeLoadCaptures(w, r)
-		}
-	case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/router/v1/node/load-captures/"):
-		if service.requireClusterToken(w, r) {
-			service.handleNodeLoadCaptureRecord(w, r)
-		}
-	case r.Method == http.MethodGet && r.URL.Path == "/router/v1/node/load-errors":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeLoadErrors(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/configs":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeSiteConfigs(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/config-file/preview":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeConfigFilePreview(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/site/config-file/apply":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeConfigFileApply(w, r)
-		}
-	case r.Method == http.MethodDelete && r.URL.Path == "/router/v1/node/site/config-file":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeConfigFileDelete(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/register":
-		if service.requireClusterToken(w, r) {
-			service.handleNodeRegister(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/load":
-		if service.requireClusterToken(w, r) {
-			service.handleRouterLoad(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/node/unload":
-		if service.requireClusterToken(w, r) {
-			service.handleRouterUnload(w, r)
-		}
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/load":
-		service.handleRouterLoad(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/unload":
-		service.handleRouterUnload(w, r)
-	case r.Method == http.MethodPost && r.URL.Path == "/router/v1/shutdown":
-		service.handleRouterShutdown(w)
-	default:
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
-	}
-}
-
 func (service *Service) handleNodeInference(w http.ResponseWriter, r *http.Request) {
 	path, ok := nodeInferencePath(r.URL.Path)
 	if !ok {
@@ -405,11 +64,11 @@ func isLocalInferencePath(path string) bool {
 	return len(path) > 0 && path[0] == '/' && (len(path) == 1 || (path[1] != '/' && path[1] != '\\'))
 }
 
-func (service *Service) handleRouterModels(w http.ResponseWriter) {
+func (service *Service) handleRouterModels(w http.ResponseWriter, _ *http.Request) {
 	if service.registry != nil {
 		openai.WriteJSON(w, http.StatusOK, map[string]any{
 			"object": "list",
-			"data":   service.withBenchmarks(service.registry.Models()),
+			"data":   service.benchmarks.decorate(service.registry.Models()),
 		})
 		return
 	}
@@ -421,14 +80,14 @@ func (service *Service) handleRouterModels(w http.ResponseWriter) {
 	}
 	openai.WriteJSON(w, http.StatusOK, map[string]any{
 		"object": "list",
-		"data":   service.withBenchmarks(cluster.LocalModelsWithBackendMode(models, "local", "", cluster.SourceLocal, service.backendMode)),
+		"data":   service.benchmarks.decorate(cluster.LocalModelsWithBackendMode(models, "local", "", cluster.SourceLocal, service.backendMode)),
 	})
 }
 
 func (service *Service) handleNodeModels(w http.ResponseWriter, r *http.Request) {
 	if service.registry != nil {
 		snapshot := service.registry.Snapshot()
-		snapshot.Models = service.withBenchmarks(service.modelsWithRuntimeState(r.Context(), snapshot.Models))
+		snapshot.Models = service.benchmarks.decorate(service.modelsWithRuntimeState(r.Context(), snapshot.Models))
 		openai.WriteJSON(w, http.StatusOK, snapshot)
 		return
 	}
@@ -440,7 +99,7 @@ func (service *Service) handleNodeModels(w http.ResponseWriter, r *http.Request)
 	}
 	openai.WriteJSON(w, http.StatusOK, cluster.Snapshot{
 		NodeID:                 "local",
-		Models:                 service.withBenchmarks(cluster.LocalModelsWithBackendMode(models, "local", "", cluster.SourceLocal, service.backendMode)),
+		Models:                 service.benchmarks.decorate(cluster.LocalModelsWithBackendMode(models, "local", "", cluster.SourceLocal, service.backendMode)),
 		ProtocolVersion:        cluster.ProtocolVersion,
 		MinimumProtocolVersion: cluster.MinimumProtocolVersion,
 		BuildVersion:           buildinfo.Current().Version,
@@ -486,7 +145,7 @@ func (service *Service) handleNodeRegister(w http.ResponseWriter, r *http.Reques
 	})
 }
 
-func (service *Service) handleRouterVersion(w http.ResponseWriter) {
+func (service *Service) handleRouterVersion(w http.ResponseWriter, _ *http.Request) {
 	openai.WriteJSON(w, http.StatusOK, map[string]any{
 		"version":                  buildinfo.Current().Version,
 		"protocol_version":         cluster.ProtocolVersion,
@@ -569,7 +228,7 @@ func (service *Service) handleRouterUnload(w http.ResponseWriter, r *http.Reques
 	openai.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-func (service *Service) handleRouterShutdown(w http.ResponseWriter) {
+func (service *Service) handleRouterShutdown(w http.ResponseWriter, _ *http.Request) {
 	if service.shutdown == nil {
 		openai.WriteError(w, http.StatusForbidden, "shutdown_disabled", "router shutdown is disabled")
 		return

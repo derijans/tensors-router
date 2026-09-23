@@ -34,7 +34,7 @@ func TestLocalNodeStateDetectsRegularBinariesAndRedactsPaths(t *testing.T) {
 		backendIDLlamaServer: directoryPath,
 		backendIDSDServer:    filepath.Join(binaryDir, "missing"),
 	}
-	state := service.textRuntime.state
+	state := defaultFamilyRuntime(t, service, readinessText).state
 	state.mu.Lock()
 	state.modelID = "shared-model"
 	state.filename = "shared.kcpps"
@@ -65,7 +65,7 @@ func TestLocalNodeStateDetectsRegularBinariesAndRedactsPaths(t *testing.T) {
 
 func TestGenerationCheckedUnloadDrainsLeasesAndRejectsStaleState(t *testing.T) {
 	service, backend := newTestService(t, http.NotFoundHandler())
-	runtime := service.textRuntime
+	runtime := defaultFamilyRuntime(t, service, readinessText)
 	state := runtime.state
 	state.mu.Lock()
 	state.filename = "model.kcpps"
@@ -115,11 +115,11 @@ func TestNodeStateClusterAuthenticationAndRemoteRouting(t *testing.T) {
 		t.Fatal(err)
 	}
 	node.backendBinaryPaths = map[string]string{backendIDKoboldCPP: binaryPath}
-	node.textRuntime.state.mu.Lock()
-	node.textRuntime.state.filename = "remote.kcpps"
-	node.textRuntime.state.modelID = "remote-model"
-	node.textRuntime.state.generation = 1
-	node.textRuntime.state.mu.Unlock()
+	defaultFamilyRuntime(t, node, readinessText).state.mu.Lock()
+	defaultFamilyRuntime(t, node, readinessText).state.filename = "remote.kcpps"
+	defaultFamilyRuntime(t, node, readinessText).state.modelID = "remote-model"
+	defaultFamilyRuntime(t, node, readinessText).state.generation = 1
+	defaultFamilyRuntime(t, node, readinessText).state.mu.Unlock()
 
 	unauthorized := httptest.NewRecorder()
 	node.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/router/v1/node/state", nil))
@@ -151,7 +151,7 @@ func TestNodeStateClusterAuthenticationAndRemoteRouting(t *testing.T) {
 	}
 
 	body, err := json.Marshal(siteapi.NodeUnloadRequest{
-		NodeID: "worker", BackendID: backendIDKoboldCPP, RuntimeID: node.textRuntime.name, ExpectedGeneration: 1,
+		NodeID: "worker", BackendID: backendIDKoboldCPP, RuntimeID: defaultFamilyRuntime(t, node, readinessText).name, ExpectedGeneration: 1,
 	})
 	if err != nil {
 		t.Fatal(err)

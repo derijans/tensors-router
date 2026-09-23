@@ -13,6 +13,7 @@ import (
 	"tensors-router/internal/backenddiagnostic"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
+	"tensors-router/internal/proxy/clusterfan"
 )
 
 type WebUICatalogResponse struct {
@@ -399,7 +400,7 @@ func (service *Service) markRemoteActiveWebUIs(ctx context.Context, entries []We
 	for index := range entries {
 		entryByID[entries[index].ID] = &entries[index]
 	}
-	results := fanOutNodes(ctx, service.remoteInventoryURLs(), func(nodeContext context.Context, nodeURL string) (WebUICatalogResponse, error) {
+	results := clusterfan.Nodes(ctx, service.remoteInventoryURLs(), func(nodeContext context.Context, nodeURL string) (WebUICatalogResponse, error) {
 		var response WebUICatalogResponse
 		err := service.clusterClient.JSON(nodeContext, http.MethodGet, nodeURL, "/router/v1/node/site/webuis", nil, &response)
 		return response, err

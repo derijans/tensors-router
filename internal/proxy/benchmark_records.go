@@ -11,32 +11,33 @@ import (
 	"tensors-router/internal/cluster"
 )
 
-func (service *Service) benchmarkRecord(ctx context.Context, query url.Values, nodeOnly bool) (routerbenchmark.Record, error) {
+func (runner *benchmarkRunner) benchmarkRecord(ctx context.Context, query url.Values, nodeOnly bool) (routerbenchmark.Record, error) {
+	identity := runner.deps.clusterIdentity()
 	nodeID := strings.TrimSpace(query.Get("node_id"))
 	modelID := strings.TrimSpace(query.Get("model_id"))
 	if modelID == "" {
 		return routerbenchmark.Record{}, fmt.Errorf("model_id is required")
 	}
-	if !nodeOnly && !service.benchmarkTargetsLocal(nodeID) {
-		nodeURL := service.benchmarkNodeURL(nodeID)
+	if !nodeOnly && !runner.benchmarkTargetsLocal(nodeID) {
+		nodeURL := runner.benchmarkNodeURL(nodeID)
 		if nodeURL == "" {
 			return routerbenchmark.Record{}, fmt.Errorf("node %q was not found", nodeID)
 		}
 		var record routerbenchmark.Record
 		path := "/router/v1/node/benchmarks?model_id=" + url.QueryEscape(modelID)
-		err := service.clusterClient.JSON(ctx, http.MethodGet, nodeURL, path, nil, &record)
+		err := identity.client.JSON(ctx, http.MethodGet, nodeURL, path, nil, &record)
 		return record, err
 	}
-	if service.benchmarkStore == nil {
+	if runner.store == nil {
 		return routerbenchmark.Record{}, fmt.Errorf("benchmark store is not configured")
 	}
-	record, ok, err := service.benchmarkStore.Record(service.nodeID, modelID)
+	record, ok, err := runner.store.Record(identity.nodeID, modelID)
 	if err != nil {
 		return routerbenchmark.Record{}, err
 	}
 	if !ok {
 		return routerbenchmark.Record{
-			NodeID:   service.nodeID,
+			NodeID:   identity.nodeID,
 			ModelID:  modelID,
 			Sections: map[string]routerbenchmark.Summary{},
 			History:  []routerbenchmark.Summary{},
@@ -45,25 +46,25 @@ func (service *Service) benchmarkRecord(ctx context.Context, query url.Values, n
 	return record, nil
 }
 
-func (service *Service) benchmarkTargetsLocal(nodeID string) bool {
+func (runner *benchmarkRunner) benchmarkTargetsLocal(nodeID string) bool {
 	nodeID = strings.TrimSpace(nodeID)
-	return nodeID == "" || nodeID == service.nodeID || nodeID == "local"
+	return nodeID == "" || nodeID == runner.deps.clusterIdentity().nodeID || nodeID == "local"
 }
 
-func (service *Service) benchmarkNodeURL(nodeID string) string {
-	nodeURLByID := service.nodeURLByID()
+func (runner *benchmarkRunner) benchmarkNodeURL(nodeID string) string {
+	nodeURLByID := runner.deps.nodeURLByID()
 	return nodeURLByID[strings.TrimSpace(nodeID)]
 }
 
-func (service *Service) withBenchmarks(models []cluster.Model) []cluster.Model {
-	if service.benchmarkStore == nil {
+func (runner *benchmarkRunner) decorate(models []cluster.Model) []cluster.Model {
+	if runner.store == nil {
 		return models
 	}
 	keys := make([]routerbenchmark.ModelKey, len(models))
 	for index := range models {
 		keys[index] = routerbenchmark.ModelKey{NodeID: models[index].NodeID, ModelID: models[index].LocalID}
 	}
-	benchmarks := service.benchmarkStore.ModelBenchmarks(keys)
+	benchmarks := runner.store.ModelBenchmarks(keys)
 	for index, key := range keys {
 		if benchmark, ok := benchmarks[key]; ok {
 			models[index].Benchmark = &benchmark

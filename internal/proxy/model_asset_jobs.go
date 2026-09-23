@@ -232,7 +232,7 @@ func (service *Service) streamRemoteModelAssetJob(w http.ResponseWriter, r *http
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	_, _ = io.Copy(webDownloadFlushingWriter{ResponseWriter: w}, response.Body)
+	_, _ = io.Copy(flushingWriter{ResponseWriter: w}, response.Body)
 }
 
 func modelAssetJobPath(value string, prefix string) (string, bool, bool) {

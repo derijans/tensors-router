@@ -9,6 +9,7 @@ import (
 	routeranalytics "tensors-router/internal/analytics"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
+	"tensors-router/internal/proxy/clusterfan"
 )
 
 func (service *Service) handleSiteAnalytics(w http.ResponseWriter, r *http.Request) {
@@ -32,7 +33,7 @@ func (service *Service) handleSiteAnalyticsFlush(w http.ResponseWriter, r *http.
 	}
 	response := service.localAnalyticsFlush(r)
 	if service.clusterRole == cluster.RoleMaster {
-		results := fanOutNodes(r.Context(), service.remoteInventoryURLs(), func(nodeContext context.Context, nodeURL string) (routeranalytics.FlushResponse, error) {
+		results := clusterfan.Nodes(r.Context(), service.remoteInventoryURLs(), func(nodeContext context.Context, nodeURL string) (routeranalytics.FlushResponse, error) {
 			var remote routeranalytics.FlushResponse
 			err := service.clusterClient.JSON(nodeContext, http.MethodPost, nodeURL, "/router/v1/node/analytics/flush", nil, &remote)
 			return remote, err
@@ -79,7 +80,7 @@ func (service *Service) handleNodeAnalytics(w http.ResponseWriter, r *http.Reque
 func (service *Service) analyticsResponse(r *http.Request, query routeranalytics.Query) routeranalytics.Response {
 	responses := []routeranalytics.Response{service.localAnalyticsResponse(r, query)}
 	if service.clusterRole == cluster.RoleMaster {
-		results := fanOutNodes(r.Context(), service.remoteInventoryURLs(), func(nodeContext context.Context, nodeURL string) (routeranalytics.Response, error) {
+		results := clusterfan.Nodes(r.Context(), service.remoteInventoryURLs(), func(nodeContext context.Context, nodeURL string) (routeranalytics.Response, error) {
 			var remote routeranalytics.Response
 			path := "/router/v1/node/analytics"
 			if strings.TrimSpace(r.URL.RawQuery) != "" {

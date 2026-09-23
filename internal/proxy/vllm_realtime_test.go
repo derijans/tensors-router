@@ -130,9 +130,9 @@ func TestVLLMRealtimeProxiesConnectionAndHoldsLease(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("backend was not upgraded")
 	}
-	service.transcriptionRuntime.state.mu.Lock()
-	users := service.transcriptionRuntime.state.users
-	service.transcriptionRuntime.state.mu.Unlock()
+	defaultFamilyRuntime(t, service, readinessTranscription).state.mu.Lock()
+	users := defaultFamilyRuntime(t, service, readinessTranscription).state.users
+	defaultFamilyRuntime(t, service, readinessTranscription).state.mu.Unlock()
 	if users == 0 {
 		t.Fatal("Realtime connection did not hold a runtime lease")
 	}

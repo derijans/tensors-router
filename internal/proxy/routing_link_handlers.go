@@ -48,6 +48,14 @@ func textPeerEligibility(peer cluster.Model, anchor cluster.Model) (bool, string
 	return true, ""
 }
 
+func (service *Service) handleSiteImageRoutingLinks(w http.ResponseWriter, r *http.Request) {
+	service.handleSiteRoutingLinks(w, r, imageRoutingLane)
+}
+
+func (service *Service) handleSiteTextRoutingLinks(w http.ResponseWriter, r *http.Request) {
+	service.handleSiteRoutingLinks(w, r, textRoutingLane)
+}
+
 func (service *Service) handleSiteRoutingLinks(w http.ResponseWriter, r *http.Request, lane routingLane) {
 	if !service.siteControlAllowed() {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")

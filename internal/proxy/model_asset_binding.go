@@ -44,7 +44,7 @@ func (service *Service) handleNodeModelAssetBinding(w http.ResponseWriter, r *ht
 }
 
 func (service *Service) bindLocalModelAsset(w http.ResponseWriter, r *http.Request, request siteapi.ModelAssetBindingRequest) {
-	if service.assetIndex == nil || service.downloader == nil || !modelassets.ValidHash(request.SHA256) {
+	if service.assetIndex == nil || service.downloads.Downloader() == nil || !modelassets.ValidHash(request.SHA256) {
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "asset binding is unavailable")
 		return
 	}
@@ -53,7 +53,7 @@ func (service *Service) bindLocalModelAsset(w http.ResponseWriter, r *http.Reque
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "invalid Hugging Face origin")
 		return
 	}
-	details, err := service.downloader.Repository(r.Context(), downloader.RepositoryRequest{Repository: origin.Repository, Revision: origin.Commit, Token: request.Token})
+	details, err := service.downloads.Downloader().Repository(r.Context(), downloader.RepositoryRequest{Repository: origin.Repository, Revision: origin.Commit, Token: request.Token})
 	if err != nil || details.Commit != origin.Commit {
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "Hugging Face origin could not be verified")
 		return

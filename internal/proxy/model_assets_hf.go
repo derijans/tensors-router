@@ -42,12 +42,12 @@ func (service *Service) resolveAssetReferenceDetailed(reference modelassets.Refe
 }
 
 func (service *Service) downloadHFAsset(reference modelassets.Reference, origin modelassets.Origin) (string, bool) {
-	if service.downloader == nil || origin.URI() == "" || reference.Hash == "" || reference.Filename == "" {
+	if service.downloads.Downloader() == nil || origin.URI() == "" || reference.Hash == "" || reference.Filename == "" {
 		return "", false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), modelOperationTimeout)
 	defer cancel()
-	details, err := service.downloader.Repository(ctx, downloader.RepositoryRequest{Repository: origin.Repository, Revision: origin.Commit})
+	details, err := service.downloads.Downloader().Repository(ctx, downloader.RepositoryRequest{Repository: origin.Repository, Revision: origin.Commit})
 	if err != nil || details.Commit != origin.Commit {
 		return "", false
 	}
@@ -61,11 +61,11 @@ func (service *Service) downloadHFAsset(reference modelassets.Reference, origin 
 	if !verified {
 		return "", false
 	}
-	job, err := service.downloader.CreateJob(ctx, downloader.CreateJobRequest{Repository: origin.Repository, Revision: origin.Commit, Files: []string{origin.Path}})
+	job, err := service.downloads.Downloader().CreateJob(ctx, downloader.CreateJobRequest{Repository: origin.Repository, Revision: origin.Commit, Files: []string{origin.Path}})
 	if err != nil {
 		return "", false
 	}
-	events, unsubscribe := service.downloader.Subscribe(job.ID)
+	events, unsubscribe := service.downloads.Downloader().Subscribe(job.ID)
 	defer unsubscribe()
 	poll := time.NewTicker(30 * time.Second)
 	defer poll.Stop()
@@ -80,7 +80,7 @@ func (service *Service) downloadHFAsset(reference modelassets.Reference, origin 
 			if event.State != downloader.JobCompleted {
 				continue
 			}
-			artifacts, err := service.downloader.Artifacts()
+			artifacts, err := service.downloads.Downloader().Artifacts()
 			if err != nil {
 				return "", false
 			}
@@ -102,7 +102,7 @@ func (service *Service) downloadHFAsset(reference modelassets.Reference, origin 
 			}
 			return "", false
 		case <-poll.C:
-			current, found, err := service.downloader.Job(job.ID)
+			current, found, err := service.downloads.Downloader().Job(job.ID)
 			if err != nil || !found || current.State == downloader.JobFailed || current.State == downloader.JobCancelled {
 				return "", false
 			}

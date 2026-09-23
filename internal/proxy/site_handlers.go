@@ -15,6 +15,7 @@ import (
 	"tensors-router/internal/inventory"
 	"tensors-router/internal/modelassets"
 	"tensors-router/internal/openai"
+	"tensors-router/internal/proxy/clusterfan"
 	"tensors-router/internal/recipes"
 	"tensors-router/internal/siteapi"
 )
@@ -145,11 +146,11 @@ func (service *Service) siteInventory(ctx context.Context, includeFiles bool) (s
 	}
 	nodes := []siteapi.NodeInventory{localNode}
 	if service.clusterRole == cluster.RoleMaster {
-		timeout := nodeFanoutTimeout
+		timeout := clusterfan.Timeout
 		if includeFiles {
 			timeout = 30 * time.Second
 		}
-		results := fanOutNodesWithin(ctx, service.remoteInventoryURLs(), timeout, nodeFanoutLimit, func(nodeContext context.Context, nodeURL string) (siteapi.NodeInventory, error) {
+		results := clusterfan.NodesWithin(ctx, service.remoteInventoryURLs(), timeout, clusterfan.Limit, func(nodeContext context.Context, nodeURL string) (siteapi.NodeInventory, error) {
 			remoteNode := siteapi.NodeInventory{
 				NodeURL:   nodeURL,
 				Source:    cluster.SourceSlave,
@@ -257,7 +258,7 @@ func (service *Service) refreshLocalRegistryWithLogs() error {
 
 func (service *Service) siteModels() []cluster.Model {
 	if service.registry != nil {
-		return service.withBenchmarks(service.registry.Models())
+		return service.benchmarks.decorate(service.registry.Models())
 	}
 	models, err := service.localClusterModels()
 	if err != nil {
@@ -272,7 +273,7 @@ func (service *Service) localClusterModels() ([]cluster.Model, error) {
 		return nil, err
 	}
 	records := cluster.WithMCPAvailability(
-		service.withBenchmarks(cluster.LocalModelsWithBackendMode(models, service.nodeID, service.nodeURL, service.localSource(), service.backendMode)),
+		service.benchmarks.decorate(cluster.LocalModelsWithBackendMode(models, service.nodeID, service.nodeURL, service.localSource(), service.backendMode)),
 		service.mcpGateway != nil,
 	)
 	if service.modelStateStore != nil {
@@ -341,7 +342,7 @@ func (service *Service) remoteInventoryURLs() []string {
 			values = append(values, nodeURL)
 		}
 	}
-	return uniqueSortedStrings(values)
+	return clusterfan.UniqueTargets(values)
 }
 
 func (service *Service) siteControlAllowed() bool {
@@ -631,22 +632,4 @@ func componentKinds(components []cook.Component) []string {
 	}
 	sort.Strings(kinds)
 	return kinds
-}
-
-func uniqueSortedStrings(values []string) []string {
-	seen := map[string]struct{}{}
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		if _, ok := seen[value]; ok {
-			continue
-		}
-		seen[value] = struct{}{}
-		result = append(result, value)
-	}
-	sort.Strings(result)
-	return result
 }

@@ -49,7 +49,7 @@ func TestChatTemplateVariantsReuseRuntimeAndMergeRequestKwargs(t *testing.T) {
 	if backend.reloads.Load() != 1 {
 		t.Fatalf("compatible variants reloaded %d times", backend.reloads.Load())
 	}
-	if active := currentRuntimeConfigFilename(service.textRuntime); active != "client.kcpps" {
+	if active := currentRuntimeConfigFilename(defaultFamilyRuntime(t, service, readinessText)); active != "client.kcpps" {
 		t.Fatalf("unexpected logical active config %q", active)
 	}
 	mutex.Lock()
@@ -337,7 +337,7 @@ func TestCompatibleChatTemplateVariantsSkipUnloadAndForcedRecoveryReloads(t *tes
 	if backend.reloads.Load() != 1 || backend.unloads.Load() != 0 {
 		t.Fatalf("compatible unload policy handling reloaded=%d unloaded=%d", backend.reloads.Load(), backend.unloads.Load())
 	}
-	release, loaded, err := service.acquireModelConfig(service.textRuntime, ctx, "no-think", "no-think.kcpps", readinessText, true)
+	release, loaded, err := service.acquireModelConfig(defaultFamilyRuntime(t, service, readinessText), ctx, "no-think", "no-think.kcpps", readinessText, true)
 	if err != nil {
 		t.Fatal(err)
 	}

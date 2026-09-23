@@ -31,7 +31,7 @@ func TestBenchmarkRunRecordsFailedAndSkippedSections(t *testing.T) {
 	}), map[string]string{
 		"a": `{"model_param":"text.gguf"}`,
 	})
-	service.benchmarkStore = newBenchmarkStoreForTest(t)
+	service.benchmarks.store = newBenchmarkStoreForTest(t)
 	service.backendRetryAttempts = 1
 
 	body := `{"model_id":"a","type":"section","sections":["llm","image"],"iterations":1,"timeout_seconds":30}`
@@ -67,7 +67,7 @@ func TestBenchmarkRecordsLoadTimeAndTokensPerSecond(t *testing.T) {
 	}), map[string]string{
 		"a": `{"model_param":"text.gguf"}`,
 	})
-	service.benchmarkStore = newBenchmarkStoreForTest(t)
+	service.benchmarks.store = newBenchmarkStoreForTest(t)
 
 	body := `{"model_id":"a","type":"section","sections":["runtime","llm"],"iterations":1,"timeout_seconds":30}`
 	recorder := httptest.NewRecorder()
@@ -98,9 +98,9 @@ func TestBenchmarkRecordsLoadTimeAndTokensPerSecond(t *testing.T) {
 }
 
 func TestVLLMGenerationBenchmarkSkipsEmbeddingEndpoint(t *testing.T) {
-	service := &Service{}
+	runner := &benchmarkRunner{}
 	model := catalog.Model{ID: "generation", BackendMode: BackendModeVLLM, HasLLM: true}
-	metrics := service.benchmarkMetrics(context.Background(), routerbenchmark.RunRequest{Iterations: 1}, model, routerbenchmark.SectionEmbed)
+	metrics := runner.benchmarkMetrics(context.Background(), routerbenchmark.RunRequest{Iterations: 1}, model, routerbenchmark.SectionEmbed)
 	if len(metrics) != 1 || metrics[0].Status != routerbenchmark.StatusSkipped || !strings.Contains(metrics[0].Error, "no embedding lane") {
 		t.Fatalf("vLLM generation model received embedding benchmark: %#v", metrics)
 	}
@@ -166,7 +166,7 @@ func TestVLLMSpeechBenchmarkUsesMultipartTranscription(t *testing.T) {
 		Logger:    log.New(io.Discard, "", 0),
 	})
 	service.backendRetryAttempts = 1
-	metrics := service.benchmarkMetrics(context.Background(), routerbenchmark.RunRequest{Iterations: 1}, model, routerbenchmark.SectionVoice)
+	metrics := service.benchmarks.benchmarkMetrics(context.Background(), routerbenchmark.RunRequest{Iterations: 1}, model, routerbenchmark.SectionVoice)
 	if requestedPath != "/v1/audio/transcriptions" || len(metrics) != 1 || metrics[0].Status != routerbenchmark.StatusSuccess {
 		t.Fatalf("vLLM speech benchmark path=%q metrics=%#v", requestedPath, metrics)
 	}
@@ -189,7 +189,7 @@ func TestBenchmarkRunsSerializePerNode(t *testing.T) {
 	}), map[string]string{
 		"a": `{"model_param":"text.gguf"}`,
 	})
-	service.benchmarkStore = newBenchmarkStoreForTest(t)
+	service.benchmarks.store = newBenchmarkStoreForTest(t)
 
 	var wait sync.WaitGroup
 	for index := 0; index < 2; index++ {
@@ -213,7 +213,7 @@ func TestBenchmarkRunsSerializePerNode(t *testing.T) {
 func TestNodeBenchmarksRequireClusterToken(t *testing.T) {
 	service, _ := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	service.clusterToken = "secret"
-	service.benchmarkStore = newBenchmarkStoreForTest(t)
+	service.benchmarks.store = newBenchmarkStoreForTest(t)
 
 	recorder := httptest.NewRecorder()
 	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/router/v1/node/benchmarks?model_id=a", nil))
@@ -238,7 +238,7 @@ func TestBenchmarkDataEnrichesRouterModels(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service.benchmarkStore = store
+	service.benchmarks.store = store
 
 	recorder := httptest.NewRecorder()
 	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/router/v1/models", nil))
@@ -371,7 +371,7 @@ func TestNodeBenchmarkRunPersistsLocalRecord(t *testing.T) {
 		"a": `{"model_param":"text.gguf"}`,
 	})
 	service.clusterToken = "secret"
-	service.benchmarkStore = newBenchmarkStoreForTest(t)
+	service.benchmarks.store = newBenchmarkStoreForTest(t)
 
 	request := httptest.NewRequest(http.MethodPost, "/router/v1/node/benchmarks/run", strings.NewReader(`{"model_id":"a","type":"section","sections":["runtime"],"timeout_seconds":30}`))
 	request.Header.Set("Authorization", "Bearer secret")
@@ -381,7 +381,7 @@ func TestNodeBenchmarkRunPersistsLocalRecord(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
 	}
-	if _, ok, err := service.benchmarkStore.Record(service.nodeID, "a"); err != nil || !ok {
+	if _, ok, err := service.benchmarks.store.Record(service.nodeID, "a"); err != nil || !ok {
 		t.Fatalf("expected stored record ok=%t err=%v", ok, err)
 	}
 }

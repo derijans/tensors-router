@@ -8,12 +8,12 @@ import (
 	"tensors-router/internal/openai"
 )
 
-func (service *Service) handleBenchmarkRun(w http.ResponseWriter, r *http.Request) {
-	if !service.siteControlAllowed() {
+func (runner *benchmarkRunner) handleBenchmarkRun(w http.ResponseWriter, r *http.Request) {
+	if !runner.deps.siteControlAllowed() {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
 		return
 	}
-	if service.rejectModelLoadWhileDraining(w) {
+	if runner.deps.rejectModelLoadWhileDraining(w) {
 		return
 	}
 	var request routerbenchmark.RunRequest
@@ -21,7 +21,7 @@ func (service *Service) handleBenchmarkRun(w http.ResponseWriter, r *http.Reques
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
-	record, err := service.runBenchmark(r.Context(), request, false)
+	record, err := runner.runBenchmark(r.Context(), request, false)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadRequest, "benchmark_error", err.Error())
 		return
@@ -29,8 +29,8 @@ func (service *Service) handleBenchmarkRun(w http.ResponseWriter, r *http.Reques
 	openai.WriteJSON(w, http.StatusOK, record)
 }
 
-func (service *Service) handleNodeBenchmarkRun(w http.ResponseWriter, r *http.Request) {
-	if service.rejectModelLoadWhileDraining(w) {
+func (runner *benchmarkRunner) handleNodeBenchmarkRun(w http.ResponseWriter, r *http.Request) {
+	if runner.deps.rejectModelLoadWhileDraining(w) {
 		return
 	}
 	var request routerbenchmark.RunRequest
@@ -38,7 +38,7 @@ func (service *Service) handleNodeBenchmarkRun(w http.ResponseWriter, r *http.Re
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
-	record, err := service.runBenchmark(r.Context(), request, true)
+	record, err := runner.runBenchmark(r.Context(), request, true)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadRequest, "benchmark_error", err.Error())
 		return
@@ -46,12 +46,12 @@ func (service *Service) handleNodeBenchmarkRun(w http.ResponseWriter, r *http.Re
 	openai.WriteJSON(w, http.StatusOK, record)
 }
 
-func (service *Service) handleBenchmarks(w http.ResponseWriter, r *http.Request) {
-	if !service.siteControlAllowed() {
+func (runner *benchmarkRunner) handleBenchmarks(w http.ResponseWriter, r *http.Request) {
+	if !runner.deps.siteControlAllowed() {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
 		return
 	}
-	record, err := service.benchmarkRecord(r.Context(), r.URL.Query(), false)
+	record, err := runner.benchmarkRecord(r.Context(), r.URL.Query(), false)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadRequest, "benchmark_error", err.Error())
 		return
@@ -59,8 +59,8 @@ func (service *Service) handleBenchmarks(w http.ResponseWriter, r *http.Request)
 	openai.WriteJSON(w, http.StatusOK, record)
 }
 
-func (service *Service) handleNodeBenchmarks(w http.ResponseWriter, r *http.Request) {
-	record, err := service.benchmarkRecord(r.Context(), r.URL.Query(), true)
+func (runner *benchmarkRunner) handleNodeBenchmarks(w http.ResponseWriter, r *http.Request) {
+	record, err := runner.benchmarkRecord(r.Context(), r.URL.Query(), true)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadRequest, "benchmark_error", err.Error())
 		return

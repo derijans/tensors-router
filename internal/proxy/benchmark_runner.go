@@ -12,7 +12,7 @@ import (
 	"tensors-router/internal/catalog"
 )
 
-func (service *Service) runBenchmark(ctx context.Context, request routerbenchmark.RunRequest, nodeOnly bool) (routerbenchmark.Record, error) {
+func (runner *benchmarkRunner) runBenchmark(ctx context.Context, request routerbenchmark.RunRequest, nodeOnly bool) (routerbenchmark.Record, error) {
 	request, err := normalizeBenchmarkRequest(request)
 	if err != nil {
 		return routerbenchmark.Record{}, err
@@ -20,49 +20,50 @@ func (service *Service) runBenchmark(ctx context.Context, request routerbenchmar
 	if request.ModelID == "" {
 		return routerbenchmark.Record{}, fmt.Errorf("model_id is required")
 	}
-	if !nodeOnly && !service.benchmarkTargetsLocal(request.NodeID) {
-		return service.runRemoteBenchmark(ctx, request)
+	if !nodeOnly && !runner.benchmarkTargetsLocal(request.NodeID) {
+		return runner.runRemoteBenchmark(ctx, request)
 	}
-	return service.runLocalBenchmark(ctx, request)
+	return runner.runLocalBenchmark(ctx, request)
 }
 
-func (service *Service) runRemoteBenchmark(ctx context.Context, request routerbenchmark.RunRequest) (routerbenchmark.Record, error) {
-	nodeURL := service.benchmarkNodeURL(request.NodeID)
+func (runner *benchmarkRunner) runRemoteBenchmark(ctx context.Context, request routerbenchmark.RunRequest) (routerbenchmark.Record, error) {
+	identity := runner.deps.clusterIdentity()
+	nodeURL := runner.benchmarkNodeURL(request.NodeID)
 	if nodeURL == "" {
 		return routerbenchmark.Record{}, fmt.Errorf("node %q was not found", request.NodeID)
 	}
 	var record routerbenchmark.Record
-	err := service.clusterClient.JSON(ctx, http.MethodPost, nodeURL, "/router/v1/node/benchmarks/run", request, &record)
+	err := identity.client.JSON(ctx, http.MethodPost, nodeURL, "/router/v1/node/benchmarks/run", request, &record)
 	if err != nil {
 		return record, err
 	}
-	snapshot, err := service.clusterClient.FetchSnapshot(ctx, nodeURL)
+	snapshot, err := identity.client.FetchSnapshot(ctx, nodeURL)
 	if err != nil {
-		service.logger.Printf("benchmark remote snapshot refresh failed node=%q error=%v", request.NodeID, err)
+		runner.logger.Printf("benchmark remote snapshot refresh failed node=%q error=%v", request.NodeID, err)
 		return record, nil
 	}
-	if service.registry == nil {
+	if identity.registry == nil {
 		return record, nil
 	}
 	snapshot.NodeURL = nodeURL
-	if err := service.registry.UpdateNode(snapshot); err != nil {
-		service.logger.Printf("benchmark remote registry update failed node=%q error=%v", request.NodeID, err)
+	if err := identity.registry.UpdateNode(snapshot); err != nil {
+		runner.logger.Printf("benchmark remote registry update failed node=%q error=%v", request.NodeID, err)
 	}
 	return record, nil
 }
 
-func (service *Service) runLocalBenchmark(ctx context.Context, request routerbenchmark.RunRequest) (routerbenchmark.Record, error) {
-	if service.benchmarkStore == nil {
+func (runner *benchmarkRunner) runLocalBenchmark(ctx context.Context, request routerbenchmark.RunRequest) (routerbenchmark.Record, error) {
+	if runner.store == nil {
 		return routerbenchmark.Record{}, fmt.Errorf("benchmark store is not configured")
 	}
-	model, ok, err := service.catalog.Resolve(request.ModelID)
+	model, ok, err := runner.deps.resolveCatalogModel(request.ModelID)
 	if err != nil {
 		return routerbenchmark.Record{}, err
 	}
 	if !ok {
 		return routerbenchmark.Record{}, fmt.Errorf("model %q was not found", request.ModelID)
 	}
-	enabled, err := service.localModelEnabled(ctx, model.ID)
+	enabled, err := runner.deps.localModelEnabled(ctx, model.ID)
 	if err != nil {
 		return routerbenchmark.Record{}, err
 	}
@@ -73,14 +74,14 @@ func (service *Service) runLocalBenchmark(ctx context.Context, request routerben
 	runContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), benchmarkTimeout(request.TimeoutSeconds))
 	defer cancel()
 
-	service.benchmarkMu.Lock()
-	defer service.benchmarkMu.Unlock()
+	runner.mu.Lock()
+	defer runner.mu.Unlock()
 
 	runID := strconv.FormatInt(time.Now().UnixNano(), 36)
 	sections := expandBenchmarkSections(request)
 	summaries := make([]routerbenchmark.Summary, 0, len(sections))
 	for _, section := range sections {
-		summaries = append(summaries, service.runBenchmarkSection(runContext, runID, request, model, section))
+		summaries = append(summaries, runner.runBenchmarkSection(runContext, runID, request, model, section))
 		if runContext.Err() != nil {
 			break
 		}
@@ -88,17 +89,17 @@ func (service *Service) runLocalBenchmark(ctx context.Context, request routerben
 	if len(summaries) == 0 {
 		return routerbenchmark.Record{}, fmt.Errorf("no benchmark sections selected")
 	}
-	record, err := service.benchmarkStore.SaveRun(service.nodeID, model.ID, request.Type, summaries, model.Options)
+	record, err := runner.store.SaveRun(runner.deps.clusterIdentity().nodeID, model.ID, request.Type, summaries, model.Options)
 	if err != nil {
 		return routerbenchmark.Record{}, err
 	}
-	if err := service.refreshLocalRegistry(); err != nil {
-		service.logger.Printf("benchmark registry refresh failed: %v", err)
+	if err := runner.deps.refreshLocalRegistry(); err != nil {
+		runner.logger.Printf("benchmark registry refresh failed: %v", err)
 	}
 	return record, nil
 }
 
-func (service *Service) runBenchmarkSection(ctx context.Context, runID string, request routerbenchmark.RunRequest, model catalog.Model, section string) routerbenchmark.Summary {
+func (runner *benchmarkRunner) runBenchmarkSection(ctx context.Context, runID string, request routerbenchmark.RunRequest, model catalog.Model, section string) routerbenchmark.Summary {
 	started := time.Now()
 	summary := routerbenchmark.Summary{
 		RunID:     runID,
@@ -107,7 +108,7 @@ func (service *Service) runBenchmarkSection(ctx context.Context, runID string, r
 		Status:    routerbenchmark.StatusRunning,
 		StartedAt: started.UnixMilli(),
 	}
-	metrics := service.benchmarkMetrics(ctx, request, model, section)
+	metrics := runner.benchmarkMetrics(ctx, request, model, section)
 	summary.Metrics = metrics
 	finished := time.Now()
 	summary.FinishedAt = finished.UnixMilli()
@@ -117,25 +118,25 @@ func (service *Service) runBenchmarkSection(ctx context.Context, runID string, r
 	return summary
 }
 
-func (service *Service) benchmarkMetrics(ctx context.Context, request routerbenchmark.RunRequest, model catalog.Model, section string) []routerbenchmark.Metric {
+func (runner *benchmarkRunner) benchmarkMetrics(ctx context.Context, request routerbenchmark.RunRequest, model catalog.Model, section string) []routerbenchmark.Metric {
 	switch section {
 	case routerbenchmark.SectionRuntime:
-		return []routerbenchmark.Metric{service.runtimeBenchmarkMetric(ctx, model)}
+		return []routerbenchmark.Metric{runner.runtimeBenchmarkMetric(ctx, model)}
 	case routerbenchmark.SectionLLM:
 		if !model.HasLLM {
 			return []routerbenchmark.Metric{skippedMetric(section, "model has no llm lane")}
 		}
-		return service.textBenchmarkMetrics(ctx, "/v1/chat/completions", textBenchmarkBody(model.ID), request.Iterations)
+		return runner.textBenchmarkMetrics(ctx, "/v1/chat/completions", textBenchmarkBody(model.ID), request.Iterations)
 	case routerbenchmark.SectionEmbed:
 		if !model.HasEmbeddings && (model.BackendMode == BackendModeVLLM || !model.HasLLM) {
 			return []routerbenchmark.Metric{skippedMetric(section, "model has no embedding lane")}
 		}
-		return service.requestBenchmarkMetrics(ctx, "/v1/embeddings", embeddingsBenchmarkBody(model.ID), request.Iterations)
+		return runner.requestBenchmarkMetrics(ctx, "/v1/embeddings", embeddingsBenchmarkBody(model.ID), request.Iterations)
 	case routerbenchmark.SectionImage:
 		if !model.HasImage {
 			return []routerbenchmark.Metric{skippedMetric(section, "model has no image lane")}
 		}
-		return service.requestBenchmarkMetrics(ctx, "/v1/images/generations", imageBenchmarkBody(model.ImageID), request.Iterations)
+		return runner.requestBenchmarkMetrics(ctx, "/v1/images/generations", imageBenchmarkBody(model.ImageID), request.Iterations)
 	case routerbenchmark.SectionVoice:
 		if !model.HasVoice {
 			return []routerbenchmark.Metric{skippedMetric(section, "model has no voice lane")}
@@ -145,22 +146,22 @@ func (service *Service) benchmarkMetrics(ctx context.Context, request routerbenc
 			if err != nil {
 				return []routerbenchmark.Metric{failedMetric(section, err.Error(), 0)}
 			}
-			return service.requestBenchmarkMetricsWithContentType(ctx, "/v1/audio/transcriptions", body, contentType, request.Iterations)
+			return runner.requestBenchmarkMetricsWithContentType(ctx, "/v1/audio/transcriptions", body, contentType, request.Iterations)
 		}
-		return service.requestBenchmarkMetrics(ctx, "/v1/audio/speech", voiceBenchmarkBody(model.ID), request.Iterations)
+		return runner.requestBenchmarkMetrics(ctx, "/v1/audio/speech", voiceBenchmarkBody(model.ID), request.Iterations)
 	case routerbenchmark.SectionMusic:
 		if !model.HasMusic {
 			return []routerbenchmark.Metric{skippedMetric(section, "model has no music lane")}
 		}
-		return service.requestBenchmarkMetrics(ctx, "/api/extra/music/generate", musicBenchmarkBody(model.ID), request.Iterations)
+		return runner.requestBenchmarkMetrics(ctx, "/api/extra/music/generate", musicBenchmarkBody(model.ID), request.Iterations)
 	default:
 		return []routerbenchmark.Metric{failedMetric(section, fmt.Sprintf("unknown benchmark section %q", section), 0)}
 	}
 }
 
-func (service *Service) runtimeBenchmarkMetric(ctx context.Context, model catalog.Model) routerbenchmark.Metric {
+func (runner *benchmarkRunner) runtimeBenchmarkMetric(ctx context.Context, model catalog.Model) routerbenchmark.Metric {
 	started := time.Now()
-	err := service.loadLocalModel(ctx, model.ID, model.ID)
+	err := runner.deps.loadLocalModel(ctx, model.ID, model.ID)
 	duration := time.Since(started).Milliseconds()
 	if err != nil {
 		return failedMetric(routerbenchmark.MetricModelLoadMS, err.Error(), duration)
@@ -168,15 +169,15 @@ func (service *Service) runtimeBenchmarkMetric(ctx context.Context, model catalo
 	return successMetric(routerbenchmark.MetricModelLoadMS, duration)
 }
 
-func (service *Service) requestBenchmarkMetrics(ctx context.Context, path string, body string, iterations int) []routerbenchmark.Metric {
-	return service.requestBenchmarkMetricsWithContentType(ctx, path, body, "application/json", iterations)
+func (runner *benchmarkRunner) requestBenchmarkMetrics(ctx context.Context, path string, body string, iterations int) []routerbenchmark.Metric {
+	return runner.requestBenchmarkMetricsWithContentType(ctx, path, body, "application/json", iterations)
 }
 
-func (service *Service) requestBenchmarkMetricsWithContentType(ctx context.Context, path string, body string, contentType string, iterations int) []routerbenchmark.Metric {
+func (runner *benchmarkRunner) requestBenchmarkMetricsWithContentType(ctx context.Context, path string, body string, contentType string, iterations int) []routerbenchmark.Metric {
 	var total time.Duration
 	for index := 0; index < iterations; index++ {
 		started := time.Now()
-		status, preview, err := service.performBenchmarkRequestWithContentType(ctx, path, body, contentType)
+		status, preview, err := runner.performBenchmarkRequestWithContentType(ctx, path, body, contentType)
 		duration := time.Since(started)
 		total += duration
 		if err != nil {
