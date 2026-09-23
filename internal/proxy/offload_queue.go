@@ -43,8 +43,8 @@ type queuedRequest struct {
 
 type nodeActivity bool
 
-func (service *Service) nodeActivity() nodeActivity {
-	return nodeActivity(service.idleForBorrowedWork())
+func (scheduler *scheduler) nodeActivity() nodeActivity {
+	return nodeActivity(scheduler.idleForBorrowedWork())
 }
 
 func (activity nodeActivity) idle() bool {

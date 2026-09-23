@@ -153,10 +153,10 @@ func TestSavingLinksMakesTheModelsQueueImmediately(t *testing.T) {
 		t.Fatalf("status %d body %s", recorder.Code, recorder.Body.String())
 	}
 
-	if !service.queuesForLending(cluster.RouteLaneImage, "master", "cc-ff") {
+	if !service.scheduler.queuesForLending(cluster.RouteLaneImage, "master", "cc-ff") {
 		t.Fatal("the owner does not queue for lending after saving its link")
 	}
-	if service.queuesForLending(cluster.RouteLaneImage, "slave-a", "flux") {
+	if service.scheduler.queuesForLending(cluster.RouteLaneImage, "slave-a", "flux") {
 		t.Fatal("an unlinked model queues for lending")
 	}
 }
@@ -178,7 +178,7 @@ func TestDeletingAnAnchorRemovesLinksInBothDirections(t *testing.T) {
 	if response := getRoutingLinks(t, service, imageLinksPath, ""); len(response.Links) != 0 {
 		t.Fatalf("links = %+v, want none after delete", response.Links)
 	}
-	if service.queuesForLending(cluster.RouteLaneImage, "master", "cc-ff") {
+	if service.scheduler.queuesForLending(cluster.RouteLaneImage, "master", "cc-ff") {
 		t.Fatal("the deleted anchor still queues for lending")
 	}
 }
@@ -254,7 +254,7 @@ func TestTextLinksAreStoredApartFromImageLinks(t *testing.T) {
 	if links := getRoutingLinks(t, service, imageLinksPath, "").Links; len(links) != 0 {
 		t.Fatalf("image links = %+v, want none", links)
 	}
-	if !service.queuesForLending(cluster.RouteLaneText, "master", "llama-70b") {
+	if !service.scheduler.queuesForLending(cluster.RouteLaneText, "master", "llama-70b") {
 		t.Fatal("the text owner does not queue for lending after saving its link")
 	}
 }

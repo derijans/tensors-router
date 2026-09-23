@@ -24,7 +24,7 @@ func borrowedRequestMustStayOnThisNode(r *http.Request, route cluster.Route) boo
 }
 
 func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string) {
-	hint := service.textWorkHint(service.nodeID, publicID, int64(len(body)), body)
+	hint := service.scheduler.textWorkHint(service.nodeID, publicID, int64(len(body)), body)
 	model, route, release, ok := service.acquireRegistryModelRoute(r, publicID)
 	if !ok {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", fmt.Sprintf("model %q has no available replicas", publicID))
@@ -146,10 +146,10 @@ func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter
 
 func (service *Service) serveTextThroughLendingQueue(w http.ResponseWriter, r *http.Request, body []byte, requestBody []byte, publicID string, route cluster.Route, workHint requestWorkHint, release func()) (complete func(), handled bool) {
 	modelID := route.LocalID
-	if !service.queuesForLending(cluster.RouteLaneText, route.NodeID, modelID) {
+	if !service.scheduler.queuesForLending(cluster.RouteLaneText, route.NodeID, modelID) {
 		return nil, false
 	}
-	admission, queueErr := service.enterTextQueue(r.Context(), modelID, workHint.Work, int64(workHint.RequiredContext), requestIsStreaming(body), requestIsBorrowed(r))
+	admission, queueErr := service.scheduler.enterTextQueue(r.Context(), modelID, workHint.Work, int64(workHint.RequiredContext), requestIsStreaming(body), requestIsBorrowed(r))
 	if queueErr != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", queueErr.Error())
 		return nil, true
@@ -159,19 +159,19 @@ func (service *Service) serveTextThroughLendingQueue(w http.ResponseWriter, r *h
 		writeOffloadReturned(w)
 		return nil, true
 	case offloadWithdrawn:
-		if lease, leased := service.activeOffloadLease(cluster.RouteLaneText, modelID, time.Now()); leased &&
+		if lease, leased := service.scheduler.activeOffloadLease(cluster.RouteLaneText, modelID, time.Now()); leased &&
 			service.leasedHelperContextFits(routinggroups.Endpoint{NodeID: lease.HelperNodeID, ModelID: lease.HelperModelID}, admission.entry.requiredContext) &&
 			service.forwardOffloadedTextRequest(w, r, r, requestBody, modelID, publicID, release) {
 			return nil, true
 		}
-		requeued := service.textQueue.Requeue(modelID, workHint.Work, int64(workHint.RequiredContext), time.Now())
-		if outcome, waitErr := service.textQueue.Await(r.Context(), requeued); waitErr != nil || outcome != offloadAdmitted {
+		requeued := service.scheduler.textQueue.Requeue(modelID, workHint.Work, int64(workHint.RequiredContext), time.Now())
+		if outcome, waitErr := service.scheduler.textQueue.Await(r.Context(), requeued); waitErr != nil || outcome != offloadAdmitted {
 			openai.WriteError(w, http.StatusBadGateway, "backend_error", "returned request could not be re-queued")
 			return nil, true
 		}
-		return func() { service.completeTextQueueEntry(modelID, requeued) }, false
+		return func() { service.scheduler.completeTextQueueEntry(modelID, requeued) }, false
 	default:
-		return func() { service.completeTextQueueEntry(modelID, admission.entry) }, false
+		return func() { service.scheduler.completeTextQueueEntry(modelID, admission.entry) }, false
 	}
 }
 
@@ -260,8 +260,8 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 
 		// A linked image model queues in the router instead of going straight to
 		// the backend, which is what keeps its backlog recallable and lendable.
-		if modelID := route.LocalImageID; service.queuesForLending(cluster.RouteLaneImage, route.NodeID, modelID) {
-			admission, queueErr := service.enterImageQueue(r.Context(), modelID, imageWorkHint(r, body).Work, requestIsBorrowed(r))
+		if modelID := route.LocalImageID; service.scheduler.queuesForLending(cluster.RouteLaneImage, route.NodeID, modelID) {
+			admission, queueErr := service.scheduler.enterImageQueue(r.Context(), modelID, imageWorkHint(r, body).Work, requestIsBorrowed(r))
 			if queueErr != nil {
 				release()
 				openai.WriteError(w, http.StatusBadGateway, "backend_error", queueErr.Error())
@@ -278,15 +278,15 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 					return true
 				}
 				// The helper could not take it after all, so this node runs it.
-				requeued := service.imageQueue.Requeue(modelID, imageWorkHint(r, body).Work, 0, time.Now())
-				if outcome, waitErr := service.imageQueue.Await(r.Context(), requeued); waitErr != nil || outcome != offloadAdmitted {
+				requeued := service.scheduler.imageQueue.Requeue(modelID, imageWorkHint(r, body).Work, 0, time.Now())
+				if outcome, waitErr := service.scheduler.imageQueue.Await(r.Context(), requeued); waitErr != nil || outcome != offloadAdmitted {
 					release()
 					openai.WriteError(w, http.StatusBadGateway, "backend_error", "returned request could not be re-queued")
 					return true
 				}
-				defer service.completeImageQueueEntry(modelID, requeued)
+				defer service.scheduler.completeImageQueueEntry(modelID, requeued)
 			default:
-				defer service.completeImageQueueEntry(modelID, admission.entry)
+				defer service.scheduler.completeImageQueueEntry(modelID, admission.entry)
 			}
 		}
 

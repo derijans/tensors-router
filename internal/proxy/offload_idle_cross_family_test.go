@@ -57,7 +57,7 @@ func TestIdleForBorrowedWorkSeesActivityInAnyConfiguredFamily(t *testing.T) {
 	if service.currentBackendMode() != backendmode.Kobold {
 		t.Fatalf("current backend mode = %q, want kobold", service.currentBackendMode())
 	}
-	if !service.idleForBorrowedWork() {
+	if !service.scheduler.idleForBorrowedWork() {
 		t.Fatal("a freshly constructed two-family node reported busy")
 	}
 
@@ -69,7 +69,7 @@ func TestIdleForBorrowedWorkSeesActivityInAnyConfiguredFamily(t *testing.T) {
 	otherFamily.textRuntime.state.users++
 	otherFamily.textRuntime.state.mu.Unlock()
 
-	if service.idleForBorrowedWork() {
+	if service.scheduler.idleForBorrowedWork() {
 		t.Fatal("activity on a non-current family's runtime was invisible to idleForBorrowedWork")
 	}
 }

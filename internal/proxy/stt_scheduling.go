@@ -44,11 +44,9 @@ func (service *Service) handleNodeRuntimeStatus(w http.ResponseWriter, _ *http.R
 func (service *Service) localRuntimeStatus() NodeRuntimeStatus {
 	mode := service.currentBackendMode()
 	status := NodeRuntimeStatus{NodeID: service.nodeID, BackendMode: mode}
-	service.applyImageSchedulingStatus(&status)
-	service.applyTextSchedulingStatus(&status)
-	if costs := service.publishedCosts(); costs != nil {
-		status.Costs = *costs
-	}
+	service.scheduler.applyQueueStatus(&status)
+	status.ActiveImageConfig = service.activeImageConfigFilename()
+	status.ActiveTextConfig = service.activeTextConfigFilename()
 	family := service.backendFamilies[mode]
 	for _, runtime := range uniqueBackendRuntimes(family) {
 		runtime.state.mu.Lock()
@@ -215,9 +213,5 @@ func (service *Service) chooseSTTCandidate(values []sttCandidate, workload func(
 	for tied < len(values) && workload(values[tied]) == minimum {
 		tied++
 	}
-	service.autoSTTMu.Lock()
-	index := int(service.autoSTTNext % uint64(tied))
-	service.autoSTTNext++
-	service.autoSTTMu.Unlock()
-	return values[index], true
+	return values[service.sttTieRotation.pick(tied)], true
 }

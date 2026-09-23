@@ -12,47 +12,48 @@ import (
 
 var lendingLanes = []string{cluster.RouteLaneImage, cluster.RouteLaneText}
 
-func (service *Service) refreshOffloadPlan(ctx context.Context) {
-	if service.clusterRole != cluster.RoleMaster || service.registry == nil {
+func (scheduler *scheduler) refreshOffloadPlan(ctx context.Context) {
+	identity := scheduler.deps.clusterIdentity()
+	if identity.role != cluster.RoleMaster || identity.registry == nil {
 		return
 	}
-	statuses := service.collectRuntimeStatuses(ctx)
-	service.applyClusterCosts(statuses)
+	statuses := scheduler.collectRuntimeStatuses(ctx, identity.nodeID)
+	scheduler.applyClusterCosts(statuses)
 
-	snapshot, loaded := service.installStoredRoutingLinks(ctx)
+	snapshot, loaded := scheduler.deps.installStoredRoutingLinks(ctx)
 	if !loaded {
 		return
 	}
-	service.publishRoutingLinks(ctx, snapshot)
+	scheduler.deps.publishRoutingLinks(ctx, snapshot)
 
-	costs := service.costSource.Table()
+	costs := scheduler.costSource.Table()
 	now := time.Now()
-	index := service.routingLinkIndex()
+	index := scheduler.deps.routingLinkIndex()
+	models := identity.registry.Models()
 	var planned []offloadLease
 	for _, lane := range lendingLanes {
-		owners := service.lendingOwnersForLane(lane, index, statuses)
-		planned = append(planned, planOffloadLeases(lane, owners, costs, now, service.schedulingGrantTTL)...)
+		owners := lendingOwnersForLane(lane, models, index, statuses)
+		planned = append(planned, planOffloadLeases(lane, owners, costs, now, scheduler.grantTTL)...)
 	}
-	service.leaseBook.Replace(planned)
-	service.deliverOffloadLeases(ctx, planned)
+	scheduler.leaseBook.Replace(planned)
+	scheduler.deliverOffloadLeases(ctx, identity, planned)
 }
 
-func (service *Service) collectRuntimeStatuses(ctx context.Context) map[string]NodeRuntimeStatus {
-	statuses := service.remoteRuntimeStatuses(ctx)
+func (scheduler *scheduler) collectRuntimeStatuses(ctx context.Context, localNodeID string) map[string]NodeRuntimeStatus {
+	statuses := scheduler.deps.remoteRuntimeStatuses(ctx)
 	if statuses == nil {
 		statuses = map[string]NodeRuntimeStatus{}
 	}
-	local := service.localRuntimeStatus()
-	statuses[service.nodeID] = local
+	statuses[localNodeID] = scheduler.deps.localRuntimeStatus()
 	return statuses
 }
 
-func (service *Service) applyClusterCosts(statuses map[string]NodeRuntimeStatus) {
+func (scheduler *scheduler) applyClusterCosts(statuses map[string]NodeRuntimeStatus) {
 	costsByNode := make(map[string]schedulingcost.NodeCosts, len(statuses))
 	for nodeID, status := range statuses {
 		costsByNode[nodeID] = status.Costs
 	}
-	service.costSource.Replace(schedulingcost.Merge(costsByNode))
+	scheduler.costSource.Replace(schedulingcost.Merge(costsByNode))
 }
 
 func laneQueueStatsFor(status NodeRuntimeStatus, lane string, modelID string) offloadModelStats {
@@ -68,8 +69,8 @@ func laneQueueStatsFor(status NodeRuntimeStatus, lane string, modelID string) of
 	return offloadModelStats{}
 }
 
-func (service *Service) lendingOwnersForLane(lane string, index *routingLinkIndex, statuses map[string]NodeRuntimeStatus) []lendingOwner {
-	models := lendableModelsByEndpoint(lane, service.registry.Models())
+func lendingOwnersForLane(lane string, registryModels []cluster.Model, index *routingLinkIndex, statuses map[string]NodeRuntimeStatus) []lendingOwner {
+	models := lendableModelsByEndpoint(lane, registryModels)
 	var owners []lendingOwner
 	for _, ownerEndpoint := range index.owners(lane) {
 		owner, ok := offloadCandidateFor(lane, ownerEndpoint, models, statuses)
@@ -146,29 +147,29 @@ func offloadCandidateFor(lane string, endpoint routinggroups.Endpoint, models ma
 	return candidate, true
 }
 
-func (service *Service) deliverOffloadLeases(ctx context.Context, leases []offloadLease) {
-	nodeURLs := service.registry.NodeURLsByID()
+func (scheduler *scheduler) deliverOffloadLeases(ctx context.Context, identity clusterIdentity, leases []offloadLease) {
+	nodeURLs := identity.registry.NodeURLsByID()
 	for _, lease := range leases {
-		if lease.OwnerNodeID == service.nodeID {
-			service.storeOffloadLease(lease)
+		if lease.OwnerNodeID == identity.nodeID {
+			scheduler.storeOffloadLease(lease)
 			continue
 		}
 		nodeURL := nodeURLs[lease.OwnerNodeID]
 		if nodeURL == "" {
 			continue
 		}
-		if err := service.clusterClient.JSON(ctx, http.MethodPost, nodeURL, "/router/v1/node/offload/grant", lease, nil); err != nil {
-			service.logger.Printf("offload grant delivery failed node=%s error=%v", lease.OwnerNodeID, err)
+		if err := identity.client.JSON(ctx, http.MethodPost, nodeURL, "/router/v1/node/offload/grant", lease, nil); err != nil {
+			scheduler.logger.Printf("offload grant delivery failed node=%s error=%v", lease.OwnerNodeID, err)
 		}
 	}
 }
 
-func (service *Service) storeOffloadLease(lease offloadLease) {
-	service.offloadLeases.Store(laneModelKey(lease.Lane, lease.OwnerModelID), lease)
+func (scheduler *scheduler) storeOffloadLease(lease offloadLease) {
+	scheduler.offloadLeases.Store(laneModelKey(lease.Lane, lease.OwnerModelID), lease)
 }
 
-func (service *Service) activeOffloadLease(lane string, modelID string, now time.Time) (offloadLease, bool) {
-	value, ok := service.offloadLeases.Load(laneModelKey(lane, modelID))
+func (scheduler *scheduler) activeOffloadLease(lane string, modelID string, now time.Time) (offloadLease, bool) {
+	value, ok := scheduler.offloadLeases.Load(laneModelKey(lane, modelID))
 	if !ok {
 		return offloadLease{}, false
 	}

@@ -6,11 +6,11 @@ import (
 	"tensors-router/internal/schedulingcost"
 )
 
-func (service *Service) textWorkHint(profileNodeID string, profileModelID string, promptBytes int64, body []byte) requestWorkHint {
+func (scheduler *scheduler) textWorkHint(profileNodeID string, profileModelID string, promptBytes int64, body []byte) requestWorkHint {
 	if promptBytes <= 0 {
 		return requestWorkHint{}
 	}
-	profile, ok := service.costSource.TokenProfile(profileNodeID, profileModelID)
+	profile, ok := scheduler.costSource.TokenProfile(profileNodeID, profileModelID)
 	if !ok {
 		return requestWorkHint{}
 	}
@@ -18,7 +18,7 @@ func (service *Service) textWorkHint(profileNodeID string, profileModelID string
 	if !ok {
 		return requestWorkHint{}
 	}
-	requiredContext, ok := profile.RequiredContext(promptBytes, requestedOutputTokens(body), service.schedulingContextReserve)
+	requiredContext, ok := profile.RequiredContext(promptBytes, requestedOutputTokens(body), scheduler.contextReserve)
 	if !ok {
 		return requestWorkHint{}
 	}

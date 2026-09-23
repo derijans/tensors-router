@@ -94,7 +94,7 @@ func writeProxyResponseWithLimit(w http.ResponseWriter, response *http.Response,
 	copyResponseHeaders(w.Header(), response.Header)
 	w.WriteHeader(response.StatusCode)
 
-	_, err := transportbody.Copy(flushingWriter{ResponseWriter: w}, response.Body)
+	_, err := transportbody.CopyFlushing(w, response.Body)
 	return err
 }
 
@@ -145,7 +145,7 @@ func streamJSONResponseWithVirtualModel(w http.ResponseWriter, response *http.Re
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Del("Content-Length")
 	w.WriteHeader(response.StatusCode)
-	_, err := transportbody.CopyResponse(flushingWriter{ResponseWriter: w}, source, maxResponseBytes)
+	_, err := transportbody.CopyResponseFlushing(w, source, maxResponseBytes)
 	return err
 }
 
@@ -267,16 +267,4 @@ type readerReadCloser struct {
 
 func (reader *readerReadCloser) Close() error {
 	return reader.Closer.Close()
-}
-
-type flushingWriter struct {
-	http.ResponseWriter
-}
-
-func (writer flushingWriter) Write(content []byte) (int, error) {
-	written, err := writer.ResponseWriter.Write(content)
-	if flusher, ok := writer.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
-	}
-	return written, err
 }

@@ -31,8 +31,8 @@ func TestUnlinkedTextRequestIsNeverQueued(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("status %d body %s", recorder.Code, recorder.Body.String())
 	}
-	if service.textQueue != nil {
-		if stats := service.textQueue.Stats(); len(stats) != 0 {
+	if service.scheduler.textQueue != nil {
+		if stats := service.scheduler.textQueue.Stats(); len(stats) != 0 {
 			t.Fatalf("stats = %+v, want nothing queued for an unlinked model with no registry at all", stats)
 		}
 	}

@@ -83,15 +83,6 @@ func NewService(config ServiceConfig) *Service {
 		modelStateStore:           config.ModelStateStore,
 		pendingModelUnloads:       map[string]context.CancelFunc{},
 		routingGroups:             config.RoutingGroups,
-		costSource:                newSchedulingCostSource(),
-		leaseBook:                 newOffloadLeaseBook(),
-		schedulingSampleWindow:    config.SchedulingSampleWindow,
-		schedulingMinSamples:      config.SchedulingMinSamples,
-		schedulingBackendDepth:    config.SchedulingBackendDepth,
-		schedulingRefreshInterval: config.SchedulingRefreshInterval,
-		schedulingGrantTTL:        config.SchedulingGrantTTL,
-		schedulingContextReserve:  config.SchedulingContextReserve,
-		offloadRestoreDelay:       config.OffloadRestoreDelay,
 		loadCaptureStore:          config.LoadCaptureStore,
 		loadCaptureMaxOutputBytes: config.LoadCaptureMaxOutputBytes,
 		loadErrorStore:            config.LoadErrorStore,
@@ -152,38 +143,18 @@ func NewService(config ServiceConfig) *Service {
 		service.logger.Printf("cluster target setup failed: %v", err)
 	}
 	service.separatePool = newSeparateRuntimePool(config.SeparateRuntimeLimit)
-	service.applySchedulingDefaults()
-	service.imageQueue = newOffloadQueue(service.schedulingBackendDepth)
-	service.textQueue = newOffloadQueue(service.schedulingBackendDepth)
+	service.scheduler = newScheduler(service, service.analytics, schedulingSettings{
+		sampleWindow:    config.SchedulingSampleWindow,
+		minSamples:      config.SchedulingMinSamples,
+		backendDepth:    config.SchedulingBackendDepth,
+		refreshInterval: config.SchedulingRefreshInterval,
+		grantTTL:        config.SchedulingGrantTTL,
+		contextReserve:  config.SchedulingContextReserve,
+		restoreDelay:    config.OffloadRestoreDelay,
+	}, logger)
 	service.installStoredRoutingLinks(context.Background())
 	service.routes = newRouteTable(service.requireClusterToken, service.controlRoutes(), service.siteRoutes(), service.nodeRoutes(), service.downloads.Routes(), service.benchmarks.routes(), service.assets.routes(), service.webUI.routes())
 	return service
-}
-
-// applySchedulingDefaults keeps a Service constructed without scheduling settings
-// working, which is what every existing test does.
-func (service *Service) applySchedulingDefaults() {
-	if service.schedulingSampleWindow <= 0 {
-		service.schedulingSampleWindow = 24 * time.Hour
-	}
-	if service.schedulingMinSamples < 2 {
-		service.schedulingMinSamples = 20
-	}
-	if service.schedulingBackendDepth < 1 {
-		service.schedulingBackendDepth = 2
-	}
-	if service.schedulingRefreshInterval <= 0 {
-		service.schedulingRefreshInterval = time.Minute
-	}
-	if service.schedulingGrantTTL <= 0 {
-		service.schedulingGrantTTL = 30 * time.Second
-	}
-	if service.schedulingContextReserve <= 0 {
-		service.schedulingContextReserve = 256
-	}
-	if service.offloadRestoreDelay <= 0 {
-		service.offloadRestoreDelay = defaultOffloadRestoreDelay
-	}
 }
 
 func backendFamiliesFromConfig(config ServiceConfig, defaultMode string) map[string]*backendFamily {
@@ -313,9 +284,8 @@ func (service *Service) Draining() bool {
 }
 
 func (service *Service) Close(ctx context.Context) error {
-	err := service.stopSchedulingRefresh(ctx)
+	err := service.scheduler.close(ctx)
 	err = errors.Join(err, service.assets.close(ctx))
-	service.stopBorrowRestores()
 	service.vllmResponses.close()
 	service.modelStateMu.Lock()
 	for _, cancel := range service.pendingModelUnloads {

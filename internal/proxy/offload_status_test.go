@@ -9,17 +9,17 @@ import (
 
 func TestCloseStopsTheSchedulingRefresh(t *testing.T) {
 	service, _ := newTestServiceWithModels(t, http.NotFoundHandler(), "a")
-	service.schedulingRefreshInterval = time.Millisecond
+	service.scheduler.refreshInterval = time.Millisecond
 	service.StartSchedulingRefresh(context.Background())
 	waitForPublishedCosts(t, service)
 
 	if err := service.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	costsAtClose := service.publishedCosts()
-	time.Sleep(20 * service.schedulingRefreshInterval)
+	costsAtClose := service.scheduler.publishedCosts()
+	time.Sleep(20 * service.scheduler.refreshInterval)
 
-	if service.publishedCosts() != costsAtClose {
+	if service.scheduler.publishedCosts() != costsAtClose {
 		t.Fatal("scheduling refresh republished costs after Close returned")
 	}
 }
@@ -27,7 +27,7 @@ func TestCloseStopsTheSchedulingRefresh(t *testing.T) {
 func waitForPublishedCosts(t *testing.T, service *Service) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
-	for service.publishedCosts() == nil {
+	for service.scheduler.publishedCosts() == nil {
 		if time.Now().After(deadline) {
 			t.Fatal("scheduling refresh never published costs")
 		}

@@ -28,7 +28,7 @@ func TestIdleForBorrowedWorkTrueWhenNothingRunning(t *testing.T) {
 	service, _, _ := newSplitTestServiceWithConfigContents(t, http.NotFoundHandler(), http.NotFoundHandler(), map[string]string{
 		"text-only": `{"model_param":"C:\\models\\llm.gguf"}`,
 	})
-	if !service.idleForBorrowedWork() {
+	if !service.scheduler.idleForBorrowedWork() {
 		t.Fatal("a node with nothing running reported busy")
 	}
 }
@@ -52,13 +52,13 @@ func TestIdleForBorrowedWorkFalseWhileATextRequestRuns(t *testing.T) {
 		done <- recorder.Code
 	}()
 
-	waitForCondition(t, func() bool { return !service.idleForBorrowedWork() })
+	waitForCondition(t, func() bool { return !service.scheduler.idleForBorrowedWork() })
 
 	close(gate)
 	if code := <-done; code != http.StatusOK {
 		t.Fatalf("text request status %d, want 200", code)
 	}
-	waitForCondition(t, func() bool { return service.idleForBorrowedWork() })
+	waitForCondition(t, func() bool { return service.scheduler.idleForBorrowedWork() })
 }
 
 func TestIdleForBorrowedWorkFalseWhileAnImageRequestRuns(t *testing.T) {
@@ -80,22 +80,22 @@ func TestIdleForBorrowedWorkFalseWhileAnImageRequestRuns(t *testing.T) {
 		done <- recorder.Code
 	}()
 
-	waitForCondition(t, func() bool { return !service.idleForBorrowedWork() })
+	waitForCondition(t, func() bool { return !service.scheduler.idleForBorrowedWork() })
 
 	close(gate)
 	<-done
-	waitForCondition(t, func() bool { return service.idleForBorrowedWork() })
+	waitForCondition(t, func() bool { return service.scheduler.idleForBorrowedWork() })
 }
 
 func TestBorrowedWorkAloneKeepsTheNodeIdle(t *testing.T) {
 	service, _, _ := newSplitTestServiceWithConfigContents(t, http.NotFoundHandler(), http.NotFoundHandler(), map[string]string{
 		"text-only": `{"model_param":"C:\\models\\llm.gguf"}`,
 	})
-	entry := service.textQueue.Enqueue(queuedRequest{modelID: "group", work: schedulingcost.TextWork(100, 20), requiredContext: 2048, origin: borrowedFromPeer}, nodeActivity(true), time.Now())
+	entry := service.scheduler.textQueue.Enqueue(queuedRequest{modelID: "group", work: schedulingcost.TextWork(100, 20), requiredContext: 2048, origin: borrowedFromPeer}, nodeActivity(true), time.Now())
 	if outcome, ok := outcomeNow(t, entry); !ok || outcome != offloadAdmitted {
 		t.Fatalf("borrowed entry outcome = %v ok=%t, want admitted on an idle node", outcome, ok)
 	}
-	if !service.idleForBorrowedWork() {
+	if !service.scheduler.idleForBorrowedWork() {
 		t.Fatal("an admitted borrowed entry alone made the node report busy")
 	}
 }
@@ -107,7 +107,7 @@ func TestSeparatePoolRuntimeDoesNotMakeTheNodeBusy(t *testing.T) {
 	if service.separatePool == nil {
 		t.Skip("separate runtime pool not constructed for this fixture")
 	}
-	if !service.idleForBorrowedWork() {
+	if !service.scheduler.idleForBorrowedWork() {
 		t.Fatal("an idle main line reported busy before any separate-pool activity was introduced")
 	}
 }

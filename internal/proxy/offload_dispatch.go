@@ -16,19 +16,11 @@ type queueAdmission struct {
 	outcome offloadOutcome
 }
 
-func (service *Service) queueForLane(lane string) *offloadQueue {
-	if lane == cluster.RouteLaneText {
-		return service.textQueue
-	}
-	return service.imageQueue
+func (scheduler *scheduler) queuesForLending(lane string, nodeID string, modelID string) bool {
+	return scheduler.deps.routingLinkIndex().isLinked(lane, routinggroups.Endpoint{NodeID: nodeID, ModelID: modelID})
 }
 
-func (service *Service) queuesForLending(lane string, nodeID string, modelID string) bool {
-	return service.queueForLane(lane) != nil &&
-		service.routingLinkIndex().isLinked(lane, routinggroups.Endpoint{NodeID: nodeID, ModelID: modelID})
-}
-
-func (service *Service) enterQueue(ctx context.Context, lane string, modelID string, work schedulingcost.Work, requiredContext int64, pinned bool, borrowed bool) (queueAdmission, error) {
+func (scheduler *scheduler) enterQueue(ctx context.Context, lane string, modelID string, work schedulingcost.Work, requiredContext int64, pinned bool, borrowed bool) (queueAdmission, error) {
 	origin := nativeRequest
 	if borrowed {
 		origin = borrowedFromPeer
@@ -37,15 +29,15 @@ func (service *Service) enterQueue(ctx context.Context, lane string, modelID str
 	if pinned {
 		withdrawal = pinnedToThisNode
 	}
-	queue := service.queueForLane(lane)
+	queue := scheduler.queueForLane(lane)
 	entry := queue.Enqueue(queuedRequest{
 		modelID:         modelID,
 		work:            work,
 		requiredContext: requiredContext,
 		origin:          origin,
 		withdrawal:      withdrawal,
-	}, service.nodeActivity(), time.Now())
-	service.maybeOffload(lane, modelID)
+	}, scheduler.nodeActivity(), time.Now())
+	scheduler.maybeOffload(lane, modelID)
 	outcome, err := queue.Await(ctx, entry)
 	if err != nil {
 		return queueAdmission{}, err
@@ -53,52 +45,47 @@ func (service *Service) enterQueue(ctx context.Context, lane string, modelID str
 	return queueAdmission{entry: entry, outcome: outcome}, nil
 }
 
-func (service *Service) enterImageQueue(ctx context.Context, modelID string, work schedulingcost.Work, borrowed bool) (queueAdmission, error) {
-	return service.enterQueue(ctx, cluster.RouteLaneImage, modelID, work, 0, false, borrowed)
+func (scheduler *scheduler) enterImageQueue(ctx context.Context, modelID string, work schedulingcost.Work, borrowed bool) (queueAdmission, error) {
+	return scheduler.enterQueue(ctx, cluster.RouteLaneImage, modelID, work, 0, false, borrowed)
 }
 
-func (service *Service) enterTextQueue(ctx context.Context, modelID string, work schedulingcost.Work, requiredContext int64, pinned bool, borrowed bool) (queueAdmission, error) {
-	return service.enterQueue(ctx, cluster.RouteLaneText, modelID, work, requiredContext, pinned, borrowed)
+func (scheduler *scheduler) enterTextQueue(ctx context.Context, modelID string, work schedulingcost.Work, requiredContext int64, pinned bool, borrowed bool) (queueAdmission, error) {
+	return scheduler.enterQueue(ctx, cluster.RouteLaneText, modelID, work, requiredContext, pinned, borrowed)
 }
 
-func (service *Service) completeQueueEntry(lane string, modelID string, entry *offloadEntry) {
-	queue := service.queueForLane(lane)
-	if queue == nil {
-		return
-	}
-	queue.Complete(entry)
-	service.maybeOffload(lane, modelID)
+func (scheduler *scheduler) completeQueueEntry(lane string, modelID string, entry *offloadEntry) {
+	scheduler.queueForLane(lane).Complete(entry)
+	scheduler.maybeOffload(lane, modelID)
 }
 
-func (service *Service) completeImageQueueEntry(modelID string, entry *offloadEntry) {
-	service.completeQueueEntry(cluster.RouteLaneImage, modelID, entry)
+func (scheduler *scheduler) completeImageQueueEntry(modelID string, entry *offloadEntry) {
+	scheduler.completeQueueEntry(cluster.RouteLaneImage, modelID, entry)
 }
 
-func (service *Service) completeTextQueueEntry(modelID string, entry *offloadEntry) {
-	service.completeQueueEntry(cluster.RouteLaneText, modelID, entry)
+func (scheduler *scheduler) completeTextQueueEntry(modelID string, entry *offloadEntry) {
+	scheduler.completeQueueEntry(cluster.RouteLaneText, modelID, entry)
 }
 
-func (service *Service) maybeOffload(lane string, modelID string) {
-	queue := service.queueForLane(lane)
-	if queue == nil || modelID == "" {
+func (scheduler *scheduler) maybeOffload(lane string, modelID string) {
+	if modelID == "" {
 		return
 	}
 	key := laneModelKey(lane, modelID)
-	if _, live := service.activeOffloadLease(lane, modelID, time.Now()); !live {
+	if _, live := scheduler.activeOffloadLease(lane, modelID, time.Now()); !live {
 		return
 	}
-	if _, busy := service.offloadInFlight.LoadOrStore(key, true); busy {
+	if _, busy := scheduler.offloadInFlight.LoadOrStore(key, true); busy {
 		return
 	}
-	withdrawn := queue.WithdrawNewest(modelID, 1)
+	withdrawn := scheduler.queueForLane(lane).WithdrawNewest(modelID, 1)
 	if len(withdrawn) == 0 {
-		service.offloadInFlight.Delete(key)
+		scheduler.offloadInFlight.Delete(key)
 	}
 }
 
-func (service *Service) finishOffload(lane string, modelID string) {
-	service.offloadInFlight.Delete(laneModelKey(lane, modelID))
-	service.maybeOffload(lane, modelID)
+func (scheduler *scheduler) finishOffload(lane string, modelID string) {
+	scheduler.offloadInFlight.Delete(laneModelKey(lane, modelID))
+	scheduler.maybeOffload(lane, modelID)
 }
 
 func writeOffloadReturned(w http.ResponseWriter) {
@@ -106,7 +93,7 @@ func writeOffloadReturned(w http.ResponseWriter) {
 }
 
 func (service *Service) forwardOffloadedRequest(w http.ResponseWriter, original *http.Request, forwarded *http.Request, body []byte, lane string, modelID string, publicID string, release func()) bool {
-	defer service.finishOffload(lane, modelID)
+	defer service.scheduler.finishOffload(lane, modelID)
 
 	response, err := service.sendOffloadedRequest(original.Context(), lane, modelID, forwarded, body)
 	if err != nil {

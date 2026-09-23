@@ -36,6 +36,21 @@ See [Run topologies](https://github.com/derijans/tensors-router/wiki/Run-Topolog
 
 See [Backends](https://github.com/derijans/tensors-router/wiki/Backends) for supported routes, configuration mapping, and process behavior.
 
+## Capabilities
+
+- Queue-aware routing: Requests go to a free copy of the model first, and busy models can hand overflow work to another node.
+- VRAM and model residency: Each node knows which models are in memory and how much VRAM they take. Unload policies decide which models are evicted when a new one needs room, and chosen models can stay resident side by side.
+- Node failure during a request: Failed requests are retried and crashed backends are reloaded automatically.
+- Duplicate model loading: A model is loaded once and shared by every request that needs it. Configs of the same model that differ only in `jinja_kwargs`, such as thinking on or off, share that loaded model, so switching between them costs no reload.
+- Concurrent model switching: Clients can ask for different models at the same time. Requests for the loaded model run together, requests for another model wait their turn, and the switch happens only after running work finishes, so nothing is cut off.
+- Node health: Unresponsive nodes are taken out of rotation until they recover, and failed local backends are restarted.
+- Streaming failures: Failed streams are retried before output starts, and closing the client stops the backend work.
+- Capacity weighting by model size: Big and small models are not treated as equal. Each node measures how long every model takes to load and to process tokens or image steps. When a queue builds up, those measurements decide whether moving work to another node, including loading the model there, finishes sooner than waiting.
+- Metrics and observability: Optional analytics keep per-request timing, tokens, and VRAM use in SQLite. Load logs, load errors, and benchmarks are viewable in the WebUI.
+- Security and authentication: Access is limited by IP range and separate keys for inference, admin, and cluster traffic. Backend updates are signature-checked.
+- Heterogeneous hardware: Each node detects its GPU type (CUDA, ROCm, Vulkan, Metal, or CPU) and installs matching backend builds. One cluster can mix backends and operating systems.
+- Backend integration: KoboldCpp, llama.cpp with stable-diffusion.cpp, and vLLM run behind one URL with OpenAI, Ollama, KoboldCpp, and A1111 APIs. Each model config can choose its own backend.
+
 ## Documentation
 
 - [Wiki](https://github.com/derijans/tensors-router/wiki)

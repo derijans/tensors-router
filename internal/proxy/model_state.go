@@ -191,46 +191,18 @@ func (service *Service) unloadDisabledModelWhenIdle(ctx context.Context, model c
 }
 
 func (service *Service) unloadDisabledRuntime(ctx context.Context, runtime *backendRuntime, localID string, filename string) error {
-	state := runtime.state
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		enabled, err := service.localModelEnabled(ctx, localID)
-		if err != nil || enabled {
-			return err
-		}
-		state.mu.Lock()
-		if state.filename != filename {
-			state.mu.Unlock()
-			return nil
-		}
-		if state.switching || state.users > 0 || state.switchWaiters > 0 {
-			changed := state.changed
-			state.mu.Unlock()
-			if err := waitForActiveConfigChange(ctx, changed); err != nil {
-				return err
-			}
-			continue
-		}
-		select {
-		case <-ctx.Done():
-			state.mu.Unlock()
-			return ctx.Err()
-		default:
-		}
-		state.switching = true
-		state.filename = ""
-		clearPhysicalLoadProfileLocked(state)
-		clearVRAMLoadStateLocked(state)
-		notifyActiveConfigLocked(state)
-		state.mu.Unlock()
-		err = runtime.backend.Unload(ctx)
-		state.mu.Lock()
-		state.switching = false
-		notifyActiveConfigLocked(state)
-		state.mu.Unlock()
-		service.onRuntimeChanged()
+	enabled, err := service.localModelEnabled(ctx, localID)
+	if err != nil || enabled {
 		return err
 	}
+	err = service.unloadRuntimeWhile(ctx, runtime, func(state *activeConfigState) error {
+		if state.filename != filename {
+			return errRuntimeNoLongerHoldsConfig
+		}
+		return ctx.Err()
+	})
+	if errors.Is(err, errRuntimeNoLongerHoldsConfig) {
+		return nil
+	}
+	return err
 }

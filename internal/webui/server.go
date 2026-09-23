@@ -556,19 +556,7 @@ func (server *Server) forwardRouterProxyRequest(w http.ResponseWriter, request *
 	}
 	copyWebHeaders(w.Header(), response.Header)
 	w.WriteHeader(response.StatusCode)
-	_, _ = transportbody.CopyResponse(webFlushingWriter{ResponseWriter: w}, response.Body, maxWebUIProxyResponseSize)
-}
-
-type webFlushingWriter struct {
-	http.ResponseWriter
-}
-
-func (writer webFlushingWriter) Write(content []byte) (int, error) {
-	written, err := writer.ResponseWriter.Write(content)
-	if flusher, ok := writer.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
-	}
-	return written, err
+	_, _ = transportbody.CopyResponseFlushing(w, response.Body, maxWebUIProxyResponseSize)
 }
 
 func stateChangingMethod(method string) bool {

@@ -33,7 +33,7 @@ func TestOffloadRelayStreamsEachHelperEventWithoutWaitingForTheEnd(t *testing.T)
 		t.Fatal(err)
 	}
 	master.registry = registry
-	master.leaseBook.Replace([]offloadLease{{
+	master.scheduler.leaseBook.Replace([]offloadLease{{
 		Lane:          cluster.RouteLaneText,
 		OwnerNodeID:   "owner",
 		OwnerModelID:  "owner-model",

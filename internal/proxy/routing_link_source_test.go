@@ -31,7 +31,7 @@ func TestSlaveInstallsLinksPushedByItsMaster(t *testing.T) {
 	if recorder := postNodeRoutingLinks(service, "secret"); recorder.Code != http.StatusNoContent {
 		t.Fatalf("status %d body %s, want 204", recorder.Code, recorder.Body.String())
 	}
-	if !service.queuesForLending(cluster.RouteLaneImage, "slave", "cc11-ff") {
+	if !service.scheduler.queuesForLending(cluster.RouteLaneImage, "slave", "cc11-ff") {
 		t.Fatal("the pushed owner link was not installed")
 	}
 	owners := service.routingLinkIndex().owners(cluster.RouteLaneImage)
@@ -50,7 +50,7 @@ func TestRoutingLinkPushRequiresTheClusterToken(t *testing.T) {
 	if recorder := postNodeRoutingLinks(service, ""); recorder.Code == http.StatusNoContent {
 		t.Fatal("links were accepted without a cluster token")
 	}
-	if service.queuesForLending(cluster.RouteLaneImage, "slave", "cc11-ff") {
+	if service.scheduler.queuesForLending(cluster.RouteLaneImage, "slave", "cc11-ff") {
 		t.Fatal("a rejected push still installed links")
 	}
 }

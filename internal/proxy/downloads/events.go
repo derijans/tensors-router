@@ -3,11 +3,11 @@ package downloads
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 
 	"tensors-router/internal/downloader"
 	"tensors-router/internal/openai"
+	"tensors-router/internal/transportbody"
 )
 
 func (handlers *Handlers) SiteEvents(w http.ResponseWriter, r *http.Request) {
@@ -53,19 +53,7 @@ func (handlers *Handlers) streamRemoteDownloadEvents(w http.ResponseWriter, r *h
 		w.Header().Set("Content-Encoding", response.Header.Get("Content-Encoding"))
 	}
 	w.WriteHeader(http.StatusOK)
-	_, _ = io.Copy(flushingWriter{ResponseWriter: w}, response.Body)
-}
-
-type flushingWriter struct {
-	http.ResponseWriter
-}
-
-func (writer flushingWriter) Write(content []byte) (int, error) {
-	written, err := writer.ResponseWriter.Write(content)
-	if flusher, ok := writer.ResponseWriter.(http.Flusher); ok {
-		flusher.Flush()
-	}
-	return written, err
+	_, _ = transportbody.CopyFlushing(w, response.Body)
 }
 
 func (handlers *Handlers) writeDownloadEvents(w http.ResponseWriter, r *http.Request, jobID string) {

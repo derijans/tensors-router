@@ -97,7 +97,7 @@ func TestGenerationCheckedUnloadDrainsLeasesAndRejectsStaleState(t *testing.T) {
 	if backend.unloads.Load() != 1 {
 		t.Fatalf("unexpected unload count %d", backend.unloads.Load())
 	}
-	if err := service.unloadRuntimeGeneration(context.Background(), runtime, 3); !errors.Is(err, errRuntimeGenerationChanged) {
+	if err := service.unloadRuntimeIfGeneration(context.Background(), runtime, 3); !errors.Is(err, errRuntimeGenerationChanged) {
 		t.Fatalf("stale generation returned %v", err)
 	}
 	if backend.unloads.Load() != 1 {

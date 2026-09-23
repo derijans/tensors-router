@@ -16,11 +16,11 @@ The WebUI binary embeds the built frontend, so run `cd webui && npm ci && npm ru
 
 ## Request path
 
-Every request enters `proxy.Service.ServeHTTP` (`internal/proxy/service.go`). There is no router mux. The order is:
+Every request enters `proxy.Service.ServeHTTP` (`internal/proxy/dispatch.go`). There is no `http.ServeMux`. The order is:
 
 1. vLLM realtime and response operations.
 2. Transport admission: reserve working memory for inference bodies and pick the path (see below).
-3. `/router/mcp`, then `/router/v1/*` admin and cluster endpoints (`internal/proxy/router_handlers.go`).
+3. `/router/mcp`, then `/router/v1/*` admin and cluster endpoints through the route table (`internal/proxy/routes.go`). Unmatched paths answer 404, and `/router/v1/node/*` routes require the cluster token.
 4. The site WebUI proxy, Ollama paths, `/v1/models`, `/ping`, and `/sdapi/v1/*`.
 5. Capability lanes: voice and music, then image, then text.
 
@@ -31,7 +31,7 @@ Every request enters `proxy.Service.ServeHTTP` (`internal/proxy/service.go`). Th
 - A body up to the replay buffer (64 MiB by default) is buffered and replayable. It takes the buffered path, which can retry, reload a failed backend, wait for a backend that is still loading, and route across the cluster.
 - A larger body streams. It needs a model selector outside the body (`?model=` or `X-Tensors-Model`), it is rewritten on the fly by the streaming JSON processor (`internal/transportbody/json.go`), and it retries only if no bytes reached the backend.
 
-Both paths restore the public model ID in JSON, SSE, and NDJSON responses (`writeProxyResponse` and `writeModelProxyResponse` in `internal/proxy/service.go`), using the same JSON processor.
+Both paths restore the public model ID in JSON, SSE, and NDJSON responses (`writeProxyResponse` and `writeModelProxyResponse` in `internal/proxy/proxy_response.go`), using the same JSON processor.
 
 ## Packages (`internal/`)
 
@@ -39,7 +39,7 @@ Both paths restore the public model ID in JSON, SSE, and NDJSON responses (`writ
 
 | Package | Responsibility |
 |---|---|
-| `proxy` | The HTTP service: dispatch, lanes, model load and switch (`lane.go`), cluster forwarding, offload, WebUI proxying, analytics hooks, benchmarks, model assets. |
+| `proxy` | The HTTP service: dispatch, lanes, model load, switch and unload (`lane.go`), cluster forwarding, and the components below. |
 | `transportbody` | Memory budget for inference bodies, replayable and streaming bodies, the streaming JSON and multipart rewriters. |
 | `catalog` | Discovers `.kcpps` model configs and classifies their capabilities. The filename stem is the model ID. |
 | `cluster` | Node registry, per-lane route acquisition, and the authenticated client for the `/router/v1/node/*` peer API. |
@@ -48,6 +48,22 @@ Both paths restore the public model ID in JSON, SSE, and NDJSON responses (`writ
 | `schedulingcost` | Fits load and token costs from history to price queues and offload decisions. |
 | `routinggroups` | Operator-declared links that let one node lend work to another. |
 | `openai`, `ollama` | Wire formats and error shapes for the OpenAI and Ollama APIs. |
+
+### `proxy` components
+
+`proxy.Service` is the composition root. It owns dispatch, lifecycle, the lane core, and cluster, recipe, site, and node glue. Each feature below is a component that owns its own fields, locks, and background work. It reaches the service only through a small dependency interface, never through `*Service`.
+
+| Component | Where | Responsibility |
+|---|---|---|
+| Route table | `routes.go`, `proxy/routing` | Exact and prefix routes for `/router/v1/*`. Each component contributes its own routes. |
+| `downloads.Handlers` | `proxy/downloads` | Model download endpoints and fan-out to cluster nodes (`proxy/clusterfan`). |
+| `benchmarkRunner` | `benchmark_*.go` | Benchmark runs, records, and the model list decoration. |
+| `assetManager` | `model_asset*.go` | Model file hashing, lookup cache, peer transfer, Hugging Face resolution, and background asset jobs. `Close` waits for those jobs. |
+| `requestAnalytics` | `analytics*.go` | Request events, load hooks, and VRAM sampling (`analytics.VRAMWorkSampler`). |
+| `webUIProxy` | `webui_*.go` | Backend WebUI proxying and its route snapshot. `Service.onRuntimeChanged` invalidates the snapshot when a runtime loads or unloads. |
+| `scheduler` | `scheduler.go`, `offload_*.go`, `scheduling_costs.go` | Image and text queues, offload leases, the fitted cost table, the refresh loop, and borrow restore. `Close` stops the loop and the restore timers. |
+
+Every unload claims the runtime through one protocol in `lane.go` (`claimIdleRuntime`). The unload policy, the node UI unload with its generation check, the disabled-model unload, and backend stop all use it.
 
 ### Backends
 

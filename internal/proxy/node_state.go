@@ -26,8 +26,6 @@ const (
 	backendIDVLLM        = "vllm"
 )
 
-var errRuntimeGenerationChanged = errors.New("runtime changed before unload")
-
 type nodeBackendDefinition struct {
 	id          string
 	displayName string
@@ -497,60 +495,7 @@ func (service *Service) unloadLocalRuntime(ctx context.Context, request siteapi.
 	if selected == nil {
 		return fmt.Errorf("backend %q and runtime %q are invalid", request.BackendID, request.RuntimeID)
 	}
-	return service.unloadRuntimeGeneration(ctx, selected, request.ExpectedGeneration)
-}
-
-func (service *Service) unloadRuntimeGeneration(ctx context.Context, runtime *backendRuntime, expectedGeneration uint64) error {
-	waitingSwitch := false
-	state := runtime.state
-	for {
-		state.mu.Lock()
-		if state.generation != expectedGeneration || state.modelID == "" {
-			if waitingSwitch {
-				state.switchWaiters--
-				notifyActiveConfigLocked(state)
-			}
-			state.mu.Unlock()
-			return errRuntimeGenerationChanged
-		}
-		if !waitingSwitch && state.switchWaiters > 0 {
-			changed := state.changed
-			state.mu.Unlock()
-			if err := waitForActiveConfigChange(ctx, changed); err != nil {
-				return err
-			}
-			continue
-		}
-		if !waitingSwitch {
-			state.switchWaiters++
-			waitingSwitch = true
-		}
-		if state.switching || state.users > 0 {
-			changed := state.changed
-			state.mu.Unlock()
-			if err := waitForActiveConfigChange(ctx, changed); err != nil {
-				cancelConfigSwitchWaiter(state)
-				return err
-			}
-			continue
-		}
-		state.switchWaiters--
-		state.switching = true
-		state.filename = ""
-		state.modelID = ""
-		state.generation++
-		clearPhysicalLoadProfileLocked(state)
-		clearVRAMLoadStateLocked(state)
-		notifyActiveConfigLocked(state)
-		state.mu.Unlock()
-		err := runtime.backend.Unload(ctx)
-		state.mu.Lock()
-		state.switching = false
-		notifyActiveConfigLocked(state)
-		state.mu.Unlock()
-		service.onRuntimeChanged()
-		return err
-	}
+	return service.unloadRuntimeIfGeneration(ctx, selected, request.ExpectedGeneration)
 }
 
 func writeNodeStateError(w http.ResponseWriter, err error) {

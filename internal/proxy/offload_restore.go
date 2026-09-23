@@ -21,26 +21,26 @@ type borrowRestoreState struct {
 	timer  *time.Timer
 }
 
-func (service *Service) borrowRestoreStateFor(runtime *backendRuntime) *borrowRestoreState {
-	value, _ := service.borrowRestore.LoadOrStore(runtime, &borrowRestoreState{})
+func (scheduler *scheduler) borrowRestoreStateFor(runtime *backendRuntime) *borrowRestoreState {
+	value, _ := scheduler.borrowRestore.LoadOrStore(runtime, &borrowRestoreState{})
 	return value.(*borrowRestoreState)
 }
 
-func (service *Service) noteBorrowRestoreActivity(ctx context.Context, runtime *backendRuntime, mode string, incomingFilename string, readiness backendReadiness) {
+func (scheduler *scheduler) noteBorrowRestoreActivity(ctx context.Context, runtime *backendRuntime, mode string, incomingFilename string, readiness backendReadiness) {
 	if !contextIsBorrowed(ctx) {
-		service.clearBorrowRestore(runtime)
+		scheduler.clearBorrowRestore(runtime)
 		return
 	}
 	if contextBorrowRestoreRequested(ctx) {
 		if modelID, filename := runtime.state.loadedModel(); filename != "" && filename != incomingFilename {
-			service.recordFirstDisplacement(runtime, mode, modelID, filename, readiness)
+			scheduler.recordFirstDisplacement(runtime, mode, modelID, filename, readiness)
 		}
 	}
-	service.touchBorrowRestore(runtime)
+	scheduler.touchBorrowRestore(runtime)
 }
 
-func (service *Service) recordFirstDisplacement(runtime *backendRuntime, mode string, modelID string, filename string, readiness backendReadiness) {
-	state := service.borrowRestoreStateFor(runtime)
+func (scheduler *scheduler) recordFirstDisplacement(runtime *backendRuntime, mode string, modelID string, filename string, readiness backendReadiness) {
+	state := scheduler.borrowRestoreStateFor(runtime)
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	if state.target != nil {
@@ -49,32 +49,32 @@ func (service *Service) recordFirstDisplacement(runtime *backendRuntime, mode st
 	state.target = &displacedConfig{mode: mode, modelID: modelID, filename: filename, readiness: readiness}
 }
 
-func (service *Service) touchBorrowRestore(runtime *backendRuntime) {
-	state := service.borrowRestoreStateFor(runtime)
+func (scheduler *scheduler) touchBorrowRestore(runtime *backendRuntime) {
+	state := scheduler.borrowRestoreStateFor(runtime)
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	if state.target == nil {
 		return
 	}
-	delay := service.offloadRestoreDelay
+	delay := scheduler.restoreDelay
 	if delay <= 0 {
 		delay = defaultOffloadRestoreDelay
 	}
 	if state.timer != nil {
 		state.timer.Stop()
 	}
-	state.timer = time.AfterFunc(delay, func() { service.fireBorrowRestore(runtime, state) })
+	state.timer = time.AfterFunc(delay, func() { scheduler.fireBorrowRestore(runtime, state) })
 }
 
-func (service *Service) clearBorrowRestore(runtime *backendRuntime) {
-	state := service.borrowRestoreStateFor(runtime)
+func (scheduler *scheduler) clearBorrowRestore(runtime *backendRuntime) {
+	state := scheduler.borrowRestoreStateFor(runtime)
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	stopBorrowRestoreLocked(state)
 }
 
-func (service *Service) stopBorrowRestores() {
-	service.borrowRestore.Range(func(_, value any) bool {
+func (scheduler *scheduler) stopBorrowRestores() {
+	scheduler.borrowRestore.Range(func(_, value any) bool {
 		state := value.(*borrowRestoreState)
 		state.mu.Lock()
 		defer state.mu.Unlock()
@@ -92,29 +92,23 @@ func stopBorrowRestoreLocked(state *borrowRestoreState) {
 }
 
 // nodeActivity().idle() alone can be true with a borrowed request still running, since
-// idleForBorrowedWork nets that activity out; the two BorrowedInFlight checks catch it.
-func (service *Service) borrowRestoreQuiet() bool {
-	if service.imageQueue != nil && service.imageQueue.BorrowedInFlight() > 0 {
-		return false
-	}
-	if service.textQueue != nil && service.textQueue.BorrowedInFlight() > 0 {
-		return false
-	}
-	return service.nodeActivity().idle()
+// idleForBorrowedWork nets that activity out; the borrowed in-flight count catches it.
+func (scheduler *scheduler) borrowRestoreQuiet() bool {
+	return scheduler.requestsBorrowedFromPeersInFlight() == 0 && scheduler.nodeActivity().idle()
 }
 
-func (service *Service) fireBorrowRestore(runtime *backendRuntime, state *borrowRestoreState) {
+func (scheduler *scheduler) fireBorrowRestore(runtime *backendRuntime, state *borrowRestoreState) {
 	state.mu.Lock()
 	target := state.target
 	state.mu.Unlock()
 	if target == nil {
 		return
 	}
-	if !service.borrowRestoreQuiet() {
+	if !scheduler.borrowRestoreQuiet() {
 		return
 	}
 
-	_, release, _, err := service.acquireModelConfigForBackendMode(target.mode, context.Background(), target.modelID, target.filename, target.readiness, false)
+	_, release, _, err := scheduler.deps.acquireModelConfigForBackendMode(target.mode, context.Background(), target.modelID, target.filename, target.readiness, false)
 
 	state.mu.Lock()
 	if state.target == target {
@@ -123,7 +117,7 @@ func (service *Service) fireBorrowRestore(runtime *backendRuntime, state *borrow
 	state.mu.Unlock()
 
 	if err != nil {
-		service.logger.Printf("borrow restore failed mode=%s config=%q error=%v", target.mode, target.filename, err)
+		scheduler.logger.Printf("borrow restore failed mode=%s config=%q error=%v", target.mode, target.filename, err)
 		return
 	}
 	release()

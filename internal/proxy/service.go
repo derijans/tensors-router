@@ -153,24 +153,8 @@ type Service struct {
 	pendingModelUnloads       map[string]context.CancelFunc
 	analytics                 *requestAnalytics
 	routingGroups             *routinggroups.Store
-	imageQueue                *offloadQueue
-	costSource                *schedulingCostSource
-	leaseBook                 *offloadLeaseBook
-	offloadLeases             sync.Map
+	scheduler                 *scheduler
 	routingLinks              atomic.Pointer[routingLinkIndex]
-	offloadInFlight           sync.Map
-	localCosts                atomic.Value
-	schedulingSampleWindow    time.Duration
-	schedulingMinSamples      int
-	schedulingBackendDepth    int
-	schedulingRefreshInterval time.Duration
-	schedulingRefreshCancel   context.CancelFunc
-	schedulingRefreshDone     chan struct{}
-	schedulingGrantTTL        time.Duration
-	schedulingContextReserve  int
-	offloadRestoreDelay       time.Duration
-	borrowRestore             sync.Map
-	textQueue                 *offloadQueue
 	loadCaptureStore          *loadcapture.Store
 	loadCaptureMaxOutputBytes int64
 	loadErrorStore            *loaderrors.Store
@@ -185,10 +169,8 @@ type Service struct {
 	transportBudget           *transportbody.Budget
 	maxControlBodyBytes       int64
 	draining                  atomic.Bool
-	autoSTTMu                 sync.Mutex
-	autoSTTNext               uint64
-	embeddingRoundRobinMu     sync.Mutex
-	embeddingRoundRobinNext   uint64
+	sttTieRotation            roundRobin
+	embeddingRotation         roundRobin
 	backendBinaryPaths        map[string]string
 	vllm                      vllm.Service
 	vllmUnavailableReason     string

@@ -3,7 +3,6 @@ package proxy
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -11,6 +10,7 @@ import (
 	"tensors-router/internal/modelassets"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/siteapi"
+	"tensors-router/internal/transportbody"
 )
 
 func (assets *assetManager) handleSiteModelAssetCreateJob(w http.ResponseWriter, r *http.Request) {
@@ -244,7 +244,7 @@ func (assets *assetManager) streamRemoteModelAssetJob(w http.ResponseWriter, r *
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	_, _ = io.Copy(flushingWriter{ResponseWriter: w}, response.Body)
+	_, _ = transportbody.CopyFlushing(w, response.Body)
 }
 
 func modelAssetJobPath(value string, prefix string) (string, bool, bool) {

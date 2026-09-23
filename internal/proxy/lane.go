@@ -103,7 +103,7 @@ func (service *Service) acquireModelConfigForBackendModeWithOptions(mode string,
 	if err := service.ensureBackendFamily(ctx, mode); err != nil {
 		return nil, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
 	}
-	service.noteBorrowRestoreActivity(ctx, runtime, mode, configFilename, readiness)
+	service.scheduler.noteBorrowRestoreActivity(ctx, runtime, mode, configFilename, readiness)
 	if err := service.enforceUnloadPolicy(ctx, mode, configFilename, readiness); err != nil {
 		return nil, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
 	}
@@ -456,67 +456,65 @@ func (service *Service) backendLoadDiagnosticError(err error, runtime *backendRu
 	return wrapped
 }
 
+var (
+	errRuntimeGenerationChanged   = errors.New("runtime changed before unload")
+	errRuntimeNoLongerHoldsConfig = errors.New("runtime no longer holds the config to unload")
+)
+
 func (service *Service) unloadRuntime(ctx context.Context, runtime *backendRuntime) error {
-	waitingSwitch := false
-	state := runtime.state
-	for {
-		state.mu.Lock()
-		if !waitingSwitch && state.switchWaiters > 0 {
-			changed := state.changed
-			state.mu.Unlock()
-			if err := waitForActiveConfigChange(ctx, changed); err != nil {
-				return err
-			}
-			continue
-		}
-		if !waitingSwitch {
-			state.switchWaiters++
-			waitingSwitch = true
-		}
-		if state.switching || state.users > 0 {
-			changed := state.changed
-			state.mu.Unlock()
-			if err := waitForActiveConfigChange(ctx, changed); err != nil {
-				cancelConfigSwitchWaiter(state)
-				return err
-			}
-			continue
-		}
+	return service.unloadRuntimeWhile(ctx, runtime, runtimeAlwaysUnloadable)
+}
 
-		state.modelID = ""
-		state.generation++
-		state.switchWaiters--
-		state.switching = true
-		state.filename = ""
-		clearPhysicalLoadProfileLocked(state)
-		clearVRAMLoadStateLocked(state)
-		notifyActiveConfigLocked(state)
-		state.mu.Unlock()
+func (service *Service) unloadRuntimeIfGeneration(ctx context.Context, runtime *backendRuntime, expectedGeneration uint64) error {
+	return service.unloadRuntimeWhile(ctx, runtime, func(state *activeConfigState) error {
+		if state.generation != expectedGeneration || state.modelID == "" {
+			return errRuntimeGenerationChanged
+		}
+		return ctx.Err()
+	})
+}
 
-		err := runtime.backend.Unload(ctx)
-
-		state.mu.Lock()
-		state.switching = false
-		notifyActiveConfigLocked(state)
-		state.mu.Unlock()
-		service.onRuntimeChanged()
+func (service *Service) unloadRuntimeWhile(ctx context.Context, runtime *backendRuntime, stillUnloadable func(*activeConfigState) error) error {
+	if err := claimIdleRuntime(ctx, runtime.state, stillUnloadable); err != nil {
 		return err
 	}
+	err := runtime.backend.Unload(ctx)
+	finishRuntimeSwitch(runtime.state)
+	service.onRuntimeChanged()
+	return err
 }
 
 func lockRuntimeForBackendStop(ctx context.Context, runtime *backendRuntime) (func(), error) {
 	if runtime == nil {
 		return func() {}, nil
 	}
+	if err := claimIdleRuntime(ctx, runtime.state, runtimeAlwaysUnloadable); err != nil {
+		return nil, err
+	}
+	return func() { finishRuntimeSwitch(runtime.state) }, nil
+}
+
+func runtimeAlwaysUnloadable(*activeConfigState) error {
+	return nil
+}
+
+func claimIdleRuntime(ctx context.Context, state *activeConfigState, stillUnloadable func(*activeConfigState) error) error {
 	waitingSwitch := false
-	state := runtime.state
 	for {
 		state.mu.Lock()
+		if err := stillUnloadable(state); err != nil {
+			if waitingSwitch {
+				state.switchWaiters--
+				notifyActiveConfigLocked(state)
+			}
+			state.mu.Unlock()
+			return err
+		}
 		if !waitingSwitch && state.switchWaiters > 0 {
 			changed := state.changed
 			state.mu.Unlock()
 			if err := waitForActiveConfigChange(ctx, changed); err != nil {
-				return nil, err
+				return err
 			}
 			continue
 		}
@@ -529,7 +527,7 @@ func lockRuntimeForBackendStop(ctx context.Context, runtime *backendRuntime) (fu
 			state.mu.Unlock()
 			if err := waitForActiveConfigChange(ctx, changed); err != nil {
 				cancelConfigSwitchWaiter(state)
-				return nil, err
+				return err
 			}
 			continue
 		}
@@ -543,14 +541,15 @@ func lockRuntimeForBackendStop(ctx context.Context, runtime *backendRuntime) (fu
 		clearVRAMLoadStateLocked(state)
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
-
-		return func() {
-			state.mu.Lock()
-			state.switching = false
-			notifyActiveConfigLocked(state)
-			state.mu.Unlock()
-		}, nil
+		return nil
 	}
+}
+
+func finishRuntimeSwitch(state *activeConfigState) {
+	state.mu.Lock()
+	state.switching = false
+	notifyActiveConfigLocked(state)
+	state.mu.Unlock()
 }
 
 func cancelConfigSwitchWaiter(state *activeConfigState) {

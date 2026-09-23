@@ -51,25 +51,25 @@ func (source *schedulingCostSource) TokenProfile(nodeID string, modelID string) 
 // fitLocalCosts refits this node from its own analytics database. Raw request
 // rows never leave the node that recorded them, so each node fits itself and
 // publishes only the coefficients.
-func (service *Service) fitLocalCosts(ctx context.Context) schedulingcost.NodeCosts {
-	if service.analytics.store == nil {
+func (scheduler *scheduler) fitLocalCosts(ctx context.Context) schedulingcost.NodeCosts {
+	if scheduler.analytics.store == nil {
 		return schedulingcost.NodeCosts{}
 	}
-	minSamples := int64(service.schedulingMinSamples)
+	minSamples := int64(scheduler.minSamples)
 
-	imageSamples, loadSamples, err := service.analytics.store.CostSamples(ctx, routeranalytics.SectionImage, service.schedulingSampleWindow, time.Now())
+	imageSamples, loadSamples, err := scheduler.analytics.store.CostSamples(ctx, routeranalytics.SectionImage, scheduler.sampleWindow, time.Now())
 	if err != nil {
-		service.logger.Printf("scheduling cost sampling failed: %v", err)
+		scheduler.logger.Printf("scheduling cost sampling failed: %v", err)
 		return schedulingcost.NodeCosts{}
 	}
-	textSamples, err := service.analytics.store.TextCostSamples(ctx, service.schedulingSampleWindow, time.Now())
+	textSamples, err := scheduler.analytics.store.TextCostSamples(ctx, scheduler.sampleWindow, time.Now())
 	if err != nil {
-		service.logger.Printf("scheduling text cost sampling failed: %v", err)
+		scheduler.logger.Printf("scheduling text cost sampling failed: %v", err)
 		textSamples = nil
 	}
-	profileSamples, err := service.analytics.store.TokenProfileSamples(ctx, service.schedulingSampleWindow, time.Now())
+	profileSamples, err := scheduler.analytics.store.TokenProfileSamples(ctx, scheduler.sampleWindow, time.Now())
 	if err != nil {
-		service.logger.Printf("scheduling token profile sampling failed: %v", err)
+		scheduler.logger.Printf("scheduling token profile sampling failed: %v", err)
 		profileSamples = nil
 	}
 

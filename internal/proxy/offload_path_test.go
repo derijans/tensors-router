@@ -78,14 +78,14 @@ func waitForBacklog(t *testing.T, service *Service, want int64) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		for _, stats := range service.imageQueue.Stats() {
+		for _, stats := range service.scheduler.imageQueue.Stats() {
 			if stats.BacklogCount >= want {
 				return
 			}
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("queue never reached a backlog of %d: %+v", want, service.imageQueue.Stats())
+	t.Fatalf("queue never reached a backlog of %d: %+v", want, service.scheduler.imageQueue.Stats())
 }
 
 // A linked model routes through the router-held queue, and the queue reports the
@@ -101,7 +101,7 @@ func TestLinkedImageRequestsQueueInTheRouter(t *testing.T) {
 	}
 	waitForBacklog(t, service, 3)
 
-	stats := service.imageQueue.Stats()
+	stats := service.scheduler.imageQueue.Stats()
 	if len(stats) != 1 || stats[0].ModelID != "combo-dream" {
 		t.Fatalf("stats = %+v, want the backlog reported under the model", stats)
 	}
@@ -125,7 +125,7 @@ func TestUnlinkedImageRequestsBypassTheQueue(t *testing.T) {
 	if code := postImage(service).Code; code != http.StatusOK {
 		t.Fatalf("status %d, want 200", code)
 	}
-	if stats := service.imageQueue.Stats(); len(stats) != 0 {
+	if stats := service.scheduler.imageQueue.Stats(); len(stats) != 0 {
 		t.Fatalf("stats = %+v, want nothing queued for an unlinked model", stats)
 	}
 }

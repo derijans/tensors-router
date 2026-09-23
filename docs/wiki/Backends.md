@@ -91,7 +91,7 @@ Kobold mode resolves the KoboldCpp update source. Split mode resolves llama.cpp,
 
 Each source can use a direct HTTPS binary URL or a GitHub repository URL with an asset glob. Direct binaries, `.zip`, `.tar.gz`, and `.tgz` payloads are supported. Archive contents are extracted into the backend folder, so `binary_path` must identify the executable inside the extracted layout.
 
-When a checksum is configured, it is verified before installation. For an archive, the checksum covers the downloaded archive.
+Every payload is verified by SHA-256 before installation, and a payload without a checksum is rejected. A direct URL requires the matching `updates.*_sha256` setting; a GitHub repository source uses the SHA-256 digest GitHub publishes for the release asset. For an archive, the checksum covers the downloaded archive.
 
 Do not treat a newer upstream release as a tested compatibility statement. Check required features against the selected backend binary and keep deployment-specific sources in `config.yaml`.
 

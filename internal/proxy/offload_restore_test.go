@@ -21,7 +21,7 @@ func newBorrowRestoreTestService(t *testing.T) *Service {
 	service, _ := newTestServiceWithModels(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}), "a", "b")
-	service.offloadRestoreDelay = 20 * time.Millisecond
+	service.scheduler.restoreDelay = 20 * time.Millisecond
 	return service
 }
 
@@ -66,7 +66,7 @@ func TestBorrowRestoreDoesNothingWithoutTheRestoreMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(3 * service.offloadRestoreDelay)
+	time.Sleep(3 * service.scheduler.restoreDelay)
 	if _, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel(); filename != "b.kcpps" {
 		t.Fatalf("loaded model = %q, want b.kcpps to stay loaded with no restore requested", filename)
 	}
@@ -86,7 +86,7 @@ func TestBorrowRestoreIsCancelledByNativeTraffic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(3 * service.offloadRestoreDelay)
+	time.Sleep(3 * service.scheduler.restoreDelay)
 	if _, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel(); filename != "b.kcpps" {
 		t.Fatalf("loaded model = %q, want b.kcpps to stay loaded once native traffic claimed it", filename)
 	}
@@ -103,17 +103,17 @@ func TestBorrowRestoreDoesNotFireWhileBorrowedWorkIsInFlight(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	entry := service.textQueue.Enqueue(queuedRequest{modelID: "group", origin: borrowedFromPeer}, nodeActivity(true), time.Now())
-	if _, err := service.textQueue.Await(context.Background(), entry); err != nil {
+	entry := service.scheduler.textQueue.Enqueue(queuedRequest{modelID: "group", origin: borrowedFromPeer}, nodeActivity(true), time.Now())
+	if _, err := service.scheduler.textQueue.Await(context.Background(), entry); err != nil {
 		t.Fatal(err)
 	}
 
-	time.Sleep(3 * service.offloadRestoreDelay)
+	time.Sleep(3 * service.scheduler.restoreDelay)
 	if _, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel(); filename != "b.kcpps" {
 		t.Fatalf("loaded model = %q, want b.kcpps to stay loaded while borrowed work is in flight", filename)
 	}
 
-	service.textQueue.Complete(entry)
+	service.scheduler.textQueue.Complete(entry)
 }
 
 func TestCloseStopsAPendingBorrowRestore(t *testing.T) {
@@ -130,7 +130,7 @@ func TestCloseStopsAPendingBorrowRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(3 * service.offloadRestoreDelay)
+	time.Sleep(3 * service.scheduler.restoreDelay)
 	if _, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel(); filename != "b.kcpps" {
 		t.Fatalf("loaded model = %q, want b.kcpps: the restore timer fired after Close", filename)
 	}

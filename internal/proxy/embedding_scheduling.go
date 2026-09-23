@@ -36,7 +36,7 @@ func (service *Service) acquireSelectorlessRegistryEmbeddingTarget(path string, 
 }
 
 func (service *Service) acquireSelectorlessRegistryEmbeddingCandidates(path string, ctx context.Context, candidates []cluster.Model) (selectorlessEmbeddingTarget, bool) {
-	start := service.nextEmbeddingCandidate(len(candidates))
+	start := service.embeddingRotation.pick(len(candidates))
 	for offset := range len(candidates) {
 		model := candidates[(start+offset)%len(candidates)]
 		mode, err := service.clusterModelBackendMode(model)
@@ -105,7 +105,7 @@ func (service *Service) selectSelectorlessCatalogEmbeddingTarget(path string, ct
 	if len(candidates) == 0 {
 		return selectorlessEmbeddingTarget{}, false
 	}
-	model := candidates[service.nextEmbeddingCandidate(len(candidates))]
+	model := candidates[service.embeddingRotation.pick(len(candidates))]
 	mode, err := service.catalogModelBackendMode(model)
 	if err != nil || !service.localEmbeddingModelLoaded(ctx, mode, model.Filename) {
 		return selectorlessEmbeddingTarget{}, false
@@ -161,17 +161,6 @@ func clusterEmbeddingCandidateKey(model cluster.Model) string {
 
 func catalogEmbeddingCandidateKey(model catalog.Model) string {
 	return strings.Join([]string{model.BackendMode, model.Filename, model.ID}, "\x00")
-}
-
-func (service *Service) nextEmbeddingCandidate(count int) int {
-	if count == 0 {
-		return 0
-	}
-	service.embeddingRoundRobinMu.Lock()
-	index := int(service.embeddingRoundRobinNext % uint64(count))
-	service.embeddingRoundRobinNext++
-	service.embeddingRoundRobinMu.Unlock()
-	return index
 }
 
 func (service *Service) localEmbeddingModelLoaded(ctx context.Context, mode string, filename string) bool {

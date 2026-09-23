@@ -68,14 +68,14 @@ func waitForTextBacklog(t *testing.T, service *Service, want int64) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		for _, stats := range service.textQueue.Stats() {
+		for _, stats := range service.scheduler.textQueue.Stats() {
 			if stats.BacklogCount >= want {
 				return
 			}
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("text queue never reached a backlog of %d: %+v", want, service.textQueue.Stats())
+	t.Fatalf("text queue never reached a backlog of %d: %+v", want, service.scheduler.textQueue.Stats())
 }
 
 func TestLinkedTextRequestQueuesBeforeTheBackend(t *testing.T) {
@@ -88,7 +88,7 @@ func TestLinkedTextRequestQueuesBeforeTheBackend(t *testing.T) {
 	}
 	waitForTextBacklog(t, service, 3)
 
-	stats := service.textQueue.Stats()
+	stats := service.scheduler.textQueue.Stats()
 	if len(stats) != 1 || stats[0].ModelID != "llama-70b" {
 		t.Fatalf("stats = %+v, want the backlog reported under the model", stats)
 	}
@@ -107,7 +107,7 @@ func TestUnlinkedTextModelIsNeverQueued(t *testing.T) {
 	if code := postChat(service).Code; code != http.StatusOK {
 		t.Fatalf("status %d, want 200", code)
 	}
-	if stats := service.textQueue.Stats(); len(stats) != 0 {
+	if stats := service.scheduler.textQueue.Stats(); len(stats) != 0 {
 		t.Fatalf("stats = %+v, want nothing queued for an unlinked model", stats)
 	}
 }

@@ -65,7 +65,7 @@ func (service *Service) handleNodeOffloadGrant(w http.ResponseWriter, r *http.Re
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "owner_model_id, helper_node_id and helper_model_id are required")
 		return
 	}
-	service.storeOffloadLease(lease)
+	service.scheduler.storeOffloadLease(lease)
 	openai.WriteJSON(w, http.StatusOK, lease)
 }
 
@@ -82,7 +82,7 @@ func (service *Service) handleNodeOffloadRequest(w http.ResponseWriter, r *http.
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "offload owner model, owner, and path are required")
 		return
 	}
-	lease, ok := service.leaseBook.Lease(lane, ownerNodeID, ownerModelID, time.Now())
+	lease, ok := service.scheduler.leaseBook.Lease(lane, ownerNodeID, ownerModelID, time.Now())
 	if !ok {
 		openai.WriteError(w, http.StatusConflict, offloadReturnedCode, "no live offload lease for this owner")
 		return

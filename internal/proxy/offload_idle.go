@@ -12,17 +12,10 @@ func (service *Service) requestsRunningOnEveryBackendFamily() int {
 	return active
 }
 
-func (service *Service) requestsBorrowedFromPeersInFlight() int {
-	borrowed := 0
-	if service.imageQueue != nil {
-		borrowed += service.imageQueue.BorrowedInFlight()
-	}
-	if service.textQueue != nil {
-		borrowed += service.textQueue.BorrowedInFlight()
-	}
-	return borrowed
+func (scheduler *scheduler) requestsBorrowedFromPeersInFlight() int {
+	return scheduler.imageQueue.BorrowedInFlight() + scheduler.textQueue.BorrowedInFlight()
 }
 
-func (service *Service) idleForBorrowedWork() bool {
-	return service.requestsRunningOnEveryBackendFamily()-service.requestsBorrowedFromPeersInFlight() <= 0
+func (scheduler *scheduler) idleForBorrowedWork() bool {
+	return scheduler.deps.requestsRunningOnEveryBackendFamily()-scheduler.requestsBorrowedFromPeersInFlight() <= 0
 }
