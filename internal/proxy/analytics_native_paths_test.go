@@ -20,7 +20,7 @@ func TestAnalyticsRecordsKoboldNativeGenerate(t *testing.T) {
 	}), map[string]string{
 		"llm": `{"model_param":"llm.gguf"}`,
 	})
-	service.analyticsStore = newProxyAnalyticsStore(t, "local")
+	service.analytics.store = newProxyAnalyticsStore(t, "local")
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/generate", strings.NewReader(`{"prompt":"hi","max_length":16}`))
@@ -30,7 +30,7 @@ func TestAnalyticsRecordsKoboldNativeGenerate(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
 	}
-	response := queryProxyAnalytics(t, service.analyticsStore)
+	response := queryProxyAnalytics(t, service.analytics.store)
 	if response.Summary.RequestCount != 1 {
 		t.Fatalf("kobold native generate was not recorded %#v", response.Summary)
 	}
@@ -50,12 +50,12 @@ func TestAnalyticsSkipsOllamaDiscoveryPaths(t *testing.T) {
 	}), map[string]string{
 		"llm": `{"model_param":"llm.gguf"}`,
 	})
-	service.analyticsStore = newProxyAnalyticsStore(t, "local")
+	service.analytics.store = newProxyAnalyticsStore(t, "local")
 
 	recorder := httptest.NewRecorder()
 	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/tags", nil))
 
-	response := queryProxyAnalytics(t, service.analyticsStore)
+	response := queryProxyAnalytics(t, service.analytics.store)
 	if response.Summary.RequestCount != 0 || len(response.Recent) != 0 {
 		t.Fatalf("discovery request must not be recorded %#v", response.Recent)
 	}
@@ -69,7 +69,7 @@ func TestAnalyticsRecordsOllamaStreamingCounts(t *testing.T) {
 	}), map[string]string{
 		"llm": `{"model_param":"llm.gguf"}`,
 	})
-	service.analyticsStore = newProxyAnalyticsStore(t, "local")
+	service.analytics.store = newProxyAnalyticsStore(t, "local")
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/api/generate", strings.NewReader(`{"model":"llm","prompt":"hi","stream":true}`))
@@ -82,7 +82,7 @@ func TestAnalyticsRecordsOllamaStreamingCounts(t *testing.T) {
 	if strings.Contains(recorder.Body.String(), "&#34;") {
 		t.Fatalf("ollama stream reached the client html-escaped %s", recorder.Body.String())
 	}
-	response := queryProxyAnalytics(t, service.analyticsStore)
+	response := queryProxyAnalytics(t, service.analytics.store)
 	if response.Summary.InputTokens != 11 || response.Summary.OutputTokens != 195 {
 		t.Fatalf("ollama streaming counts were not recorded %#v", response.Summary)
 	}

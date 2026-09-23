@@ -17,7 +17,7 @@ import (
 func TestWebUIProxyRecordsInferenceAnalytics(t *testing.T) {
 	service := newAnalyticsWebUIService(t)
 	loadWebUIForTest(t, service, "kobold-lite", "text", "")
-	service.webUISession.set("kobold-lite", true)
+	service.webUI.session.set("kobold-lite", true)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/router/webuis/kobold-lite/api/v1/generate", strings.NewReader(`{"prompt":"hi"}`))
@@ -27,7 +27,7 @@ func TestWebUIProxyRecordsInferenceAnalytics(t *testing.T) {
 		t.Fatalf("unexpected proxy status %d body %s", recorder.Code, recorder.Body.String())
 	}
 
-	response := queryProxyAnalytics(t, service.analyticsStore)
+	response := queryProxyAnalytics(t, service.analytics.store)
 	if response.Summary.RequestCount != 1 {
 		t.Fatalf("webui inference was not recorded %#v", response.Summary)
 	}
@@ -46,7 +46,7 @@ func TestWebUIProxyRecordsInferenceAnalytics(t *testing.T) {
 func TestWebUIProxyStreamRecordsUsageTheClientNeverSees(t *testing.T) {
 	service := newAnalyticsWebUIService(t)
 	loadWebUIForTest(t, service, "kobold-lite", "text", "")
-	service.webUISession.set("kobold-lite", true)
+	service.webUI.session.set("kobold-lite", true)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/router/webuis/kobold-lite/v1/chat/completions", strings.NewReader(`{"messages":[],"stream":true}`))
@@ -59,7 +59,7 @@ func TestWebUIProxyStreamRecordsUsageTheClientNeverSees(t *testing.T) {
 	if strings.Contains(recorder.Body.String(), "usage") {
 		t.Fatalf("the injected usage chunk must not reach the webui %s", recorder.Body.String())
 	}
-	response := queryProxyAnalytics(t, service.analyticsStore)
+	response := queryProxyAnalytics(t, service.analytics.store)
 	if response.Summary.InputTokens != 2 || response.Summary.OutputTokens != 3 {
 		t.Fatalf("webui stream usage was not recorded %#v", response.Summary)
 	}
@@ -68,7 +68,7 @@ func TestWebUIProxyStreamRecordsUsageTheClientNeverSees(t *testing.T) {
 func TestWebUIProxySkipsStaticAssets(t *testing.T) {
 	service := newAnalyticsWebUIService(t)
 	loadWebUIForTest(t, service, "kobold-lite", "text", "")
-	service.webUISession.set("kobold-lite", true)
+	service.webUI.session.set("kobold-lite", true)
 
 	recorder := httptest.NewRecorder()
 	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/router/webuis/kobold-lite/assets/app.js", nil))
@@ -76,7 +76,7 @@ func TestWebUIProxySkipsStaticAssets(t *testing.T) {
 		t.Fatalf("unexpected proxy status %d body %s", recorder.Code, recorder.Body.String())
 	}
 
-	response := queryProxyAnalytics(t, service.analyticsStore)
+	response := queryProxyAnalytics(t, service.analytics.store)
 	if response.Summary.RequestCount != 0 {
 		t.Fatalf("static asset must not be recorded %#v", response.Recent)
 	}
@@ -122,6 +122,6 @@ func newAnalyticsWebUIService(t *testing.T) *Service {
 		NodeID:  "local",
 		Logger:  log.New(io.Discard, "", 0),
 	})
-	service.analyticsStore = newProxyAnalyticsStore(t, "local")
+	service.analytics.store = newProxyAnalyticsStore(t, "local")
 	return service
 }

@@ -230,7 +230,7 @@ func (service *Service) unloadDisabledRuntime(ctx context.Context, runtime *back
 		state.switching = false
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
-		service.invalidateWebUIRoutes()
+		service.onRuntimeChanged()
 		return err
 	}
 }

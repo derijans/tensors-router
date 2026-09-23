@@ -110,7 +110,7 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 		analyticsModelID = modelID
 	}
 	started := time.Now()
-	analyticsEvent := service.newAnalyticsEvent(started, r, requestBody, analyticsModelID, audioAnalyticsSection(lane), selectedBackendMode)
+	analyticsEvent := service.analytics.newEvent(started, r, requestBody, analyticsModelID, audioAnalyticsSection(lane), selectedBackendMode)
 	readiness := audioReadiness(r.URL.Path, lane, selectedBackendMode)
 	if selectedBackendMode == BackendModeLlamaSDCPP && readiness == readinessTranscription {
 		requestBody, err = service.adaptBufferedWhisperRequest(r, requestBody)
@@ -123,13 +123,13 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 	if err != nil {
 		status, _, _ := backendFailureResponse(err)
 		if analyticsModelID != "" {
-			service.recordAnalyticsFailure(analyticsEvent, status, workFinalizer)
+			service.analytics.recordFailure(analyticsEvent, status, workFinalizer)
 		}
 		writeBackendFailure(w, err)
 		return
 	}
 	if analyticsModelID != "" {
-		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
+		response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
 	}
 	if err := service.writeProxyResponse(w, response, modelID, false); err != nil {
 		return

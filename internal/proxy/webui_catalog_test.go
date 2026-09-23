@@ -58,7 +58,7 @@ func TestWhisperWebUIDeniesDirectLoad(t *testing.T) {
 	service := newWebUICatalogTestService(t, map[string]string{
 		"voice": `{"backend_mode":"llama_sdcpp","nomodel":true,"whispermodel":"whisper.bin"}`,
 	})
-	service.webUISession.set("whispercpp", true)
+	service.webUI.session.set("whispercpp", true)
 	recorder := httptest.NewRecorder()
 	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/router/webuis/whispercpp/load", nil))
 	if recorder.Code != http.StatusNotFound || !strings.Contains(recorder.Body.String(), "direct whisper-server model loading is disabled") {
@@ -239,7 +239,7 @@ func TestMasterWebUILoadRoutesToSelectedRemoteNode(t *testing.T) {
 func TestLocalWebUIProxyStripsStablePrefixPreservesQueryAndRewritesRedirect(t *testing.T) {
 	service := newProxyReadyWebUIService(t)
 	loadWebUIForTest(t, service, "kobold-lcpp", "text", "")
-	service.webUISession.set("kobold-lcpp", true)
+	service.webUI.session.set("kobold-lcpp", true)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/router/webuis/kobold-lcpp/assets/app.js?theme=dark", nil)
@@ -291,7 +291,7 @@ func TestLocalSdcppWebUIBackendAPIUsesBackendRoot(t *testing.T) {
 		Logger:       log.New(io.Discard, "", 0),
 	})
 	loadWebUIForTest(t, service, "sdcpp", "", "image-dream")
-	service.webUISession.set("sdcpp", true)
+	service.webUI.session.set("sdcpp", true)
 
 	recorder := httptest.NewRecorder()
 	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/router/webuis/sdcpp/sdcpp/v1/capabilities?format=json", nil))
@@ -332,7 +332,7 @@ func TestLocalKoboldSDWebUIBackendAPIUsesBackendRoot(t *testing.T) {
 		Logger:  log.New(io.Discard, "", 0),
 	})
 	loadWebUIForTest(t, service, "kobold-sd", "image", "image-dream")
-	service.webUISession.set("kobold-sd", true)
+	service.webUI.session.set("kobold-sd", true)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/router/webuis/kobold-sd/sdapi/v1/txt2img", strings.NewReader(`{"prompt":"cat"}`))
@@ -366,7 +366,7 @@ func TestRemoteWebUIBackendAPIUsesSlaveRootAndToken(t *testing.T) {
 		SlaveURLs:    []string{slaveServer.URL},
 		Logger:       log.New(io.Discard, "", 0),
 	})
-	service.webUISession.set("kobold-lcpp", true)
+	service.webUI.session.set("kobold-lcpp", true)
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/router/webuis/kobold-lcpp/api/v1/generate?stream=1", strings.NewReader(`{"prompt":"hi"}`))
@@ -421,7 +421,7 @@ func TestRemoteWebUIProxyUsesSlaveTokenAndRewritesNodeRedirect(t *testing.T) {
 		SlaveURLs:    []string{remote.URL},
 		Logger:       log.New(io.Discard, "", 0),
 	})
-	service.webUISession.set("kobold-lite", true)
+	service.webUI.session.set("kobold-lite", true)
 
 	recorder := httptest.NewRecorder()
 	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/router/webuis/kobold-lite/panel?tab=1", nil))
@@ -439,7 +439,7 @@ func TestRemoteWebUIProxyUsesSlaveTokenAndRewritesNodeRedirect(t *testing.T) {
 	if recorder.Code != http.StatusFound || discoveryRequests.Load() != 1 {
 		t.Fatalf("route snapshot was not reused status=%d discoveries=%d", recorder.Code, discoveryRequests.Load())
 	}
-	service.invalidateWebUIRoutes()
+	service.webUI.invalidate()
 	recorder = httptest.NewRecorder()
 	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/router/webuis/kobold-lite/panel?tab=1", nil))
 	if recorder.Code != http.StatusFound || discoveryRequests.Load() != 2 {
@@ -451,7 +451,7 @@ func TestWebUIProxyReturnsUnavailableWithoutActiveBackend(t *testing.T) {
 	service := newWebUICatalogTestService(t, map[string]string{
 		"text": `{"model_param":"text.gguf"}`,
 	})
-	service.webUISession.set("kobold-lite", true)
+	service.webUI.session.set("kobold-lite", true)
 
 	recorder := httptest.NewRecorder()
 	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/router/webuis/kobold-lite/", nil))

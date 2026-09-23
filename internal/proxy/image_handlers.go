@@ -137,14 +137,14 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 				return
 			}
 			started := time.Now()
-			analyticsEvent := service.newAnalyticsEvent(started, r, body, target.publicImageID, routeranalytics.SectionImage, target.backendMode)
+			analyticsEvent := service.analytics.newEvent(started, r, body, target.publicImageID, routeranalytics.SectionImage, target.backendMode)
 			response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, target.publicImageID, target.configFilename, true, readinessImage, target.backendMode)
 			if err != nil {
-				service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
+				service.analytics.recordFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
 				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 				return
 			}
-			response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
+			response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
 			if err := service.writeProxyResponse(w, response, target.publicImageID, false); err != nil {
 				return
 			}
@@ -203,11 +203,11 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 	}
 
 	started := time.Now()
-	analyticsEvent := service.newAnalyticsEvent(started, r, body, model.ImageID, routeranalytics.SectionImage, modelBackendMode)
+	analyticsEvent := service.analytics.newEvent(started, r, body, model.ImageID, routeranalytics.SectionImage, modelBackendMode)
 	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, model.ImageID, model.Filename, hasModel, readinessImage, modelBackendMode)
 	if err != nil {
 		status, _, _ := backendFailureResponse(err)
-		service.recordAnalyticsFailure(analyticsEvent, status, workFinalizer)
+		service.analytics.recordFailure(analyticsEvent, status, workFinalizer)
 		writeBackendFailure(w, err)
 		return
 	}
@@ -219,7 +219,7 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 			backendMode:    modelBackendMode,
 		})
 	}
-	response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
+	response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
 
 	if err := service.writeProxyResponse(w, response, model.ImageID, hasModel); err != nil {
 		return

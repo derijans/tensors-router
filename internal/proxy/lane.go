@@ -83,7 +83,7 @@ func (service *Service) acquireModelConfigForBackendModeWithOptions(mode string,
 		service.recordLoadErrorFromErr(loaderrors.PhaseConfigParse, "proxy.ensureModelConfigHash", configFilename, err)
 		return nil, nil, false, err
 	}
-	if err := service.ensureModelAssets(ctx, configFilename); err != nil {
+	if err := service.assets.ensure(ctx, configFilename); err != nil {
 		service.recordLoadErrorFromErr(loaderrors.PhaseAssetResolve, "proxy.ensureModelAssets", configFilename, err)
 		return nil, nil, false, err
 	}
@@ -273,9 +273,9 @@ func (service *Service) reloadHeldModelConfig(runtime *backendRuntime, ctx conte
 		state.pendingProfile = profile
 		state.mu.Unlock()
 
-		vramLoad := service.beginVRAMLoad(ctx)
+		vramLoad := service.analytics.beginLoad(ctx)
 		err := service.loadModelConfig(runtime, ctx, modelID, configFilename, readiness)
-		service.finishVRAMLoad(ctx, vramLoad)
+		service.analytics.finishLoad(ctx, vramLoad)
 
 		state.mu.Lock()
 		state.switching = false
@@ -289,7 +289,7 @@ func (service *Service) reloadHeldModelConfig(runtime *backendRuntime, ctx conte
 			clearVRAMLoadStateLocked(state)
 			notifyActiveConfigLocked(state)
 			state.mu.Unlock()
-			service.invalidateWebUIRoutes()
+			service.onRuntimeChanged()
 			return err
 		}
 		state.filename = configFilename
@@ -299,8 +299,8 @@ func (service *Service) reloadHeldModelConfig(runtime *backendRuntime, ctx conte
 		applyVRAMLoadStateLocked(state, vramLoad)
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
-		service.recordVRAMLoad(modelID, configFilename, readiness, runtime.mode, vramLoad)
-		service.invalidateWebUIRoutes()
+		service.analytics.recordLoad(modelID, configFilename, readiness, runtime.mode, vramLoad)
+		service.onRuntimeChanged()
 		return nil
 	}
 }
@@ -335,7 +335,7 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 			state.mu.Unlock()
 			service.recordLoadReuse(physicalAttemptID)
 			if logicalConfigChanged {
-				service.invalidateWebUIRoutes()
+				service.onRuntimeChanged()
 			}
 			return release, false, nil
 		}
@@ -381,12 +381,12 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 			clearVRAMLoadStateLocked(state)
 			notifyActiveConfigLocked(state)
 			state.mu.Unlock()
-			service.invalidateWebUIRoutes()
+			service.onRuntimeChanged()
 			return nil, false, err
 		}
-		vramLoad := service.beginVRAMLoad(ctx)
+		vramLoad := service.analytics.beginLoad(ctx)
 		err = service.loadModelConfig(runtime, ctx, modelID, configFilename, readiness)
-		service.finishVRAMLoad(ctx, vramLoad)
+		service.analytics.finishLoad(ctx, vramLoad)
 		service.finishPhysicalLoadCapture(capture, err)
 
 		state.mu.Lock()
@@ -401,7 +401,7 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 			clearVRAMLoadStateLocked(state)
 			notifyActiveConfigLocked(state)
 			state.mu.Unlock()
-			service.invalidateWebUIRoutes()
+			service.onRuntimeChanged()
 			return nil, false, err
 		}
 		state.filename = configFilename
@@ -420,8 +420,8 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 		release := releaseActiveConfigLeaseOnce(state, leaseTag)
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
-		service.recordVRAMLoad(modelID, configFilename, readiness, runtime.mode, vramLoad)
-		service.invalidateWebUIRoutes()
+		service.analytics.recordLoad(modelID, configFilename, readiness, runtime.mode, vramLoad)
+		service.onRuntimeChanged()
 		return release, true, nil
 	}
 }
@@ -499,7 +499,7 @@ func (service *Service) unloadRuntime(ctx context.Context, runtime *backendRunti
 		state.switching = false
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
-		service.invalidateWebUIRoutes()
+		service.onRuntimeChanged()
 		return err
 	}
 }

@@ -56,10 +56,10 @@ func (service *Service) handleNodeAnalyticsFlush(w http.ResponseWriter, r *http.
 
 func (service *Service) localAnalyticsFlush(r *http.Request) routeranalytics.FlushResponse {
 	response := routeranalytics.FlushResponse{FlushedNodes: []string{}}
-	if service.analyticsStore == nil {
+	if service.analytics.store == nil {
 		return response
 	}
-	if err := service.analyticsStore.Checkpoint(r.Context()); err != nil {
+	if err := service.analytics.store.Checkpoint(r.Context()); err != nil {
 		response.NodeErrors = append(response.NodeErrors, routeranalytics.NodeError{NodeID: service.nodeID, Error: err.Error()})
 		return response
 	}
@@ -109,10 +109,10 @@ func (service *Service) analyticsResponse(r *http.Request, query routeranalytics
 }
 
 func (service *Service) localAnalyticsResponse(r *http.Request, query routeranalytics.Query) routeranalytics.Response {
-	if service.analyticsStore == nil {
+	if service.analytics.store == nil {
 		return routeranalytics.DisabledResponse(query)
 	}
-	response, err := service.analyticsStore.Query(r.Context(), query)
+	response, err := service.analytics.store.Query(r.Context(), query)
 	if err != nil {
 		return routeranalytics.Response{
 			Enabled:     true,

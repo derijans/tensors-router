@@ -17,14 +17,14 @@ import (
 	"tensors-router/internal/siteapi"
 )
 
-func (service *Service) handleSiteModelAssetExport(w http.ResponseWriter, r *http.Request) {
+func (assets *assetManager) handleSiteModelAssetExport(w http.ResponseWriter, r *http.Request) {
 	request, ok := decodeModelAssetConfigRequest(w, r)
 	if !ok {
 		return
 	}
-	response, err := service.exportModelAssetConfig(r.Context(), request)
+	response, err := assets.exportModelAssetConfig(r.Context(), request)
 	if err != nil {
-		service.logger.Printf("portable model export failed config=%q error_type=%T", request.ID, err)
+		assets.logger.Printf("portable model export failed config=%q error_type=%T", request.ID, err)
 		openai.WriteError(w, http.StatusBadRequest, "model_asset_export_failed", "portable model export failed")
 		return
 	}
@@ -34,28 +34,28 @@ func (service *Service) handleSiteModelAssetExport(w http.ResponseWriter, r *htt
 	_, _ = w.Write(response.Content)
 }
 
-func (service *Service) handleNodeModelAssetExport(w http.ResponseWriter, r *http.Request) {
+func (assets *assetManager) handleNodeModelAssetExport(w http.ResponseWriter, r *http.Request) {
 	request, ok := decodeModelAssetConfigRequest(w, r)
 	if !ok {
 		return
 	}
-	response, err := service.exportLocalModelAssetConfig(request)
+	response, err := assets.exportLocalModelAssetConfig(request)
 	if err != nil {
-		service.logger.Printf("portable model export failed config=%q error_type=%T", request.ID, err)
+		assets.logger.Printf("portable model export failed config=%q error_type=%T", request.ID, err)
 		openai.WriteError(w, http.StatusBadRequest, "model_asset_export_failed", "portable model export failed")
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, response)
 }
 
-func (service *Service) handleSiteModelAssetResolve(w http.ResponseWriter, r *http.Request) {
+func (assets *assetManager) handleSiteModelAssetResolve(w http.ResponseWriter, r *http.Request) {
 	request, ok := decodeModelAssetConfigRequest(w, r)
 	if !ok {
 		return
 	}
-	response, err := service.resolveModelAssetConfig(r.Context(), request)
+	response, err := assets.resolveModelAssetConfig(r.Context(), request)
 	if err != nil {
-		service.logger.Printf("model asset resolution failed config=%q error_type=%T", request.ID, err)
+		assets.logger.Printf("model asset resolution failed config=%q error_type=%T", request.ID, err)
 		openai.WriteError(w, http.StatusServiceUnavailable, "model_asset_unavailable", "model asset is unavailable")
 		return
 	}
@@ -69,21 +69,21 @@ func (service *Service) handleSiteModelAssetResolve(w http.ResponseWriter, r *ht
 	openai.WriteJSON(w, status, response)
 }
 
-func (service *Service) handleNodeModelAssetResolve(w http.ResponseWriter, r *http.Request) {
+func (assets *assetManager) handleNodeModelAssetResolve(w http.ResponseWriter, r *http.Request) {
 	request, ok := decodeModelAssetConfigRequest(w, r)
 	if !ok {
 		return
 	}
-	response, err := service.resolveLocalModelAssetConfig(request)
+	response, err := assets.resolveLocalModelAssetConfig(request)
 	if err != nil {
-		service.logger.Printf("model asset resolution failed config=%q error_type=%T", request.ID, err)
+		assets.logger.Printf("model asset resolution failed config=%q error_type=%T", request.ID, err)
 		openai.WriteError(w, http.StatusServiceUnavailable, "model_asset_unavailable", "model asset is unavailable")
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, response)
 }
 
-func (service *Service) handleSiteModelAssetResolveBatch(w http.ResponseWriter, r *http.Request) {
+func (assets *assetManager) handleSiteModelAssetResolveBatch(w http.ResponseWriter, r *http.Request) {
 	defer r.Body.Close()
 	var requests []siteapi.ModelAssetConfigRequest
 	decoder := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
@@ -94,7 +94,7 @@ func (service *Service) handleSiteModelAssetResolveBatch(w http.ResponseWriter, 
 	}
 	responses := make([]siteapi.ModelAssetConfigResponse, 0, len(requests))
 	for _, request := range requests {
-		response, err := service.resolveModelAssetConfig(r.Context(), request)
+		response, err := assets.resolveModelAssetConfig(r.Context(), request)
 		if err != nil {
 			responses = append(responses, siteapi.ModelAssetConfigResponse{ID: request.ID, Results: []siteapi.ModelAssetFieldResult{{Failure: "resolution failed"}}})
 			continue
@@ -104,8 +104,9 @@ func (service *Service) handleSiteModelAssetResolveBatch(w http.ResponseWriter, 
 	openai.WriteJSON(w, http.StatusOK, responses)
 }
 
-func (service *Service) handleSiteModelAssetLookup(w http.ResponseWriter, r *http.Request) {
-	if service.assetIndex == nil {
+func (assets *assetManager) handleSiteModelAssetLookup(w http.ResponseWriter, r *http.Request) {
+	identity := assets.identity()
+	if assets.index == nil {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "model asset index is unavailable")
 		return
 	}
@@ -115,17 +116,17 @@ func (service *Service) handleSiteModelAssetLookup(w http.ResponseWriter, r *htt
 		return
 	}
 	response := map[string]any{"sha256": hash, "available": false, "nodes": []string{}}
-	if asset, found := service.assetIndex.Lookup(hash); found {
+	if asset, found := assets.index.Lookup(hash); found {
 		response["available"] = true
 		response["filename"] = asset.Filename
 		response["size"] = asset.Size
-		response["nodes"] = []string{service.nodeID}
+		response["nodes"] = []string{identity.nodeID}
 	}
-	if origin, found := service.assetIndex.Origin(hash); found {
+	if origin, found := assets.index.Origin(hash); found {
 		response["origin"] = origin.URI()
 	}
-	for _, source := range service.coordinatedAssetSources(hash) {
-		if source.Filename != "" && source.NodeURL != service.nodeURL {
+	for _, source := range assets.coordinatedAssetSources(hash) {
+		if source.Filename != "" && source.NodeURL != identity.nodeURL {
 			response["available"] = true
 			existing := response["nodes"].([]string)
 			response["nodes"] = append(existing, "peer")
@@ -157,25 +158,25 @@ func decodeModelAssetConfigRequest(w http.ResponseWriter, r *http.Request) (site
 	return request, true
 }
 
-func (service *Service) exportModelAssetConfig(ctx context.Context, request siteapi.ModelAssetConfigRequest) (siteapi.ModelAssetConfigResponse, error) {
-	target, err := service.configNodeTarget(request.NodeID, request.NodeURL)
+func (assets *assetManager) exportModelAssetConfig(ctx context.Context, request siteapi.ModelAssetConfigRequest) (siteapi.ModelAssetConfigResponse, error) {
+	target, err := assets.deps.configNodeTarget(request.NodeID, request.NodeURL)
 	if err != nil {
 		return siteapi.ModelAssetConfigResponse{}, err
 	}
 	request.NodeID, request.NodeURL = target.nodeID, target.nodeURL
 	if target.local {
-		return service.exportLocalModelAssetConfig(request)
+		return assets.exportLocalModelAssetConfig(request)
 	}
 	var response siteapi.ModelAssetConfigResponse
-	err = service.clusterClient.JSON(ctx, http.MethodPost, target.nodeURL, "/router/v1/node/site/model-assets/export", request, &response)
+	err = assets.identity().client.JSON(ctx, http.MethodPost, target.nodeURL, "/router/v1/node/site/model-assets/export", request, &response)
 	return response, err
 }
 
-func (service *Service) exportLocalModelAssetConfig(request siteapi.ModelAssetConfigRequest) (siteapi.ModelAssetConfigResponse, error) {
-	if service.assetIndex == nil {
+func (assets *assetManager) exportLocalModelAssetConfig(request siteapi.ModelAssetConfigRequest) (siteapi.ModelAssetConfigResponse, error) {
+	if assets.index == nil {
 		return siteapi.ModelAssetConfigResponse{}, fmt.Errorf("model asset index is unavailable")
 	}
-	id, filename, target, err := service.modelAssetConfigTarget(request)
+	id, filename, target, err := assets.modelAssetConfigTarget(request)
 	if err != nil {
 		return siteapi.ModelAssetConfigResponse{}, err
 	}
@@ -184,9 +185,9 @@ func (service *Service) exportLocalModelAssetConfig(request siteapi.ModelAssetCo
 		return siteapi.ModelAssetConfigResponse{}, err
 	}
 	exported, err := modelassets.Export(content, func(path string) (string, error) {
-		asset, indexErr := service.assetIndex.IndexFile(path)
+		asset, indexErr := assets.index.IndexFile(path)
 		return asset.SHA256, indexErr
-	}, service.assetIndex.Origin)
+	}, assets.index.Origin)
 	if err != nil {
 		return siteapi.ModelAssetConfigResponse{}, err
 	}
@@ -200,12 +201,12 @@ type activeConfigResolution struct {
 	err   error
 }
 
-func (service *Service) ensureModelAssets(ctx context.Context, filename string) error {
-	if service.assetIndex == nil {
+func (assets *assetManager) ensure(ctx context.Context, filename string) error {
+	if assets.index == nil {
 		return nil
 	}
 	request := siteapi.ModelAssetConfigRequest{Filename: filename}
-	_, _, target, err := service.modelAssetConfigTarget(request)
+	_, _, target, err := assets.modelAssetConfigTarget(request)
 	if err != nil {
 		return err
 	}
@@ -217,7 +218,7 @@ func (service *Service) ensureModelAssets(ctx context.Context, filename string) 
 	if err != nil || unresolved == 0 {
 		return err
 	}
-	job, active, err := service.startSharedLocalModelAssetJob(request, target)
+	job, active, err := assets.startSharedLocalModelAssetJob(request, target)
 	if err != nil {
 		return err
 	}
@@ -226,43 +227,43 @@ func (service *Service) ensureModelAssets(ctx context.Context, filename string) 
 		return ctx.Err()
 	case <-active.done:
 	}
-	persistedJob, found, err := service.assetIndex.ResolutionJob(job.ID)
+	persistedJob, found, err := assets.index.ResolutionJob(job.ID)
 	if err != nil || !found || persistedJob.State != modelassets.JobCompleted {
 		return fmt.Errorf("model asset unavailable")
 	}
 	return nil
 }
 
-func (service *Service) resolveModelAssetConfig(ctx context.Context, request siteapi.ModelAssetConfigRequest) (siteapi.ModelAssetConfigResponse, error) {
-	target, err := service.configNodeTarget(request.NodeID, request.NodeURL)
+func (assets *assetManager) resolveModelAssetConfig(ctx context.Context, request siteapi.ModelAssetConfigRequest) (siteapi.ModelAssetConfigResponse, error) {
+	target, err := assets.deps.configNodeTarget(request.NodeID, request.NodeURL)
 	if err != nil {
 		return siteapi.ModelAssetConfigResponse{}, err
 	}
 	request.NodeID, request.NodeURL = target.nodeID, target.nodeURL
 	if target.local {
-		return service.resolveLocalModelAssetConfig(request)
+		return assets.resolveLocalModelAssetConfig(request)
 	}
 	var response siteapi.ModelAssetConfigResponse
-	err = service.clusterClient.JSON(ctx, http.MethodPost, target.nodeURL, "/router/v1/node/site/model-assets/resolve", request, &response)
+	err = assets.identity().client.JSON(ctx, http.MethodPost, target.nodeURL, "/router/v1/node/site/model-assets/resolve", request, &response)
 	return response, err
 }
 
-func (service *Service) resolveLocalModelAssetConfig(request siteapi.ModelAssetConfigRequest) (siteapi.ModelAssetConfigResponse, error) {
-	if service.assetIndex == nil {
+func (assets *assetManager) resolveLocalModelAssetConfig(request siteapi.ModelAssetConfigRequest) (siteapi.ModelAssetConfigResponse, error) {
+	if assets.index == nil {
 		return siteapi.ModelAssetConfigResponse{}, fmt.Errorf("model asset index is unavailable")
 	}
-	id, filename, target, err := service.modelAssetConfigTarget(request)
+	id, filename, target, err := assets.modelAssetConfigTarget(request)
 	if err != nil {
 		return siteapi.ModelAssetConfigResponse{}, err
 	}
-	unlock := service.lockModelAssetConfig(target)
+	unlock := assets.lockModelAssetConfig(target)
 	defer unlock()
 	content, err := os.ReadFile(target)
 	if err != nil {
 		return siteapi.ModelAssetConfigResponse{}, err
 	}
 	fingerprint := sha256.Sum256(content)
-	resolved, err := modelassets.ResolveDetailed(content, service.resolveAssetReferenceDetailed)
+	resolved, err := modelassets.ResolveDetailed(content, assets.resolveAssetReferenceDetailed)
 	if err != nil {
 		return siteapi.ModelAssetConfigResponse{}, err
 	}
@@ -280,26 +281,26 @@ func (service *Service) resolveLocalModelAssetConfig(request siteapi.ModelAssetC
 	if err := atomicfile.Write(target, resolved.Content, 0o644); err != nil {
 		return siteapi.ModelAssetConfigResponse{}, err
 	}
-	if err := service.refreshLocalRegistry(); err != nil {
+	if err := assets.deps.refreshLocalRegistry(); err != nil {
 		return siteapi.ModelAssetConfigResponse{}, err
 	}
 	return response, nil
 }
 
-func (service *Service) lockModelAssetConfig(target string) func() {
+func (assets *assetManager) lockModelAssetConfig(target string) func() {
 	candidate := &sync.Mutex{}
-	value, _ := service.assetConfigLocks.LoadOrStore(target, candidate)
+	value, _ := assets.configLocks.LoadOrStore(target, candidate)
 	lock := value.(*sync.Mutex)
 	lock.Lock()
 	return lock.Unlock
 }
 
-func (service *Service) modelAssetConfigTarget(request siteapi.ModelAssetConfigRequest) (string, string, string, error) {
+func (assets *assetManager) modelAssetConfigTarget(request siteapi.ModelAssetConfigRequest) (string, string, string, error) {
 	id, filename, err := configFileIdentity(siteapi.ConfigFileRequest{ID: request.ID, Filename: request.Filename})
 	if err != nil {
 		return "", "", "", err
 	}
-	target, err := service.localConfigFileTarget(filename)
+	target, err := assets.deps.localConfigFileTarget(filename)
 	return id, filename, target, err
 }
 

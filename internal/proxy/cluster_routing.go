@@ -75,7 +75,7 @@ func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter
 	var response *http.Response
 	var err error
 	var analyticsEvent routeranalytics.Event
-	var workFinalizer analyticsEventFinalizer
+	var workFinalizer routeranalytics.EventFinalizer
 	recordAnalytics := false
 	if route.Remote {
 		response, err = service.forwardRemote(r.Context(), r, requestBody, route)
@@ -107,7 +107,7 @@ func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter
 		}
 
 		started := time.Now()
-		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, backendModelID, textAnalyticsSection(r.URL.Path), routeBackendMode)
+		analyticsEvent = service.analytics.newEvent(started, r, requestBody, backendModelID, textAnalyticsSection(r.URL.Path), routeBackendMode)
 		analyticsEvent.PromptBytes = int64(len(body))
 		recordAnalytics = true
 		forwardModelID := route.PublicID
@@ -119,7 +119,7 @@ func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter
 	if err != nil {
 		status, _, _ := backendFailureResponse(err)
 		if recordAnalytics {
-			service.recordAnalyticsFailure(analyticsEvent, status, workFinalizer)
+			service.analytics.recordFailure(analyticsEvent, status, workFinalizer)
 		}
 		writeBackendFailure(w, err)
 		return
@@ -135,7 +135,7 @@ func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter
 	}
 	response = responseWithRelease(response, release)
 	if recordAnalytics {
-		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
+		response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
 	}
 	response = responseWithoutInjectedUsage(response, usageInjected)
 
@@ -240,7 +240,7 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 	var response *http.Response
 	var forwardErr error
 	var analyticsEvent routeranalytics.Event
-	var workFinalizer analyticsEventFinalizer
+	var workFinalizer routeranalytics.EventFinalizer
 	recordAnalytics := false
 	if route.Remote {
 		response, forwardErr = service.forwardRemote(r.Context(), request, requestBody, route)
@@ -298,14 +298,14 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 			}
 		}
 		started := time.Now()
-		analyticsEvent = service.newAnalyticsEvent(started, request, requestBody, route.LocalImageID, routeranalytics.SectionImage, routeBackendMode)
+		analyticsEvent = service.analytics.newEvent(started, request, requestBody, route.LocalImageID, routeranalytics.SectionImage, routeBackendMode)
 		recordAnalytics = true
 		response, workFinalizer, forwardErr = service.forwardWithFallbackObserved(r.Context(), request, requestBody, route.PublicImageID, route.Filename, true, readinessImage, routeBackendMode)
 	}
 	if forwardErr != nil {
 		release()
 		if recordAnalytics {
-			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
+			service.analytics.recordFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
 		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", forwardErr.Error())
 		return true
@@ -321,7 +321,7 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 	}
 	response = responseWithRelease(response, release)
 	if recordAnalytics {
-		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
+		response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
 	}
 
 	if err := service.writeProxyResponse(w, response, publicImageID, true); err != nil {
@@ -438,7 +438,7 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 	}
 	var response *http.Response
 	var analyticsEvent routeranalytics.Event
-	var workFinalizer analyticsEventFinalizer
+	var workFinalizer routeranalytics.EventFinalizer
 	recordAnalytics := false
 	if route.Remote {
 		response, err = service.forwardRemote(r.Context(), r, requestBody, route)
@@ -457,7 +457,7 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 			}
 		}
 		started := time.Now()
-		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, backendModelID, audioAnalyticsSection(lane), routeBackendMode)
+		analyticsEvent = service.analytics.newEvent(started, r, requestBody, backendModelID, audioAnalyticsSection(lane), routeBackendMode)
 		recordAnalytics = true
 		readiness = audioReadiness(r.URL.Path, lane, routeBackendMode)
 		forwardModelID := route.PublicID
@@ -469,14 +469,14 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 	if err != nil {
 		release()
 		if recordAnalytics {
-			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
+			service.analytics.recordFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
 		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
 	response = responseWithRelease(response, release)
 	if recordAnalytics {
-		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
+		response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
 	}
 	if err := service.writeProxyResponse(w, response, publicID, false); err != nil {
 		return

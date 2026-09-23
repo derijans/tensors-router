@@ -26,7 +26,7 @@ func (err nonReplayableTransportError) Unwrap() error {
 	return err.cause
 }
 
-func (service *Service) forwardTransportRoute(r *http.Request, body transportbody.Body, route transportRoute) (*http.Response, routeranalytics.Event, analyticsEventFinalizer, error) {
+func (service *Service) forwardTransportRoute(r *http.Request, body transportbody.Body, route transportRoute) (*http.Response, routeranalytics.Event, routeranalytics.EventFinalizer, error) {
 	if route.remote {
 		response, err := service.forwardTransportRemote(r.Context(), r, body, route.nodeURL)
 		return response, routeranalytics.Event{}, nil, err
@@ -48,8 +48,8 @@ func (service *Service) forwardTransportRoute(r *http.Request, body transportbod
 	if err != nil {
 		return nil, routeranalytics.Event{}, nil, err
 	}
-	finalizer := service.beginVRAMWork(runtime)
-	event := service.newAnalyticsEvent(time.Now(), r, nil, route.localID, route.section, route.backendMode)
+	finalizer := service.analytics.beginWork(runtime)
+	event := service.analytics.newEvent(time.Now(), r, nil, route.localID, route.section, route.backendMode)
 	response, err := service.forwardTransportLocal(runtime, r.Context(), r, body)
 	if err != nil {
 		release()

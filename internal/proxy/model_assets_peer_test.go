@@ -69,7 +69,7 @@ func newSlaveService(t *testing.T, masterURL string) *Service {
 
 func assertSlavePulledAsset(t *testing.T, slave *Service, asset modelassets.Asset, content []byte) {
 	t.Helper()
-	path, found := slave.resolvePeerAssetPath(asset.SHA256, asset.Filename)
+	path, found := slave.assets.resolvePeerAssetPath(asset.SHA256, asset.Filename)
 	if !found {
 		t.Fatalf("slave did not resolve the master asset %s", asset.SHA256)
 	}
@@ -87,7 +87,7 @@ func TestSlaveResolvesMasterAssetWhenMasterPublicURLIsUnset(t *testing.T) {
 	server, asset := startMasterWithAsset(t, "", "master-only.gguf", content)
 	slave := newSlaveService(t, server.URL)
 
-	sources := slave.lookupCoordinatedAssetSources(asset.SHA256)
+	sources := slave.assets.lookupCoordinatedAssetSources(asset.SHA256)
 	if len(sources) != 1 || sources[0].NodeURL != server.URL {
 		t.Fatalf("slave did not point the master record at its configured master url: %#v", sources)
 	}
@@ -108,7 +108,7 @@ func TestSlaveResolvesMasterAssetWhenMasterAdvertisesAnotherURL(t *testing.T) {
 		t.Fatalf("master did not advertise the unreachable url this test covers: %#v", advertised.Assets)
 	}
 
-	sources := slave.lookupCoordinatedAssetSources(asset.SHA256)
+	sources := slave.assets.lookupCoordinatedAssetSources(asset.SHA256)
 	if len(sources) != 1 || sources[0].NodeURL != server.URL {
 		t.Fatalf("slave did not replace the unreachable master url: %#v", sources)
 	}
@@ -128,7 +128,7 @@ func TestSlaveKeepsPeerAssetSourcesFromClusterLookup(t *testing.T) {
 	defer server.Close()
 	slave := newSlaveService(t, server.URL)
 
-	sources := slave.lookupCoordinatedAssetSources(hash)
+	sources := slave.assets.lookupCoordinatedAssetSources(hash)
 	if len(sources) != 2 {
 		t.Fatalf("unexpected sources: %#v", sources)
 	}
@@ -152,14 +152,14 @@ func TestClusterAssetLookupMarksMasterOwnedRecords(t *testing.T) {
 		AssetIndex:   masterIndex,
 	})
 
-	response := master.lookupClusterAssets(t.Context(), assetLookupRequest{Hashes: []string{asset.SHA256}})
+	response := master.assets.lookupClusterAssets(t.Context(), assetLookupRequest{Hashes: []string{asset.SHA256}})
 	if len(response.Assets) != 1 {
 		t.Fatalf("unexpected cluster lookup response: %#v", response.Assets)
 	}
 	if !response.Assets[0].Master || response.Assets[0].NodeURL != advertisedURL {
 		t.Fatalf("master record is not marked as master owned: %#v", response.Assets[0])
 	}
-	if path, found := master.resolvePeerAssetPath(asset.SHA256, asset.Filename); found {
+	if path, found := master.assets.resolvePeerAssetPath(asset.SHA256, asset.Filename); found {
 		t.Fatalf("master transferred its own asset from itself: %s", path)
 	}
 }

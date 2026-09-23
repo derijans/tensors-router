@@ -14,8 +14,8 @@ import (
 	"tensors-router/internal/siteapi"
 )
 
-func (service *Service) handleSiteModelFileHash(w http.ResponseWriter, r *http.Request) {
-	if !service.siteControlAllowed() {
+func (assets *assetManager) handleSiteModelFileHash(w http.ResponseWriter, r *http.Request) {
+	if !assets.deps.siteControlAllowed() {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
 		return
 	}
@@ -23,23 +23,23 @@ func (service *Service) handleSiteModelFileHash(w http.ResponseWriter, r *http.R
 	if !ok {
 		return
 	}
-	response, err := service.hashModelFile(r.Context(), request)
+	response, err := assets.hashModelFile(r.Context(), request)
 	if err != nil {
-		service.logger.Printf("model file hash failed node=%q error_type=%T", request.NodeID, err)
+		assets.logger.Printf("model file hash failed node=%q error_type=%T", request.NodeID, err)
 		openai.WriteError(w, http.StatusBadRequest, "model_file_hash_failed", "model file could not be hashed")
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, response)
 }
 
-func (service *Service) handleNodeModelFileHash(w http.ResponseWriter, r *http.Request) {
+func (assets *assetManager) handleNodeModelFileHash(w http.ResponseWriter, r *http.Request) {
 	request, ok := decodeModelFileHashRequest(w, r)
 	if !ok {
 		return
 	}
-	response, err := service.hashLocalModelFile(request)
+	response, err := assets.hashLocalModelFile(request)
 	if err != nil {
-		service.logger.Printf("model file hash failed node=%q error_type=%T", request.NodeID, err)
+		assets.logger.Printf("model file hash failed node=%q error_type=%T", request.NodeID, err)
 		openai.WriteError(w, http.StatusBadRequest, "model_file_hash_failed", "model file could not be hashed")
 		return
 	}
@@ -62,32 +62,33 @@ func decodeModelFileHashRequest(w http.ResponseWriter, r *http.Request) (siteapi
 	return request, true
 }
 
-func (service *Service) hashModelFile(ctx context.Context, request siteapi.ModelFileHashRequest) (siteapi.ModelFileHashResponse, error) {
-	target, err := service.configNodeTarget(request.NodeID, "")
+func (assets *assetManager) hashModelFile(ctx context.Context, request siteapi.ModelFileHashRequest) (siteapi.ModelFileHashResponse, error) {
+	target, err := assets.deps.configNodeTarget(request.NodeID, "")
 	if err != nil {
 		return siteapi.ModelFileHashResponse{}, err
 	}
 	request.NodeID = target.nodeID
 	if target.local {
-		return service.hashLocalModelFile(request)
+		return assets.hashLocalModelFile(request)
 	}
 	var response siteapi.ModelFileHashResponse
-	err = service.clusterClient.JSON(ctx, http.MethodPost, target.nodeURL, "/router/v1/node/site/model-files/hash", request, &response)
+	err = assets.identity().client.JSON(ctx, http.MethodPost, target.nodeURL, "/router/v1/node/site/model-files/hash", request, &response)
 	return response, err
 }
 
-func (service *Service) hashLocalModelFile(request siteapi.ModelFileHashRequest) (siteapi.ModelFileHashResponse, error) {
-	if service.assetIndex == nil {
+func (assets *assetManager) hashLocalModelFile(request siteapi.ModelFileHashRequest) (siteapi.ModelFileHashResponse, error) {
+	identity := assets.identity()
+	if assets.index == nil {
 		return siteapi.ModelFileHashResponse{}, fmt.Errorf("model asset index is unavailable")
 	}
-	if request.NodeID != "" && request.NodeID != service.nodeID {
+	if request.NodeID != "" && request.NodeID != identity.nodeID {
 		return siteapi.ModelFileHashResponse{}, fmt.Errorf("model file belongs to another node")
 	}
-	models, err := service.localClusterModels()
+	models, err := assets.deps.localClusterModels()
 	if err != nil {
 		return siteapi.ModelFileHashResponse{}, err
 	}
-	files, err := inventory.Scan(service.fileRoots, models, service.nodeID)
+	files, err := inventory.Scan(assets.fileRoots, models, identity.nodeID)
 	if err != nil {
 		return siteapi.ModelFileHashResponse{}, err
 	}
@@ -96,11 +97,11 @@ func (service *Service) hashLocalModelFile(request siteapi.ModelFileHashRequest)
 		if file.Path != requestedPath {
 			continue
 		}
-		asset, indexErr := service.assetIndex.IndexFile(file.Path)
+		asset, indexErr := assets.index.IndexFile(file.Path)
 		if indexErr != nil {
 			return siteapi.ModelFileHashResponse{}, indexErr
 		}
-		return siteapi.ModelFileHashResponse{NodeID: service.nodeID, Path: file.Path, SHA256: asset.SHA256}, nil
+		return siteapi.ModelFileHashResponse{NodeID: identity.nodeID, Path: file.Path, SHA256: asset.SHA256}, nil
 	}
 	return siteapi.ModelFileHashResponse{}, fmt.Errorf("model file is not in configured inventory")
 }

@@ -4,114 +4,74 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
 
 	routeranalytics "tensors-router/internal/analytics"
 	"tensors-router/internal/catalog"
 	"tensors-router/internal/hardware"
 )
 
-type analyticsEventFinalizer = func(*routeranalytics.Event)
-
-type vramLoadMeasurement struct {
-	startedAt  time.Time
-	finishedAt time.Time
-	before     hardware.VRAMInfo
-	after      hardware.VRAMInfo
-	hasBefore  bool
-	hasAfter   bool
+func (analytics *requestAnalytics) vramActive() bool {
+	return analytics.store != nil && analytics.vramEnabled && analytics.vramSource != nil
 }
 
-type vramWorkSampler struct {
-	source      hardware.VRAMSource
-	interval    time.Duration
-	baselineMB  int64
-	hasBaseline bool
-	stop        chan struct{}
-	done        chan struct{}
-	once        sync.Once
-	mu          sync.Mutex
-	start       hardware.VRAMInfo
-	max         hardware.VRAMInfo
-	end         hardware.VRAMInfo
-	hasStart    bool
-	hasMax      bool
-	hasEnd      bool
+func (analytics *requestAnalytics) activeVRAMSource() hardware.VRAMSource {
+	if !analytics.vramActive() {
+		return nil
+	}
+	return analytics.vramSource
 }
 
-func (service *Service) vramAnalyticsActive() bool {
-	return service.analyticsStore != nil && service.vramAnalyticsEnabled && service.vramSource != nil
-}
-
-// beginVRAMLoad times every model load whenever analytics is on, because the
+// beginLoad times every model load whenever analytics is on, because the
 // load duration is what a scheduler needs to weigh a model switch. VRAM sampling
 // is a separate, optional enrichment: a node without a VRAM source still records
 // how long its loads take.
-func (service *Service) beginVRAMLoad(ctx context.Context) *vramLoadMeasurement {
-	if service.analyticsStore == nil {
+func (analytics *requestAnalytics) beginLoad(ctx context.Context) *routeranalytics.VRAMLoadMeasurement {
+	if analytics.store == nil {
 		return nil
 	}
-	measurement := &vramLoadMeasurement{startedAt: time.Now()}
-	if service.vramAnalyticsActive() {
-		measurement.before, measurement.hasBefore = service.sampleVRAM(ctx)
-	}
-	return measurement
+	return routeranalytics.StartVRAMLoad(ctx, analytics.activeVRAMSource())
 }
 
-func (service *Service) finishVRAMLoad(ctx context.Context, measurement *vramLoadMeasurement) {
+func (analytics *requestAnalytics) finishLoad(ctx context.Context, measurement *routeranalytics.VRAMLoadMeasurement) {
 	if measurement == nil {
 		return
 	}
-	measurement.finishedAt = time.Now()
-	if service.vramAnalyticsActive() {
-		measurement.after, measurement.hasAfter = service.sampleVRAM(ctx)
-	}
+	measurement.Finish(ctx, analytics.activeVRAMSource())
 }
 
-func (service *Service) recordVRAMLoad(modelID string, configFilename string, readiness backendReadiness, backendMode string, measurement *vramLoadMeasurement) {
-	if measurement == nil || service.analyticsStore == nil {
+func (analytics *requestAnalytics) recordLoad(modelID string, configFilename string, readiness backendReadiness, backendMode string, measurement *routeranalytics.VRAMLoadMeasurement) {
+	if measurement == nil || analytics.store == nil {
 		return
 	}
-	if measurement.finishedAt.IsZero() {
-		measurement.finishedAt = time.Now()
-	}
 	event := routeranalytics.Event{
-		NodeID:         service.nodeID,
+		NodeID:         analytics.nodeID,
 		ModelID:        modelID,
-		Section:        service.loadAnalyticsSection(configFilename, readiness),
+		Section:        analytics.loadSection(configFilename, readiness),
 		BackendMode:    backendMode,
 		EventType:      routeranalytics.EventTypeModelLoad,
 		Route:          "model_load",
 		ConfigFilename: configFilename,
 		StatusCode:     200,
 		Success:        true,
-		StartedAt:      measurement.startedAt,
-		FinishedAt:     measurement.finishedAt,
-		DurationMS:     measurement.finishedAt.Sub(measurement.startedAt).Milliseconds(),
 	}
-	if measurement.hasBefore {
-		event.LoadVRAMBefore = measurement.before.UsedMB
-		event.VRAMTotal = measurement.before.TotalMB
-	}
-	if measurement.hasAfter {
-		event.LoadVRAMAfter = measurement.after.UsedMB
-		event.VRAMTotal = measurement.after.TotalMB
-		event.VRAMPeakPercent = measurement.after.UsedPercent
-	}
-	service.analyticsStore.Record(event)
+	measurement.ApplyTo(&event)
+	analytics.store.Record(event)
 }
 
-func applyVRAMLoadStateLocked(state *activeConfigState, measurement *vramLoadMeasurement) {
+func applyVRAMLoadStateLocked(state *activeConfigState, measurement *routeranalytics.VRAMLoadMeasurement) {
 	state.vramBaselineValid = false
 	state.vramBaselineMB = 0
 	state.vramTotalMB = 0
-	if measurement == nil || !measurement.hasBefore {
+	if measurement == nil {
+		return
+	}
+	baseline, measured := measurement.Baseline()
+	if !measured {
 		return
 	}
 	state.vramBaselineValid = true
-	state.vramBaselineMB = measurement.before.UsedMB
-	state.vramTotalMB = measurement.before.TotalMB
+	state.vramBaselineMB = baseline.UsedMB
+	state.vramTotalMB = baseline.TotalMB
 }
 
 func clearVRAMLoadStateLocked(state *activeConfigState) {
@@ -120,98 +80,25 @@ func clearVRAMLoadStateLocked(state *activeConfigState) {
 	state.vramTotalMB = 0
 }
 
-func (service *Service) beginVRAMWork(runtime *backendRuntime) analyticsEventFinalizer {
-	if !service.vramAnalyticsActive() || runtime == nil {
+func (analytics *requestAnalytics) beginWork(runtime *backendRuntime) routeranalytics.EventFinalizer {
+	if !analytics.vramActive() || runtime == nil {
 		return nil
 	}
 	baselineMB, hasBaseline := runtimeVRAMBaseline(runtime)
-	sampler := &vramWorkSampler{
-		source:      service.vramSource,
-		interval:    service.vramSampleInterval,
-		baselineMB:  baselineMB,
-		hasBaseline: hasBaseline,
-		stop:        make(chan struct{}),
-		done:        make(chan struct{}),
+	return routeranalytics.StartVRAMWorkSampler(analytics.vramSource, analytics.vramInterval, baselineMB, hasBaseline).Finish
+}
+
+func (analytics *requestAnalytics) close(ctx context.Context) error {
+	if analytics.vramSampler == nil {
+		return nil
 	}
-	sampler.recordSample()
-	go sampler.run()
-	return sampler.finish
+	return analytics.vramSampler.Close(ctx)
 }
 
 func runtimeVRAMBaseline(runtime *backendRuntime) (int64, bool) {
 	runtime.state.mu.Lock()
 	defer runtime.state.mu.Unlock()
 	return runtime.state.vramBaselineMB, runtime.state.vramBaselineValid
-}
-
-func (sampler *vramWorkSampler) run() {
-	ticker := time.NewTicker(sampler.interval)
-	defer ticker.Stop()
-	defer close(sampler.done)
-	for {
-		select {
-		case <-ticker.C:
-			sampler.recordSample()
-		case <-sampler.stop:
-			return
-		}
-	}
-}
-
-func (sampler *vramWorkSampler) finish(event *routeranalytics.Event) {
-	if sampler == nil || event == nil {
-		return
-	}
-	sampler.once.Do(func() {
-		close(sampler.stop)
-		<-sampler.done
-		sampler.recordSample()
-		sampler.mu.Lock()
-		defer sampler.mu.Unlock()
-		if sampler.hasStart {
-			event.WorkVRAMStart = sampler.start.UsedMB
-		}
-		if sampler.hasMax {
-			event.WorkVRAMMax = sampler.max.UsedMB
-			event.VRAMPeakPercent = sampler.max.UsedPercent
-			event.VRAMTotal = sampler.max.TotalMB
-			if sampler.hasBaseline && sampler.max.UsedMB > sampler.baselineMB {
-				event.ModelVRAM = sampler.max.UsedMB - sampler.baselineMB
-			}
-		}
-		if sampler.hasEnd {
-			event.WorkVRAMEnd = sampler.end.UsedMB
-			if event.VRAMTotal == 0 {
-				event.VRAMTotal = sampler.end.TotalMB
-			}
-		}
-	})
-}
-
-func (sampler *vramWorkSampler) recordSample() {
-	info, ok := sampler.source.VRAM(context.Background())
-	if !ok {
-		return
-	}
-	sampler.mu.Lock()
-	defer sampler.mu.Unlock()
-	if !sampler.hasStart {
-		sampler.start = info
-		sampler.hasStart = true
-	}
-	if !sampler.hasMax || info.UsedMB > sampler.max.UsedMB {
-		sampler.max = info
-		sampler.hasMax = true
-	}
-	sampler.end = info
-	sampler.hasEnd = true
-}
-
-func (service *Service) sampleVRAM(ctx context.Context) (hardware.VRAMInfo, bool) {
-	if service.vramSource == nil {
-		return hardware.VRAMInfo{}, false
-	}
-	return service.vramSource.VRAM(ctx)
 }
 
 func (service *Service) loadAnalyticsSection(configFilename string, readiness backendReadiness) string {

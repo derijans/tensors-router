@@ -99,7 +99,7 @@ func TestEnsureModelAssetsResolvesAConfigNamedWithAnUppercaseExtension(t *testin
 	}
 	service := NewService(ServiceConfig{Catalog: catalog.New(root), ConfigDir: root, AssetIndex: index})
 
-	if err := service.ensureModelAssets(context.Background(), "Portable.KCPPS"); err != nil {
+	if err := service.assets.ensure(context.Background(), "Portable.KCPPS"); err != nil {
 		t.Fatal(err)
 	}
 

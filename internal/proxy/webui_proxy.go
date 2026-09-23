@@ -18,7 +18,7 @@ const (
 	nodeWebUIProxyPrefix = "/router/v1/node/webuis/"
 )
 
-func (service *Service) handleSiteWebUIProxy(w http.ResponseWriter, r *http.Request) {
+func (webUI *webUIProxy) handleSiteWebUIProxy(w http.ResponseWriter, r *http.Request) {
 	definition, strippedPath, ok, redirectPath := webUIProxyPath(r.URL.Path, siteWebUIProxyPrefix)
 	if redirectPath != "" {
 		redirectURL := *r.URL
@@ -34,30 +34,30 @@ func (service *Service) handleSiteWebUIProxy(w http.ResponseWriter, r *http.Requ
 		openai.WriteError(w, http.StatusNotFound, "not_found", "direct whisper-server model loading is disabled")
 		return
 	}
-	if !service.webUISession.isEnabled(definition.kind) {
+	if !webUI.session.isEnabled(definition.kind) {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "webui is not enabled")
 		return
 	}
-	route, release, ok := service.acquireWebUIProxyRoute(r.Context(), definition)
+	route, release, ok := webUI.acquireWebUIProxyRoute(r.Context(), definition)
 	if !ok {
 		openai.WriteError(w, http.StatusServiceUnavailable, "backend_error", "webui has no active compatible backend")
 		return
 	}
 	defer release()
 	started := time.Now()
-	response, usageInjected, err := service.forwardWebUIProxy(r.Context(), r, definition, strippedPath, route, siteWebUIProxyPrefix)
+	response, usageInjected, err := webUI.forwardWebUIProxy(r.Context(), r, definition, strippedPath, route, siteWebUIProxyPrefix)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
-	response = service.webUIProxyResponseWithAnalytics(response, started, r, definition, strippedPath, route)
+	response = webUI.webUIProxyResponseWithAnalytics(response, started, r, definition, strippedPath, route)
 	response = responseWithoutInjectedUsage(response, usageInjected)
-	if err := writeWebUIProxyResponse(service, w, response); err != nil {
+	if err := writeWebUIProxyResponse(webUI.deps, w, response); err != nil {
 		return
 	}
 }
 
-func (service *Service) handleNodeWebUIProxy(w http.ResponseWriter, r *http.Request) {
+func (webUI *webUIProxy) handleNodeWebUIProxy(w http.ResponseWriter, r *http.Request) {
 	definition, strippedPath, ok, _ := webUIProxyPath(r.URL.Path, nodeWebUIProxyPrefix)
 	if !ok {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "webui not found")
@@ -67,62 +67,63 @@ func (service *Service) handleNodeWebUIProxy(w http.ResponseWriter, r *http.Requ
 		openai.WriteError(w, http.StatusNotFound, "not_found", "direct whisper-server model loading is disabled")
 		return
 	}
-	route, release, ok := service.acquireLocalWebUIProxyRoute(r.Context(), definition)
+	route, release, ok := webUI.acquireLocalWebUIProxyRoute(r.Context(), definition)
 	if !ok {
 		openai.WriteError(w, http.StatusServiceUnavailable, "backend_error", "webui has no active compatible backend")
 		return
 	}
 	defer release()
 	started := time.Now()
-	response, usageInjected, err := service.forwardLocalWebUIProxy(r.Context(), r, definition, strippedPath, route, nodeWebUIProxyPrefix)
+	response, usageInjected, err := webUI.forwardLocalWebUIProxy(r.Context(), r, definition, strippedPath, route, nodeWebUIProxyPrefix)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
-	response = service.webUIProxyResponseWithAnalytics(response, started, r, definition, strippedPath, route)
+	response = webUI.webUIProxyResponseWithAnalytics(response, started, r, definition, strippedPath, route)
 	response = responseWithoutInjectedUsage(response, usageInjected)
-	if err := writeWebUIProxyResponse(service, w, response); err != nil {
+	if err := writeWebUIProxyResponse(webUI.deps, w, response); err != nil {
 		return
 	}
 }
 
-func (service *Service) acquireWebUIProxyRoute(ctx context.Context, definition webUIDefinition) (cluster.Route, func(), bool) {
-	routes, err := service.activeWebUIRoutes(ctx, definition)
+func (webUI *webUIProxy) acquireWebUIProxyRoute(ctx context.Context, definition webUIDefinition) (cluster.Route, func(), bool) {
+	identity := webUI.identity()
+	routes, err := webUI.activeWebUIRoutes(ctx, definition)
 	if err != nil || len(routes) == 0 {
 		return cluster.Route{}, func() {}, false
 	}
-	if service.registry != nil {
-		return service.registry.AcquireWebUI(definition.kind, routes)
+	if identity.registry != nil {
+		return identity.registry.AcquireWebUI(definition.kind, routes)
 	}
 	return routes[0], func() {}, true
 }
 
-func (service *Service) acquireLocalWebUIProxyRoute(ctx context.Context, definition webUIDefinition) (cluster.Route, func(), bool) {
-	routes, err := service.localActiveWebUIRoutes(ctx, definition)
+func (webUI *webUIProxy) acquireLocalWebUIProxyRoute(ctx context.Context, definition webUIDefinition) (cluster.Route, func(), bool) {
+	routes, err := webUI.localActiveWebUIRoutes(ctx, definition)
 	if err != nil || len(routes) == 0 {
 		return cluster.Route{}, func() {}, false
 	}
 	return routes[0], func() {}, true
 }
 
-func (service *Service) discoverActiveWebUIRoutes(ctx context.Context, definition webUIDefinition) ([]cluster.Route, error) {
-	routes, err := service.localActiveWebUIRoutes(ctx, definition)
+func (webUI *webUIProxy) discoverActiveWebUIRoutes(ctx context.Context, definition webUIDefinition) ([]cluster.Route, error) {
+	routes, err := webUI.localActiveWebUIRoutes(ctx, definition)
 	if err != nil {
 		return nil, err
 	}
-	if service.clusterRole != cluster.RoleMaster {
+	if webUI.identity().role != cluster.RoleMaster {
 		return routes, nil
 	}
-	remoteRoutes := service.remoteActiveWebUIRoutes(ctx, definition)
+	remoteRoutes := webUI.remoteActiveWebUIRoutes(ctx, definition)
 	routes = append(routes, remoteRoutes...)
 	return routes, nil
 }
 
-func (service *Service) localActiveWebUIRoutes(ctx context.Context, definition webUIDefinition) ([]cluster.Route, error) {
-	if !service.localBackendAvailableForRoute(ctx, definition.backendMode, webUIReadiness(definition.lane)) {
+func (webUI *webUIProxy) localActiveWebUIRoutes(ctx context.Context, definition webUIDefinition) ([]cluster.Route, error) {
+	if !webUI.deps.localBackendAvailableForRoute(ctx, definition.backendMode, webUIReadiness(definition.lane)) {
 		return nil, nil
 	}
-	entries, err := service.localWebUIs()
+	entries, err := webUI.localWebUIs()
 	if err != nil {
 		return nil, err
 	}
@@ -133,11 +134,11 @@ func (service *Service) localActiveWebUIRoutes(ctx context.Context, definition w
 	return webUIRoutesFromEntry(definition, entry, false), nil
 }
 
-func (service *Service) remoteActiveWebUIRoutes(ctx context.Context, definition webUIDefinition) []cluster.Route {
+func (webUI *webUIProxy) remoteActiveWebUIRoutes(ctx context.Context, definition webUIDefinition) []cluster.Route {
 	routes := []cluster.Route{}
-	for _, nodeURL := range service.remoteInventoryURLs() {
+	for _, nodeURL := range webUI.deps.remoteInventoryURLs() {
 		var remote WebUICatalogResponse
-		if err := service.clusterClient.JSON(ctx, http.MethodGet, nodeURL, "/router/v1/node/site/webuis", nil, &remote); err != nil {
+		if err := webUI.identity().client.JSON(ctx, http.MethodGet, nodeURL, "/router/v1/node/site/webuis", nil, &remote); err != nil {
 			continue
 		}
 		for _, entry := range remote.Data {
@@ -177,16 +178,16 @@ func webUIRoutesFromEntry(definition webUIDefinition, entry WebUIEntry, remote b
 	return routes
 }
 
-func (service *Service) forwardWebUIProxy(ctx context.Context, original *http.Request, definition webUIDefinition, strippedPath string, route cluster.Route, publicPrefix string) (*http.Response, bool, error) {
+func (webUI *webUIProxy) forwardWebUIProxy(ctx context.Context, original *http.Request, definition webUIDefinition, strippedPath string, route cluster.Route, publicPrefix string) (*http.Response, bool, error) {
 	if route.Remote {
-		response, err := service.forwardRemoteWebUIProxy(ctx, original, definition, strippedPath, route)
+		response, err := webUI.forwardRemoteWebUIProxy(ctx, original, definition, strippedPath, route)
 		return response, false, err
 	}
-	return service.forwardLocalWebUIProxy(ctx, original, definition, strippedPath, route, publicPrefix)
+	return webUI.forwardLocalWebUIProxy(ctx, original, definition, strippedPath, route, publicPrefix)
 }
 
-func (service *Service) forwardLocalWebUIProxy(ctx context.Context, original *http.Request, definition webUIDefinition, strippedPath string, route cluster.Route, publicPrefix string) (*http.Response, bool, error) {
-	runtime, release, err := service.lockWebUIRoute(ctx, definition, route)
+func (webUI *webUIProxy) forwardLocalWebUIProxy(ctx context.Context, original *http.Request, definition webUIDefinition, strippedPath string, route cluster.Route, publicPrefix string) (*http.Response, bool, error) {
+	runtime, release, err := webUI.lockWebUIRoute(ctx, definition, route)
 	if err != nil {
 		return nil, false, err
 	}
@@ -197,7 +198,7 @@ func (service *Service) forwardLocalWebUIProxy(ctx context.Context, original *ht
 	}
 	backendPath := webUIBackendPath(definition, strippedPath)
 	body, usageInjected := injectStreamUsageOption(body, backendPath, definition.backendMode)
-	response, err := service.forwardWebUIRequestBody(ctx, original, runtime.backend.URL(), backendPath, body)
+	response, err := webUI.forwardWebUIRequestBody(ctx, original, runtime.backend.URL(), backendPath, body)
 	if err != nil {
 		release()
 		return nil, false, err
@@ -207,8 +208,8 @@ func (service *Service) forwardLocalWebUIProxy(ctx context.Context, original *ht
 	return response, usageInjected, nil
 }
 
-func (service *Service) forwardRemoteWebUIProxy(ctx context.Context, original *http.Request, definition webUIDefinition, strippedPath string, route cluster.Route) (*http.Response, error) {
-	baseURL, err := service.clusterClient.AuthorizedBaseURL(route.NodeURL)
+func (webUI *webUIProxy) forwardRemoteWebUIProxy(ctx context.Context, original *http.Request, definition webUIDefinition, strippedPath string, route cluster.Route) (*http.Response, error) {
+	baseURL, err := webUI.identity().client.AuthorizedBaseURL(route.NodeURL)
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +218,7 @@ func (service *Service) forwardRemoteWebUIProxy(ctx context.Context, original *h
 		return nil, err
 	}
 	targetPath := nodeWebUIProxyURL(definition, strippedPath)
-	response, err := service.forwardWebUIRequest(ctx, original, parsedBaseURL, targetPath)
+	response, err := webUI.forwardWebUIRequest(ctx, original, parsedBaseURL, targetPath)
 	if err != nil {
 		return nil, err
 	}
@@ -225,27 +226,27 @@ func (service *Service) forwardRemoteWebUIProxy(ctx context.Context, original *h
 	return response, nil
 }
 
-func (service *Service) lockWebUIRoute(ctx context.Context, definition webUIDefinition, route cluster.Route) (*backendRuntime, func(), error) {
+func (webUI *webUIProxy) lockWebUIRoute(ctx context.Context, definition webUIDefinition, route cluster.Route) (*backendRuntime, func(), error) {
 	modelID := route.PublicID
 	if definition.lane == cluster.RouteLaneImage && strings.TrimSpace(route.PublicImageID) != "" {
 		modelID = route.PublicImageID
 	}
-	runtime, release, _, err := service.acquireModelConfigForBackendMode(route.BackendMode, ctx, modelID, route.Filename, webUIReadiness(definition.lane), false)
+	runtime, release, _, err := webUI.deps.acquireModelConfigForBackendMode(route.BackendMode, ctx, modelID, route.Filename, webUIReadiness(definition.lane), false)
 	if err != nil {
 		return nil, nil, err
 	}
 	return runtime, release, nil
 }
 
-func (service *Service) forwardWebUIRequest(ctx context.Context, original *http.Request, baseURL *url.URL, path string) (*http.Response, error) {
+func (webUI *webUIProxy) forwardWebUIRequest(ctx context.Context, original *http.Request, baseURL *url.URL, path string) (*http.Response, error) {
 	body, err := readProxyRequestBody(original)
 	if err != nil {
 		return nil, err
 	}
-	return service.forwardWebUIRequestBody(ctx, original, baseURL, path, body)
+	return webUI.forwardWebUIRequestBody(ctx, original, baseURL, path, body)
 }
 
-func (service *Service) forwardWebUIRequestBody(ctx context.Context, original *http.Request, baseURL *url.URL, path string, body []byte) (*http.Response, error) {
+func (webUI *webUIProxy) forwardWebUIRequestBody(ctx context.Context, original *http.Request, baseURL *url.URL, path string, body []byte) (*http.Response, error) {
 	target := *baseURL
 	target.Path = joinPath(target.Path, path)
 	target.RawQuery = original.URL.RawQuery
@@ -254,11 +255,11 @@ func (service *Service) forwardWebUIRequestBody(ctx context.Context, original *h
 		return nil, err
 	}
 	copyBackendHeaders(request.Header, original.Header)
-	if service.clusterToken != "" && strings.HasPrefix(path, nodeWebUIProxyPrefix) {
-		request.Header.Set("Authorization", "Bearer "+service.clusterToken)
+	if token := webUI.deps.nodeProxyToken(); token != "" && strings.HasPrefix(path, nodeWebUIProxyPrefix) {
+		request.Header.Set("Authorization", "Bearer "+token)
 	}
 	request.Host = target.Host
-	return service.client.Do(request)
+	return webUI.deps.httpClient().Do(request)
 }
 
 func readProxyRequestBody(original *http.Request) ([]byte, error) {
@@ -269,8 +270,8 @@ func readProxyRequestBody(original *http.Request) ([]byte, error) {
 	return io.ReadAll(original.Body)
 }
 
-func writeWebUIProxyResponse(service *Service, w http.ResponseWriter, response *http.Response) error {
-	return service.writeProxyResponse(w, response, "", false)
+func writeWebUIProxyResponse(deps webUIDeps, w http.ResponseWriter, response *http.Response) error {
+	return deps.writeProxyResponse(w, response, "", false)
 }
 
 func rewriteWebUIResponseLocation(response *http.Response, baseURL *url.URL, definition webUIDefinition, publicPrefix string, strippedPath string) {

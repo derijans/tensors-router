@@ -55,7 +55,7 @@ func (service *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if strings.HasPrefix(r.URL.Path, siteWebUIProxyPrefix) {
-		service.handleSiteWebUIProxy(w, r)
+		service.webUI.handleSiteWebUIProxy(w, r)
 		return
 	}
 

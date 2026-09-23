@@ -347,7 +347,7 @@ func (service *Service) teardownSeparateEntry(ctx context.Context, entry *separa
 	if releaser, ok := entry.runtime.backend.(separateEndpointReleaser); ok {
 		releaser.ReleaseEndpoint()
 	}
-	service.invalidateWebUIRoutes()
+	service.onRuntimeChanged()
 }
 
 // unloadSeparateLane unloads pool entries on a lane but keeps them, so a later

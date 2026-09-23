@@ -458,7 +458,7 @@ func syntheticImageRequest(method string, path string) *http.Request {
 	}
 }
 
-func finishVRAMWork(finalizer analyticsEventFinalizer) {
+func finishVRAMWork(finalizer routeranalytics.EventFinalizer) {
 	if finalizer == nil {
 		return
 	}

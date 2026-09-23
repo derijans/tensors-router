@@ -20,7 +20,7 @@ func TestPromptBytesRecordsTheRawBodyLength(t *testing.T) {
 	}), map[string]string{
 		"llm": `{"model_param":"llm.gguf"}`,
 	})
-	service.analyticsStore = newProxyAnalyticsStore(t, "local")
+	service.analytics.store = newProxyAnalyticsStore(t, "local")
 
 	rawBody := `{"model":"llm","messages":[{"role":"user","content":"hi"}],"stream":true}`
 	recorder := httptest.NewRecorder()
@@ -31,7 +31,7 @@ func TestPromptBytesRecordsTheRawBodyLength(t *testing.T) {
 		t.Fatalf("status %d body %s", recorder.Code, recorder.Body.String())
 	}
 
-	response := queryProxyAnalytics(t, service.analyticsStore)
+	response := queryProxyAnalytics(t, service.analytics.store)
 	requestEvent := recentEventOfType(t, response, routeranalytics.EventTypeRequest)
 	if requestEvent.PromptBytes != int64(len(rawBody)) {
 		t.Fatalf("prompt_bytes = %d, want the raw body length %d", requestEvent.PromptBytes, len(rawBody))

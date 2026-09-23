@@ -12,12 +12,12 @@ import (
 	"tensors-router/internal/siteapi"
 )
 
-func (service *Service) handleSiteModelAssetBinding(w http.ResponseWriter, r *http.Request) {
+func (assets *assetManager) handleSiteModelAssetBinding(w http.ResponseWriter, r *http.Request) {
 	request, ok := decodeModelAssetBinding(w, r)
 	if !ok {
 		return
 	}
-	target, err := service.configNodeTarget(request.NodeID, request.NodeURL)
+	target, err := assets.deps.configNodeTarget(request.NodeID, request.NodeURL)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "invalid config node")
 		return
@@ -25,26 +25,26 @@ func (service *Service) handleSiteModelAssetBinding(w http.ResponseWriter, r *ht
 	request.NodeID, request.NodeURL = target.nodeID, target.nodeURL
 	if !target.local {
 		var response map[string]string
-		if err := service.clusterClient.JSON(r.Context(), http.MethodPost, target.nodeURL, "/router/v1/node/site/model-assets/bind", request, &response); err != nil {
+		if err := assets.identity().client.JSON(r.Context(), http.MethodPost, target.nodeURL, "/router/v1/node/site/model-assets/bind", request, &response); err != nil {
 			openai.WriteError(w, http.StatusBadGateway, "cluster_error", "asset binding failed")
 			return
 		}
 		openai.WriteJSON(w, http.StatusOK, response)
 		return
 	}
-	service.bindLocalModelAsset(w, r, request)
+	assets.bindLocalModelAsset(w, r, request)
 }
 
-func (service *Service) handleNodeModelAssetBinding(w http.ResponseWriter, r *http.Request) {
+func (assets *assetManager) handleNodeModelAssetBinding(w http.ResponseWriter, r *http.Request) {
 	request, ok := decodeModelAssetBinding(w, r)
 	if !ok {
 		return
 	}
-	service.bindLocalModelAsset(w, r, request)
+	assets.bindLocalModelAsset(w, r, request)
 }
 
-func (service *Service) bindLocalModelAsset(w http.ResponseWriter, r *http.Request, request siteapi.ModelAssetBindingRequest) {
-	if service.assetIndex == nil || service.downloads.Downloader() == nil || !modelassets.ValidHash(request.SHA256) {
+func (assets *assetManager) bindLocalModelAsset(w http.ResponseWriter, r *http.Request, request siteapi.ModelAssetBindingRequest) {
+	if assets.index == nil || assets.downloader == nil || !modelassets.ValidHash(request.SHA256) {
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "asset binding is unavailable")
 		return
 	}
@@ -53,7 +53,7 @@ func (service *Service) bindLocalModelAsset(w http.ResponseWriter, r *http.Reque
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "invalid Hugging Face origin")
 		return
 	}
-	details, err := service.downloads.Downloader().Repository(r.Context(), downloader.RepositoryRequest{Repository: origin.Repository, Revision: origin.Commit, Token: request.Token})
+	details, err := assets.downloader.Repository(r.Context(), downloader.RepositoryRequest{Repository: origin.Repository, Revision: origin.Commit, Token: request.Token})
 	if err != nil || details.Commit != origin.Commit {
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "Hugging Face origin could not be verified")
 		return
@@ -69,7 +69,7 @@ func (service *Service) bindLocalModelAsset(w http.ResponseWriter, r *http.Reque
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "candidate file does not have the expected SHA-256")
 		return
 	}
-	if err := service.assetIndex.BindOrigin(request.SHA256, origin); err != nil {
+	if err := assets.index.BindOrigin(request.SHA256, origin); err != nil {
 		openai.WriteError(w, http.StatusInternalServerError, "model_asset_error", "asset origin could not be saved")
 		return
 	}

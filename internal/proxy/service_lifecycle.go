@@ -68,7 +68,6 @@ func NewService(config ServiceConfig) *Service {
 			changed: make(chan struct{}),
 			mode:    backendMode,
 		},
-		webUISession:              newWebUISession(),
 		catalog:                   config.Catalog,
 		registry:                  config.Registry,
 		clusterToken:              config.ClusterToken,
@@ -80,16 +79,9 @@ func NewService(config ServiceConfig) *Service {
 		configDir:                 strings.TrimSpace(config.ConfigDir),
 		mcpReconciler:             config.MCPReconciler,
 		mcpGateway:                config.MCPGateway,
-		fileRoots:                 append([]string{}, config.FileRoots...),
-		assetIndex:                config.AssetIndex,
-		assetTransferSlots:        make(chan struct{}, concurrentAssetTransfers),
-		assetLookupCache:          make(map[string]assetLookupCacheEntry),
-		assetLookupTimeout:        assetLookupTimeout,
-		assetTransferTimeout:      modelOperationTimeout,
 		recipeStore:               config.RecipeStore,
 		modelStateStore:           config.ModelStateStore,
 		pendingModelUnloads:       map[string]context.CancelFunc{},
-		analyticsStore:            config.AnalyticsStore,
 		routingGroups:             config.RoutingGroups,
 		costSource:                newSchedulingCostSource(),
 		leaseBook:                 newOffloadLeaseBook(),
@@ -103,10 +95,6 @@ func NewService(config ServiceConfig) *Service {
 		loadCaptureStore:          config.LoadCaptureStore,
 		loadCaptureMaxOutputBytes: config.LoadCaptureMaxOutputBytes,
 		loadErrorStore:            config.LoadErrorStore,
-		vramAnalyticsEnabled:      config.VRAMAnalyticsEnabled,
-		vramSource:                vramSource,
-		vramSampler:               vramSampler,
-		vramSampleInterval:        vramSampleInterval,
 		hardware:                  config.Hardware,
 		logger:                    logger,
 		shutdown:                  config.Shutdown,
@@ -138,8 +126,25 @@ func NewService(config ServiceConfig) *Service {
 	if service.hardware == nil {
 		service.hardware = hardware.NewCache()
 	}
+	service.analytics = &requestAnalytics{
+		store:        config.AnalyticsStore,
+		vramEnabled:  config.VRAMAnalyticsEnabled,
+		vramSource:   vramSource,
+		vramSampler:  vramSampler,
+		vramInterval: vramSampleInterval,
+		nodeID:       nodeID,
+		loadSection:  service.loadAnalyticsSection,
+	}
+	service.webUI = newWebUIProxy(service, service.analytics)
 	service.benchmarks = newBenchmarkRunner(service, config.BenchmarkStore, logger)
 	service.downloads = downloads.New(downloadDeps{service: service}, config.Downloader, config.DownloaderCapability)
+	service.assets = newAssetManager(service, assetManagerConfig{
+		index:              config.AssetIndex,
+		fileRoots:          config.FileRoots,
+		downloader:         config.Downloader,
+		concurrentTransfer: concurrentAssetTransfers,
+		logger:             logger,
+	})
 	if config.ClusterClient != nil {
 		service.clusterClient = config.ClusterClient
 	}
@@ -151,7 +156,7 @@ func NewService(config ServiceConfig) *Service {
 	service.imageQueue = newOffloadQueue(service.schedulingBackendDepth)
 	service.textQueue = newOffloadQueue(service.schedulingBackendDepth)
 	service.installStoredRoutingLinks(context.Background())
-	service.routes = newRouteTable(service.requireClusterToken, service.controlRoutes(), service.siteRoutes(), service.nodeRoutes(), service.downloads.Routes(), service.benchmarks.routes())
+	service.routes = newRouteTable(service.requireClusterToken, service.controlRoutes(), service.siteRoutes(), service.nodeRoutes(), service.downloads.Routes(), service.benchmarks.routes(), service.assets.routes(), service.webUI.routes())
 	return service
 }
 
@@ -309,6 +314,7 @@ func (service *Service) Draining() bool {
 
 func (service *Service) Close(ctx context.Context) error {
 	err := service.stopSchedulingRefresh(ctx)
+	err = errors.Join(err, service.assets.close(ctx))
 	service.stopBorrowRestores()
 	service.vllmResponses.close()
 	service.modelStateMu.Lock()
@@ -318,9 +324,7 @@ func (service *Service) Close(ctx context.Context) error {
 	service.pendingModelUnloads = map[string]context.CancelFunc{}
 	service.modelStateMu.Unlock()
 	service.closeSeparateRuntimes(ctx)
-	if service.vramSampler != nil {
-		err = errors.Join(err, service.vramSampler.Close(ctx))
-	}
+	err = errors.Join(err, service.analytics.close(ctx))
 	if service.modelStateStore != nil {
 		err = errors.Join(err, service.modelStateStore.Close())
 	}

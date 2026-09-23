@@ -215,18 +215,18 @@ func (service *Service) localNodeInventory(ctx context.Context, includeFiles boo
 	files := []inventory.FileRecord{}
 	if includeFiles {
 		started := time.Now()
-		service.logger.Printf("model file inventory scan started roots=%d", len(service.fileRoots))
-		files, err = inventory.Scan(service.fileRoots, models, service.nodeID)
+		service.logger.Printf("model file inventory scan started roots=%d", len(service.assets.fileRoots))
+		files, err = inventory.Scan(service.assets.fileRoots, models, service.nodeID)
 		if err != nil {
-			service.logger.Printf("model file inventory scan failed roots=%d elapsed=%s error=%v", len(service.fileRoots), time.Since(started), err)
+			service.logger.Printf("model file inventory scan failed roots=%d elapsed=%s error=%v", len(service.assets.fileRoots), time.Since(started), err)
 			return siteapi.NodeInventory{}, err
 		}
-		if service.assetIndex != nil {
+		if service.assets.index != nil {
 			for index := range files {
-				files[index].SHA256, _ = service.assetIndex.CachedFileHash(files[index].Path)
+				files[index].SHA256, _ = service.assets.index.CachedFileHash(files[index].Path)
 			}
 		}
-		service.logger.Printf("model file inventory scan completed roots=%d files=%d elapsed=%s", len(service.fileRoots), len(files), time.Since(started))
+		service.logger.Printf("model file inventory scan completed roots=%d files=%d elapsed=%s", len(service.assets.fileRoots), len(files), time.Since(started))
 	}
 	return siteapi.NodeInventory{
 		NodeID:      service.nodeID,
@@ -285,10 +285,10 @@ func (service *Service) localClusterModels() ([]cluster.Model, error) {
 			_, records[index].Disabled = disabled[records[index].LocalID]
 		}
 	}
-	if service.assetIndex == nil {
+	if service.assets.index == nil {
 		return records, nil
 	}
-	states, err := service.assetIndex.LatestResolutionStates()
+	states, err := service.assets.index.LatestResolutionStates()
 	if err != nil {
 		return nil, err
 	}
@@ -316,7 +316,7 @@ func (service *Service) localSource() string {
 }
 
 func (service *Service) refreshLocalRegistry() error {
-	defer service.invalidateWebUIRoutes()
+	defer service.webUI.invalidate()
 	if refresher, ok := service.catalog.(interface{ Refresh() error }); ok {
 		if err := refresher.Refresh(); err != nil {
 			return err
@@ -511,7 +511,7 @@ func (service *Service) writeLocalCookConfig(ctx context.Context, request cook.N
 	}
 	writer := cook.Writer{
 		ConfigDir: service.configDir,
-		FileRoots: service.fileRoots,
+		FileRoots: service.assets.fileRoots,
 		Catalog:   service.catalog,
 		NodeID:    service.nodeID,
 		NodeURL:   service.nodeURL,

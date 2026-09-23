@@ -62,3 +62,7 @@ func (service *Service) rejectModelLoadWhileDraining(w http.ResponseWriter) bool
 	openai.WriteError(w, http.StatusServiceUnavailable, "router_draining", "router is draining and cannot accept model loads")
 	return true
 }
+
+func (service *Service) maxTransferBytes() int64 {
+	return service.transportLimits.MaxResponseBytes
+}

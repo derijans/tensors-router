@@ -132,9 +132,7 @@ type Service struct {
 	backendSwitch             *backendFamilySwitchState
 	routes                    *routeTable
 	separatePool              *separateRuntimePool
-	webUISession              *webUISession
-	webUIRouteMu              sync.Mutex
-	webUIRoutes               atomic.Pointer[webUIRouteSnapshot]
+	webUI                     *webUIProxy
 	catalog                   ModelCatalog
 	registry                  *cluster.Registry
 	clusterToken              string
@@ -147,22 +145,13 @@ type Service struct {
 	configDir                 string
 	mcpReconciler             *mcp.Reconciler
 	mcpGateway                *mcp.Gateway
-	fileRoots                 []string
-	assetIndex                *modelassets.Index
-	assetConfigLocks          sync.Map
-	assetResolutionJobs       sync.Map
-	assetTransfers            sync.Map
-	assetTransferSlots        chan struct{}
-	assetLookupMu             sync.Mutex
-	assetLookupCache          map[string]assetLookupCacheEntry
-	assetLookupTimeout        time.Duration
-	assetTransferTimeout      time.Duration
+	assets                    *assetManager
 	recipeStore               *recipes.Store
 	benchmarks                *benchmarkRunner
 	modelStateStore           *modelstate.Store
 	modelStateMu              sync.Mutex
 	pendingModelUnloads       map[string]context.CancelFunc
-	analyticsStore            *routeranalytics.Store
+	analytics                 *requestAnalytics
 	routingGroups             *routinggroups.Store
 	imageQueue                *offloadQueue
 	costSource                *schedulingCostSource
@@ -185,10 +174,6 @@ type Service struct {
 	loadCaptureStore          *loadcapture.Store
 	loadCaptureMaxOutputBytes int64
 	loadErrorStore            *loaderrors.Store
-	vramAnalyticsEnabled      bool
-	vramSource                hardware.VRAMSource
-	vramSampler               *hardware.VRAMSampler
-	vramSampleInterval        time.Duration
 	hardware                  hardware.Source
 	downloads                 *downloads.Handlers
 	client                    *http.Client

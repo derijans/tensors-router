@@ -36,9 +36,9 @@ func TestPeerDiscoveryStopsAtLookupDeadline(t *testing.T) {
 		MasterURL:     server.URL,
 		ClusterClient: cluster.NewClient("", server.URL),
 	})
-	service.assetLookupTimeout = 20 * time.Millisecond
+	service.assets.lookupTimeout = 20 * time.Millisecond
 	started := time.Now()
-	if sources := service.lookupCoordinatedAssetSources(strings.Repeat("a", 64)); len(sources) != 0 {
+	if sources := service.assets.lookupCoordinatedAssetSources(strings.Repeat("a", 64)); len(sources) != 0 {
 		t.Fatalf("unexpected peer sources: %#v", sources)
 	}
 	if elapsed := time.Since(started); elapsed > time.Second {
@@ -67,7 +67,7 @@ func TestEnsureModelAssetsResolvesPortableConfig(t *testing.T) {
 		t.Fatal(err)
 	}
 	service := NewService(ServiceConfig{Catalog: catalog.New(root), ConfigDir: root, AssetIndex: index})
-	if err := service.ensureModelAssets(context.Background(), "portable.kcpps"); err != nil {
+	if err := service.assets.ensure(context.Background(), "portable.kcpps"); err != nil {
 		t.Fatal(err)
 	}
 	resolved, err := os.ReadFile(configPath)
@@ -221,7 +221,7 @@ func TestPeerAssetPromotionResumesVerifiedPartialFile(t *testing.T) {
 	content := []byte("complete peer model payload")
 	digest := sha256.Sum256(content)
 	hash := hex.EncodeToString(digest[:])
-	partial := service.peerPartialPath(hash)
+	partial := service.assets.peerPartialPath(hash)
 	if err := os.MkdirAll(filepath.Dir(partial), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +229,7 @@ func TestPeerAssetPromotionResumesVerifiedPartialFile(t *testing.T) {
 	if err := os.WriteFile(partial, content[:offset], 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if !service.promotePeerAsset(bytes.NewReader(content[offset:]), hash, "model.gguf", int64(len(content)), offset, true) {
+	if !service.assets.promotePeerAsset(bytes.NewReader(content[offset:]), hash, "model.gguf", int64(len(content)), offset, true) {
 		t.Fatal("resumed promotion failed")
 	}
 	path, found := index.Find(hash, "model.gguf")
@@ -283,7 +283,7 @@ func TestConcurrentPeerResolutionUsesOneDirectTransfer(t *testing.T) {
 		group.Add(1)
 		go func() {
 			defer group.Done()
-			if _, found := destination.resolvePeerAssetPath(asset.SHA256, asset.Filename); !found {
+			if _, found := destination.assets.resolvePeerAssetPath(asset.SHA256, asset.Filename); !found {
 				t.Errorf("peer resolution failed")
 			}
 		}()

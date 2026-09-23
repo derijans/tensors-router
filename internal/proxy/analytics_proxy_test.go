@@ -31,7 +31,7 @@ func TestAnalyticsRecordsTextRequest(t *testing.T) {
 	}), map[string]string{
 		"llm": `{"model_param":"llm.gguf"}`,
 	})
-	service.analyticsStore = newProxyAnalyticsStore(t, "local")
+	service.analytics.store = newProxyAnalyticsStore(t, "local")
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"llm","messages":[]}`))
@@ -41,7 +41,7 @@ func TestAnalyticsRecordsTextRequest(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
 	}
-	response := queryProxyAnalytics(t, service.analyticsStore)
+	response := queryProxyAnalytics(t, service.analytics.store)
 	if response.Summary.RequestCount != 1 || response.Summary.TotalTokens != 20 {
 		t.Fatalf("unexpected analytics summary %#v", response.Summary)
 	}
@@ -59,14 +59,14 @@ func TestAnalyticsRecordsStreamingUsage(t *testing.T) {
 	}), map[string]string{
 		"llm": `{"model_param":"llm.gguf"}`,
 	})
-	service.analyticsStore = newProxyAnalyticsStore(t, "local")
+	service.analytics.store = newProxyAnalyticsStore(t, "local")
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"llm","messages":[],"stream":true}`))
 	request.Header.Set("Content-Type", "application/json")
 	service.ServeHTTP(recorder, request)
 
-	response := queryProxyAnalytics(t, service.analyticsStore)
+	response := queryProxyAnalytics(t, service.analytics.store)
 	if response.Summary.TotalTokens != 5 || response.Summary.OutputTokens != 3 {
 		t.Fatalf("stream usage was not recorded %#v", response.Summary)
 	}
@@ -79,7 +79,7 @@ func TestAnalyticsRecordsEmbeddingOnlyConfigAsEmbedding(t *testing.T) {
 	}), map[string]string{
 		"embed": `{"embeddingsmodel":"embed.gguf"}`,
 	})
-	service.analyticsStore = newProxyAnalyticsStore(t, "local")
+	service.analytics.store = newProxyAnalyticsStore(t, "local")
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(`{"model":"embed","input":["a","b"]}`))
@@ -89,7 +89,7 @@ func TestAnalyticsRecordsEmbeddingOnlyConfigAsEmbedding(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
 	}
-	response := queryProxyAnalytics(t, service.analyticsStore)
+	response := queryProxyAnalytics(t, service.analytics.store)
 	requestEvent := recentEventOfType(t, response, routeranalytics.EventTypeRequest)
 	if requestEvent.Section != routeranalytics.SectionEmbed || requestEvent.EmbeddingCount != 2 || requestEvent.InputTokens != 6 {
 		t.Fatalf("unexpected embedding request analytics %#v", requestEvent)
@@ -107,7 +107,7 @@ func TestAnalyticsRecordsImageMetadata(t *testing.T) {
 	}), map[string]string{
 		"combo": `{"nomodel":true,"sdmodel":"dream.safetensors"}`,
 	})
-	service.analyticsStore = newProxyAnalyticsStore(t, "local")
+	service.analytics.store = newProxyAnalyticsStore(t, "local")
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/sdapi/v1/txt2img", strings.NewReader(`{"sd_model_checkpoint":"combo-dream","width":640,"height":384,"batch_size":2}`))
@@ -117,7 +117,7 @@ func TestAnalyticsRecordsImageMetadata(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
 	}
-	response := queryProxyAnalytics(t, service.analyticsStore)
+	response := queryProxyAnalytics(t, service.analytics.store)
 	if response.Summary.ImageCount != 2 {
 		t.Fatalf("unexpected image count %#v", response.Summary)
 	}
@@ -134,10 +134,10 @@ func TestAnalyticsRecordsVRAMLoadAndWork(t *testing.T) {
 	}), map[string]string{
 		"llm": `{"model_param":"llm.gguf"}`,
 	})
-	service.analyticsStore = newProxyAnalyticsStore(t, "local")
-	service.vramAnalyticsEnabled = true
-	service.vramSampleInterval = time.Millisecond
-	service.vramSource = &sequenceVRAMSource{samples: []hardware.VRAMInfo{
+	service.analytics.store = newProxyAnalyticsStore(t, "local")
+	service.analytics.vramEnabled = true
+	service.analytics.vramInterval = time.Millisecond
+	service.analytics.vramSource = &sequenceVRAMSource{samples: []hardware.VRAMInfo{
 		{UsedMB: 1000, TotalMB: 8000, UsedPercent: 12.5},
 		{UsedMB: 3000, TotalMB: 8000, UsedPercent: 37.5},
 		{UsedMB: 3500, TotalMB: 8000, UsedPercent: 43.75},
@@ -152,7 +152,7 @@ func TestAnalyticsRecordsVRAMLoadAndWork(t *testing.T) {
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
 	}
-	response := queryProxyAnalytics(t, service.analyticsStore)
+	response := queryProxyAnalytics(t, service.analytics.store)
 	if response.Summary.RequestCount != 1 || response.Summary.LoadCount != 1 {
 		t.Fatalf("unexpected analytics counts %#v", response.Summary)
 	}
@@ -179,16 +179,16 @@ func TestAnalyticsVRAMToggleLeavesRequestAnalyticsEnabled(t *testing.T) {
 	}), map[string]string{
 		"llm": `{"model_param":"llm.gguf"}`,
 	})
-	service.analyticsStore = newProxyAnalyticsStore(t, "local")
-	service.vramAnalyticsEnabled = false
-	service.vramSource = &sequenceVRAMSource{samples: []hardware.VRAMInfo{{UsedMB: 1000, TotalMB: 8000, UsedPercent: 12.5}}}
+	service.analytics.store = newProxyAnalyticsStore(t, "local")
+	service.analytics.vramEnabled = false
+	service.analytics.vramSource = &sequenceVRAMSource{samples: []hardware.VRAMInfo{{UsedMB: 1000, TotalMB: 8000, UsedPercent: 12.5}}}
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"llm","messages":[]}`))
 	request.Header.Set("Content-Type", "application/json")
 	service.ServeHTTP(recorder, request)
 
-	response := queryProxyAnalytics(t, service.analyticsStore)
+	response := queryProxyAnalytics(t, service.analytics.store)
 	if response.Summary.RequestCount != 1 || response.Summary.TotalTokens != 7 {
 		t.Fatalf("request analytics should remain enabled %#v", response.Summary)
 	}
@@ -213,16 +213,16 @@ func TestAnalyticsRecordsLoadTimingWithoutAVRAMSource(t *testing.T) {
 	}), map[string]string{
 		"llm": `{"model_param":"llm.gguf"}`,
 	})
-	service.analyticsStore = newProxyAnalyticsStore(t, "local")
-	service.vramAnalyticsEnabled = true
-	service.vramSource = nil
+	service.analytics.store = newProxyAnalyticsStore(t, "local")
+	service.analytics.vramEnabled = true
+	service.analytics.vramSource = nil
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"llm","messages":[]}`))
 	request.Header.Set("Content-Type", "application/json")
 	service.ServeHTTP(recorder, request)
 
-	response := queryProxyAnalytics(t, service.analyticsStore)
+	response := queryProxyAnalytics(t, service.analytics.store)
 	if response.Summary.LoadCount != 1 {
 		t.Fatalf("load timing was not recorded without a vram source %#v", response.Summary)
 	}
@@ -255,7 +255,7 @@ func TestAnalyticsMasterDoesNotRecordRemoteRoute(t *testing.T) {
 	service, _ := newTestServiceWithRegistry(t, registry, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("local backend should not receive remote route")
 	}), "secret")
-	service.analyticsStore = newProxyAnalyticsStore(t, "master")
+	service.analytics.store = newProxyAnalyticsStore(t, "master")
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"llm","messages":[]}`))
@@ -265,7 +265,7 @@ func TestAnalyticsMasterDoesNotRecordRemoteRoute(t *testing.T) {
 	if recorder.Code != http.StatusOK || !sawRemote {
 		t.Fatalf("remote route failed status=%d sawRemote=%t body=%s", recorder.Code, sawRemote, recorder.Body.String())
 	}
-	response := queryProxyAnalytics(t, service.analyticsStore)
+	response := queryProxyAnalytics(t, service.analytics.store)
 	if response.Summary.RequestCount != 0 {
 		t.Fatalf("master recorded remote route %#v", response.Summary)
 	}
@@ -313,9 +313,9 @@ func TestSiteAnalyticsAggregatesRemoteNodes(t *testing.T) {
 		ClusterClient: cluster.NewClient("secret", remote.URL),
 		Logger:        log.New(io.Discard, "", 0),
 	})
-	service.analyticsStore = newProxyAnalyticsStore(t, "master")
+	service.analytics.store = newProxyAnalyticsStore(t, "master")
 	now := time.Now()
-	service.analyticsStore.Record(routeranalytics.Event{
+	service.analytics.store.Record(routeranalytics.Event{
 		ModelID:     "local",
 		Section:     routeranalytics.SectionLLM,
 		StatusCode:  200,
@@ -480,7 +480,7 @@ func TestSiteAnalyticsFlushPersistsBufferedEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close(context.Background()) })
-	service.analyticsStore = store
+	service.analytics.store = store
 	now := time.Now()
 	store.Record(routeranalytics.Event{ModelID: "llm-a", Section: routeranalytics.SectionLLM, StatusCode: 200, Success: true, StartedAt: now, FinishedAt: now})
 

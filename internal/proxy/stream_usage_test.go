@@ -44,7 +44,7 @@ func TestStreamUsageInjectedForKoboldAndStrippedFromClient(t *testing.T) {
 	service, _ := newTestServiceWithConfigContents(t, koboldStreamBackend(t, &seen), map[string]string{
 		"llm": `{"model_param":"llm.gguf"}`,
 	})
-	service.analyticsStore = newProxyAnalyticsStore(t, "local")
+	service.analytics.store = newProxyAnalyticsStore(t, "local")
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"llm","messages":[],"stream":true}`))
@@ -61,7 +61,7 @@ func TestStreamUsageInjectedForKoboldAndStrippedFromClient(t *testing.T) {
 	if !strings.Contains(body, "[DONE]") || !strings.Contains(body, `"finish_reason":"stop"`) {
 		t.Fatalf("stripping damaged the client stream %s", body)
 	}
-	response := queryProxyAnalytics(t, service.analyticsStore)
+	response := queryProxyAnalytics(t, service.analytics.store)
 	if response.Summary.InputTokens != 13 || response.Summary.OutputTokens != 11 {
 		t.Fatalf("injected usage did not reach analytics %#v", response.Summary)
 	}
@@ -72,7 +72,7 @@ func TestClientRequestedUsagePassesThroughUntouched(t *testing.T) {
 	service, _ := newTestServiceWithConfigContents(t, koboldStreamBackend(t, &seen), map[string]string{
 		"llm": `{"model_param":"llm.gguf"}`,
 	})
-	service.analyticsStore = newProxyAnalyticsStore(t, "local")
+	service.analytics.store = newProxyAnalyticsStore(t, "local")
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"llm","messages":[],"stream":true,"stream_options":{"include_usage":true}}`))
@@ -89,7 +89,7 @@ func TestClientRequestedUsagePassesThroughUntouched(t *testing.T) {
 	if !strings.Contains(body, `"total_tokens":24`) {
 		t.Fatalf("client usage chunk was altered %s", body)
 	}
-	response := queryProxyAnalytics(t, service.analyticsStore)
+	response := queryProxyAnalytics(t, service.analytics.store)
 	if response.Summary.OutputTokens != 11 {
 		t.Fatalf("client-requested usage did not reach analytics %#v", response.Summary)
 	}

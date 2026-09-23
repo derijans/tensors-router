@@ -7,14 +7,25 @@ import (
 	"time"
 
 	routeranalytics "tensors-router/internal/analytics"
+	"tensors-router/internal/hardware"
 	"tensors-router/internal/recipes"
 )
 
 const analyticsRequestMetadataLimit = 1 << 20
 
-func (service *Service) newAnalyticsEvent(started time.Time, r *http.Request, body []byte, modelID string, section string, backendMode string) routeranalytics.Event {
+type requestAnalytics struct {
+	store        *routeranalytics.Store
+	vramEnabled  bool
+	vramSource   hardware.VRAMSource
+	vramSampler  *hardware.VRAMSampler
+	vramInterval time.Duration
+	nodeID       string
+	loadSection  func(configFilename string, readiness backendReadiness) string
+}
+
+func (analytics *requestAnalytics) newEvent(started time.Time, r *http.Request, body []byte, modelID string, section string, backendMode string) routeranalytics.Event {
 	event := routeranalytics.Event{
-		NodeID:       service.nodeID,
+		NodeID:       analytics.nodeID,
 		ModelID:      strings.TrimSpace(modelID),
 		Section:      strings.TrimSpace(section),
 		BackendMode:  strings.TrimSpace(backendMode),
@@ -28,12 +39,12 @@ func (service *Service) newAnalyticsEvent(started time.Time, r *http.Request, bo
 	return event
 }
 
-func (service *Service) responseWithAnalytics(response *http.Response, event routeranalytics.Event, finalizers ...analyticsEventFinalizer) *http.Response {
-	if service.analyticsStore == nil {
+func (analytics *requestAnalytics) withResponse(response *http.Response, event routeranalytics.Event, finalizers ...routeranalytics.EventFinalizer) *http.Response {
+	if analytics.store == nil {
 		return response
 	}
 	if response == nil {
-		service.recordAnalyticsFailure(event, http.StatusBadGateway, finalizers...)
+		analytics.recordFailure(event, http.StatusBadGateway, finalizers...)
 		return response
 	}
 	event.StatusCode = response.StatusCode
@@ -47,24 +58,24 @@ func (service *Service) responseWithAnalytics(response *http.Response, event rou
 	response.Header.Del("X-Tensors-Audio-Task")
 	response.Header.Del("X-Tensors-Audio-Duration")
 	if response.Body == nil {
-		service.recordAnalyticsFinished(event, finalizers...)
+		analytics.recordFinished(event, finalizers...)
 		return response
 	}
-	response.Body = routeranalytics.NewResponseObserver(service.analyticsStore, event, response.Header.Get("Content-Type"), response.Body, finalizers...)
+	response.Body = routeranalytics.NewResponseObserver(analytics.store, event, response.Header.Get("Content-Type"), response.Body, finalizers...)
 	return response
 }
 
-func (service *Service) recordAnalyticsFailure(event routeranalytics.Event, statusCode int, finalizers ...analyticsEventFinalizer) {
-	if service.analyticsStore == nil {
+func (analytics *requestAnalytics) recordFailure(event routeranalytics.Event, statusCode int, finalizers ...routeranalytics.EventFinalizer) {
+	if analytics.store == nil {
 		return
 	}
 	event.StatusCode = statusCode
 	event.Success = false
-	service.recordAnalyticsFinished(event, finalizers...)
+	analytics.recordFinished(event, finalizers...)
 }
 
-func (service *Service) recordAnalyticsFinished(event routeranalytics.Event, finalizers ...analyticsEventFinalizer) {
-	if service.analyticsStore == nil {
+func (analytics *requestAnalytics) recordFinished(event routeranalytics.Event, finalizers ...routeranalytics.EventFinalizer) {
+	if analytics.store == nil {
 		return
 	}
 	event.FinishedAt = time.Now()
@@ -77,10 +88,10 @@ func (service *Service) recordAnalyticsFinished(event routeranalytics.Event, fin
 			finalizer(&event)
 		}
 	}
-	service.analyticsStore.Record(event)
+	analytics.store.Record(event)
 }
 
-func stampLoadedModel(runtime *backendRuntime) analyticsEventFinalizer {
+func stampLoadedModel(runtime *backendRuntime) routeranalytics.EventFinalizer {
 	if runtime == nil || runtime.state == nil {
 		return nil
 	}

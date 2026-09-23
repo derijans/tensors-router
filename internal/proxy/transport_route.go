@@ -69,7 +69,7 @@ func (service *Service) handleStreamingRequest(w http.ResponseWriter, r *http.Re
 		route.release()
 		if event.ModelID != "" {
 			status, _, _ := backendFailureResponse(err)
-			service.recordAnalyticsFailure(event, status, finalizer)
+			service.analytics.recordFailure(event, status, finalizer)
 		}
 		writeTransportForwardError(w, err)
 		return
@@ -94,7 +94,7 @@ func (service *Service) handleStreamingRequest(w http.ResponseWriter, r *http.Re
 	}
 	response = responseWithRelease(response, route.release)
 	if event.ModelID != "" {
-		response = service.responseWithAnalytics(response, event, finalizer)
+		response = service.analytics.withResponse(response, event, finalizer)
 	}
 	if err := service.writeProxyResponse(w, response, route.publicID, route.rewriteModel); err != nil {
 		return

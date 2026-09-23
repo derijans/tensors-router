@@ -8,8 +8,8 @@ import (
 	"tensors-router/internal/cluster"
 )
 
-func (service *Service) webUIProxyResponseWithAnalytics(response *http.Response, started time.Time, r *http.Request, definition webUIDefinition, strippedPath string, route cluster.Route) *http.Response {
-	if service.analyticsStore == nil || route.Remote || !webUIInferencePath(definition, strippedPath) {
+func (webUI *webUIProxy) webUIProxyResponseWithAnalytics(response *http.Response, started time.Time, r *http.Request, definition webUIDefinition, strippedPath string, route cluster.Route) *http.Response {
+	if webUI.analytics.store == nil || route.Remote || !webUIInferencePath(definition, strippedPath) {
 		return response
 	}
 	section := webUIAnalyticsSection(definition, strippedPath)
@@ -17,10 +17,10 @@ func (service *Service) webUIProxyResponseWithAnalytics(response *http.Response,
 	if section == routeranalytics.SectionImage && route.LocalImageID != "" {
 		modelID = route.LocalImageID
 	}
-	event := service.newAnalyticsEvent(started, r, nil, modelID, section, definition.backendMode)
+	event := webUI.analytics.newEvent(started, r, nil, modelID, section, definition.backendMode)
 	event.Route = routeranalytics.RouteClass(strippedPath)
 	event.ConfigFilename = route.Filename
-	return service.responseWithAnalytics(response, event)
+	return webUI.analytics.withResponse(response, event)
 }
 
 func webUIInferencePath(definition webUIDefinition, path string) bool {

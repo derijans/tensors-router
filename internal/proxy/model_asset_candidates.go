@@ -16,43 +16,43 @@ import (
 	"tensors-router/internal/siteapi"
 )
 
-func (service *Service) handleSiteModelAssetCandidates(w http.ResponseWriter, r *http.Request) {
+func (assets *assetManager) handleSiteModelAssetCandidates(w http.ResponseWriter, r *http.Request) {
 	request, ok := decodeModelAssetCandidateRequest(w, r)
 	if !ok {
 		return
 	}
-	target, err := service.configNodeTarget(request.NodeID, request.NodeURL)
+	target, err := assets.deps.configNodeTarget(request.NodeID, request.NodeURL)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "invalid config node")
 		return
 	}
 	if !target.local {
 		var candidates []hfAssetCandidate
-		if err := service.clusterClient.JSON(r.Context(), http.MethodPost, target.nodeURL, "/router/v1/node/site/model-assets/candidates", request, &candidates); err != nil {
+		if err := assets.identity().client.JSON(r.Context(), http.MethodPost, target.nodeURL, "/router/v1/node/site/model-assets/candidates", request, &candidates); err != nil {
 			openai.WriteError(w, http.StatusBadGateway, "cluster_error", "candidate search failed")
 			return
 		}
 		openai.WriteJSON(w, http.StatusOK, candidates)
 		return
 	}
-	service.writeLocalModelAssetCandidates(w, r, request)
+	assets.writeLocalModelAssetCandidates(w, r, request)
 }
 
-func (service *Service) handleNodeModelAssetCandidates(w http.ResponseWriter, r *http.Request) {
+func (assets *assetManager) handleNodeModelAssetCandidates(w http.ResponseWriter, r *http.Request) {
 	request, ok := decodeModelAssetCandidateRequest(w, r)
 	if !ok {
 		return
 	}
-	service.writeLocalModelAssetCandidates(w, r, request)
+	assets.writeLocalModelAssetCandidates(w, r, request)
 }
 
-func (service *Service) writeLocalModelAssetCandidates(w http.ResponseWriter, r *http.Request, request siteapi.ModelAssetCandidateRequest) {
+func (assets *assetManager) writeLocalModelAssetCandidates(w http.ResponseWriter, r *http.Request, request siteapi.ModelAssetCandidateRequest) {
 	reference := modelassets.Reference{Hash: request.SHA256, Filename: request.Filename}
 	if !modelassets.ValidHash(reference.Hash) || !modelassets.SafeFilename(reference.Filename) {
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "invalid asset reference")
 		return
 	}
-	openai.WriteJSON(w, http.StatusOK, service.findHFCandidates(r.Context(), reference, request.Token))
+	openai.WriteJSON(w, http.StatusOK, assets.findHFCandidates(r.Context(), reference, request.Token))
 }
 
 func decodeModelAssetCandidateRequest(w http.ResponseWriter, r *http.Request) (siteapi.ModelAssetCandidateRequest, bool) {
@@ -75,12 +75,12 @@ type hfAssetCandidate struct {
 	State          string `json:"state"`
 }
 
-func (service *Service) findHFCandidates(ctx context.Context, reference modelassets.Reference, token string) []hfAssetCandidate {
-	if service.downloads.Downloader() == nil || !modelassets.ValidHash(reference.Hash) || !modelassets.SafeFilename(reference.Filename) {
+func (assets *assetManager) findHFCandidates(ctx context.Context, reference modelassets.Reference, token string) []hfAssetCandidate {
+	if assets.downloader == nil || !modelassets.ValidHash(reference.Hash) || !modelassets.SafeFilename(reference.Filename) {
 		return nil
 	}
 	stem := strings.TrimSuffix(reference.Filename, path.Ext(reference.Filename))
-	results, err := service.downloads.Downloader().Search(ctx, downloader.SearchRequest{Query: stem, Limit: 20}, token)
+	results, err := assets.downloader.Search(ctx, downloader.SearchRequest{Query: stem, Limit: 20}, token)
 	if err != nil {
 		return nil
 	}
@@ -99,7 +99,7 @@ func (service *Service) findHFCandidates(ctx context.Context, reference modelass
 		go func() {
 			defer group.Done()
 			for result := range jobs {
-				details, err := service.downloads.Downloader().Repository(ctx, downloader.RepositoryRequest{Repository: result.ID, Token: token})
+				details, err := assets.downloader.Repository(ctx, downloader.RepositoryRequest{Repository: result.ID, Token: token})
 				if err != nil {
 					continue
 				}
@@ -141,11 +141,11 @@ func (service *Service) findHFCandidates(ctx context.Context, reference modelass
 	return values
 }
 
-func (service *Service) findUniqueExactHFOrigin(reference modelassets.Reference) (modelassets.Origin, bool) {
+func (assets *assetManager) findUniqueExactHFOrigin(reference modelassets.Reference) (modelassets.Origin, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	var exact []hfAssetCandidate
-	for _, candidate := range service.findHFCandidates(ctx, reference, "") {
+	for _, candidate := range assets.findHFCandidates(ctx, reference, "") {
 		if candidate.State == "exact" {
 			exact = append(exact, candidate)
 		}

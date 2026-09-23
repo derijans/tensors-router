@@ -37,8 +37,8 @@ type assetLookupRecord struct {
 	Master   bool   `json:"master,omitempty"`
 }
 
-func (service *Service) handleNodeClusterAssetLookup(w http.ResponseWriter, r *http.Request) {
-	if service.clusterRole != cluster.RoleMaster {
+func (assets *assetManager) handleNodeClusterAssetLookup(w http.ResponseWriter, r *http.Request) {
+	if assets.identity().role != cluster.RoleMaster {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "cluster asset lookup is unavailable")
 		return
 	}
@@ -54,20 +54,21 @@ func (service *Service) handleNodeClusterAssetLookup(w http.ResponseWriter, r *h
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "invalid cluster asset hash")
 		return
 	}
-	openai.WriteJSON(w, http.StatusOK, service.lookupClusterAssets(r.Context(), request))
+	openai.WriteJSON(w, http.StatusOK, assets.lookupClusterAssets(r.Context(), request))
 }
 
-func (service *Service) lookupClusterAssets(ctx context.Context, request assetLookupRequest) assetLookupResponse {
+func (assets *assetManager) lookupClusterAssets(ctx context.Context, request assetLookupRequest) assetLookupResponse {
+	identity := assets.identity()
 	response := assetLookupResponse{Assets: []assetLookupRecord{}}
-	if service.assetIndex != nil {
+	if assets.index != nil {
 		for _, hash := range request.Hashes {
-			record := assetLookupRecord{SHA256: hash, NodeURL: service.nodeURL, Master: true}
+			record := assetLookupRecord{SHA256: hash, NodeURL: identity.nodeURL, Master: true}
 			found := false
-			if asset, assetFound := service.assetIndex.Lookup(hash); assetFound {
+			if asset, assetFound := assets.index.Lookup(hash); assetFound {
 				record.Filename, record.Size = asset.Filename, asset.Size
 				found = true
 			}
-			if origin, originFound := service.assetIndex.Origin(hash); originFound {
+			if origin, originFound := assets.index.Origin(hash); originFound {
 				record.Origin = origin.URI()
 				found = true
 			}
@@ -76,7 +77,7 @@ func (service *Service) lookupClusterAssets(ctx context.Context, request assetLo
 			}
 		}
 	}
-	urls := service.assetPeerURLs()
+	urls := assets.assetPeerURLs()
 	results := make(chan assetLookupResponse, len(urls))
 	var group sync.WaitGroup
 	for _, nodeURL := range urls {
@@ -84,7 +85,7 @@ func (service *Service) lookupClusterAssets(ctx context.Context, request assetLo
 		go func(nodeURL string) {
 			defer group.Done()
 			var peer assetLookupResponse
-			if err := service.clusterClient.JSON(ctx, http.MethodPost, nodeURL, "/router/v1/node/assets/lookup", request, &peer); err != nil {
+			if err := identity.client.JSON(ctx, http.MethodPost, nodeURL, "/router/v1/node/assets/lookup", request, &peer); err != nil {
 				return
 			}
 			for index := range peer.Assets {
@@ -111,8 +112,8 @@ type assetLookupCacheEntry struct {
 	expires time.Time
 }
 
-func (service *Service) handleNodeAssetLookup(w http.ResponseWriter, r *http.Request) {
-	if service.assetIndex == nil {
+func (assets *assetManager) handleNodeAssetLookup(w http.ResponseWriter, r *http.Request) {
+	if assets.index == nil {
 		openai.WriteJSON(w, http.StatusOK, assetLookupResponse{Assets: []assetLookupRecord{}})
 		return
 	}
@@ -132,11 +133,11 @@ func (service *Service) handleNodeAssetLookup(w http.ResponseWriter, r *http.Req
 	for _, hash := range request.Hashes {
 		record := assetLookupRecord{SHA256: hash}
 		found := false
-		if asset, assetFound := service.assetIndex.Lookup(hash); assetFound {
+		if asset, assetFound := assets.index.Lookup(hash); assetFound {
 			record.Filename, record.Size = asset.Filename, asset.Size
 			found = true
 		}
-		if origin, originFound := service.assetIndex.Origin(hash); originFound {
+		if origin, originFound := assets.index.Origin(hash); originFound {
 			record.Origin = origin.URI()
 			found = true
 		}
@@ -147,8 +148,8 @@ func (service *Service) handleNodeAssetLookup(w http.ResponseWriter, r *http.Req
 	openai.WriteJSON(w, http.StatusOK, response)
 }
 
-func (service *Service) handleNodeAssetStream(w http.ResponseWriter, r *http.Request) {
-	if service.assetIndex == nil {
+func (assets *assetManager) handleNodeAssetStream(w http.ResponseWriter, r *http.Request) {
+	if assets.index == nil {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "model asset was not found")
 		return
 	}
@@ -161,7 +162,7 @@ func (service *Service) handleNodeAssetStream(w http.ResponseWriter, r *http.Req
 		openai.WriteError(w, http.StatusRequestedRangeNotSatisfiable, "invalid_request_error", "invalid asset byte range")
 		return
 	}
-	file, asset, err := service.assetIndex.Open(hash)
+	file, asset, err := assets.index.Open(hash)
 	if err != nil {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "model asset was not found")
 		return
@@ -173,33 +174,33 @@ func (service *Service) handleNodeAssetStream(w http.ResponseWriter, r *http.Req
 	http.ServeContent(w, r, asset.Filename, asset.VerifiedAt, file)
 }
 
-func (service *Service) resolvePeerAssetPath(hash string, filename string) (string, bool) {
-	if service.assetIndex == nil {
+func (assets *assetManager) resolvePeerAssetPath(hash string, filename string) (string, bool) {
+	if assets.index == nil {
 		return "", false
 	}
 	candidate := &assetTransfer{done: make(chan struct{})}
-	value, loaded := service.assetTransfers.LoadOrStore(hash, candidate)
+	value, loaded := assets.transfers.LoadOrStore(hash, candidate)
 	transfer := value.(*assetTransfer)
 	if loaded {
 		<-transfer.done
 		if !transfer.success {
 			return "", false
 		}
-		return service.assetIndex.Find(hash, filename)
+		return assets.index.Find(hash, filename)
 	}
 	defer func() {
-		service.assetTransfers.Delete(hash)
+		assets.transfers.Delete(hash)
 		close(transfer.done)
 	}()
-	service.assetTransferSlots <- struct{}{}
-	defer func() { <-service.assetTransferSlots }()
-	for _, source := range service.coordinatedAssetSources(hash) {
-		if source.Filename != filename || source.NodeURL == "" || source.NodeURL == service.nodeURL {
+	assets.transferSlots <- struct{}{}
+	defer func() { <-assets.transferSlots }()
+	for _, source := range assets.coordinatedAssetSources(hash) {
+		if source.Filename != filename || source.NodeURL == "" || source.NodeURL == assets.identity().nodeURL {
 			continue
 		}
-		if service.pullKnownPeerAsset(source, hash, filename) {
+		if assets.pullKnownPeerAsset(source, hash, filename) {
 			transfer.success = true
-			if path, found := service.assetIndex.Find(hash, filename); found {
+			if path, found := assets.index.Find(hash, filename); found {
 				return path, true
 			}
 		}
@@ -207,28 +208,29 @@ func (service *Service) resolvePeerAssetPath(hash string, filename string) (stri
 	return "", false
 }
 
-func (service *Service) assetPeerURLs() []string {
-	if service.registry == nil {
+func (assets *assetManager) assetPeerURLs() []string {
+	identity := assets.identity()
+	if identity.registry == nil {
 		return nil
 	}
 	values := make([]string, 0)
-	for _, nodeURL := range service.registry.NodeURLs() {
-		if nodeURL != "" && nodeURL != service.nodeURL {
+	for _, nodeURL := range identity.registry.NodeURLs() {
+		if nodeURL != "" && nodeURL != identity.nodeURL {
 			values = append(values, nodeURL)
 		}
 	}
 	return values
 }
 
-func (service *Service) pullKnownPeerAsset(source assetLookupRecord, hash string, filename string) bool {
-	if source.SHA256 != hash || source.Filename != filename || source.Size < 0 || source.Size > service.transportLimits.MaxResponseBytes || source.NodeURL == "" {
+func (assets *assetManager) pullKnownPeerAsset(source assetLookupRecord, hash string, filename string) bool {
+	if source.SHA256 != hash || source.Filename != filename || source.Size < 0 || source.Size > assets.deps.maxTransferBytes() || source.NodeURL == "" {
 		return false
 	}
-	partialPath := service.peerPartialPath(hash)
+	partialPath := assets.peerPartialPath(hash)
 	offset := partialAssetSize(partialPath, source.Size)
-	transferContext, cancelTransfer := context.WithTimeout(context.Background(), service.assetTransferTimeout)
+	transferContext, cancelTransfer := context.WithTimeout(context.Background(), assets.transferTimeout)
 	defer cancelTransfer()
-	response, err := service.clusterClient.StreamRange(transferContext, source.NodeURL, "/router/v1/node/assets/"+hash, offset)
+	response, err := assets.identity().client.StreamRange(transferContext, source.NodeURL, "/router/v1/node/assets/"+hash, offset)
 	if err != nil {
 		return false
 	}
@@ -239,66 +241,67 @@ func (service *Service) pullKnownPeerAsset(source assetLookupRecord, hash string
 	if offset > 0 && response.StatusCode == http.StatusPartialContent && !validContentRange(response.Header.Get("Content-Range"), offset, source.Size) {
 		return false
 	}
-	return service.promotePeerAsset(response.Body, hash, filename, source.Size, offset, response.StatusCode == http.StatusPartialContent)
+	return assets.promotePeerAsset(response.Body, hash, filename, source.Size, offset, response.StatusCode == http.StatusPartialContent)
 }
 
-func (service *Service) coordinatedAssetSources(hash string) []assetLookupRecord {
+func (assets *assetManager) coordinatedAssetSources(hash string) []assetLookupRecord {
 	now := time.Now()
-	service.assetLookupMu.Lock()
-	if cached, found := service.assetLookupCache[hash]; found && now.Before(cached.expires) {
+	assets.lookupMu.Lock()
+	if cached, found := assets.lookupCache[hash]; found && now.Before(cached.expires) {
 		sources := append([]assetLookupRecord{}, cached.sources...)
-		service.assetLookupMu.Unlock()
+		assets.lookupMu.Unlock()
 		return sources
 	}
-	service.assetLookupMu.Unlock()
-	sources := service.lookupCoordinatedAssetSources(hash)
-	service.assetLookupMu.Lock()
-	for key, cached := range service.assetLookupCache {
+	assets.lookupMu.Unlock()
+	sources := assets.lookupCoordinatedAssetSources(hash)
+	assets.lookupMu.Lock()
+	for key, cached := range assets.lookupCache {
 		if now.After(cached.expires) {
-			delete(service.assetLookupCache, key)
+			delete(assets.lookupCache, key)
 		}
 	}
-	for len(service.assetLookupCache) >= 512 {
-		for key := range service.assetLookupCache {
-			delete(service.assetLookupCache, key)
+	for len(assets.lookupCache) >= 512 {
+		for key := range assets.lookupCache {
+			delete(assets.lookupCache, key)
 			break
 		}
 	}
-	service.assetLookupCache[hash] = assetLookupCacheEntry{sources: append([]assetLookupRecord{}, sources...), expires: now.Add(5 * time.Second)}
-	service.assetLookupMu.Unlock()
+	assets.lookupCache[hash] = assetLookupCacheEntry{sources: append([]assetLookupRecord{}, sources...), expires: now.Add(5 * time.Second)}
+	assets.lookupMu.Unlock()
 	return sources
 }
 
-func (service *Service) masterAssetSources(records []assetLookupRecord) []assetLookupRecord {
+func (assets *assetManager) masterAssetSources(records []assetLookupRecord) []assetLookupRecord {
 	sources := make([]assetLookupRecord, 0, len(records))
 	for _, record := range records {
 		masterOwned := record.Master || record.NodeURL == ""
 		record.Master = false
 		if masterOwned {
-			record.NodeURL = service.masterURL
+			record.NodeURL = assets.identity().masterURL
 		}
 		sources = append(sources, record)
 	}
 	return sources
 }
 
-func (service *Service) lookupCoordinatedAssetSources(hash string) []assetLookupRecord {
-	lookupContext, cancelLookup := context.WithTimeout(context.Background(), service.assetLookupTimeout)
+func (assets *assetManager) lookupCoordinatedAssetSources(hash string) []assetLookupRecord {
+	identity := assets.identity()
+	lookupContext, cancelLookup := context.WithTimeout(context.Background(), assets.lookupTimeout)
 	defer cancelLookup()
 	request := assetLookupRequest{Hashes: []string{hash}}
-	if service.clusterRole == cluster.RoleSlave && service.masterURL != "" {
+	if identity.role == cluster.RoleSlave && identity.masterURL != "" {
 		var response assetLookupResponse
-		if err := service.clusterClient.JSON(lookupContext, http.MethodPost, service.masterURL, "/router/v1/node/assets/lookup-cluster", request, &response); err == nil {
-			return service.masterAssetSources(response.Assets)
+		if err := identity.client.JSON(lookupContext, http.MethodPost, identity.masterURL, "/router/v1/node/assets/lookup-cluster", request, &response); err == nil {
+			return assets.masterAssetSources(response.Assets)
 		}
 	}
-	if service.clusterRole == cluster.RoleMaster {
-		return service.lookupClusterAssets(lookupContext, request).Assets
+	if identity.role == cluster.RoleMaster {
+		return assets.lookupClusterAssets(lookupContext, request).Assets
 	}
 	values := make([]assetLookupRecord, 0)
-	for _, nodeURL := range service.assetPeerURLs() {
+	for _, nodeURL := range assets.assetPeerURLs() {
 		var response assetLookupResponse
-		if err := service.clusterClient.JSON(lookupContext, http.MethodPost, nodeURL, "/router/v1/node/assets/lookup", request, &response); err != nil {
+		if err := identity.client.JSON(lookupContext, http.MethodPost, nodeURL, "/router/v1/node/assets/lookup", request, &response); err != nil {
 			continue
 		}
 		for _, asset := range response.Assets {
@@ -309,18 +312,18 @@ func (service *Service) lookupCoordinatedAssetSources(hash string) []assetLookup
 	return values
 }
 
-func (service *Service) promotePeerAsset(source io.Reader, expectedHash string, filename string, size int64, offset int64, partialResponse bool) bool {
-	if !modelassets.ValidHash(expectedHash) || !modelassets.SafeFilename(filename) || size < 0 || size > service.transportLimits.MaxResponseBytes {
+func (assets *assetManager) promotePeerAsset(source io.Reader, expectedHash string, filename string, size int64, offset int64, partialResponse bool) bool {
+	if !modelassets.ValidHash(expectedHash) || !modelassets.SafeFilename(filename) || size < 0 || size > assets.deps.maxTransferBytes() {
 		return false
 	}
-	targetDir := filepath.Join(service.assetIndex.SharedDir(), "sha256", expectedHash[:2], expectedHash)
+	targetDir := filepath.Join(assets.index.SharedDir(), "sha256", expectedHash[:2], expectedHash)
 	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		return false
 	}
-	if !secureAssetDirectory(service.assetIndex.SharedDir(), targetDir) {
+	if !secureAssetDirectory(assets.index.SharedDir(), targetDir) {
 		return false
 	}
-	temporaryPath := service.peerPartialPath(expectedHash)
+	temporaryPath := assets.peerPartialPath(expectedHash)
 	temporary, err := os.OpenFile(temporaryPath, os.O_CREATE|os.O_RDWR, 0o600)
 	if err != nil {
 		return false
@@ -370,23 +373,23 @@ func (service *Service) promotePeerAsset(source io.Reader, expectedHash string, 
 	target := filepath.Join(targetDir, filename)
 	if _, err := os.Lstat(target); err == nil {
 		_ = os.Remove(temporaryPath)
-		asset, indexErr := service.assetIndex.IndexFile(target)
-		return indexErr == nil && asset.SHA256 == expectedHash && service.assetIndex.SetVerificationSource(expectedHash, "peer_sha256") == nil
+		asset, indexErr := assets.index.IndexFile(target)
+		return indexErr == nil && asset.SHA256 == expectedHash && assets.index.SetVerificationSource(expectedHash, "peer_sha256") == nil
 	} else if !os.IsNotExist(err) {
 		return false
 	}
 	if err := os.Rename(temporaryPath, target); err != nil {
 		return false
 	}
-	_, err = service.assetIndex.IndexFile(target)
+	_, err = assets.index.IndexFile(target)
 	if err != nil {
 		return false
 	}
-	return service.assetIndex.SetVerificationSource(expectedHash, "peer_sha256") == nil
+	return assets.index.SetVerificationSource(expectedHash, "peer_sha256") == nil
 }
 
-func (service *Service) peerPartialPath(hash string) string {
-	return filepath.Join(service.assetIndex.SharedDir(), "sha256", hash[:2], hash, ".partial")
+func (assets *assetManager) peerPartialPath(hash string) string {
+	return filepath.Join(assets.index.SharedDir(), "sha256", hash[:2], hash, ".partial")
 }
 
 func partialAssetSize(path string, expectedSize int64) int64 {

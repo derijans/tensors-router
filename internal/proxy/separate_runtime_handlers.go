@@ -127,7 +127,7 @@ func (service *Service) applyLocalSeparateRuntime(ctx context.Context, localID s
 		}); err != nil {
 			return siteapi.SeparateRuntimeResponse{}, err
 		}
-		service.invalidateWebUIRoutes()
+		service.onRuntimeChanged()
 	}
 
 	inherited := service.inheritedSeparateRuntime(model)

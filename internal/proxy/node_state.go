@@ -548,7 +548,7 @@ func (service *Service) unloadRuntimeGeneration(ctx context.Context, runtime *ba
 		state.switching = false
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
-		service.invalidateWebUIRoutes()
+		service.onRuntimeChanged()
 		return err
 	}
 }

@@ -177,12 +177,12 @@ func (session *webUISession) apply(entries []WebUIEntry) {
 	}
 }
 
-func (service *Service) handleSiteWebUIs(w http.ResponseWriter, r *http.Request) {
-	if !service.siteControlAllowed() {
+func (webUI *webUIProxy) handleSiteWebUIs(w http.ResponseWriter, r *http.Request) {
+	if !webUI.deps.siteControlAllowed() {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
 		return
 	}
-	response, err := service.siteWebUIs(r.Context())
+	response, err := webUI.siteWebUIs(r.Context())
 	if err != nil {
 		openai.WriteError(w, http.StatusInternalServerError, "site_error", err.Error())
 		return
@@ -190,8 +190,8 @@ func (service *Service) handleSiteWebUIs(w http.ResponseWriter, r *http.Request)
 	openai.WriteJSON(w, http.StatusOK, response)
 }
 
-func (service *Service) handleNodeSiteWebUIs(w http.ResponseWriter, r *http.Request) {
-	entries, err := service.localWebUIs()
+func (webUI *webUIProxy) handleNodeSiteWebUIs(w http.ResponseWriter, r *http.Request) {
+	entries, err := webUI.localWebUIs()
 	if err != nil {
 		openai.WriteError(w, http.StatusInternalServerError, "site_error", err.Error())
 		return
@@ -199,8 +199,8 @@ func (service *Service) handleNodeSiteWebUIs(w http.ResponseWriter, r *http.Requ
 	openai.WriteJSON(w, http.StatusOK, webUICatalogResponse(entries))
 }
 
-func (service *Service) handleSiteWebUISession(w http.ResponseWriter, r *http.Request) {
-	if !service.siteControlAllowed() {
+func (webUI *webUIProxy) handleSiteWebUISession(w http.ResponseWriter, r *http.Request) {
+	if !webUI.deps.siteControlAllowed() {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
 		return
 	}
@@ -210,7 +210,7 @@ func (service *Service) handleSiteWebUISession(w http.ResponseWriter, r *http.Re
 		return
 	}
 	request.ID = strings.TrimSpace(request.ID)
-	response, err := service.siteWebUIs(r.Context())
+	response, err := webUI.siteWebUIs(r.Context())
 	if err != nil {
 		openai.WriteError(w, http.StatusInternalServerError, "site_error", err.Error())
 		return
@@ -219,8 +219,8 @@ func (service *Service) handleSiteWebUISession(w http.ResponseWriter, r *http.Re
 		openai.WriteError(w, http.StatusNotFound, "not_found", "webui not found")
 		return
 	}
-	service.webUISession.set(request.ID, request.Enabled)
-	response, err = service.siteWebUIs(r.Context())
+	webUI.session.set(request.ID, request.Enabled)
+	response, err = webUI.siteWebUIs(r.Context())
 	if err != nil {
 		openai.WriteError(w, http.StatusInternalServerError, "site_error", err.Error())
 		return
@@ -228,12 +228,12 @@ func (service *Service) handleSiteWebUISession(w http.ResponseWriter, r *http.Re
 	openai.WriteJSON(w, http.StatusOK, response)
 }
 
-func (service *Service) handleSiteWebUILoad(w http.ResponseWriter, r *http.Request) {
-	if !service.siteControlAllowed() {
+func (webUI *webUIProxy) handleSiteWebUILoad(w http.ResponseWriter, r *http.Request) {
+	if !webUI.deps.siteControlAllowed() {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
 		return
 	}
-	if service.rejectModelLoadWhileDraining(w) {
+	if webUI.deps.rejectModelLoadWhileDraining(w) {
 		return
 	}
 	request, err := readWebUILoadRequest(r)
@@ -243,7 +243,7 @@ func (service *Service) handleSiteWebUILoad(w http.ResponseWriter, r *http.Reque
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), modelOperationTimeout)
 	defer cancel()
-	response, err := service.loadSiteWebUI(ctx, request)
+	response, err := webUI.loadSiteWebUI(ctx, request)
 	if err != nil {
 		writeWebUILoadError(w, err)
 		return
@@ -251,8 +251,8 @@ func (service *Service) handleSiteWebUILoad(w http.ResponseWriter, r *http.Reque
 	openai.WriteJSON(w, http.StatusOK, response)
 }
 
-func (service *Service) handleNodeSiteWebUILoad(w http.ResponseWriter, r *http.Request) {
-	if service.rejectModelLoadWhileDraining(w) {
+func (webUI *webUIProxy) handleNodeSiteWebUILoad(w http.ResponseWriter, r *http.Request) {
+	if webUI.deps.rejectModelLoadWhileDraining(w) {
 		return
 	}
 	request, err := readWebUILoadRequest(r)
@@ -262,7 +262,7 @@ func (service *Service) handleNodeSiteWebUILoad(w http.ResponseWriter, r *http.R
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), modelOperationTimeout)
 	defer cancel()
-	response, err := service.loadLocalWebUI(ctx, request)
+	response, err := webUI.loadLocalWebUI(ctx, request)
 	if err != nil {
 		writeWebUILoadError(w, err)
 		return
@@ -270,68 +270,69 @@ func (service *Service) handleNodeSiteWebUILoad(w http.ResponseWriter, r *http.R
 	openai.WriteJSON(w, http.StatusOK, response)
 }
 
-func (service *Service) siteWebUIs(ctx context.Context) (WebUICatalogResponse, error) {
-	models, err := service.webUICatalogModels()
+func (webUI *webUIProxy) siteWebUIs(ctx context.Context) (WebUICatalogResponse, error) {
+	models, err := webUI.webUICatalogModels()
 	if err != nil {
 		return WebUICatalogResponse{}, err
 	}
-	entries := service.webUIsFromModels(models)
-	service.markRemoteActiveWebUIs(ctx, entries)
-	service.webUISession.apply(entries)
+	entries := webUI.webUIsFromModels(models)
+	webUI.markRemoteActiveWebUIs(ctx, entries)
+	webUI.session.apply(entries)
 	sortWebUIEntries(entries)
 	return webUICatalogResponse(entries), nil
 }
 
-func (service *Service) localWebUIs() ([]WebUIEntry, error) {
-	models, err := service.localClusterModels()
+func (webUI *webUIProxy) localWebUIs() ([]WebUIEntry, error) {
+	models, err := webUI.deps.localClusterModels()
 	if err != nil {
 		return nil, err
 	}
-	entries := service.webUIsFromModels(models)
+	entries := webUI.webUIsFromModels(models)
 	sortWebUIEntries(entries)
 	return entries, nil
 }
 
-func (service *Service) webUICatalogModels() ([]cluster.Model, error) {
-	if service.registry != nil {
-		return service.siteModels(), nil
+func (webUI *webUIProxy) webUICatalogModels() ([]cluster.Model, error) {
+	if webUI.identity().registry != nil {
+		return webUI.deps.siteModels(), nil
 	}
-	return service.localClusterModels()
+	return webUI.deps.localClusterModels()
 }
 
-func (service *Service) webUIsFromModels(models []cluster.Model) []WebUIEntry {
+func (webUI *webUIProxy) webUIsFromModels(models []cluster.Model) []WebUIEntry {
+	identity := webUI.identity()
 	entries := make([]WebUIEntry, 0, len(webUIDefinitions))
 	for _, definition := range webUIDefinitions {
-		compatibleModels := service.compatibleWebUIModels(definition, models)
+		compatibleModels := webUI.compatibleWebUIModels(definition, models)
 		if len(compatibleModels) == 0 {
 			continue
 		}
 		entry := WebUIEntry{
-			ID:                  webUIEntryID(service.nodeID, definition.kind),
+			ID:                  webUIEntryID(identity.nodeID, definition.kind),
 			Name:                definition.name,
 			Backend:             definition.backend,
 			BackendMode:         definition.backendMode,
 			Lane:                definition.lane,
 			URL:                 routerWebUIURL(definition),
-			NodeID:              service.nodeID,
-			NodeURL:             service.nodeURL,
+			NodeID:              identity.nodeID,
+			NodeURL:             identity.nodeURL,
 			RequiresLoadedModel: true,
 			CanOpenWithoutModel: false,
 			CompatibleModels:    compatibleModels,
 		}
-		service.markActiveWebUIEntry(definition, &entry)
+		webUI.markActiveWebUIEntry(definition, &entry)
 		entries = append(entries, entry)
 	}
 	return entries
 }
 
-func (service *Service) compatibleWebUIModels(definition webUIDefinition, models []cluster.Model) []WebUICompatibleModel {
+func (webUI *webUIProxy) compatibleWebUIModels(definition webUIDefinition, models []cluster.Model) []WebUICompatibleModel {
 	compatible := make([]WebUICompatibleModel, 0, len(models))
 	for _, model := range models {
 		if model.Disabled {
 			continue
 		}
-		modelBackendMode, err := service.resolveBackendMode(model.BackendMode)
+		modelBackendMode, err := webUI.deps.resolveBackendMode(model.BackendMode)
 		if err != nil || modelBackendMode != definition.backendMode {
 			continue
 		}
@@ -362,13 +363,13 @@ func (service *Service) compatibleWebUIModels(definition webUIDefinition, models
 	return compatible
 }
 
-func (service *Service) markActiveWebUIEntry(definition webUIDefinition, entry *WebUIEntry) {
-	activeFilename := service.webUIActiveConfigFilename(definition)
+func (webUI *webUIProxy) markActiveWebUIEntry(definition webUIDefinition, entry *WebUIEntry) {
+	activeFilename := webUI.webUIActiveConfigFilename(definition)
 	if activeFilename == "" {
 		return
 	}
 	for index := range entry.CompatibleModels {
-		if entry.CompatibleModels[index].NodeID != service.nodeID {
+		if entry.CompatibleModels[index].NodeID != webUI.identity().nodeID {
 			continue
 		}
 		if entry.CompatibleModels[index].Filename != activeFilename {
@@ -384,25 +385,26 @@ func (service *Service) markActiveWebUIEntry(definition webUIDefinition, entry *
 	}
 }
 
-func (service *Service) webUIActiveConfigFilename(definition webUIDefinition) string {
-	runtime, err := service.runtimeForBackendMode(definition.backendMode, webUIReadiness(definition.lane))
+func (webUI *webUIProxy) webUIActiveConfigFilename(definition webUIDefinition) string {
+	runtime, err := webUI.deps.runtimeForBackendMode(definition.backendMode, webUIReadiness(definition.lane))
 	if err != nil || runtime == nil {
 		return ""
 	}
 	return currentRuntimeConfigFilename(runtime)
 }
 
-func (service *Service) markRemoteActiveWebUIs(ctx context.Context, entries []WebUIEntry) {
-	if service.clusterRole != cluster.RoleMaster {
+func (webUI *webUIProxy) markRemoteActiveWebUIs(ctx context.Context, entries []WebUIEntry) {
+	identity := webUI.identity()
+	if identity.role != cluster.RoleMaster {
 		return
 	}
 	entryByID := map[string]*WebUIEntry{}
 	for index := range entries {
 		entryByID[entries[index].ID] = &entries[index]
 	}
-	results := clusterfan.Nodes(ctx, service.remoteInventoryURLs(), func(nodeContext context.Context, nodeURL string) (WebUICatalogResponse, error) {
+	results := clusterfan.Nodes(ctx, webUI.deps.remoteInventoryURLs(), func(nodeContext context.Context, nodeURL string) (WebUICatalogResponse, error) {
 		var response WebUICatalogResponse
-		err := service.clusterClient.JSON(nodeContext, http.MethodGet, nodeURL, "/router/v1/node/site/webuis", nil, &response)
+		err := identity.client.JSON(nodeContext, http.MethodGet, nodeURL, "/router/v1/node/site/webuis", nil, &response)
 		return response, err
 	})
 	for _, result := range results {
@@ -440,8 +442,9 @@ func markRemoteActiveWebUIEntry(entry *WebUIEntry, remote WebUIEntry) {
 	}
 }
 
-func (service *Service) loadSiteWebUI(ctx context.Context, request webUILoadRequest) (webUILoadResponse, error) {
-	catalogResponse, err := service.siteWebUIs(ctx)
+func (webUI *webUIProxy) loadSiteWebUI(ctx context.Context, request webUILoadRequest) (webUILoadResponse, error) {
+	identity := webUI.identity()
+	catalogResponse, err := webUI.siteWebUIs(ctx)
 	if err != nil {
 		return webUILoadResponse{}, err
 	}
@@ -453,7 +456,7 @@ func (service *Service) loadSiteWebUI(ctx context.Context, request webUILoadRequ
 	if !ok {
 		return webUILoadResponse{}, fmt.Errorf("compatible model was not found for webui %q", request.ID)
 	}
-	if model.NodeID != "" && model.NodeID != service.nodeID {
+	if model.NodeID != "" && model.NodeID != identity.nodeID {
 		if strings.TrimSpace(model.NodeURL) == "" {
 			return webUILoadResponse{}, fmt.Errorf("node url for webui model %q is required", model.ID)
 		}
@@ -463,13 +466,13 @@ func (service *Service) loadSiteWebUI(ctx context.Context, request webUILoadRequ
 			ModelID: firstNonEmpty(model.LocalID, model.ModelID),
 			ImageID: firstNonEmpty(model.LocalImageID, model.ImageID),
 		}
-		if err := service.clusterClient.JSON(ctx, http.MethodPost, model.NodeURL, "/router/v1/node/site/webuis/load", remoteRequest, &response); err != nil {
+		if err := identity.client.JSON(ctx, http.MethodPost, model.NodeURL, "/router/v1/node/site/webuis/load", remoteRequest, &response); err != nil {
 			return webUILoadResponse{}, remoteWebUILoadError(err)
 		}
 		response.URL = entry.URL
 		return response, nil
 	}
-	return service.loadLocalWebUIEntry(ctx, entry, model)
+	return webUI.loadLocalWebUIEntry(ctx, entry, model)
 }
 
 func writeWebUILoadError(w http.ResponseWriter, err error) {
@@ -496,8 +499,8 @@ func remoteWebUILoadError(err error) error {
 	return backenddiagnostic.WithDiagnostic(loadErr, *response.BackendDiagnostic)
 }
 
-func (service *Service) loadLocalWebUI(ctx context.Context, request webUILoadRequest) (webUILoadResponse, error) {
-	entries, err := service.localWebUIs()
+func (webUI *webUIProxy) loadLocalWebUI(ctx context.Context, request webUILoadRequest) (webUILoadResponse, error) {
+	entries, err := webUI.localWebUIs()
 	if err != nil {
 		return webUILoadResponse{}, err
 	}
@@ -509,11 +512,11 @@ func (service *Service) loadLocalWebUI(ctx context.Context, request webUILoadReq
 	if !ok {
 		return webUILoadResponse{}, fmt.Errorf("compatible model was not found for webui %q", request.ID)
 	}
-	return service.loadLocalWebUIEntry(ctx, entry, model)
+	return webUI.loadLocalWebUIEntry(ctx, entry, model)
 }
 
-func (service *Service) loadLocalWebUIEntry(ctx context.Context, entry WebUIEntry, model WebUICompatibleModel) (webUILoadResponse, error) {
-	if err := service.loadLocalConfig(ctx, entry.BackendMode, webUILoadModelID(entry, model), model.Filename, webUIReadiness(entry.Lane)); err != nil {
+func (webUI *webUIProxy) loadLocalWebUIEntry(ctx context.Context, entry WebUIEntry, model WebUICompatibleModel) (webUILoadResponse, error) {
+	if err := webUI.deps.loadLocalConfig(ctx, entry.BackendMode, webUILoadModelID(entry, model), model.Filename, webUIReadiness(entry.Lane)); err != nil {
 		return webUILoadResponse{}, err
 	}
 	return webUILoadResponse{
@@ -626,14 +629,4 @@ func sortWebUIEntries(entries []WebUIEntry) {
 	sort.Slice(entries, func(left, right int) bool {
 		return entries[left].ID < entries[right].ID
 	})
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value != "" {
-			return value
-		}
-	}
-	return ""
 }

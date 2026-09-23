@@ -157,13 +157,13 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 	requestBody, usageInjected := injectStreamUsageOption(requestBody, r.URL.Path, selectedBackendMode)
 
 	started := time.Now()
-	analyticsEvent := service.newAnalyticsEvent(started, r, requestBody, backendModelID, textAnalyticsSection(r.URL.Path), selectedBackendMode)
+	analyticsEvent := service.analytics.newEvent(started, r, requestBody, backendModelID, textAnalyticsSection(r.URL.Path), selectedBackendMode)
 	analyticsEvent.PromptBytes = int64(len(body))
 	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readiness, selectedBackendMode)
 	if err != nil {
 		status, _, _ := backendFailureResponse(err)
 		if hasModel || isTextInferencePath(r.URL.Path) {
-			service.recordAnalyticsFailure(analyticsEvent, status, workFinalizer)
+			service.analytics.recordFailure(analyticsEvent, status, workFinalizer)
 		}
 		writeBackendFailure(w, err)
 		return
@@ -176,7 +176,7 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 		})
 	}
 	if hasModel || isTextInferencePath(r.URL.Path) {
-		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
+		response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
 	}
 	response = responseWithoutInjectedUsage(response, usageInjected)
 

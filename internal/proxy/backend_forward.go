@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	routeranalytics "tensors-router/internal/analytics"
 	"time"
 )
 
@@ -29,7 +30,7 @@ func (service *Service) forwardWithFallback(ctx context.Context, original *http.
 	return response, err
 }
 
-func (service *Service) forwardWithFallbackObserved(ctx context.Context, original *http.Request, body []byte, modelID string, configFilename string, hasModel bool, readiness backendReadiness, mode string) (*http.Response, analyticsEventFinalizer, error) {
+func (service *Service) forwardWithFallbackObserved(ctx context.Context, original *http.Request, body []byte, modelID string, configFilename string, hasModel bool, readiness backendReadiness, mode string) (*http.Response, routeranalytics.EventFinalizer, error) {
 	if _, err := service.runtimeForBackendMode(mode, readiness); err != nil {
 		return nil, nil, err
 	}
@@ -38,7 +39,7 @@ func (service *Service) forwardWithFallbackObserved(ctx context.Context, origina
 	loadedFresh := false
 	modelContext := ctx
 	releaseModel := func() {}
-	var workFinalizer analyticsEventFinalizer
+	var workFinalizer routeranalytics.EventFinalizer
 	if hasModel {
 		var cancelModelContext context.CancelFunc
 		modelContext, cancelModelContext = context.WithTimeout(context.WithoutCancel(ctx), modelOperationTimeout)
@@ -49,7 +50,7 @@ func (service *Service) forwardWithFallbackObserved(ctx context.Context, origina
 		if acquireErr != nil {
 			return nil, nil, acquireErr
 		}
-		workFinalizer = service.beginVRAMWork(runtime)
+		workFinalizer = service.analytics.beginWork(runtime)
 	} else {
 		if err := service.ensureBackendFamily(ctx, mode); err != nil {
 			return nil, nil, err
@@ -574,6 +575,10 @@ func (service *Service) forward(runtime *backendRuntime, ctx context.Context, or
 		return response, err
 	}
 	return adaptWhisperResponse(response, responseFormat)
+}
+
+func (service *Service) httpClient() *http.Client {
+	return service.client
 }
 
 func (service *Service) backendHTTPClient(backend Backend) *http.Client {

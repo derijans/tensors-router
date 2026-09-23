@@ -9,31 +9,31 @@ import (
 	"tensors-router/internal/modelassets"
 )
 
-func (service *Service) resolveAssetReferenceDetailed(reference modelassets.Reference) (modelassets.Resolution, bool) {
-	if path, found := service.assetIndex.Find(reference.Hash, reference.Filename); found {
+func (assets *assetManager) resolveAssetReferenceDetailed(reference modelassets.Reference) (modelassets.Resolution, bool) {
+	if path, found := assets.index.Find(reference.Hash, reference.Filename); found {
 		return modelassets.Resolution{Path: path, Source: "local", Verification: "sha256"}, true
 	}
-	if path, found, err := service.assetIndex.FindInRoots(reference.Hash, reference.Filename, service.fileRoots); err == nil && found {
+	if path, found, err := assets.index.FindInRoots(reference.Hash, reference.Filename, assets.fileRoots); err == nil && found {
 		return modelassets.Resolution{Path: path, Source: "local", Verification: "sha256"}, true
 	}
-	if path, found := service.resolvePeerAssetPath(reference.Hash, reference.Filename); found {
+	if path, found := assets.resolvePeerAssetPath(reference.Hash, reference.Filename); found {
 		return modelassets.Resolution{Path: path, Source: "peer", Verification: "sha256"}, true
 	}
 	if reference.HF != "" {
 		if origin, err := modelassets.ParseHFURI(reference.HF); err == nil {
-			if path, found := service.downloadHFAsset(reference, origin); found {
+			if path, found := assets.downloadHFAsset(reference, origin); found {
 				return modelassets.Resolution{Path: path, Source: "config_hf", Verification: "lfs_sha256", Commit: origin.Commit}, true
 			}
 		}
 	}
-	if origin, found := service.assetIndex.Origin(reference.Hash); found {
-		if path, downloaded := service.downloadHFAsset(reference, origin); downloaded {
+	if origin, found := assets.index.Origin(reference.Hash); found {
+		if path, downloaded := assets.downloadHFAsset(reference, origin); downloaded {
 			return modelassets.Resolution{Path: path, Source: "learned_hf", Verification: "lfs_sha256", Commit: origin.Commit}, true
 		}
 	}
-	if origin, found := service.findUniqueExactHFOrigin(reference); found {
-		if err := service.assetIndex.BindOrigin(reference.Hash, origin); err == nil {
-			if path, downloaded := service.downloadHFAsset(reference, origin); downloaded {
+	if origin, found := assets.findUniqueExactHFOrigin(reference); found {
+		if err := assets.index.BindOrigin(reference.Hash, origin); err == nil {
+			if path, downloaded := assets.downloadHFAsset(reference, origin); downloaded {
 				return modelassets.Resolution{Path: path, Source: "candidate_hf", Verification: "lfs_sha256", Commit: origin.Commit}, true
 			}
 		}
@@ -41,13 +41,13 @@ func (service *Service) resolveAssetReferenceDetailed(reference modelassets.Refe
 	return modelassets.Resolution{}, false
 }
 
-func (service *Service) downloadHFAsset(reference modelassets.Reference, origin modelassets.Origin) (string, bool) {
-	if service.downloads.Downloader() == nil || origin.URI() == "" || reference.Hash == "" || reference.Filename == "" {
+func (assets *assetManager) downloadHFAsset(reference modelassets.Reference, origin modelassets.Origin) (string, bool) {
+	if assets.downloader == nil || origin.URI() == "" || reference.Hash == "" || reference.Filename == "" {
 		return "", false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), modelOperationTimeout)
 	defer cancel()
-	details, err := service.downloads.Downloader().Repository(ctx, downloader.RepositoryRequest{Repository: origin.Repository, Revision: origin.Commit})
+	details, err := assets.downloader.Repository(ctx, downloader.RepositoryRequest{Repository: origin.Repository, Revision: origin.Commit})
 	if err != nil || details.Commit != origin.Commit {
 		return "", false
 	}
@@ -61,11 +61,11 @@ func (service *Service) downloadHFAsset(reference modelassets.Reference, origin 
 	if !verified {
 		return "", false
 	}
-	job, err := service.downloads.Downloader().CreateJob(ctx, downloader.CreateJobRequest{Repository: origin.Repository, Revision: origin.Commit, Files: []string{origin.Path}})
+	job, err := assets.downloader.CreateJob(ctx, downloader.CreateJobRequest{Repository: origin.Repository, Revision: origin.Commit, Files: []string{origin.Path}})
 	if err != nil {
 		return "", false
 	}
-	events, unsubscribe := service.downloads.Downloader().Subscribe(job.ID)
+	events, unsubscribe := assets.downloader.Subscribe(job.ID)
 	defer unsubscribe()
 	poll := time.NewTicker(30 * time.Second)
 	defer poll.Stop()
@@ -80,7 +80,7 @@ func (service *Service) downloadHFAsset(reference modelassets.Reference, origin 
 			if event.State != downloader.JobCompleted {
 				continue
 			}
-			artifacts, err := service.downloads.Downloader().Artifacts()
+			artifacts, err := assets.downloader.Artifacts()
 			if err != nil {
 				return "", false
 			}
@@ -88,21 +88,21 @@ func (service *Service) downloadHFAsset(reference modelassets.Reference, origin 
 				if artifact.SHA256 != reference.Hash || artifact.Repository != origin.Repository || artifact.RepositoryPath != origin.Path || artifact.Revision != origin.Commit {
 					continue
 				}
-				asset, err := service.assetIndex.IndexFile(artifact.Path)
+				asset, err := assets.index.IndexFile(artifact.Path)
 				if err != nil || asset.SHA256 != reference.Hash {
 					return "", false
 				}
-				if err := service.assetIndex.SetVerificationSource(reference.Hash, "hf_lfs_sha256"); err != nil {
+				if err := assets.index.SetVerificationSource(reference.Hash, "hf_lfs_sha256"); err != nil {
 					return "", false
 				}
-				if err := service.assetIndex.BindOrigin(reference.Hash, origin); err != nil {
+				if err := assets.index.BindOrigin(reference.Hash, origin); err != nil {
 					return "", false
 				}
-				return service.assetIndex.Find(reference.Hash, reference.Filename)
+				return assets.index.Find(reference.Hash, reference.Filename)
 			}
 			return "", false
 		case <-poll.C:
-			current, found, err := service.downloads.Downloader().Job(job.ID)
+			current, found, err := assets.downloader.Job(job.ID)
 			if err != nil || !found || current.State == downloader.JobFailed || current.State == downloader.JobCancelled {
 				return "", false
 			}

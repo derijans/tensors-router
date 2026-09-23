@@ -35,7 +35,7 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 	var response *http.Response
 	var err error
 	var analyticsEvent routeranalytics.Event
-	var workFinalizer analyticsEventFinalizer
+	var workFinalizer routeranalytics.EventFinalizer
 	recordAnalytics := false
 	if component.NodeID != service.nodeID {
 		route.Remote = true
@@ -52,7 +52,7 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 		}
 		requestBody, usageInjected = injectStreamUsageOption(requestBody, r.URL.Path, backendMode)
 		started := time.Now()
-		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, component.ModelID, textAnalyticsSection(r.URL.Path), backendMode)
+		analyticsEvent = service.analytics.newEvent(started, r, requestBody, component.ModelID, textAnalyticsSection(r.URL.Path), backendMode)
 		analyticsEvent.PromptBytes = int64(len(body))
 		recordAnalytics = true
 		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readiness, backendMode)
@@ -60,7 +60,7 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 	if err != nil {
 		status, _, _ := backendFailureResponse(err)
 		if recordAnalytics {
-			service.recordAnalyticsFailure(analyticsEvent, status, workFinalizer)
+			service.analytics.recordFailure(analyticsEvent, status, workFinalizer)
 		}
 		writeBackendFailure(w, err)
 		return true
@@ -78,7 +78,7 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 		}
 	}
 	if recordAnalytics {
-		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
+		response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
 	}
 	response = responseWithoutInjectedUsage(response, usageInjected)
 	if err := service.writeModelProxyResponse(w, response, publicID, true); err != nil {
@@ -102,7 +102,7 @@ func (service *Service) handleRecipeImageRequest(w http.ResponseWriter, r *http.
 	var response *http.Response
 	var err error
 	var analyticsEvent routeranalytics.Event
-	var workFinalizer analyticsEventFinalizer
+	var workFinalizer routeranalytics.EventFinalizer
 	recordAnalytics := false
 	jobBackendMode := ""
 	if component.NodeID != service.nodeID {
@@ -126,13 +126,13 @@ func (service *Service) handleRecipeImageRequest(w http.ResponseWriter, r *http.
 			}
 		}
 		started := time.Now()
-		analyticsEvent = service.newAnalyticsEvent(started, request, requestBody, component.ImageID, routeranalytics.SectionImage, backendMode)
+		analyticsEvent = service.analytics.newEvent(started, request, requestBody, component.ImageID, routeranalytics.SectionImage, backendMode)
 		recordAnalytics = true
 		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), request, requestBody, component.ImageID, component.ConfigFilename, true, readinessImage, backendMode)
 	}
 	if err != nil {
 		if recordAnalytics {
-			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
+			service.analytics.recordFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
 		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return true
@@ -147,7 +147,7 @@ func (service *Service) handleRecipeImageRequest(w http.ResponseWriter, r *http.
 		})
 	}
 	if recordAnalytics {
-		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
+		response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
 	}
 	if err := service.writeProxyResponse(w, response, publicImageID, true); err != nil {
 		return true
@@ -260,7 +260,7 @@ func (service *Service) handleRecipeAudioRequest(w http.ResponseWriter, r *http.
 	var response *http.Response
 	var err error
 	var analyticsEvent routeranalytics.Event
-	var workFinalizer analyticsEventFinalizer
+	var workFinalizer routeranalytics.EventFinalizer
 	recordAnalytics := false
 	if component.NodeID != service.nodeID {
 		route.Remote = true
@@ -287,20 +287,20 @@ func (service *Service) handleRecipeAudioRequest(w http.ResponseWriter, r *http.
 			}
 		}
 		started := time.Now()
-		analyticsEvent = service.newAnalyticsEvent(started, r, requestBody, component.ModelID, audioAnalyticsSection(lane), backendMode)
+		analyticsEvent = service.analytics.newEvent(started, r, requestBody, component.ModelID, audioAnalyticsSection(lane), backendMode)
 		recordAnalytics = true
 		readiness := audioReadiness(r.URL.Path, lane, backendMode)
 		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readiness, backendMode)
 	}
 	if err != nil {
 		if recordAnalytics {
-			service.recordAnalyticsFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
+			service.analytics.recordFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
 		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return true
 	}
 	if recordAnalytics {
-		response = service.responseWithAnalytics(response, analyticsEvent, workFinalizer)
+		response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
 	}
 	if err := service.writeProxyResponse(w, response, publicID, false); err != nil {
 		return true

@@ -81,7 +81,7 @@ func (service *Service) finishBackendFamilySwitch(mode string) {
 	close(state.changed)
 	state.changed = make(chan struct{})
 	state.mu.Unlock()
-	service.invalidateWebUIRoutes()
+	service.onRuntimeChanged()
 }
 
 func (service *Service) stopBackendFamily(ctx context.Context, mode string) error {
