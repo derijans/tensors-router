@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "394111834",
+      "tag": "master-900-c92d73c",
+      "published_at": "2026-09-22T20:52:10Z",
+      "payloads": [
+        {
+          "name": "sd-master-c92d73c-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-900-c92d73c/sd-master-c92d73c-bin-win-cpu-x64.zip",
+          "length": 17206116,
+          "sha256": "e7cd9df94ffe33704762a9e7458d36a2c7213a16b87ddbdd828cba9563a6cc46"
+        }
+      ]
+    }
+  ]
+}

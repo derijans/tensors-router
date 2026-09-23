@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "394111834",
+      "tag": "master-900-c92d73c",
+      "published_at": "2026-09-22T20:52:10Z",
+      "payloads": [
+        {
+          "name": "sd-master-c92d73c-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-900-c92d73c/sd-master-c92d73c-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 25457664,
+          "sha256": "9f7a1635a597b794331d7220880498f83e539e25ee39b1f535cba3d327a732e9"
+        }
+      ]
+    }
+  ]
+}
