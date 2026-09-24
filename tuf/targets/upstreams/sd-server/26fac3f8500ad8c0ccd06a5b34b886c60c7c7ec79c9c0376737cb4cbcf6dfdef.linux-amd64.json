@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "395102517",
+      "tag": "master-908-88411ef",
+      "published_at": "2026-09-23T22:10:47Z",
+      "payloads": [
+        {
+          "name": "sd-master-88411ef-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-908-88411ef/sd-master-88411ef-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 25493928,
+          "sha256": "d8fd5749e7de377912588ba025bf8f7fb7fbc2c3cf16855cd0ee03b8c0eadec2"
+        }
+      ]
+    }
+  ]
+}
