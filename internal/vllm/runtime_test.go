@@ -34,7 +34,7 @@ func TestBuildServeArgumentsOwnsSecurityBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(arguments, " ")
-	for _, expected := range []string{"--uds /private/vllm.sock", "--model /models/snapshot", "--served-model-name public-model", "--quantization awq"} {
+	for _, expected := range []string{"serve /models/snapshot --uds /private/vllm.sock", "--served-model-name public-model", "--quantization awq"} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("missing %q in %q", expected, joined)
 		}
@@ -223,7 +223,7 @@ func TestOCIRuntimeUsesPrivateMountsOfflineEnvironmentAndDeviceIsolation(t *test
 		t.Fatal(err)
 	}
 	joined := strings.Join(arguments, " ")
-	for _, expected := range []string{"--network=none", "--read-only", "--cap-drop=ALL", "--gpus=all", "dst=/router-socket", "dst=/models/model,readonly", "HF_HUB_OFFLINE=1", "VLLM_ALLOW_RUNTIME_LORA_UPDATING=True", "--model /models/model", active.OCIImage} {
+	for _, expected := range []string{"--network=none", "--read-only", "--cap-drop=ALL", "--gpus=all", "dst=/router-socket", "dst=/models/model,readonly", "HF_HUB_OFFLINE=1", "VLLM_ALLOW_RUNTIME_LORA_UPDATING=True", "serve /models/model --uds", active.OCIImage} {
 		if !strings.Contains(joined, expected) {
 			t.Fatalf("OCI runtime command missing %q: %s", expected, joined)
 		}

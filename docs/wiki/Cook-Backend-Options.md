@@ -51,9 +51,10 @@ Text fields cover:
 - model and draft-model paths
 - CPU threads, batch sizes, and context size
 - GPU layers, main device, and tensor splitting
-- memory mapping, memory locking, and automatic fitting
-- KV cache types and unified cache behavior
-- speculative decoding and prompt caching
+- model loading mode (`load_mode`: auto, none, mmap, mlock, mmap+mlock, dio), lazy tensor reads, and automatic fitting
+- dense FFN and MoE expert CPU placement (`n_cpu_ffn`, KoboldCpp `ffncpu` and `moecpu`)
+- KV cache types, unified cache behavior, and per-slot context limits
+- speculative decoding (`spec_type`, including DFlash and DSpark drafts) and prompt caching
 - LoRA files and multipliers
 - Jinja templates, thinking behavior, and kwargs
 - parallel request and continuous batching settings
@@ -74,6 +75,7 @@ These fields cover:
 
 - multimodal projector paths, projector placement, and projector device selection
 - vision resolution and token limits
+- video input frame rate and timestamp interval; the router supplies its own ffmpeg directory to llama-server
 - embedding model paths and context size
 - embedding GPU placement
 - `run_embed_separate` for an on-demand, independently managed embedding process; omitted values default to `false`
@@ -85,11 +87,12 @@ The selected model files must be present on the node that will run the generated
 
 Image fields cover:
 
-- diffusion, VAE, audio VAE, encoder, vision, ControlNet, PuLID, PhotoMaker, and upscaler files
+- diffusion, VAE, audio VAE, audio encoder, tokenizer, encoder, vision, ControlNet, PuLID, PhotoMaker, and upscaler files
 - LoRA files and model directories
-- image threads, device placement, offload, and VRAM limits
+- image threads, device placement, offload, VRAM limits, automatic fitting, prefetch, and segmented compute
 - quantization, tensor types, and tensor rules
-- attention, convolution, tiling, circular padding, and streaming
+- attention (including SageAttention), linear and attention scale overrides, convolution, tiling, and circular padding
+- conditioning cache size, image input preprocessing, model arguments, extra sampler and tiling arguments, and log level
 - sampling methods, schedulers, RNG, prediction types, and cache modes
 - stable-diffusion.cpp backend, parameter backend, and RPC settings
 

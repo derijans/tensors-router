@@ -38,6 +38,15 @@ func decodeOrFatal(t *testing.T, body string) Graph {
 	return graph
 }
 
+func parseOrFatal(t *testing.T, graph Graph) Params {
+	t.Helper()
+	params, err := ParseWorkflow(graph)
+	if err != nil {
+		t.Fatalf("ParseWorkflow failed: %v", err)
+	}
+	return params
+}
+
 func TestDecodeWorkflowAcceptsEnvelopeAndBareGraph(t *testing.T) {
 	envelope := decodeOrFatal(t, wanVideoWorkflow)
 	if len(envelope) != 7 {
@@ -78,7 +87,7 @@ func TestIsVideoWorkflowRejectsAPlainImageWorkflow(t *testing.T) {
 }
 
 func TestParseWorkflowExtractsPromptsAndSamplerSettings(t *testing.T) {
-	params := ParseWorkflow(decodeOrFatal(t, wanVideoWorkflow))
+	params := parseOrFatal(t, decodeOrFatal(t, wanVideoWorkflow))
 	if params.Prompt != "a cat riding a skateboard" {
 		t.Fatalf("unexpected prompt %q", params.Prompt)
 	}
@@ -104,7 +113,7 @@ func TestParseWorkflowExtractsPromptsAndSamplerSettings(t *testing.T) {
 
 func TestParseWorkflowFallsBackToDefaultsWithoutASamplerNode(t *testing.T) {
 	graph := Graph{"1": Node{ClassType: "Note", Inputs: map[string]any{}}}
-	params := ParseWorkflow(graph)
+	params := parseOrFatal(t, graph)
 	if params.Width != 512 || params.Height != 512 || params.Frames != 1 || params.FPS != 16 {
 		t.Fatalf("expected default params, got %#v", params)
 	}
@@ -120,42 +129,19 @@ func TestParseWorkflowAcceptsAnInlineLiteralPrompt(t *testing.T) {
 			"negative": "",
 		}},
 	}
-	params := ParseWorkflow(graph)
+	params := parseOrFatal(t, graph)
 	if params.Prompt != "an inline literal prompt" {
 		t.Fatalf("expected the inline literal prompt to pass through, got %q", params.Prompt)
 	}
 }
 
-func TestParseWorkflowExtractsTheUploadedReferenceImage(t *testing.T) {
-	graph := Graph{
-		"1": Node{ClassType: "LoadImage", Inputs: map[string]any{"image": "uploaded-frame.png"}},
-		"2": Node{ClassType: "WanImageToVideo", Inputs: map[string]any{"length": float64(9), "start_image": []any{"1", float64(0)}}},
-	}
-	if reference := ParseWorkflow(graph).ReferenceImage; reference != "uploaded-frame.png" {
-		t.Fatalf("reference image = %q, want the uploaded name", reference)
-	}
-}
-
-// A LoadImage whose input is a link consumes another node's output rather than
-// an upload, so treating it as an uploaded name would send the router looking
-// for a file that was never uploaded.
-func TestParseWorkflowIgnoresALinkedImageInput(t *testing.T) {
-	graph := Graph{
-		"1": Node{ClassType: "VAEDecode", Inputs: map[string]any{"samples": []any{"9", float64(0)}}},
-		"2": Node{ClassType: "LoadImage", Inputs: map[string]any{"image": []any{"1", float64(0)}}},
-		"3": Node{ClassType: "SaveWEBM", Inputs: map[string]any{"images": []any{"2", float64(0)}}},
-	}
-	if reference := ParseWorkflow(graph).ReferenceImage; reference != "" {
-		t.Fatalf("reference image = %q, want empty for a linked input", reference)
-	}
-}
-
-func TestParseWorkflowReportsNoReferenceForTextToVideo(t *testing.T) {
-	graph := Graph{
-		"1": Node{ClassType: "EmptyHunyuanLatentVideo", Inputs: map[string]any{"width": float64(64), "height": float64(64), "length": float64(9)}},
-		"2": Node{ClassType: "SaveWEBM", Inputs: map[string]any{"images": []any{"1", float64(0)}}},
-	}
-	if reference := ParseWorkflow(graph).ReferenceImage; reference != "" {
-		t.Fatalf("reference image = %q, want empty for text-to-video", reference)
+func TestIsVideoWorkflowDetectsLTXVAndWanSoundToVideoNodes(t *testing.T) {
+	for _, classType := range []string{"EmptyLTXVLatentVideo", "LTXVImgToVideo", "LTXVConditioning", "WanSoundImageToVideo"} {
+		t.Run(classType, func(t *testing.T) {
+			graph := Graph{"1": Node{ClassType: classType, Inputs: map[string]any{}}}
+			if !IsVideoWorkflow(graph) {
+				t.Fatalf("%s must mark the workflow as video without a frame-count input", classType)
+			}
+		})
 	}
 }

@@ -53,6 +53,8 @@ The model-aware compatibility paths use the request model. Non-image KoboldCpp p
 
 The `vllm` backend allowlists stable online-serving operations for OpenAI Completions, Chat, Chat Batch, Responses, Embeddings, Transcriptions, Translations, Realtime transcription, Anthropic Messages and token counting, Cohere Embed and Rerank, Classification, Score, Pooling, Generative Scoring, SageMaker invocation, tokenize, and detokenize. Request and response bodies, multipart fields, streaming, and extra upstream parameters pass through subject to router limits and model-name rewriting.
 
+`POST /v1/messages/render`, `POST /v1/responses/render`, and `POST /cohere/v2/chat/render` return the tokenized prompt for a generation model without generating. They require a model selector and, on vLLM 0.30 or newer, `--enable-scale-out` in the model's `serve_args`.
+
 `GET`, `DELETE`, and cancel operations below `/v1/responses/{id}` follow the node and runtime that created the response. `/v1/realtime` holds its model lease for the complete WebSocket connection, including cluster forwarding.
 
 Operational vLLM paths are separate and administrator-authenticated below `/router/v1/vllm/...`. Only health, version, load, metrics, tokenizer information, and configured dynamic LoRA or Elastic Expert Parallelism operations are reachable. Unknown operations and development, profiler, RPC, weight-transfer, sleep, offline, gRPC, Ray, native multi-node, and disaggregated surfaces are not proxied.
@@ -92,7 +94,7 @@ The router recognizes these route groups:
 - `/prompt`, `/queue`, `/history`, `/view`, `/object_info`, `/system_stats`, and `/interrupt`
 - `/history/...`, `/view/...`, `/object_info/...`, and `/upload/image...`
 
-The router itself provides model selection behavior for `/sdapi/v1/options`, refresh handling at `/sdapi/v1/refresh-checkpoints`, and discovery at `/sdapi/v1/sd-models`. Discovery requests for LoRAs, upscalers, schedulers, and stable-diffusion.cpp capabilities use the active image runtime when the selected backend provides them.
+The router itself provides model selection behavior for `/sdapi/v1/options`, refresh handling at `/sdapi/v1/refresh-checkpoints`, and discovery at `/sdapi/v1/sd-models`. Discovery requests for LoRAs, upscalers, schedulers, progress, the last KoboldCpp generation (`GET /sdapi/v1/get_last.json`, which replaced `get_last.png` in KoboldCpp v1.121), and stable-diffusion.cpp capabilities use the active image runtime when the selected backend provides them.
 
 ComfyUI-style paths are classified as image requests. They are not implemented by `sd-server` in the split llama.cpp and stable-diffusion.cpp backend. Stable-diffusion.cpp asynchronous submissions under `/sdcpp/v1/...` retain their selected route for later job polling.
 
@@ -105,17 +107,33 @@ A video workflow always targets whichever image-lane model is currently active, 
 Once accepted, the router returns `{"prompt_id", "number", "node_errors"}` and generates in the background:
 
 - `backend_mode: llama_sdcpp` submits an `/sdcpp/v1/vid_gen` job and polls it to completion.
-- `backend_mode: kobold` issues a single `/sdapi/v1/txt2img` call with `frames`, `fps`, and `video_output_type: 1` (KoboldCpp's MJPG-AVI encoder, the only one of its two video containers that carries a MiniMax-H3 audio track).
+- `backend_mode: kobold` issues a single `/sdapi/v1/txt2img` call with `frames` (capped at KoboldCpp's 480), `fps`, and `video_output_type: 1` (KoboldCpp's MJPG-AVI encoder, the only one of its two video containers that carries a MiniMax-H3 audio track).
+
+LTX (LTXV / LTX-2.5), Wan2.2 sound-to-video (`WanSoundImageToVideo`), Wan, HunyuanVideo, MiniMax-H3, and SVD node names are recognized as video workflows.
 
 `GET /history/{prompt_id}` and `GET /view?filename=...` answer only for a prompt ID or filename the router minted; anything else falls through to KoboldCpp's own `/history` and `/view`. A completed job's `/history` entry carries a `gifs` output whose `filename` ends in `.mp4`, matching the shape a generic ComfyUI video client expects, even though neither backend emits MP4 natively. `/view` supports range requests, so a player can seek without downloading the whole file. Every finished job is transcoded to H.264/AAC MP4 with ffmpeg before it is served; without a working ffmpeg, `POST /prompt` on a video workflow fails immediately with an explicit error rather than accepting a job it cannot finish. See [Deployment](Deployment) for the ffmpeg requirement and the scratch-space setting.
 
 Because a job runs on the node that accepted it and its output stays on that node, `/history` and `/view` for a router-minted ID are answered only by that node and are never forwarded across the cluster.
 
-### ComfyUI reference-image uploads
+### ComfyUI reference media uploads
 
-`POST /upload/image` is teed rather than diverted: the upload still reaches the backend unchanged, so image workflows that reference the returned name keep working, and the router additionally keeps its own copy keyed by the name the backend assigned. The backend's response is returned verbatim.
+`POST /upload/image` accepts reference images and reference audio (ComfyUI frontends upload audio through the same endpoint). Audio is recognized by an `audio/*` part type or by a `.wav`, `.mp3`, `.flac`, `.ogg`, `.opus`, `.m4a`, or `.aac` file name. On `backend_mode: kobold` the upload is teed rather than diverted: it still reaches the backend unchanged, so image workflows that reference the returned name keep working, and the backend's response is returned verbatim. The router keeps its own copy under both the backend-assigned name and the uploaded file name. KoboldCpp names every upload `kcpp_img2img.jpg`, so a workflow with several references must name them by their uploaded file names. On `llama_sdcpp`, which has no ComfyUI upload endpoint, the router keeps the upload itself and answers with the uploaded file name.
 
-A video workflow whose `LoadImage`-shaped node names an uploaded image is then generated as image-to-video from that copy, since the router never forwards the workflow itself. This is supported on `backend_mode: kobold`, where the reference is sent as `init_images` on `/sdapi/v1/img2img`. On `llama_sdcpp` the submission is refused with an explicit error rather than silently producing text-to-video; use the native `/sdcpp/v1/vid_gen` route there. A workflow naming an image the router never stored is refused at submission.
+Each upload is capped at 32 MiB, and all media one workflow references together is capped at 64 MiB. File names must be plain names: `..`, path separators, drive prefixes, and control characters are refused with `400`.
+
+The router never forwards the workflow itself, so it resolves the media a video workflow loads from these copies:
+
+- **Start and end frames**: a `LoadImage` node wired (directly or through resize-style nodes) into a `start_image`, `first_frame`, `init_image`, `end_image`, `last_frame`, or similar input, or into the `image` input of an image-to-video node such as `LTXVImgToVideo`. Without a wired start frame, the first reference image also serves as the start frame.
+- **Reference images**: every other `LoadImage` node, in node order (multi-reference workflows such as MiniMax-H3 Ref2VA).
+- **Reference audio**: `LoadAudio` and `VHS_LoadAudio`-style nodes, in node order.
+- **Video LoRAs**: `LoraLoader` and `LoraLoaderModelOnly` nodes, sent as `lora: [{"path", "multiplier"}]` with `strength_model` as the multiplier. Only the file name is sent; subfolders are stripped, and absolute paths or `..` are refused. The backend resolves the name against its own configured LoRA directory.
+
+Per backend:
+
+- `backend_mode: kobold`: reference images and then audio (as `data:audio/<type>;base64,...` items) go in `extra_images`, frames in `video_start_frame` / `video_end_frame`. KoboldCpp keeps at most four reference images, so a workflow with more is refused with code `too_many_reference_images`.
+- `backend_mode: llama_sdcpp`: frames go in `init_image` / `end_image` and reference images in `ref_images` on `/sdcpp/v1/vid_gen`. sd-server has no HTTP audio input, so a workflow with reference audio is refused with `400` and code `unsupported_media`. Wan2.2 sound-to-video needs driving audio (and the `sdaudioencoder` audio encoder on stable-diffusion.cpp), so it has no ComfyUI path on `llama_sdcpp` yet; audio-driven workflows work only on `backend_mode: kobold` with a model that takes audio references.
+
+A workflow naming media the router never stored, or loading an audio upload as an image (or the reverse), is refused at submission.
 
 ## Voice APIs
 

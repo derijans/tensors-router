@@ -1970,7 +1970,7 @@ func TestImageRequestLoadsImageOnlyConfig(t *testing.T) {
 }
 
 func TestImageDiscoveryEndpointsForwardWithoutModel(t *testing.T) {
-	endpoints := []string{"/sdapi/v1/loras", "/sdapi/v1/upscalers", "/sdapi/v1/schedulers", "/sdapi/v1/progress", "/sdcpp/v1/capabilities"}
+	endpoints := []string{"/sdapi/v1/loras", "/sdapi/v1/upscalers", "/sdapi/v1/schedulers", "/sdapi/v1/progress", "/sdapi/v1/get_last.json", "/sdcpp/v1/capabilities"}
 	for _, endpoint := range endpoints {
 		t.Run(endpoint, func(t *testing.T) {
 			var sawImageBackend bool

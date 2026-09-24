@@ -23,7 +23,11 @@ func TestOptionValueTypesMatchBackendArguments(t *testing.T) {
 		{"usecuda", ValueJSON, "koboldcpp --usecuda: nargs='*' with string choices"},
 		{"ssl", ValueJSON, "koboldcpp --ssl: nargs='+' (cert_pem, key_pem)"},
 		{"routermode", ValueBool, "koboldcpp --routermode: action='store_true'"},
-		{"sdstreamlayers", ValueBool, "stable-diffusion.cpp --stream-layers: declared in bool_options, takes no value"},
+		{"sdstreamlayers", ValueBool, "legacy: stable-diffusion.cpp removed --stream-layers (#1940); kept boolean so existing configs still validate"},
+		{"usedirectio", ValueBool, "koboldcpp --usedirectio: action='store_true'"},
+		{"ffncpu", ValueNumber, "koboldcpp --ffncpu: type=int, nargs='?', const=999 (CPU FFN layer count)"},
+		{"reasoning_preserve", ValueBool, "llama.cpp --reasoning-preserve / --no-reasoning-preserve: boolean flag pair, takes no value"},
+		{"sdconditioningcachesize", ValueNumber, "stable-diffusion.cpp --conditioning-cache-size <int>, 0 disables caching"},
 		{"gpulayers", ValueNumber, "koboldcpp --gpulayers: type=int, -1 = auto-guess; llama.cpp -ngl N: type=int, -1 = all layers"},
 
 		// Guard the two that look like this class but are genuinely numeric, so a future

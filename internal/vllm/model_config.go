@@ -110,7 +110,10 @@ func BuildServeArguments(configuration VLLMModelConfig, socketPath string, dynam
 	if strings.TrimSpace(socketPath) == "" || strings.ContainsAny(socketPath, "\x00\r\n") {
 		return nil, fmt.Errorf("private vLLM socket path is invalid")
 	}
-	arguments := []string{"-I", "-m", "vllm.entrypoints.openai.api_server", "--uds", socketPath, "--model", configuration.Snapshot.Path}
+	if !validServeModelPath(configuration.Snapshot.Path) {
+		return nil, fmt.Errorf("vLLM snapshot path is invalid")
+	}
+	arguments := serveCommand(configuration.Snapshot.Path, socketPath)
 	if configuration.TrustRemoteCode {
 		arguments = append(arguments, "--trust-remote-code")
 	}
@@ -183,49 +186,6 @@ func validExternalToolServer(value string) bool {
 		}
 	}
 	return true
-}
-
-func ValidateServeArguments(arguments []string) error {
-	forbidden := []string{
-		"--host", "--port", "--uds", "--api-key", "--middleware", "--root-path", "--config", "--dev", "--ray", "--distributed-executor-backend",
-		"--data-parallel-address", "--data-parallel-rpc-port", "--enable-server-load-tracking", "--enable-tokenizer-info-endpoint", "--enable-sleep-mode",
-		"--enable-prompt-embeds", "--load-format-runai-streamer", "--grpc", "--rpc", "--kv-transfer", "--kv-events",
-		"--enable-lora", "--lora-modules", "--trust-remote-code", "--enable-auto-tool-choice", "--tool-call-parser",
-		"--tool-server", "--tool-parser-plugin", "--reasoning-parser-plugin", "--chat-template-content-format", "--allowed-local-media-path", "--allowed-media-domains", "--io-processor-plugin",
-		"--log-config-file", "--served-model-name", "--model", "--headless", "--tokens-only",
-		"--logits-processors", "--worker-cls", "--worker-extension-cls", "--hf-overrides", "--hf-token", "--hf-config-path",
-		"--model-class-overrides", "--model-impl", "--tokenizer", "--tokenizer-mode", "--tokenizer-revision", "--tokenizer-pool-size", "--tokenizer-pool-type", "--tokenizer-pool-extra-config",
-		"--generation-config", "--generation-config-vllm", "--chat-template", "--download-dir", "--revision", "--code-revision", "--model-loader-extra-config",
-	}
-	forbiddenPrefixes := []string{"--ssl-", "--ray", "--grpc", "--rpc", "--kv-transfer", "--kv-events", "--data-parallel-", "--master-", "--plugin", "--profiler"}
-	for index, argument := range arguments {
-		argument = strings.TrimSpace(argument)
-		if argument == "" || strings.ContainsAny(argument, "\x00\r\n") {
-			return fmt.Errorf("vLLM serve_args[%d] is empty or contains control characters", index)
-		}
-		if !strings.HasPrefix(argument, "--") {
-			if strings.HasPrefix(argument, "-") || index == 0 || !strings.HasPrefix(strings.TrimSpace(arguments[index-1]), "--") {
-				return fmt.Errorf("vLLM serve_args[%d] must be an option or option value", index)
-			}
-			continue
-		}
-		name := argument
-		if separator := strings.IndexByte(name, '='); separator >= 0 {
-			name = name[:separator]
-		}
-		name = strings.ReplaceAll(strings.ToLower(name), "_", "-")
-		for _, blocked := range forbidden {
-			if name == blocked || strings.HasPrefix(blocked, name) {
-				return fmt.Errorf("vLLM serve argument %q is router-owned or out of scope", name)
-			}
-		}
-		for _, blockedPrefix := range forbiddenPrefixes {
-			if strings.HasPrefix(name, blockedPrefix) {
-				return fmt.Errorf("vLLM serve argument %q is router-owned or out of scope", name)
-			}
-		}
-	}
-	return nil
 }
 
 func isolatedRuntimeEnvironment(environmentPath string, snapshotPath string) []string {

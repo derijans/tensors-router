@@ -11,12 +11,15 @@ var vllmStaticInferenceRoutes = map[string]map[string]struct{}{
 	"/v1/chat/completions/batch": {http.MethodPost: {}},
 	"/v1/responses":              {http.MethodPost: {}},
 	"/v1/responses/input_tokens": {http.MethodPost: {}},
+	"/v1/responses/render":       {http.MethodPost: {}},
 	"/v1/embeddings":             {http.MethodPost: {}},
 	"/v1/audio/transcriptions":   {http.MethodPost: {}},
 	"/v1/audio/translations":     {http.MethodPost: {}},
 	"/v1/realtime":               {http.MethodGet: {}},
 	"/v1/messages":               {http.MethodPost: {}},
 	"/v1/messages/count_tokens":  {http.MethodPost: {}},
+	"/v1/messages/render":        {http.MethodPost: {}},
+	"/cohere/v2/chat/render":     {http.MethodPost: {}},
 	"/v2/embed":                  {http.MethodPost: {}},
 	"/rerank":                    {http.MethodPost: {}},
 	"/v1/rerank":                 {http.MethodPost: {}},
@@ -101,7 +104,10 @@ func vllmTaskSupportsPath(task string, path string) bool {
 		return vllmGenerationTask(task)
 	}
 	switch path {
-	case "/v1/completions", "/v1/chat/completions", "/v1/chat/completions/batch", "/v1/responses", "/v1/responses/input_tokens", "/v1/messages", "/v1/messages/count_tokens", "/generative_scoring", "/invocations":
+	case "/v1/completions", "/v1/chat/completions", "/v1/chat/completions/batch",
+		"/v1/responses", "/v1/responses/input_tokens", "/v1/responses/render",
+		"/v1/messages", "/v1/messages/count_tokens", "/v1/messages/render",
+		"/cohere/v2/chat/render", "/generative_scoring", "/invocations":
 		return vllmGenerationTask(task)
 	case "/v1/embeddings", "/v2/embed":
 		return task == "embed" || task == "embedding" || task == "embeddings"

@@ -11,8 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,14 +26,15 @@ import (
 )
 
 type ProcessConfig struct {
-	BackendURL string
-	BinaryPath string
-	ConfigDir  string
-	DataDir    string
-	ExtraArgs  []string
-	HideWindow bool
-	Logging    bool
-	MCP        *mcp.Reconciler
+	BackendURL     string
+	BinaryPath     string
+	ConfigDir      string
+	DataDir        string
+	ExtraArgs      []string
+	HideWindow     bool
+	Logging        bool
+	MCP            *mcp.Reconciler
+	VideoFFmpegDir string
 }
 
 type Manager struct {
@@ -43,7 +42,7 @@ type Manager struct {
 	endpoint        *backendendpoint.Endpoint
 	readinessPath   string
 	logName         string
-	argumentBuilder func(catalog.RuntimeConfig, string, string, string, string) ([]string, error)
+	argumentBuilder argumentBuilder
 	extraArgsFilter func(catalog.RuntimeConfig, []string) []string
 	client          *http.Client
 	mu              sync.Mutex
@@ -83,7 +82,7 @@ func NewWhisperCPPManager(config ProcessConfig) (*Manager, error) {
 	return newManager(config, "/health", "whisper-server.log", whisperCPPArguments)
 }
 
-func newManager(config ProcessConfig, readinessPath string, logName string, argumentBuilder func(catalog.RuntimeConfig, string, string, string, string) ([]string, error)) (*Manager, error) {
+func newManager(config ProcessConfig, readinessPath string, logName string, builder argumentBuilder) (*Manager, error) {
 	endpoint, err := backendendpoint.NewEndpoint(config.BackendURL)
 	if err != nil {
 		return nil, err
@@ -96,7 +95,7 @@ func newManager(config ProcessConfig, readinessPath string, logName string, argu
 		endpoint:        endpoint,
 		readinessPath:   readinessPath,
 		logName:         logName,
-		argumentBuilder: argumentBuilder,
+		argumentBuilder: builder,
 		extraArgsFilter: identityArgs,
 		client: &http.Client{
 			Timeout: 30 * time.Second,
@@ -127,7 +126,13 @@ func (manager *Manager) LaunchArguments(filename string) ([]string, error) {
 		}
 		mcpServersPath = result.ServersPath
 	}
-	args, err := manager.argumentBuilder(metadata, strings.TrimSuffix(filename, filepath.Ext(filename)), host, port, mcpServersPath)
+	args, err := manager.argumentBuilder(metadata, launchTarget{
+		modelID:        strings.TrimSuffix(filename, filepath.Ext(filename)),
+		host:           host,
+		port:           port,
+		mcpServersPath: mcpServersPath,
+		videoFFmpegDir: manager.config.VideoFFmpegDir,
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -421,479 +426,6 @@ func (manager *Manager) BeginLoadDiagnostic() func(bool) backenddiagnostic.Diagn
 	return manager.capture.End
 }
 
-func llamaArguments(metadata catalog.RuntimeConfig, modelID string, host string, port string, mcpServersPath string) ([]string, error) {
-	if metadata.ExplicitTextModelPath() != "" && strings.TrimSpace(metadata.TTSModel) != "" {
-		return nil, fmt.Errorf("llama config cannot combine a text model with standalone ttsmodel")
-	}
-	vocoder := firstNonEmpty(metadata.Code2WAVModel, metadata.TTSWAVTokenizer)
-	standaloneTTS := metadata.ExplicitTextModelPath() == "" && strings.TrimSpace(metadata.TTSModel) != ""
-	if vocoder != "" || strings.TrimSpace(metadata.TalkerModel) != "" || standaloneTTS {
-		return nil, fmt.Errorf("llama.cpp removed --model-vocoder and --model-talker and llama-server has no text-to-speech endpoint; talkermodel/ttsmodel/ttswavtokenizer/code2wavmodel are not supported by the llama_sdcpp backend, use kobold or vllm for text-to-speech")
-	}
-	modelPath := metadata.TextModelPath()
-	if modelPath == "" {
-		return nil, fmt.Errorf("llama config has no text, embedding, or multimodal model path")
-	}
-	args := []string{
-		"--host", host,
-		"--port", port,
-		"--model", modelPath,
-		"--alias", modelID,
-	}
-	if mcpServersPath != "" {
-		args = append(args, "--mcp-servers-config", mcpServersPath)
-	}
-	appendIntArg(&args, "--ctx-size", metadata.ContextSize)
-	appendIntArg(&args, "--threads", metadata.Threads)
-	appendIntArg(&args, "--threads-batch", metadata.BLASThreads)
-	appendIntArg(&args, "--batch-size", metadata.BatchSize)
-	appendIntArg(&args, "--ubatch-size", metadata.UBatchSize)
-	appendIntArg(&args, "--n-gpu-layers", metadata.GPULayers)
-	appendStringArg(&args, "--split-mode", metadata.SplitMode)
-	appendStringArg(&args, "--tensor-split", metadata.TensorSplitValue())
-	appendIntArg(&args, "--main-gpu", nonNegative(metadata.MainGPU))
-	appendOptionalBoolArg(&args, "--flash-attn", "--no-flash-attn", metadata.FlashAttention)
-	appendIntArg(&args, "--parallel", metadata.Parallel)
-	appendOptionalBoolArg(&args, "--cont-batching", "--no-cont-batching", metadata.ContBatching)
-	appendIntArg(&args, "--cache-ram", metadata.CacheRAM)
-	appendIntArg(&args, "--ctx-checkpoints", metadata.CtxCheckpoints)
-	appendOptionalBoolArg(&args, "--kv-unified", "--no-kv-unified", metadata.KVUnified)
-	appendOptionalBoolArg(&args, "--cache-idle-slots", "--no-cache-idle-slots", metadata.CacheIdleSlots)
-	if metadata.SWAFull {
-		args = append(args, "--swa-full")
-	}
-	appendStringArg(&args, "--spec-type", metadata.SpecType)
-	appendStringArg(&args, "--spec-draft-type-k", metadata.SpecDraftTypeK)
-	appendStringArg(&args, "--spec-draft-type-v", metadata.SpecDraftTypeV)
-	appendFloatArg(&args, "--spec-draft-p-min", metadata.SpecDraftPMin)
-	appendLoadMode(&args, metadata.LoadMode, metadata.UseMMap, metadata.UseMLock)
-	appendStringArg(&args, "--reasoning-preserve", metadata.ReasoningPreserve)
-	appendStringArg(&args, "--rpc", metadata.RPCTargets)
-	appendStringArg(&args, "--model-draft", metadata.DraftModel)
-	appendIntArg(&args, "--draft-max", metadata.DraftAmount)
-	appendIntArg(&args, "--draft-n-gpu-layers", metadata.DraftGPULayers)
-	if metadata.DraftDFlash {
-		args = append(args, "--draft-dflash")
-	}
-	if metadata.DraftDSpark {
-		args = append(args, "--draft-dspark")
-	}
-	if strings.TrimSpace(metadata.EmbeddingsModel) != "" && !metadata.RunEmbedSeparate {
-		args = append(args, "--embeddings")
-	}
-	appendStringArg(&args, "--cache-type-k", firstNonEmpty(metadata.CacheTypeK, metadata.QuantKV))
-	appendStringArg(&args, "--cache-type-v", firstNonEmpty(metadata.CacheTypeV, metadata.QuantKV))
-	if mmproj := metadata.MMProjPath(); mmproj != "" {
-		args = append(args, "--mmproj", mmproj)
-	}
-	if metadata.MMProjCPU {
-		args = append(args, "--no-mmproj-offload")
-	}
-	appendOptionalBoolArg(&args, "--mmproj-auto", "--no-mmproj-auto", metadata.MMProjAuto)
-	appendIntArg(&args, "--image-min-tokens", positive(metadata.VisionMinTokens))
-	appendIntArg(&args, "--image-max-tokens", positive(metadata.VisionMaxTokens))
-	appendStringArg(&args, "--mmproj-device", metadata.MMProjDevice)
-	appendStringArg(&args, "--api-key-file", metadata.APIKeyFile)
-	appendStringArg(&args, "--log-prompts-dir", metadata.LogPromptsDir)
-	appendStringArg(&args, "--reasoning-effort", metadata.ReasoningEffort)
-	appendStringArg(&args, "--tools-runtime", metadata.ToolsRuntime)
-	if metadata.Agent {
-		args = append(args, "--agent")
-	}
-	appendStringArg(&args, "--models-dir", metadata.ModelsDir)
-	appendStringArg(&args, "--models-preset", metadata.ModelsPreset)
-	appendIntArg(&args, "--models-max", metadata.ModelsMax)
-	appendOptionalBoolArg(&args, "--models-autoload", "--no-models-autoload", metadata.ModelsAutoload)
-	appendIntArg(&args, "--sse-ping-interval", metadata.SSEPingInterval)
-	return args, nil
-}
-
-func llamaEmbeddingArguments(metadata catalog.RuntimeConfig, modelID string, host string, port string, _ string) ([]string, error) {
-	modelPath := strings.TrimSpace(metadata.EmbeddingsModel)
-	if modelPath == "" {
-		return nil, fmt.Errorf("llama embeddings config has no embeddingsmodel")
-	}
-	if !metadata.RunEmbedSeparate {
-		return nil, fmt.Errorf("llama embeddings config does not enable run_embed_separate")
-	}
-	args := []string{
-		"--host", host,
-		"--port", port,
-		"--model", modelPath,
-		"--alias", modelID,
-		"--embeddings",
-	}
-	appendIntArg(&args, "--ctx-size", metadata.EmbeddingsMaxCtx)
-	appendIntArg(&args, "--threads", metadata.Threads)
-	appendIntArg(&args, "--threads-batch", metadata.BLASThreads)
-	appendIntArg(&args, "--batch-size", metadata.BatchSize)
-	appendIntArg(&args, "--ubatch-size", metadata.UBatchSize)
-	if metadata.EmbeddingsGPU {
-		args = append(args, "--n-gpu-layers", "-1")
-		appendStringArg(&args, "--device", metadata.Device)
-		appendStringArg(&args, "--split-mode", metadata.SplitMode)
-		appendStringArg(&args, "--tensor-split", metadata.TensorSplitValue())
-		appendIntArg(&args, "--main-gpu", nonNegative(metadata.MainGPU))
-		appendStringArg(&args, "--rpc", metadata.RPCTargets)
-	} else {
-		args = append(args, "--device", "none", "--n-gpu-layers", "0")
-	}
-	appendLoadMode(&args, metadata.LoadMode, metadata.UseMMap, metadata.UseMLock)
-	return args, nil
-}
-
-func identityArgs(_ catalog.RuntimeConfig, args []string) []string {
-	return append([]string(nil), args...)
-}
-
-func embeddingExtraArgs(metadata catalog.RuntimeConfig, args []string) []string {
-	owned := map[string]bool{
-		"--host": true, "--port": true, "--model": true, "--alias": true,
-		"--embeddings": false, "--ctx-size": true,
-		"--n-gpu-layers": true, "--gpu-layers": true, "-ngl": true, "--no-gpu": false,
-	}
-	if !metadata.EmbeddingsGPU {
-		addEmbeddingPlacementArguments(owned)
-	} else {
-		if strings.TrimSpace(metadata.Device) != "" {
-			owned["--device"] = true
-			owned["-dev"] = true
-		}
-		if strings.TrimSpace(metadata.SplitMode) != "" {
-			owned["--split-mode"] = true
-			owned["-sm"] = true
-		}
-		if metadata.TensorSplitValue() != "" {
-			owned["--tensor-split"] = true
-			owned["-ts"] = true
-		}
-		if metadata.MainGPUSet && metadata.MainGPU >= 0 {
-			owned["--main-gpu"] = true
-			owned["-mg"] = true
-		}
-		if strings.TrimSpace(metadata.RPCTargets) != "" {
-			owned["--rpc"] = true
-		}
-	}
-	filtered := make([]string, 0, len(args))
-	for index := 0; index < len(args); index++ {
-		argument := args[index]
-		key := argument
-		if separator := strings.IndexByte(key, '='); separator >= 0 {
-			key = key[:separator]
-		}
-		takesValue, managed := owned[key]
-		if !managed {
-			filtered = append(filtered, argument)
-			continue
-		}
-		if argument == key && takesValue && index+1 < len(args) {
-			index++
-		}
-	}
-	return filtered
-}
-
-func addEmbeddingPlacementArguments(arguments map[string]bool) {
-	for _, argument := range []string{"--device", "-dev", "--split-mode", "-sm", "--tensor-split", "-ts", "--main-gpu", "-mg", "--rpc"} {
-		arguments[argument] = true
-	}
-}
-
-func whisperCPPArguments(metadata catalog.RuntimeConfig, modelID string, host string, port string, mcpServersPath string) ([]string, error) {
-	_ = modelID
-	_ = mcpServersPath
-	modelPath := strings.TrimSpace(metadata.WhisperModel)
-	if modelPath == "" {
-		return nil, fmt.Errorf("whisper.cpp config has no whispermodel")
-	}
-	args := []string{"--host", host, "--port", port, "--model", modelPath}
-	appendIntArg(&args, "--threads", metadata.Threads)
-	appendIntArg(&args, "--device", nonNegative(metadata.MainGPU))
-	appendOptionalBoolArg(&args, "--flash-attn", "--no-flash-attn", metadata.FlashAttention)
-	if metadata.UseCPU {
-		args = append(args, "--no-gpu")
-	}
-	whisperFlags := map[string]string{
-		"whispercpp_processors":                  "--processors",
-		"whispercpp_offset_t":                    "--offset-t",
-		"whispercpp_offset_n":                    "--offset-n",
-		"whispercpp_duration":                    "--duration",
-		"whispercpp_max_context":                 "--max-context",
-		"whispercpp_max_len":                     "--max-len",
-		"whispercpp_split_on_word":               "--split-on-word",
-		"whispercpp_best_of":                     "--best-of",
-		"whispercpp_beam_size":                   "--beam-size",
-		"whispercpp_audio_ctx":                   "--audio-ctx",
-		"whispercpp_word_threshold":              "--word-thold",
-		"whispercpp_entropy_threshold":           "--entropy-thold",
-		"whispercpp_logprob_threshold":           "--logprob-thold",
-		"whispercpp_no_speech_threshold":         "--no-speech-thold",
-		"whispercpp_debug":                       "--debug-mode",
-		"whispercpp_translate":                   "--translate",
-		"whispercpp_diarize":                     "--diarize",
-		"whispercpp_tiny_diarize":                "--tinydiarize",
-		"whispercpp_no_fallback":                 "--no-fallback",
-		"whispercpp_no_context":                  "--no-context",
-		"whispercpp_language":                    "--language",
-		"whispercpp_detect_language":             "--detect-language",
-		"whispercpp_prompt":                      "--prompt",
-		"whispercpp_carry_initial_prompt":        "--carry-initial-prompt",
-		"whispercpp_openvino_device":             "--ov-e-device",
-		"whispercpp_dtw":                         "--dtw",
-		"whispercpp_suppress_non_speech":         "--suppress-nst",
-		"whispercpp_print_colors":                "--print-colors",
-		"whispercpp_print_special":               "--print-special",
-		"whispercpp_print_realtime":              "--print-realtime",
-		"whispercpp_print_progress":              "--print-progress",
-		"whispercpp_no_timestamps":               "--no-timestamps",
-		"whispercpp_vad":                         "--vad",
-		"whispercpp_vad_model":                   "--vad-model",
-		"whispercpp_vad_threshold":               "--vad-threshold",
-		"whispercpp_vad_min_speech_duration_ms":  "--vad-min-speech-duration-ms",
-		"whispercpp_vad_min_silence_duration_ms": "--vad-min-silence-duration-ms",
-		"whispercpp_vad_max_speech_duration_s":   "--vad-max-speech-duration-s",
-		"whispercpp_vad_speech_pad_ms":           "--vad-speech-pad-ms",
-		"whispercpp_vad_samples_overlap":         "--vad-samples-overlap",
-	}
-	keys := make([]string, 0, len(whisperFlags))
-	for key := range whisperFlags {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		appendWhisperOption(&args, whisperFlags[key], metadata.WhisperCPPOptions[key])
-	}
-	if enabled, ok := metadata.WhisperCPPOptions["whispercpp_language_probabilities"].(bool); ok && !enabled {
-		args = append(args, "--no-language-probabilities")
-	}
-	return args, nil
-}
-
-func appendWhisperOption(args *[]string, flag string, value any) {
-	switch typed := value.(type) {
-	case bool:
-		if typed {
-			*args = append(*args, flag)
-		}
-	case string:
-		appendStringArg(args, flag, typed)
-	case float64:
-		*args = append(*args, flag, strconv.FormatFloat(typed, 'f', -1, 64))
-	}
-}
-
-func sdcppArguments(metadata catalog.RuntimeConfig, modelID string, host string, port string, mcpServersPath string) ([]string, error) {
-	_ = modelID
-	_ = mcpServersPath
-	modelPath := metadata.ImageModelPath()
-	if modelPath == "" {
-		return nil, fmt.Errorf("sd.cpp config has no image model path")
-	}
-	args := []string{
-		"--listen-ip", host,
-		"--listen-port", port,
-		"--model", modelPath,
-	}
-	appendStringArg(&args, "--vae", metadata.SDVAE)
-	appendStringArg(&args, "--audio-vae", metadata.SDAudioVAE)
-	appendStringArg(&args, "--photo-maker", metadata.SDPhotoMaker)
-	appendStringArg(&args, "--diffusion-model", metadata.SDDiffusionModel)
-	appendStringArg(&args, "--high-noise-diffusion-model", metadata.SDHighNoiseDiffusionModel)
-	appendStringArg(&args, "--uncond-diffusion-model", metadata.SDUncondDiffusionModel)
-	appendStringArg(&args, "--t5xxl", metadata.SDT5XXL)
-	appendStringArg(&args, "--clip_l", firstNonEmpty(metadata.SDClipL, metadata.SDClip1))
-	appendStringArg(&args, "--clip_g", firstNonEmpty(metadata.SDClipG, metadata.SDClip2))
-	appendStringArg(&args, "--llm", metadata.SDLLM)
-	appendStringArg(&args, "--llm-vision", metadata.SDLLMVision)
-	appendStringArg(&args, "--clip-vision", metadata.SDClipVision)
-	appendStringArg(&args, "--ip-adapter", metadata.SDIPAdapter)
-	appendStringArg(&args, "--motion-module", metadata.SDMotionModule)
-	appendStringListArg(&args, "--embeddings-connector", metadata.SDEmbeddingsConnectors)
-	appendStringArg(&args, "--control-net", metadata.SDControlNet)
-	appendStringArg(&args, "--pulid-weights", metadata.SDPulidWeights)
-	appendStringArg(&args, "--pulid-id-embedding", metadata.SDPulidIDEmbedding)
-	appendFloatArg(&args, "--pulid-id-weight", metadata.SDPulidIDWeight)
-	appendStringArg(&args, "--upscale-model", metadata.SDUpscaler)
-	appendStringArg(&args, "--backend", metadata.SDBackend)
-	appendStringArg(&args, "--params-backend", metadata.SDParamsBackend)
-	appendStringListArg(&args, "--rpc-servers", metadata.SDRPCServers)
-	appendStringArg(&args, "--max-vram", nativeSingleString(metadata.SDMaxVRAM))
-	// stable-diffusion.cpp declares --stream-layers among its bool options, so it takes
-	// no value; passing a count leaves the number as a stray positional argument.
-	if metadata.SDStreamLayers {
-		args = append(args, "--stream-layers")
-	}
-	appendStringListArg(&args, "--tensor-type-rules", metadata.SDTensorTypeRules)
-	appendStringArg(&args, "--vae-format", metadata.SDVAEFormat)
-	appendStringArg(&args, "--lora-model-dir", metadata.SDLoRAModelDir)
-	appendStringArg(&args, "--upscaler-model-dir", metadata.SDHiresUpscalersDir)
-	appendIntArg(&args, "--threads", metadata.SDThreads)
-	if metadata.SDFlashAttention {
-		args = append(args, "--fa")
-	}
-	if metadata.SDDiffusionFlashAttention {
-		args = append(args, "--diffusion-fa")
-	}
-	if metadata.SDDiffusionConvDirect {
-		args = append(args, "--diffusion-conv-direct")
-	}
-	if metadata.SDVAEConvDirect {
-		args = append(args, "--vae-conv-direct")
-	}
-	if metadata.SDOffloadCPU {
-		args = append(args, "--offload-to-cpu")
-	}
-	if metadata.SDVAECPU {
-		args = append(args, "--vae-on-cpu")
-	}
-	if metadata.SDStreaming {
-		args = append(args, "--streaming")
-	}
-	if metadata.SDAutoFit {
-		args = append(args, "--autofit")
-	}
-	appendStringArg(&args, "--split-mode", metadata.SDSplitMode)
-	if metadata.SDCircular {
-		args = append(args, "--circular")
-	}
-	if metadata.SDCircularX {
-		args = append(args, "--circular-x")
-	}
-	if metadata.SDCircularY {
-		args = append(args, "--circular-y")
-	}
-	if metadata.SDTiledVAE > 0 {
-		tileSize := strconv.Itoa(metadata.SDTiledVAE) + "x" + strconv.Itoa(metadata.SDTiledVAE)
-		args = append(args, "--vae-tiling", "--vae-tile-size", tileSize)
-	}
-	appendStringArg(&args, "--sampling-method", metadata.SDSamplingMethod)
-	appendStringArg(&args, "--high-noise-sampling-method", metadata.SDHighNoiseSamplingMethod)
-	appendStringArg(&args, "--scheduler", metadata.SDScheduler)
-	appendStringArg(&args, "--type", metadata.SDType)
-	appendStringArg(&args, "--rng", metadata.SDRNG)
-	appendStringArg(&args, "--sampler-rng", metadata.SDSamplerRNG)
-	appendStringArg(&args, "--prediction", metadata.SDPrediction)
-	appendStringArg(&args, "--lora-apply-mode", metadata.SDLoRAApplyMode)
-	appendStringArg(&args, "--cache-mode", metadata.SDCacheMode)
-	appendStringArg(&args, "--cache-option", metadata.SDCacheOption)
-	return args, nil
-}
-
-func appendLoadMode(args *[]string, loadMode string, useMMap bool, useMLock bool) {
-	switch strings.TrimSpace(loadMode) {
-	case "":
-		if !useMMap {
-			*args = append(*args, "--no-mmap")
-		}
-		if useMLock {
-			*args = append(*args, "--mlock")
-		}
-	case "none":
-		*args = append(*args, "--no-mmap")
-	case "mmap":
-	case "mlock", "mmap+mlock":
-		*args = append(*args, "--mlock")
-	case "dio":
-		*args = append(*args, "--direct-io")
-	}
-}
-
-func appendStringArg(args *[]string, flag string, value string) {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return
-	}
-	*args = append(*args, flag, value)
-}
-
-func appendIntArg(args *[]string, flag string, value int) {
-	if value == 0 {
-		return
-	}
-	*args = append(*args, flag, strconv.Itoa(value))
-}
-
-func appendFloatArg(args *[]string, flag string, value float64) {
-	if value == 0 {
-		return
-	}
-	*args = append(*args, flag, strconv.FormatFloat(value, 'f', -1, 64))
-}
-
-func appendOptionalBoolArg(args *[]string, enabledFlag string, disabledFlag string, value *bool) {
-	if value == nil {
-		return
-	}
-	if *value {
-		*args = append(*args, enabledFlag)
-		return
-	}
-	*args = append(*args, disabledFlag)
-}
-
-func appendStringListArg(args *[]string, flag string, value any) {
-	values := nativeStringValues(value)
-	if len(values) == 0 {
-		return
-	}
-	*args = append(*args, flag, strings.Join(values, ","))
-}
-
-func nativeStringValues(value any) []string {
-	switch typed := value.(type) {
-	case string:
-		trimmed := strings.TrimSpace(typed)
-		if trimmed == "" {
-			return nil
-		}
-		return []string{trimmed}
-	case []any:
-		values := make([]string, 0, len(typed))
-		for _, item := range typed {
-			values = append(values, nativeStringValues(item)...)
-		}
-		return values
-	case float64:
-		return []string{strconv.FormatFloat(typed, 'f', -1, 64)}
-	case int:
-		return []string{strconv.Itoa(typed)}
-	default:
-		return nil
-	}
-}
-
-func nativeSingleString(value any) string {
-	values := nativeStringValues(value)
-	if len(values) == 0 {
-		return ""
-	}
-	return values[0]
-}
-
-func positive(value int) int {
-	if value > 0 {
-		return value
-	}
-	return 0
-}
-
-func nonNegative(value int) int {
-	if value >= 0 {
-		return value
-	}
-	return 0
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if strings.TrimSpace(value) != "" {
-			return strings.TrimSpace(value)
-		}
-	}
-	return ""
-}
-
 func nativeProcessEnv(binaryPath string, baseEnv []string) []string {
 	binaryDir := filepath.Dir(strings.TrimSpace(binaryPath))
 	if binaryDir == "" {
@@ -961,17 +493,4 @@ func joinPath(base string, requestPath string) string {
 		return requestPath
 	}
 	return strings.TrimRight(base, "/") + "/" + strings.TrimLeft(requestPath, "/")
-}
-
-func RuntimeArgumentsForTest(metadata catalog.RuntimeConfig, kind string) ([]string, error) {
-	switch kind {
-	case "llama":
-		return llamaArguments(metadata, "model", "127.0.0.1", "5002", "")
-	case "sdcpp":
-		return sdcppArguments(metadata, "model", "127.0.0.1", "7860", "")
-	case "whispercpp":
-		return whisperCPPArguments(metadata, "model", "127.0.0.1", "5003", "")
-	default:
-		return nil, fmt.Errorf("unknown native server kind %q", kind)
-	}
 }

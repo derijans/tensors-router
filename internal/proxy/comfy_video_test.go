@@ -8,6 +8,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/textproto"
 	"os/exec"
 	"strings"
 	"sync/atomic"
@@ -299,7 +300,7 @@ func TestComfyUploadImageTooLargeToCopyStillReachesTheBackendWhole(t *testing.T)
 	if service.handleComfyUploadImage(recorder, request) {
 		t.Fatalf("an upload past the copy limit must not be intercepted, status=%d", recorder.Code)
 	}
-	if _, ok := service.comfyVideoJobs.uploadBytes("huge.png"); ok {
+	if _, err := service.comfyVideoJobs.readUpload("huge.png", maxComfyVideoUploadBytes); err == nil {
 		t.Fatal("an upload past the copy limit must not be kept by the router")
 	}
 
@@ -319,9 +320,17 @@ func TestComfyUploadImageTooLargeToCopyStillReachesTheBackendWhole(t *testing.T)
 
 func uploadImageRequest(t *testing.T, content []byte) *http.Request {
 	t.Helper()
+	return uploadMediaRequest(t, "reference.png", "application/octet-stream", content)
+}
+
+func uploadMediaRequest(t *testing.T, filename string, contentType string, content []byte) *http.Request {
+	t.Helper()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
-	part, err := writer.CreateFormFile("image", "reference.png")
+	header := make(textproto.MIMEHeader)
+	header.Set("Content-Disposition", `form-data; name="image"; filename="`+filename+`"`)
+	header.Set("Content-Type", contentType)
+	part, err := writer.CreatePart(header)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -380,42 +389,38 @@ func TestComfyUploadImageIsForwardedToTheBackendAndCopiedLocally(t *testing.T) {
 	if response.Name != "backend-assigned.png" {
 		t.Fatalf("router returned name %q, want the backend's own name", response.Name)
 	}
-	stored, ok := service.comfyVideoJobs.uploadBytes("backend-assigned.png")
-	if !ok || !bytes.Equal(stored, reference) {
-		t.Fatalf("router did not keep a copy under the backend's name: ok=%t", ok)
+	stored, err := service.comfyVideoJobs.readUpload("backend-assigned.png", maxComfyVideoUploadBytes)
+	if err != nil || !bytes.Equal(stored.content, reference) {
+		t.Fatalf("router did not keep a copy under the backend's name: err=%v", err)
 	}
 }
 
-// An image-to-video workflow naming an uploaded reference must reach the
-// backend's img2img route carrying that image, since the router generates the
-// video itself and never forwards the workflow.
-func TestComfyVideoImageToVideoSendsTheUploadedReference(t *testing.T) {
+func TestComfyVideoImageToVideoSendsTheUploadedStartFrame(t *testing.T) {
 	tool := requireFFmpegTool(t)
 	avi := synthTestAVI(t)
 	aviBase64 := base64.StdEncoding.EncodeToString(avi)
 	reference := []byte("\x89PNG\r\n\x1a\nreference-image-bytes")
 
-	var sawInitImage atomic.Bool
+	var sawStartFrame atomic.Bool
 	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/upload/image":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"name":"ref.png","subfolder":"","type":"input"}`))
-		case "/sdapi/v1/img2img":
-			var payload struct {
-				InitImages []string `json:"init_images"`
-			}
+		case "/sdapi/v1/txt2img":
+			var payload map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-				t.Fatalf("invalid img2img body: %v", err)
+				t.Fatalf("invalid txt2img body: %v", err)
 			}
-			if len(payload.InitImages) != 1 || payload.InitImages[0] != base64.StdEncoding.EncodeToString(reference) {
-				t.Fatalf("img2img did not carry the uploaded reference: %#v", payload.InitImages)
+			if payload["video_start_frame"] != base64.StdEncoding.EncodeToString(reference) {
+				t.Errorf("generation did not carry the uploaded start frame: %v", payload["video_start_frame"])
 			}
-			sawInitImage.Store(true)
+			if _, hasInitImages := payload["init_images"]; hasInitImages {
+				t.Errorf("the start frame must travel as video_start_frame, not as an img2img init image")
+			}
+			sawStartFrame.Store(true)
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"images":[],"animated":true,"extra_data":"` + aviBase64 + `"}`))
-		case "/sdapi/v1/txt2img":
-			t.Fatal("an image-to-video workflow must not fall back to txt2img")
 		default:
 			t.Fatalf("unexpected backend path %s", r.URL.Path)
 		}
@@ -447,8 +452,8 @@ func TestComfyVideoImageToVideoSendsTheUploadedReference(t *testing.T) {
 	}
 
 	pollComfyHistoryUntilComplete(t, service, submitted.PromptID)
-	if !sawInitImage.Load() {
-		t.Fatal("img2img never received the reference image")
+	if !sawStartFrame.Load() {
+		t.Fatal("the backend never received the generation request")
 	}
 }
 

@@ -145,6 +145,7 @@ func isImageDiscoveryPath(path string) bool {
 		"/sdapi/v1/upscalers",
 		"/sdapi/v1/schedulers",
 		"/sdapi/v1/progress",
+		"/sdapi/v1/get_last.json",
 		"/sdcpp/v1/capabilities":
 		return true
 	default:

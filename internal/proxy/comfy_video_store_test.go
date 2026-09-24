@@ -116,36 +116,39 @@ func TestComfyVideoStoreExpiresJobsAndDeletesTheirFiles(t *testing.T) {
 	}
 }
 
-// A stored upload is keyed by the backend's name but written to a path derived
-// from a hash of it, so a traversal-shaped name cannot escape the scratch
-// directory.
-func TestComfyVideoStoreUploadKeepsHostileNamesInsideTheScratchDirectory(t *testing.T) {
+func TestComfyVideoStoreRejectsUploadNamesThatAreNotPlainFileNames(t *testing.T) {
 	store := newTestComfyVideoStore(t)
-	hostile := `../../../../etc/passwd`
-	if err := store.rememberUpload(hostile, []byte("reference-image")); err != nil {
+	for _, hostile := range []string{`../../../../etc/passwd`, `..`, `sub/ref.png`, `..\..\ref.png`, `C:ref.png`, "ref\x00.png"} {
+		if err := store.rememberUpload(hostile, comfyUploadedMedia{content: []byte("reference-image"), contentType: "image/png"}); err == nil {
+			t.Errorf("upload name %q must be rejected", hostile)
+		}
+	}
+	if len(store.uploads) != 0 {
+		t.Fatalf("rejected names must not be kept, got %d uploads", len(store.uploads))
+	}
+}
+
+func TestComfyVideoStoreKeepsUploadsInsideTheScratchDirectory(t *testing.T) {
+	store := newTestComfyVideoStore(t)
+	if err := store.rememberUpload("reference.png", comfyUploadedMedia{content: []byte("reference-image"), contentType: "image/png"}); err != nil {
 		t.Fatal(err)
 	}
-
-	content, ok := store.uploadBytes(hostile)
-	if !ok || string(content) != "reference-image" {
-		t.Fatalf("upload did not round-trip: ok=%t content=%q", ok, content)
+	stored, err := store.readUpload("reference.png", maxComfyVideoUploadBytes)
+	if err != nil || string(stored.content) != "reference-image" || stored.contentType != "image/png" {
+		t.Fatalf("upload did not round-trip: err=%v media=%+v", err, stored)
 	}
-	stored := store.uploads[hostile].path
-	if filepath.Dir(stored) != store.dir {
-		t.Fatalf("upload escaped the scratch directory: %q is not inside %q", stored, store.dir)
-	}
-	if strings.ContainsAny(filepath.Base(stored), `/\`) {
-		t.Fatalf("stored upload name carries a path separator: %q", filepath.Base(stored))
+	if path := store.uploads["reference.png"].path; filepath.Dir(path) != store.dir {
+		t.Fatalf("upload stored outside the scratch directory: %q is not inside %q", path, store.dir)
 	}
 }
 
 func TestComfyVideoStoreRejectsUploadOverTheSizeCap(t *testing.T) {
 	store := newTestComfyVideoStore(t)
-	err := store.rememberUpload("big.png", make([]byte, maxComfyVideoUploadBytes+1))
+	err := store.rememberUpload("big.png", comfyUploadedMedia{content: make([]byte, maxComfyVideoUploadBytes+1), contentType: "image/png"})
 	if err == nil || !strings.Contains(err.Error(), "size cap") {
 		t.Fatalf("oversized upload error = %v, want a size cap rejection", err)
 	}
-	if _, ok := store.uploadBytes("big.png"); ok {
+	if _, err := store.readUpload("big.png", maxComfyVideoUploadBytes); err == nil {
 		t.Fatal("a rejected upload must not be retrievable")
 	}
 }
@@ -177,5 +180,46 @@ func TestCappedWriterStopsAtTheLimit(t *testing.T) {
 	}
 	if writer.written != 8 {
 		t.Fatalf("written = %d, want 8", writer.written)
+	}
+}
+
+func TestComfyUploadReadersNeverObserveAnUnwrittenOrPartialCopy(t *testing.T) {
+	store := newTestComfyVideoStore(t)
+	versions := [][]byte{
+		[]byte(strings.Repeat("a", 1<<20)),
+		[]byte(strings.Repeat("b", 1<<20)),
+	}
+	if err := store.rememberUpload("reference.png", comfyUploadedMedia{content: versions[0], contentType: "image/png"}); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	writerErrors := make(chan error, 1)
+	go func() {
+		defer close(done)
+		for round := 0; round < 40; round++ {
+			if err := store.rememberUpload("reference.png", comfyUploadedMedia{content: versions[round%2], contentType: "image/png"}); err != nil {
+				writerErrors <- err
+				return
+			}
+		}
+	}()
+	for {
+		select {
+		case <-done:
+			select {
+			case err := <-writerErrors:
+				t.Fatal(err)
+			default:
+			}
+			return
+		default:
+		}
+		stored, err := store.readUpload("reference.png", maxComfyVideoUploadBytes)
+		if err != nil {
+			t.Fatalf("reader saw a published upload without its copy: %v", err)
+		}
+		if string(stored.content) != string(versions[0]) && string(stored.content) != string(versions[1]) {
+			t.Fatalf("reader saw a partial copy of %d bytes", len(stored.content))
+		}
 	}
 }

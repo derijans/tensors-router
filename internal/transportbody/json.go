@@ -169,6 +169,9 @@ func (processor *jsonProcessor) run() error {
 			if err := processor.writer.WriteByte(value); err != nil {
 				return err
 			}
+			if err := processor.flushLeadingWhitespaceBeforeWaiting(); err != nil {
+				return err
+			}
 			continue
 		}
 		if len(processor.stack) == 0 {
@@ -186,6 +189,13 @@ func (processor *jsonProcessor) run() error {
 			return err
 		}
 	}
+}
+
+func (processor *jsonProcessor) flushLeadingWhitespaceBeforeWaiting() error {
+	if processor.started || processor.reader.Buffered() > 0 {
+		return nil
+	}
+	return processor.writer.Flush()
 }
 
 func (processor *jsonProcessor) consume(value byte) error {

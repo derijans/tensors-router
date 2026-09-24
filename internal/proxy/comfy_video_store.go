@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -30,6 +29,8 @@ const (
 	maxComfyVideoBytes       = 2 << 30
 	maxComfyVideoStoreBytes  = 8 << 30
 	maxComfyVideoUploadBytes = 32 << 20
+
+	maxComfyVideoPromptMediaBytes = 64 << 20
 )
 
 var errComfyVideoTooLarge = errors.New("generated video exceeded the router's size cap")
@@ -92,19 +93,15 @@ type comfyVideoEntry struct {
 	expiresAt time.Time
 }
 
-type comfyVideoUpload struct {
-	path      string
-	expiresAt time.Time
-}
-
 type comfyVideoJobStore struct {
-	mu             sync.Mutex
-	dir            string
-	jobs           map[string]*comfyVideoEntry
-	uploads        map[string]comfyVideoUpload
-	pendingRemoval []string
-	maxVideoBytes  int64
-	now            func() time.Time
+	mu                  sync.Mutex
+	dir                 string
+	jobs                map[string]*comfyVideoEntry
+	uploads             map[string]comfyVideoUpload
+	pendingRemoval      []string
+	maxVideoBytes       int64
+	maxPromptMediaBytes int64
+	now                 func() time.Time
 }
 
 func newComfyVideoJobStore(scratchDir string) *comfyVideoJobStore {
@@ -113,11 +110,12 @@ func newComfyVideoJobStore(scratchDir string) *comfyVideoJobStore {
 		dir = os.TempDir()
 	}
 	return &comfyVideoJobStore{
-		dir:           filepath.Join(dir, "tensors-router-comfy-video"),
-		jobs:          map[string]*comfyVideoEntry{},
-		uploads:       map[string]comfyVideoUpload{},
-		maxVideoBytes: maxComfyVideoBytes,
-		now:           time.Now,
+		dir:                 filepath.Join(dir, "tensors-router-comfy-video"),
+		jobs:                map[string]*comfyVideoEntry{},
+		uploads:             map[string]comfyVideoUpload{},
+		maxVideoBytes:       maxComfyVideoBytes,
+		maxPromptMediaBytes: maxComfyVideoPromptMediaBytes,
+		now:                 time.Now,
 	}
 }
 
@@ -199,57 +197,6 @@ func (store *comfyVideoJobStore) writeVideo(job *comfyVideoJob, produce func(io.
 	defer store.mu.Unlock()
 	store.enforceStoreBudgetLocked(job.id)
 	return writer.written, nil
-}
-
-// rememberUpload keeps a copy of an uploaded reference image under the name
-// the backend assigned it, so a later video workflow naming that image can be
-// satisfied locally. The stored path is derived from a hash of the name
-// rather than the name itself, so a hostile name cannot escape the scratch
-// directory.
-func (store *comfyVideoJobStore) rememberUpload(name string, content []byte) error {
-	name = strings.TrimSpace(name)
-	if name == "" || len(content) == 0 {
-		return fmt.Errorf("upload name and content are required")
-	}
-	if len(content) > maxComfyVideoUploadBytes {
-		return fmt.Errorf("uploaded image exceeded the router's %d byte size cap", int64(maxComfyVideoUploadBytes))
-	}
-	store.mu.Lock()
-	if err := os.MkdirAll(store.dir, 0o700); err != nil {
-		store.mu.Unlock()
-		return fmt.Errorf("video scratch directory %q is not usable: %w", store.dir, err)
-	}
-	store.sweepLocked()
-	path := filepath.Join(store.dir, "upload-"+uploadPathKey(name))
-	store.uploads[name] = comfyVideoUpload{path: path, expiresAt: store.now().Add(comfyVideoJobLifetime)}
-	store.mu.Unlock()
-
-	if err := os.WriteFile(path, content, 0o600); err != nil {
-		store.mu.Lock()
-		delete(store.uploads, name)
-		store.mu.Unlock()
-		return fmt.Errorf("could not write upload copy: %w", err)
-	}
-	return nil
-}
-
-func (store *comfyVideoJobStore) uploadBytes(name string) ([]byte, bool) {
-	store.mu.Lock()
-	upload, ok := store.uploads[strings.TrimSpace(name)]
-	store.mu.Unlock()
-	if !ok {
-		return nil, false
-	}
-	data, err := os.ReadFile(upload.path)
-	if err != nil {
-		return nil, false
-	}
-	return data, true
-}
-
-func uploadPathKey(name string) string {
-	sum := sha256.Sum256([]byte(name))
-	return hex.EncodeToString(sum[:16])
 }
 
 func (store *comfyVideoJobStore) sweepLocked() {

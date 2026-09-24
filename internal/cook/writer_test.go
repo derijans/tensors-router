@@ -270,6 +270,29 @@ func TestApplyRejectsStringEncodedNumbers(t *testing.T) {
 	}
 }
 
+func TestApplyRejectsLoadModeOutsideLlamaServerChoices(t *testing.T) {
+	dir := packageTempDir(t)
+	if err := os.WriteFile(filepath.Join(dir, "text.kcpps"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writer := Writer{ConfigDir: dir, Catalog: catalog.New(dir), NodeID: "node-a"}
+	for _, key := range []string{"load_mode", "llama_load_mode"} {
+		request := NodeConfigRequest{
+			ID:         "bad-load-mode",
+			Components: []Component{{Kind: KindText, Source: SourceConfig, ModelID: "text"}},
+			Options:    Options{key: rawJSON(t, "mmap,mlock")},
+		}
+		_, err := writer.Apply(request)
+		issues, ok := IssuesFromError(err)
+		if !ok || !hasIssueCode(issues, "option_value_choice") {
+			t.Fatalf("%s: expected an option_value_choice issue, got %v (issues %#v)", key, err, issues)
+		}
+		if _, err := os.Stat(filepath.Join(dir, "bad-load-mode.kcpps")); !os.IsNotExist(err) {
+			t.Fatalf("%s: apply must not write a file it rejected, stat error: %v", key, err)
+		}
+	}
+}
+
 func hasIssueCode(issues []ValidationIssue, code string) bool {
 	for _, issue := range issues {
 		if issue.Code == code {

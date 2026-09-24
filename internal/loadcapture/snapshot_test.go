@@ -146,3 +146,39 @@ func TestBuildSnapshotRetainsAssetArrayRoleAndOrder(t *testing.T) {
 		t.Fatalf("asset array order changed: %s", snapshot.JSON)
 	}
 }
+
+func TestBuildSnapshotHashesSDCPPTokenizerAndAudioEncoder(t *testing.T) {
+	dir := t.TempDir()
+	tokenizer := filepath.Join(dir, "private-tokenizer.json")
+	audioEncoder := filepath.Join(dir, "private-wav2vec2.gguf")
+	if err := os.WriteFile(tokenizer, []byte("tokenizer"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(audioEncoder, []byte("audio encoder"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(dir, "sdcpp.kcpps")
+	content, err := json.Marshal(map[string]any{"sdtokenizer": tokenizer, "sdaudioencoder": audioEncoder})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(configPath, content, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := BuildSnapshot(configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	roles := map[string]bool{}
+	for _, asset := range snapshot.Assets {
+		roles[asset.Role] = true
+	}
+	if !roles["sdtokenizer"] || !roles["sdaudioencoder"] {
+		t.Fatalf("sd.cpp tokenizer and audio encoder must be content-identified assets: %#v", snapshot.Assets)
+	}
+	for _, forbidden := range []string{"private-tokenizer", "private-wav2vec2"} {
+		if strings.Contains(string(snapshot.JSON), forbidden) {
+			t.Fatalf("snapshot leaked %q: %s", forbidden, snapshot.JSON)
+		}
+	}
+}

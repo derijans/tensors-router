@@ -23,16 +23,43 @@ func TestCapabilitiesContextPrefersContextSizeOverVLLMFallback(t *testing.T) {
 	}
 }
 
-func TestDecodeRuntimeConfigDecodesGPULayersAndStreamLayers(t *testing.T) {
-	metadata, err := DecodeRuntimeConfig([]byte(`{"gpulayers": -1, "sdstreamlayers": true}`))
+func TestDecodeRuntimeConfigDecodesGPULayersAndToleratesLegacyStreamLayers(t *testing.T) {
+	metadata, err := DecodeRuntimeConfig([]byte(`{"gpulayers": -1, "sdstreamlayers": true, "sdstreaming": true}`))
 	if err != nil {
-		t.Fatalf("DecodeRuntimeConfig failed: %v", err)
+		t.Fatalf("stable-diffusion.cpp removed --stream-layers, but configs that still set it must load: %v", err)
 	}
 	if metadata.GPULayers != -1 {
 		t.Fatalf("GPULayers = %d, want -1", metadata.GPULayers)
 	}
-	if !metadata.SDStreamLayers {
-		t.Fatalf("SDStreamLayers = false, want true")
+}
+
+func TestDecodeRuntimeConfigAcceptsLegacyStringReasoningPreserve(t *testing.T) {
+	for raw, want := range map[string]bool{`true`: true, `false`: false, `"true"`: true, `"false"`: false, `"on"`: true, `"off"`: false} {
+		metadata, err := DecodeRuntimeConfig([]byte(`{"reasoning_preserve": ` + raw + `}`))
+		if err != nil {
+			t.Fatalf("%s: %v", raw, err)
+		}
+		if enabled := metadata.ReasoningPreserve.Bool(); enabled == nil || *enabled != want {
+			t.Fatalf("%s: reasoning_preserve = %v, want %v", raw, enabled, want)
+		}
+	}
+	if _, err := DecodeRuntimeConfig([]byte(`{"reasoning_preserve": "sometimes"}`)); err == nil {
+		t.Fatal("expected a non-boolean reasoning_preserve string to be rejected")
+	}
+	metadata, err := DecodeRuntimeConfig([]byte(`{"reasoning_preserve": null}`))
+	if err != nil || metadata.ReasoningPreserve.Bool() != nil {
+		t.Fatalf("null reasoning_preserve must leave the upstream default, got %v, %v", metadata.ReasoningPreserve, err)
+	}
+}
+
+func TestLlamaLoadModeRejectsValuesOutsideUpstreamList(t *testing.T) {
+	for _, mode := range LlamaLoadModes() {
+		if resolved, err := (RuntimeConfig{LoadMode: mode}).LlamaLoadMode(); err != nil || resolved != mode {
+			t.Fatalf("load_mode %q = %q, %v", mode, resolved, err)
+		}
+	}
+	if _, err := (RuntimeConfig{LoadMode: "direct-io"}).LlamaLoadMode(); err == nil {
+		t.Fatal("expected load_mode outside the llama-server --load-mode list to be rejected")
 	}
 }
 

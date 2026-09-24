@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"tensors-router/internal/catalog"
-	"tensors-router/internal/cook"
 	"tensors-router/internal/portalloc"
 )
 
@@ -45,6 +44,17 @@ func TestLlamaLaunchArgumentsFromKcpps(t *testing.T) {
 		"spec_type":"draft-simple",
 		"spec_draft_type_k":"q8_0",
 		"spec_draft_type_v":"q4_0",
+		"draft_dflash":true,
+		"draftmodel":"C:/models/draft.gguf",
+		"draftamount":8,
+		"draftgpulayers":99,
+		"flashattention":true,
+		"n_cpu_ffn":4,
+		"kv_unified_per_slot":4096,
+		"lazy_mode":"off",
+		"reasoning_preserve":"false",
+		"video_fps":2,
+		"video_timestamp_interval":1000,
 		"mmproj":"C:/models/mmproj.gguf",
 		"mmprojcpu":true,
 		"mmproj_device":"CUDA0",
@@ -52,7 +62,7 @@ func TestLlamaLaunchArgumentsFromKcpps(t *testing.T) {
 		"visionmaxtokens":512,
 		"api_key_file":"C:/router/keys.txt",
 		"log_prompts_dir":"C:/router/prompts",
-		"reasoning_effort":"high",
+		"reasoning_effort":"xhigh",
 		"tools_runtime":"docker:python:3.12",
 		"agent":true,
 		"models_dir":"C:/models/router",
@@ -64,11 +74,12 @@ func TestLlamaLaunchArgumentsFromKcpps(t *testing.T) {
 	}
 
 	manager, err := NewLlamaManager(ProcessConfig{
-		BackendURL: "http://127.0.0.1:6002",
-		BinaryPath: "llama-server",
-		ConfigDir:  dir,
-		DataDir:    t.TempDir(),
-		ExtraArgs:  []string{"--parallel", "2"},
+		BackendURL:     "http://127.0.0.1:6002",
+		BinaryPath:     "llama-server",
+		ConfigDir:      dir,
+		DataDir:        t.TempDir(),
+		ExtraArgs:      []string{"--parallel", "2"},
+		VideoFFmpegDir: "C:/ffmpeg/bin",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -89,21 +100,28 @@ func TestLlamaLaunchArgumentsFromKcpps(t *testing.T) {
 		"--batch-size", "512",
 		"--ubatch-size", "256",
 		"--n-gpu-layers", "-1",
+		"--n-cpu-ffn", "4",
 		"--split-mode", "layer",
 		"--tensor-split", "1,2",
 		"--main-gpu", "1",
+		"--flash-attn", "on",
 		"--parallel", "3",
 		"--no-cont-batching",
 		"--cache-ram", "4096",
 		"--ctx-checkpoints", "16",
 		"--kv-unified",
+		"--kv-unified-per-slot", "4096",
 		"--no-cache-idle-slots",
 		"--swa-full",
-		"--spec-type", "draft-simple",
+		"--spec-type", "draft-simple,draft-dflash",
 		"--spec-draft-type-k", "q8_0",
 		"--spec-draft-type-v", "q4_0",
-		"--no-mmap",
-		"--mlock",
+		"--model-draft", "C:/models/draft.gguf",
+		"--spec-draft-n-max", "8",
+		"--spec-draft-ngl", "99",
+		"--load-mode", "mlock",
+		"--lazy-mode", "off",
+		"--no-reasoning-preserve",
 		"--cache-type-k", "q8_0",
 		"--cache-type-v", "q4_0",
 		"--mmproj", "C:/models/mmproj.gguf",
@@ -111,9 +129,12 @@ func TestLlamaLaunchArgumentsFromKcpps(t *testing.T) {
 		"--image-min-tokens", "32",
 		"--image-max-tokens", "512",
 		"--mmproj-device", "CUDA0",
+		"--video-fps", "2",
+		"--video-timestamp-interval", "1000",
+		"--video-ffmpeg-dir", "C:/ffmpeg/bin",
 		"--api-key-file", "C:/router/keys.txt",
 		"--log-prompts-dir", "C:/router/prompts",
-		"--reasoning-effort", "high",
+		"--reasoning-effort", "xhigh",
 		"--tools-runtime", "docker:python:3.12",
 		"--agent",
 		"--models-dir", "C:/models/router",
@@ -235,7 +256,7 @@ func TestLlamaEmbeddingLaunchArgumentsEnableEmbeddings(t *testing.T) {
 		"--port", "6003",
 		"--model", "C:/models/embed.gguf",
 		"--alias", "embed",
-		"--no-mmap",
+		"--load-mode", "none",
 		"--embeddings",
 	}
 	if !reflect.DeepEqual(args, expected) {
@@ -361,7 +382,7 @@ func TestSeparateLlamaEmbeddingLaunchArguments(t *testing.T) {
 		"--host", "127.0.0.1", "--port", "6005",
 		"--model", "C:/models/cpu-embed.gguf", "--alias", "cpu", "--embeddings",
 		"--ctx-size", "2048", "--threads", "8",
-		"--device", "none", "--n-gpu-layers", "0", "--no-mmap", "--parallel", "2",
+		"--device", "none", "--n-gpu-layers", "0", "--load-mode", "none", "--parallel", "2",
 	}
 	if !reflect.DeepEqual(cpuArgs, cpuExpected) {
 		t.Fatalf("unexpected CPU embedding args %#v", cpuArgs)
@@ -376,7 +397,7 @@ func TestSeparateLlamaEmbeddingLaunchArguments(t *testing.T) {
 		"--model", "C:/models/gpu-embed.gguf", "--alias", "gpu", "--embeddings",
 		"--ctx-size", "4096", "--n-gpu-layers", "-1", "--device", "cuda",
 		"--split-mode", "layer", "--tensor-split", "1,2", "--main-gpu", "1",
-		"--no-mmap", "--rpc", "rpc0", "--parallel", "2",
+		"--load-mode", "none", "--rpc", "rpc0", "--parallel", "2",
 	}
 	if !reflect.DeepEqual(gpuArgs, gpuExpected) {
 		t.Fatalf("unexpected GPU embedding args %#v", gpuArgs)
@@ -389,7 +410,7 @@ func TestSeparateLlamaEmbeddingLaunchArguments(t *testing.T) {
 	globalGPUExpected := []string{
 		"--host", "127.0.0.1", "--port", "6005",
 		"--model", "C:/models/global-gpu-embed.gguf", "--alias", "global-gpu", "--embeddings",
-		"--n-gpu-layers", "-1", "--no-mmap",
+		"--n-gpu-layers", "-1", "--load-mode", "none",
 		"--device", "vulkan", "--split-mode", "row", "--tensor-split", "3,4", "--main-gpu", "2", "--rpc", "rpc0",
 		"--parallel", "2",
 	}
@@ -506,7 +527,7 @@ func TestWhisperCPPMapsCompleteServerOptions(t *testing.T) {
 		"--threads", "--device", "--flash-attn", "--no-gpu", "--offset-t", "--offset-n", "--duration",
 		"--max-context", "--max-len", "--split-on-word", "--best-of", "--beam-size", "--audio-ctx",
 		"--word-thold", "--entropy-thold", "--logprob-thold", "--no-speech-thold", "--debug-mode",
-		"--translate", "--diarize", "--tinydiarize", "--no-fallback", "--no-context", "--detect-language",
+		"--translate", "--diarize", "--tinydiarize", "--no-fallback", "--detect-language",
 		"--carry-initial-prompt", "--ov-e-device", "--dtw", "--suppress-nst", "--print-special",
 		"--print-colors", "--print-realtime", "--print-progress", "--no-timestamps", "--no-language-probabilities",
 		"--vad-min-speech-duration-ms", "--vad-min-silence-duration-ms", "--vad-max-speech-duration-s",
@@ -516,9 +537,9 @@ func TestWhisperCPPMapsCompleteServerOptions(t *testing.T) {
 			t.Fatalf("missing whisper argument %q in %#v", expected, args)
 		}
 	}
-	for _, unsupported := range []string{"--output-json", "--output-json-full", "--output-srt", "--suppress-regex", "--language-probability"} {
+	for _, unsupported := range []string{"--output-json", "--output-json-full", "--output-srt", "--suppress-regex", "--language-probability", "--no-context"} {
 		if containsArgument(args, unsupported) {
-			t.Fatalf("unsupported v1.9.1 whisper-server argument %q in %#v", unsupported, args)
+			t.Fatalf("argument %q is absent from the whisper-server v1.9.4 option list, got %#v", unsupported, args)
 		}
 	}
 }
@@ -561,70 +582,65 @@ func TestCurrentReleaseArgumentsPreserveOptionalAndAssignmentValues(t *testing.T
 		}
 	}
 
+	autoFit := true
 	sdcppArgs, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{
-		SDModel:        "C:/models/image.safetensors",
-		SDMaxVRAM:      "cuda0=6,vulkan0=4",
-		SDStreamLayers: true,
-		SDStreaming:    true,
-		SDAutoFit:      true,
-		SDSplitMode:    "layer",
-		SDCircular:     true,
-		SDCircularX:    true,
-		SDCircularY:    true,
+		SDModel:     "C:/models/image.safetensors",
+		SDMaxVRAM:   "cuda0=6,vulkan0=4",
+		SDAutoFit:   &autoFit,
+		SDSplitMode: "layer",
+		SDCircular:  true,
+		SDCircularX: true,
+		SDCircularY: true,
 	}, "sdcpp")
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, expected := range []string{"--max-vram", "cuda0=6,vulkan0=4", "--stream-layers", "--streaming", "--autofit", "--split-mode", "layer", "--circular", "--circular-x", "--circular-y"} {
+	for _, expected := range [][2]string{{"--max-vram", "cuda0=6,vulkan0=4"}, {"--auto-fit", "on"}, {"--split-mode", "layer"}} {
+		if !containsAdjacentArguments(sdcppArgs, expected[0], expected[1]) {
+			t.Fatalf("missing stable-diffusion.cpp argument %q %q in %#v", expected[0], expected[1], sdcppArgs)
+		}
+	}
+	for _, expected := range []string{"--circular", "--circularx", "--circulary"} {
 		if !containsArgument(sdcppArgs, expected) {
 			t.Fatalf("missing stable-diffusion.cpp argument %q in %#v", expected, sdcppArgs)
 		}
 	}
 }
 
-// TestSDCPPCatalogNativeFlagsAreEmitted guards against the option catalog advertising a
-// sd-server flag that sdcppArguments never emits, which silently discards whatever the
-// Cook UI writes for that field.
-func TestSDCPPCatalogNativeFlagsAreEmitted(t *testing.T) {
-	for _, definition := range cook.OptionCatalog() {
-		if definition.Lane != cook.LaneImage || definition.NativeFlag == "" {
-			continue
+func TestSDCPPAutoFitTakesOnOffValueAndDefersToUpstreamWhenUnset(t *testing.T) {
+	disabled := false
+	args, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{SDModel: "C:/models/image.safetensors", SDAutoFit: &disabled}, "sdcpp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsAdjacentArguments(args, "--auto-fit", "off") {
+		t.Fatalf("sd-server master-908 parses --auto-fit as on|off; expected --auto-fit off in %#v", args)
+	}
+	args, err = RuntimeArgumentsForTest(catalog.RuntimeConfig{SDModel: "C:/models/image.safetensors"}, "sdcpp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if containsArgument(args, "--auto-fit") {
+		t.Fatalf("unset sdautofit must leave the upstream default in place, got %#v", args)
+	}
+}
+
+func TestSDCPPIgnoresLegacyStreamingOptionsRemovedUpstream(t *testing.T) {
+	metadata, err := catalog.DecodeRuntimeConfig([]byte(`{"sdmodel":"C:/models/image.safetensors","sdstreamlayers":true,"sdstreaming":true,"sdautofit":true}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	args, err := RuntimeArgumentsForTest(metadata, "sdcpp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, removed := range []string{"--stream-layers", "--streaming", "--autofit"} {
+		if containsArgument(args, removed) {
+			t.Fatalf("%q is absent from the sd-server master-908 option list and would abort launch, got %#v", removed, args)
 		}
-		if !containsString(definition.Backends, "llama_sdcpp") {
-			continue
-		}
-		key := definition.Key
-		t.Run(key, func(t *testing.T) {
-			metadata := catalog.RuntimeConfig{SDModel: "C:/models/probe.safetensors"}
-			field := reflect.ValueOf(&metadata).Elem().FieldByNameFunc(func(name string) bool {
-				fieldType, _ := reflect.TypeOf(metadata).FieldByName(name)
-				return fieldType.Tag.Get("json") == key
-			})
-			if !field.IsValid() {
-				t.Fatalf("catalog key %q has no matching catalog.RuntimeConfig field", key)
-			}
-			switch field.Kind() {
-			case reflect.String:
-				field.SetString("regression-test-value")
-			case reflect.Int:
-				field.SetInt(7)
-			case reflect.Float64:
-				field.SetFloat(1.5)
-			case reflect.Bool:
-				field.SetBool(true)
-			case reflect.Interface:
-				field.Set(reflect.ValueOf("regression-test-value"))
-			default:
-				t.Fatalf("catalog key %q maps to unsupported field kind %s", key, field.Kind())
-			}
-			args, err := RuntimeArgumentsForTest(metadata, "sdcpp")
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !containsArgument(args, definition.NativeFlag) {
-				t.Fatalf("option %q declares native flag %q but sdcppArguments never emits it: %#v", key, definition.NativeFlag, args)
-			}
-		})
+	}
+	if !containsAdjacentArguments(args, "--auto-fit", "on") {
+		t.Fatalf("legacy sdautofit=true must map to --auto-fit on, got %#v", args)
 	}
 }
 
@@ -670,6 +686,8 @@ func TestSDCPPLaunchArgumentsFromKcpps(t *testing.T) {
 		"sdclipg":"C:/models/clip-g.gguf",
 		"sdllm":"C:/models/llm.gguf",
 		"sdllmvision":"C:/models/llm-vision.gguf",
+		"sdtokenizer":"C:/models/tokenizer.json",
+		"sdaudioencoder":"C:/models/wav2vec2.gguf",
 		"sdclipvision":"C:/models/clip-vision.gguf",
 		"sdembeddingsconnectors":["C:/models/embed-a.gguf","C:/models/embed-b.gguf"],
 		"sdcontrolnet":"C:/models/controlnet.safetensors",
@@ -681,7 +699,20 @@ func TestSDCPPLaunchArgumentsFromKcpps(t *testing.T) {
 		"sdparamsbackend":"cpu",
 		"sdrpcservers":["127.0.0.1:9001","127.0.0.1:9002"],
 		"sdmaxvram":12288,
-		"sdstreamlayers":true,
+		"sdautofit":false,
+		"sdconditioningcachesize":0,
+		"sddisableprefetch":true,
+		"sddisablesegmentedcompute":true,
+		"sdsageattention":true,
+		"sdlinearscale":1,
+		"sdattnscale":0.5,
+		"sdloglevel":"warn",
+		"sdmodelargs":"qwen_image_2_1_prefix_cache=false",
+		"sdextrasampleargs":"noise_sampler=brownian_tree",
+		"sdextratilingargs":"temporal_tile_frames=4",
+		"sdimagepreprocess":["target=ref,mode=none","target=init,mode=crop"],
+		"sdcircularx":true,
+		"sdcirculary":true,
 		"sdtensortyperules":["vae=f16","clip=q8_0"],
 		"sdvaeformat":"safetensors",
 		"sdloramodeldir":"C:/models/loras",
@@ -727,8 +758,10 @@ func TestSDCPPLaunchArgumentsFromKcpps(t *testing.T) {
 		"--listen-ip", "127.0.0.1",
 		"--listen-port", "7861",
 		"--model", "C:/models/dream.safetensors",
+		"--log-level", "warn",
 		"--vae", "C:/models/vae.safetensors",
 		"--audio-vae", "C:/models/audio-vae.safetensors",
+		"--audio-encoder", "C:/models/wav2vec2.gguf",
 		"--photo-maker", "C:/models/photomaker.safetensors",
 		"--diffusion-model", "C:/models/diffusion.safetensors",
 		"--high-noise-diffusion-model", "C:/models/high-noise.safetensors",
@@ -737,42 +770,55 @@ func TestSDCPPLaunchArgumentsFromKcpps(t *testing.T) {
 		"--clip_l", "C:/models/clip-l.gguf",
 		"--clip_g", "C:/models/clip-g.gguf",
 		"--llm", "C:/models/llm.gguf",
-		"--llm-vision", "C:/models/llm-vision.gguf",
-		"--clip-vision", "C:/models/clip-vision.gguf",
-		"--embeddings-connector", "C:/models/embed-a.gguf,C:/models/embed-b.gguf",
+		"--llm_vision", "C:/models/llm-vision.gguf",
+		"--tokenizer", "C:/models/tokenizer.json",
+		"--clip_vision", "C:/models/clip-vision.gguf",
+		"--embeddings-connectors", "C:/models/embed-a.gguf,C:/models/embed-b.gguf",
 		"--control-net", "C:/models/controlnet.safetensors",
 		"--pulid-weights", "C:/models/pulid.safetensors",
 		"--pulid-id-embedding", "C:/models/pulid.bin",
 		"--pulid-id-weight", "0.75",
 		"--upscale-model", "C:/models/upscale.pth",
+		"--model-args", "qwen_image_2_1_prefix_cache=false",
 		"--backend", "vulkan",
 		"--params-backend", "cpu",
 		"--rpc-servers", "127.0.0.1:9001,127.0.0.1:9002",
 		"--max-vram", "12288",
-		"--stream-layers",
+		"--auto-fit", "off",
 		"--tensor-type-rules", "vae=f16,clip=q8_0",
 		"--vae-format", "safetensors",
 		"--lora-model-dir", "C:/models/loras",
-		"--upscaler-model-dir", "C:/models/upscalers",
+		"--hires-upscalers-dir", "C:/models/upscalers",
 		"--threads", "8",
-		"--fa",
-		"--diffusion-fa",
-		"--diffusion-conv-direct",
-		"--vae-conv-direct",
+		"--conditioning-cache-size", "0",
+		"--disable-prefetch",
+		"--disable-segmented-compute",
 		"--offload-to-cpu",
 		"--vae-on-cpu",
+		"--fa",
+		"--diffusion-fa",
+		"--sage-attn",
+		"--diffusion-conv-direct",
+		"--vae-conv-direct",
+		"--linear-scale", "1",
+		"--attn-scale", "0.5",
+		"--type", "q8_0",
+		"--prediction", "v",
+		"--lora-apply-mode", "at_runtime",
+		"--circularx",
+		"--circulary",
 		"--vae-tiling",
 		"--vae-tile-size", "768x768",
+		"--extra-tiling-args", "temporal_tile_frames=4",
 		"--sampling-method", "euler",
 		"--high-noise-sampling-method", "euler_a",
 		"--scheduler", "karras",
-		"--type", "q8_0",
+		"--extra-sample-args", "noise_sampler=brownian_tree",
 		"--rng", "cuda",
 		"--sampler-rng", "cpu",
-		"--prediction", "v",
-		"--lora-apply-mode", "at_runtime",
 		"--cache-mode", "easycache",
 		"--cache-option", "0.2",
+		"--image-preprocess", "target=ref,mode=none;target=init,mode=crop",
 		"--verbose",
 	}
 	if !reflect.DeepEqual(args, expected) {

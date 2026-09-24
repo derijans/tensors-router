@@ -34,7 +34,7 @@ type RuntimeConfig struct {
 	UseMMap                   bool                   `json:"usemmap"`
 	UseMLock                  bool                   `json:"usemlock"`
 	LoadMode                  string                 `json:"load_mode"`
-	ReasoningPreserve         string                 `json:"reasoning_preserve"`
+	ReasoningPreserve         *LenientBool           `json:"reasoning_preserve"`
 	RPCTargets                string                 `json:"rpctargets"`
 	DraftModel                string                 `json:"draftmodel"`
 	DraftAmount               int                    `json:"draftamount"`
@@ -66,6 +66,17 @@ type RuntimeConfig struct {
 	ModelsMax                 int                    `json:"models_max"`
 	ModelsAutoload            *bool                  `json:"models_autoload"`
 	SSEPingInterval           int                    `json:"sse_ping_interval"`
+	AutoFit                   bool                   `json:"autofit"`
+	OverrideKV                any                    `json:"overridekv"`
+	OverrideTensors           string                 `json:"overridetensors"`
+	LoRA                      any                    `json:"lora"`
+	Jinja                     bool                   `json:"jinja"`
+	Pooling                   string                 `json:"pooling"`
+	NCPUFFN                   int                    `json:"n_cpu_ffn"`
+	LazyMode                  string                 `json:"lazy_mode"`
+	KVUnifiedPerSlot          int                    `json:"kv_unified_per_slot"`
+	VideoFPS                  float64                `json:"video_fps"`
+	VideoTimestampInterval    int                    `json:"video_timestamp_interval"`
 	SDModel                   string                 `json:"sdmodel"`
 	SDDiffusionModel          string                 `json:"sddiffusionmodel"`
 	SDHighNoiseDiffusionModel string                 `json:"sdhighnoisediffusionmodel"`
@@ -84,9 +95,18 @@ type RuntimeConfig struct {
 	SDParamsBackend           string                 `json:"sdparamsbackend"`
 	SDRPCServers              any                    `json:"sdrpcservers"`
 	SDMaxVRAM                 any                    `json:"sdmaxvram"`
-	SDStreamLayers            bool                   `json:"sdstreamlayers"`
-	SDStreaming               bool                   `json:"sdstreaming"`
-	SDAutoFit                 bool                   `json:"sdautofit"`
+	SDAutoFit                 *bool                  `json:"sdautofit"`
+	SDConditioningCacheSize   *int                   `json:"sdconditioningcachesize"`
+	SDDisablePrefetch         bool                   `json:"sddisableprefetch"`
+	SDDisableSegmentedCompute bool                   `json:"sddisablesegmentedcompute"`
+	SDSageAttention           bool                   `json:"sdsageattention"`
+	SDLinearScale             float64                `json:"sdlinearscale"`
+	SDAttnScale               float64                `json:"sdattnscale"`
+	SDLogLevel                string                 `json:"sdloglevel"`
+	SDImagePreprocess         any                    `json:"sdimagepreprocess"`
+	SDModelArgs               string                 `json:"sdmodelargs"`
+	SDExtraSampleArgs         string                 `json:"sdextrasampleargs"`
+	SDExtraTilingArgs         string                 `json:"sdextratilingargs"`
 	SDSplitMode               string                 `json:"sdsplitmode"`
 	SDCircular                bool                   `json:"sdcircular"`
 	SDCircularX               bool                   `json:"sdcircularx"`
@@ -102,6 +122,8 @@ type RuntimeConfig struct {
 	SDVAE                     string                 `json:"sdvae"`
 	SDVAEAuto                 bool                   `json:"sdvaeauto"`
 	SDAudioVAE                string                 `json:"sdaudiovae"`
+	SDAudioEncoder            string                 `json:"sdaudioencoder"`
+	SDTokenizer               string                 `json:"sdtokenizer"`
 	SDPhotoMaker              string                 `json:"sdphotomaker"`
 	SDT5XXL                   string                 `json:"sdt5xxl"`
 	SDClip1                   string                 `json:"sdclip1"`

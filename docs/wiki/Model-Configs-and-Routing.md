@@ -97,6 +97,8 @@ Both profiles contain the same `enable_thinking` key. The router applies the sel
 
 This behavior requires backend support for request-level `chat_template_kwargs`.
 
+llama.cpp keeps reasoning from earlier assistant turns by default (`preserve_reasoning` on since `b10763`). Set `reasoning_preserve` in the `.kcpps` to change the default for the whole runtime, or put `preserve_reasoning` in a profile's `jinja_kwargs` to change it per request.
+
 ## Sharing configurations
 
 Normal `.kcpps` files contain machine-local asset paths. Export a portable configuration before sharing it with another machine or cluster node. Portable files use asset hashes, safe filenames, and optional commit-pinned Hugging Face origins instead of local paths.

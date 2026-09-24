@@ -28,7 +28,7 @@ type Snapshot struct {
 var modelFields = map[string]struct{}{
 	"model": {}, "model_param": {}, "lora": {}, "mmproj": {}, "draftmodel": {},
 	"sdmodel": {}, "sddiffusionmodel": {}, "sdhighnoisediffusionmodel": {}, "sdunconddiffusionmodel": {},
-	"sdllm": {}, "sdllmvision": {}, "sdclipvision": {}, "sdipadapter": {}, "sdmotionmodule": {},
+	"sdllm": {}, "sdllmvision": {}, "sdtokenizer": {}, "sdaudioencoder": {}, "sdclipvision": {}, "sdipadapter": {}, "sdmotionmodule": {},
 	"sdcontrolnet": {}, "sdpulidweights": {}, "sdpulididembedding": {}, "sdupscaler": {}, "sdvae": {},
 	"sdt5xxl": {}, "sdclip1": {}, "sdclip2": {}, "sdclipl": {}, "sdclipg": {}, "sdlora": {},
 	"whispermodel": {}, "whispercpp_vad_model": {}, "ttsmodel": {}, "ttswavtokenizer": {},
@@ -73,6 +73,14 @@ func (builder *snapshotBuilder) transformMap(values map[string]any) (map[string]
 	result := make(map[string]any, len(values))
 	for key, value := range values {
 		normalized := strings.ToLower(strings.TrimSpace(key))
+		if _, ok := modelFields[normalized]; ok {
+			sanitized, err := builder.transformAssetValue(normalized, value, 0)
+			if err != nil {
+				return nil, err
+			}
+			result[key] = sanitized
+			continue
+		}
 		if isSecretField(normalized) || isLogicalModelField(normalized) || isOriginField(normalized) {
 			result[key] = "[REDACTED]"
 			continue
@@ -83,14 +91,6 @@ func (builder *snapshotBuilder) transformMap(values map[string]any) (map[string]
 			} else {
 				result[key] = "[PATH]"
 			}
-			continue
-		}
-		if _, ok := modelFields[normalized]; ok {
-			sanitized, err := builder.transformAssetValue(normalized, value, 0)
-			if err != nil {
-				return nil, err
-			}
-			result[key] = sanitized
 			continue
 		}
 		result[key] = transformNonModelValue(value)

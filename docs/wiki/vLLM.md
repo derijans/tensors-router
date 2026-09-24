@@ -44,7 +44,7 @@ vllm:
   # unverified_vllm_version pins the exact release; empty installs latest, which is
   # unpinned even by version. unverified_python_version defaults to 3.12 when empty.
   # unverified_extra_index_url reaches a CUDA/ROCm-specific torch wheel index.
-  unverified_vllm_version: "0.6.3"
+  unverified_vllm_version: "0.30.0"
   unverified_python_version: "3.12"
   unverified_extra_index_url: "https://download.pytorch.org/whl/cu129"
 ```
@@ -135,7 +135,11 @@ Set `backend_mode` and a `vllm` section in the `.kcpps` file:
 
 `runner` selects the lazy generation, pooling, or speech runtime. The local snapshot path and normalized tree digest identify immutable Hugging Face snapshot contents. Served names and static adapters become catalog aliases without changing snapshot identity.
 
-Typed settings cover common controls. Ordered `serve_args` retain upstream features that are not router-owned, including architecture, quantization, loader, multimodal processor, speculative decoding, and local parallelism choices. Listener addresses, API keys, development mode, gRPC, Ray, remote scale-out, arbitrary middleware, unrestricted plugins, and similar router-bypassing options are rejected.
+The companion launches each runtime with `vllm serve`, as `python -I -m vllm.entrypoints.cli.main serve <snapshot path>`, bound to its private Unix-domain socket and pinned to one API server process. The deprecated `vllm.entrypoints.openai.api_server` module is no longer used, so the runtime needs a vLLM release that ships the `vllm serve` CLI module (0.7.3 or newer; `--runner` raises the practical floor further).
+
+Typed settings cover common controls. Ordered `serve_args` retain upstream features that are not router-owned, including architecture, quantization, loader, reasoning parser, multimodal processor, speculative decoding, and local parallelism choices. Listener addresses, API keys, API server count, development mode, gRPC, Ray, remote data-parallel addresses, vLLM-Omni delegation, arbitrary middleware, unrestricted plugins, and similar router-bypassing options are rejected. A router-owned option is rejected in every form vLLM's parser accepts: `--name=value`, underscores for dashes, dotted JSON keys such as `--hf-overrides.architectures`, and unambiguous abbreviations such as `--trust-remote`.
+
+`--enable-scale-out` is accepted. vLLM 0.30 registers the render endpoints, `/derender`, and `/inference/v1/generate` only when it is set. The router proxies the render endpoints listed in the API boundary below; `/derender` and `/inference/v1/generate` stay unreachable because the router does not allowlist them.
 
 Remote code and external tool servers default to disabled. Both the router configuration and model configuration must explicitly enable their respective use. Tool servers use explicit `host:port` entries; URLs, credentials, paths, queries, and comma injection are rejected.
 
@@ -143,9 +147,11 @@ Remote code and external tool servers default to disabled. Both the router confi
 
 Stable vLLM online-serving inference is exposed through the router's inference authentication: OpenAI Completions, Chat, Chat Batch, Responses, Embeddings, Transcriptions, Translations, Realtime transcription, Anthropic Messages and token counting, Cohere Embed and Rerank, Classification, Score, Pooling, Generative Scoring, SageMaker invocation, tokenize, and detokenize.
 
+Prompt render previews are exposed the same way for generation models: `POST /v1/messages/render`, `POST /v1/responses/render`, and `POST /cohere/v2/chat/render`. They return the tokenized prompt without running generation and need `--enable-scale-out` in the model's `serve_args` on vLLM 0.30 or newer; without it vLLM answers `404`.
+
 Health, version, load, metrics, tokenizer information, dynamic LoRA, and Elastic Expert Parallelism are available only under the administrator-authenticated `/router/v1/vllm/...` namespace. Dynamic LoRA and EEP also require their separate configuration switches.
 
-Development, profiler, arbitrary RPC, weight-transfer, sleep, offline Python, native multi-node, disaggregated, gRPC, Ray, renderer, and derenderer surfaces are not proxied. vLLM-Omni is a separate project and is outside this backend.
+Development, profiler, arbitrary RPC, weight-transfer, sleep, offline Python, native multi-node, disaggregated, gRPC, Ray, token-in/token-out generation (`/inference/v1/generate`), and derenderer surfaces are not proxied. vLLM-Omni is a separate project and is outside this backend.
 
 The router connects to vLLM over a private Unix-domain socket. It strips client and backend credentials and hop-by-hop headers, applies router limits, and allowlists every method and path. See the upstream [security guidance](https://docs.vllm.ai/en/stable/usage/security/), [online-serving surface](https://docs.vllm.ai/en/latest/serving/online_serving/), [Realtime API](https://docs.vllm.ai/en/stable/serving/online_serving/speech_to_text/), and [installation matrix](https://docs.vllm.ai/en/stable/getting_started/installation/index.html).
 

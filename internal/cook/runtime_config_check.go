@@ -10,10 +10,7 @@ import (
 )
 
 func validateComposedRuntimeConfig(body map[string]json.RawMessage) error {
-	issues := make([]ValidationIssue, 0)
-	if issue, ok := runtimeConfigDecodeIssue(body); ok {
-		issues = append(issues, issue)
-	}
+	issues := runtimeConfigDecodeIssues(body)
 	issues = append(issues, runtimeConfigShapeIssues(body)...)
 	if len(issues) == 0 {
 		return nil
@@ -21,25 +18,38 @@ func validateComposedRuntimeConfig(body map[string]json.RawMessage) error {
 	return ValidationError{Issues: issues}
 }
 
-func runtimeConfigDecodeIssue(body map[string]json.RawMessage) (ValidationIssue, bool) {
+func runtimeConfigDecodeIssues(body map[string]json.RawMessage) []ValidationIssue {
 	content, err := json.Marshal(body)
 	if err != nil {
-		return ValidationIssue{}, false
+		return nil
 	}
-	if _, err := catalog.DecodeRuntimeConfig(content); err != nil {
+	metadata, err := catalog.DecodeRuntimeConfig(content)
+	if err != nil {
 		field := ""
 		var typeError *json.UnmarshalTypeError
 		if errors.As(err, &typeError) {
 			field = typeError.Field
 		}
-		return ValidationIssue{
+		return []ValidationIssue{{
 			Severity: "error",
 			Code:     "runtime_config_undecodable",
 			Field:    field,
 			Message:  fmt.Sprintf("configuration cannot be loaded by the router: %v", err),
-		}, true
+		}}
 	}
-	return ValidationIssue{}, false
+	return runtimeConfigValueIssues(metadata)
+}
+
+func runtimeConfigValueIssues(metadata catalog.RuntimeConfig) []ValidationIssue {
+	if _, err := metadata.LlamaLoadMode(); err != nil {
+		return []ValidationIssue{{
+			Severity: "error",
+			Code:     "option_value_choice",
+			Field:    "load_mode",
+			Message:  err.Error(),
+		}}
+	}
+	return nil
 }
 
 func runtimeConfigShapeIssues(body map[string]json.RawMessage) []ValidationIssue {

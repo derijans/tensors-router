@@ -258,7 +258,14 @@ func runServe(args []string) error {
 	}
 	routercluster.SyncConfiguredSlaves(ctx, syncConfig, registry, clusterProbeClient, serveLogger)
 
-	backendFamilies, backendShutdowns, err := createBackends(ctx, cfg, mcpReconciler)
+	ffmpegTool, err := ffmpeg.Locate(cfg.FFmpeg.BinaryPath)
+	if err != nil {
+		serveLogger.Printf("ffmpeg not available, video remuxing and non-WAV audio conversion are disabled: %v", err)
+	} else {
+		serveLogger.Printf("ffmpeg located at %s", ffmpegTool.Path())
+	}
+
+	backendFamilies, backendShutdowns, err := createBackends(ctx, cfg, mcpReconciler, llamaVideoFFmpegDir(ffmpegTool))
 	if err != nil {
 		return err
 	}
@@ -266,13 +273,6 @@ func runServe(args []string) error {
 		backendFamilies[mode] = family
 	}
 	shutdownBackends = backendShutdowns
-
-	ffmpegTool, err := ffmpeg.Locate(cfg.FFmpeg.BinaryPath)
-	if err != nil {
-		serveLogger.Printf("ffmpeg not available, video remuxing and non-WAV audio conversion are disabled: %v", err)
-	} else {
-		serveLogger.Printf("ffmpeg located at %s", ffmpegTool.Path())
-	}
 
 	authPolicy, err := auth.NewPolicy(auth.PolicyConfig{
 		AllowedCIDRs:  cfg.Server.AllowedCIDRs,
@@ -549,13 +549,15 @@ func clusterRoutingTargets(cfg config.Config) []string {
 	return []string{cfg.Cluster.PublicURL, cfg.Cluster.MasterURL}
 }
 
-func createBackends(ctx context.Context, cfg config.Config, mcpReconciler *mcp.Reconciler) (map[string]proxy.BackendFamilyConfig, []func(context.Context) error, error) {
+func createBackends(ctx context.Context, cfg config.Config, mcpReconciler *mcp.Reconciler, videoFFmpegDir string) (map[string]proxy.BackendFamilyConfig, []func(context.Context) error, error) {
 	koboldManager, err := kobold.NewManager(koboldProcessConfig(cfg, mcpReconciler))
 	if err != nil {
 		return nil, nil, err
 	}
 
-	llamaManager, err := native.NewLlamaManager(llamaProcessConfig(cfg, mcpReconciler))
+	llamaConfig := llamaProcessConfig(cfg, mcpReconciler)
+	llamaConfig.VideoFFmpegDir = videoFFmpegDir
+	llamaManager, err := native.NewLlamaManager(llamaConfig)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -587,7 +589,7 @@ func createBackends(ctx context.Context, cfg config.Config, mcpReconciler *mcp.R
 			TextBackend:          llamaManager,
 			ImageBackend:         sdcppManager,
 			TranscriptionBackend: whisperCPPManager,
-			SeparateBackend:      llamaSeparateBackend(cfg),
+			SeparateBackend:      llamaSeparateBackend(cfg, videoFFmpegDir),
 			Stop:                 stopNativeManagers(llamaManager, sdcppManager, whisperCPPManager),
 			StopPrimary:          stopNativeManagers(llamaManager, sdcppManager, whisperCPPManager),
 		},
@@ -614,9 +616,10 @@ func koboldSeparateBackend(cfg config.Config) func(string, string) (proxy.Backen
 	}
 }
 
-func llamaSeparateBackend(cfg config.Config) func(string, string) (proxy.Backend, error) {
+func llamaSeparateBackend(cfg config.Config, videoFFmpegDir string) func(string, string) (proxy.Backend, error) {
 	return func(name string, lane string) (proxy.Backend, error) {
 		processConfig := llamaProcessConfig(cfg)
+		processConfig.VideoFFmpegDir = videoFFmpegDir
 		processConfig.BackendURL = "http://127.0.0.1:0"
 		processConfig.DataDir = filepath.Join(cfg.Llama.DataDir, "separate", name)
 		processConfig.MCP = nil

@@ -219,14 +219,38 @@ func TestOptionCatalogIncludesCurrentCompatibilityOptions(t *testing.T) {
 		{key: "mmproj_auto", valueType: ValueBool, nativeFlag: "--mmproj-auto"},
 		{key: "spec_draft_p_min", valueType: ValueNumber, nativeFlag: "--spec-draft-p-min"},
 		{key: "sse_ping_interval", valueType: ValueNumber, nativeFlag: "--sse-ping-interval"},
-		{key: "sdautofit", valueType: ValueBool, nativeFlag: "--autofit"},
+		{key: "sdautofit", valueType: ValueBool, nativeFlag: "--auto-fit"},
 		{key: "sdsplitmode", valueType: ValueString, nativeFlag: "--split-mode"},
-		{key: "sdstreaming", valueType: ValueBool, nativeFlag: "--streaming"},
+		{key: "sdstreaming", valueType: ValueBool, legacy: true},
 		{key: "sdcircular", valueType: ValueBool, nativeFlag: "--circular"},
-		{key: "sdcircularx", valueType: ValueBool, nativeFlag: "--circular-x"},
-		{key: "sdcirculary", valueType: ValueBool, nativeFlag: "--circular-y"},
+		{key: "sdcircularx", valueType: ValueBool, nativeFlag: "--circularx"},
+		{key: "sdcirculary", valueType: ValueBool, nativeFlag: "--circulary"},
 		{key: "sdmaxvram", valueType: ValueString, nativeFlag: "--max-vram"},
-		{key: "sdstreamlayers", valueType: ValueBool, nativeFlag: "--stream-layers", legacy: true},
+		{key: "sdstreamlayers", valueType: ValueBool, legacy: true},
+		{key: "sdllmvision", valueType: ValueString, nativeFlag: "--llm_vision"},
+		{key: "sdclipvision", valueType: ValueString, nativeFlag: "--clip_vision"},
+		{key: "sdembeddingsconnectors", valueType: ValueJSON, nativeFlag: "--embeddings-connectors"},
+		{key: "sdhiresupscalersdir", valueType: ValueString, nativeFlag: "--hires-upscalers-dir"},
+		{key: "sdtokenizer", valueType: ValueString, nativeFlag: "--tokenizer"},
+		{key: "sdaudioencoder", valueType: ValueString, nativeFlag: "--audio-encoder"},
+		{key: "sdconditioningcachesize", valueType: ValueNumber, nativeFlag: "--conditioning-cache-size"},
+		{key: "sdimagepreprocess", valueType: ValueJSON, nativeFlag: "--image-preprocess"},
+		{key: "load_mode", valueType: ValueString, nativeFlag: "--load-mode"},
+		{key: "usemmap", valueType: ValueBool, nativeFlag: "--load-mode"},
+		{key: "usemlock", valueType: ValueBool, nativeFlag: "--load-mode"},
+		{key: "reasoning_preserve", valueType: ValueBool, nativeFlag: "--reasoning-preserve"},
+		{key: "draft_dflash", valueType: ValueBool, nativeFlag: "--spec-type"},
+		{key: "draft_dspark", valueType: ValueBool, nativeFlag: "--spec-type"},
+		{key: "draftgpulayers", valueType: ValueNumber, nativeFlag: "--spec-draft-ngl"},
+		{key: "draftamount", valueType: ValueNumber, nativeFlag: "--spec-draft-n-max"},
+		{key: "n_cpu_ffn", valueType: ValueNumber, nativeFlag: "--n-cpu-ffn"},
+		{key: "lazy_mode", valueType: ValueString, nativeFlag: "--lazy-mode"},
+		{key: "kv_unified_per_slot", valueType: ValueNumber, nativeFlag: "--kv-unified-per-slot"},
+		{key: "video_fps", valueType: ValueNumber, nativeFlag: "--video-fps"},
+		{key: "video_timestamp_interval", valueType: ValueNumber, nativeFlag: "--video-timestamp-interval"},
+		{key: "whispercpp_no_context", valueType: ValueBool, legacy: true},
+		{key: "usedirectio", valueType: ValueBool},
+		{key: "ffncpu", valueType: ValueNumber},
 		{key: "swapadding", valueType: ValueNumber},
 	}
 	for _, testCase := range tests {
@@ -240,7 +264,7 @@ func TestOptionCatalogIncludesCurrentCompatibilityOptions(t *testing.T) {
 			}
 		})
 	}
-	if definition, ok := OptionDefinitionForKey("reasoningeffort"); !ok || definition.Default != "default" || !containsString(definition.Choices, "none") {
+	if definition, ok := OptionDefinitionForKey("reasoningeffort"); !ok || definition.Default != "default" || !containsString(definition.Choices, "none") || !containsString(definition.Choices, "xhigh") {
 		t.Fatalf("unexpected reasoning effort definition %#v", definition)
 	}
 	if definition, ok := OptionDefinitionForKey("defaultgenamt"); !ok || definition.Default != "1536" || !containsString(definition.Choices, "32768") {
@@ -249,8 +273,34 @@ func TestOptionCatalogIncludesCurrentCompatibilityOptions(t *testing.T) {
 	if definition, ok := OptionDefinitionForKey("sampling_method"); !ok || !containsString(definition.Choices, "dpm++2m_sde_bt") {
 		t.Fatalf("missing current sampling method %#v", definition)
 	}
-	if definition, ok := OptionDefinitionForKey("scheduler"); !ok || !containsString(definition.Choices, "logit_normal") || !containsString(definition.Choices, "beta") {
+	if definition, ok := OptionDefinitionForKey("scheduler"); !ok || !containsString(definition.Choices, "logit_normal") || !containsString(definition.Choices, "beta") || !containsString(definition.Choices, "llada_image") {
 		t.Fatalf("missing current scheduler choices %#v", definition)
+	}
+	for key, expected := range map[string][]string{
+		"load_mode":        {"auto", "none", "mmap", "mlock", "mmap+mlock", "dio"},
+		"lazy_mode":        {"on", "auto", "off"},
+		"reasoning_effort": {"default", "xhigh", "max"},
+		"type":             {"q2_0", "f8_e4m3", "f8_e5m2"},
+		"prediction":       {"sefi_flow", "sensenova_u1_flow"},
+		"spec_type":        {"draft-dflash", "draft-dspark"},
+		"sdloglevel":       {"debug", "verbose", "info", "warn", "error"},
+		"device":           {"none", "CPU", "CUDA0", "Vulkan0", "CUDA0,CUDA1"},
+	} {
+		definition, ok := OptionDefinitionForKey(key)
+		if !ok {
+			t.Fatalf("missing option %q", key)
+		}
+		for _, choice := range expected {
+			if !containsString(definition.Choices, choice) {
+				t.Fatalf("option %q missing upstream choice %q: %#v", key, choice, definition.Choices)
+			}
+		}
+	}
+	if definition, _ := OptionDefinitionForKey("device"); containsString(definition.Choices, "cuda") || containsString(definition.Choices, "vulkan") {
+		t.Fatalf("llama.cpp --device takes backend device names such as CUDA0, not backend families: %#v", definition.Choices)
+	}
+	if definition, _ := OptionDefinitionForKey("prediction"); containsString(definition.Choices, "flux2_flow") {
+		t.Fatalf("sd.cpp master-908 prediction_to_str has no flux2_flow: %#v", definition.Choices)
 	}
 }
 

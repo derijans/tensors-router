@@ -96,6 +96,11 @@ func TestVLLMTaskPathCompatibilityIsExact(t *testing.T) {
 		{"pooling", "/v1/embeddings", false},
 		{"pooling", "/tokenize", true},
 		{"transcription", "/tokenize", false},
+		{"generate", "/v1/messages/render", true},
+		{"generate", "/v1/responses/render", true},
+		{"generate", "/cohere/v2/chat/render", true},
+		{"embedding", "/v1/responses/render", false},
+		{"embedding", "/cohere/v2/chat/render", false},
 	}
 	for _, test := range tests {
 		catalogModel := catalog.Model{BackendMode: BackendModeVLLM, VLLMTask: test.task, HasLLM: true, HasEmbeddings: true}

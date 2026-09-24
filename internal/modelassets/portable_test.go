@@ -46,7 +46,7 @@ func TestExportAndResolvePortableConfig(t *testing.T) {
 }
 
 func TestExportCoversRegularModelRoleFields(t *testing.T) {
-	fields := []string{"lora", "sdaudiovae", "sdllm", "sdllmvision", "sdclipvision", "sdembeddingsconnectors", "sdcontrolnet", "sdpulidweights", "sdpulididembedding"}
+	fields := []string{"lora", "sdaudiovae", "sdllm", "sdllmvision", "sdtokenizer", "sdaudioencoder", "sdclipvision", "sdembeddingsconnectors", "sdcontrolnet", "sdpulidweights", "sdpulididembedding"}
 	config := make(map[string]any, len(fields))
 	for _, field := range fields {
 		config[field] = "C:/models/" + field + ".safetensors"

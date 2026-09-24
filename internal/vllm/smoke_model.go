@@ -273,14 +273,11 @@ func prepareSmokeSocketDirectory(environmentPath string) (string, string, error)
 }
 
 func smokeServerArguments(socketPath string, modelPath string) []string {
-	return []string{
-		"-I", "-m", "vllm.entrypoints.openai.api_server",
-		"--uds", socketPath,
-		"--model", modelPath,
+	return append(serveCommand(modelPath, socketPath),
 		"--served-model-name", "tensor-router-vllm-smoke",
 		"--max-num-seqs", "1",
 		"--enforce-eager",
-	}
+	)
 }
 
 func (tester CommandSmokeTester) launchAndProbeSmoke(ctx context.Context, executable string, arguments []string, environment []string, directory string, socketDirectory string, socketPath string, logs io.Writer) error {

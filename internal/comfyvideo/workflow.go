@@ -35,15 +35,19 @@ type Params struct {
 	CFG            float64
 	SamplerName    string
 	Scheduler      string
-	// ReferenceImage is the name a LoadImage-shaped node referenced, as
-	// previously returned by /upload/image. Empty for text-to-video.
-	ReferenceImage string
+
+	StartFrame      string
+	EndFrame        string
+	ReferenceImages []string
+	ReferenceAudios []string
+	LoRAs           []LoRA
 }
 
 var videoClassTypeHints = []string{
 	"savewebm", "saveanimatedwebp", "savevideo", "createvideo", "vhs_videocombine",
 	"wanimagetovideo", "wantextvideo", "wanvideo", "emptyhunyuanlatentvideo", "hunyuanvideo",
-	"minimaxh3", "minimax_h3", "ltxvideo", "svd_img2vid", "videolinearcfgguidance",
+	"minimaxh3", "minimax_h3", "ltxv", "svd_img2vid", "videolinearcfgguidance",
+	"wansoundimagetovideo", "wan_s2v",
 }
 
 var videoLengthInputKeys = []string{"length", "num_frames", "video_frames", "frames"}
@@ -102,32 +106,45 @@ func IsVideoWorkflow(graph Graph) bool {
 // named samplers each video model family ships. Prompts are resolved by
 // following that node's link references to the CLIPTextEncode-shaped node
 // that produced them.
-func ParseWorkflow(graph Graph) Params {
+func ParseWorkflow(graph Graph) (Params, error) {
 	params := Params{Width: 512, Height: 512, Frames: 1, FPS: 16}
-
-	if samplerID, sampler, ok := findSamplerNode(graph); ok {
-		params.Prompt = resolveLinkedText(graph, sampler.Inputs["positive"])
-		params.NegativePrompt = resolveLinkedText(graph, sampler.Inputs["negative"])
-		if seed, ok := numberValue(sampler.Inputs["seed"]); ok {
-			params.Seed = int64(seed)
-		} else if seed, ok := numberValue(sampler.Inputs["noise_seed"]); ok {
-			params.Seed = int64(seed)
-		}
-		if steps, ok := numberValue(sampler.Inputs["steps"]); ok {
-			params.Steps = int(steps)
-		}
-		if cfg, ok := numberValue(sampler.Inputs["cfg"]); ok {
-			params.CFG = cfg
-		}
-		if name, ok := sampler.Inputs["sampler_name"].(string); ok {
-			params.SamplerName = name
-		}
-		if scheduler, ok := sampler.Inputs["scheduler"].(string); ok {
-			params.Scheduler = scheduler
-		}
-		_ = samplerID
+	if sampler, ok := findSamplerNode(graph); ok {
+		applySamplerSettings(&params, graph, sampler)
 	}
+	applyVideoDimensions(&params, graph)
+	applyMediaReferences(&params, graph)
 
+	loras, err := findLoRAs(graph)
+	if err != nil {
+		return Params{}, err
+	}
+	params.LoRAs = loras
+	return params, nil
+}
+
+func applySamplerSettings(params *Params, graph Graph, sampler Node) {
+	params.Prompt = resolveLinkedText(graph, sampler.Inputs["positive"])
+	params.NegativePrompt = resolveLinkedText(graph, sampler.Inputs["negative"])
+	if seed, ok := numberValue(sampler.Inputs["seed"]); ok {
+		params.Seed = int64(seed)
+	} else if seed, ok := numberValue(sampler.Inputs["noise_seed"]); ok {
+		params.Seed = int64(seed)
+	}
+	if steps, ok := numberValue(sampler.Inputs["steps"]); ok {
+		params.Steps = int(steps)
+	}
+	if cfg, ok := numberValue(sampler.Inputs["cfg"]); ok {
+		params.CFG = cfg
+	}
+	if name, ok := sampler.Inputs["sampler_name"].(string); ok {
+		params.SamplerName = name
+	}
+	if scheduler, ok := sampler.Inputs["scheduler"].(string); ok {
+		params.Scheduler = scheduler
+	}
+}
+
+func applyVideoDimensions(params *Params, graph Graph) {
 	for _, nodeID := range sortedNodeIDs(graph) {
 		inputs := graph[nodeID].Inputs
 		if width, ok := numberValue(inputs["width"]); ok && width > 0 {
@@ -147,28 +164,9 @@ func ParseWorkflow(graph Graph) Params {
 			params.FPS = int(fps)
 		}
 	}
-	params.ReferenceImage = findReferenceImage(graph)
-
-	return params
 }
 
-// findReferenceImage returns the uploaded image name an image-to-video graph
-// loads. Only a literal string counts: a link reference points at another
-// node's output, which is a generated image rather than an upload.
-func findReferenceImage(graph Graph) string {
-	for _, nodeID := range sortedNodeIDs(graph) {
-		node := graph[nodeID]
-		if !strings.Contains(strings.ToLower(node.ClassType), "loadimage") {
-			continue
-		}
-		if name, ok := node.Inputs["image"].(string); ok && strings.TrimSpace(name) != "" {
-			return strings.TrimSpace(name)
-		}
-	}
-	return ""
-}
-
-func findSamplerNode(graph Graph) (string, Node, bool) {
+func findSamplerNode(graph Graph) (Node, bool) {
 	for _, nodeID := range sortedNodeIDs(graph) {
 		node := graph[nodeID]
 		if _, hasPositive := node.Inputs["positive"]; !hasPositive {
@@ -177,9 +175,9 @@ func findSamplerNode(graph Graph) (string, Node, bool) {
 		if _, hasNegative := node.Inputs["negative"]; !hasNegative {
 			continue
 		}
-		return nodeID, node, true
+		return node, true
 	}
-	return "", Node{}, false
+	return Node{}, false
 }
 
 // resolveLinkedText follows a ComfyUI link reference ["nodeID", slotIndex]
@@ -189,11 +187,7 @@ func resolveLinkedText(graph Graph, value any) string {
 	if text, ok := value.(string); ok {
 		return text
 	}
-	link, ok := value.([]any)
-	if !ok || len(link) == 0 {
-		return ""
-	}
-	nodeID, ok := link[0].(string)
+	nodeID, ok := linkedNodeID(value)
 	if !ok {
 		return ""
 	}
@@ -205,6 +199,24 @@ func resolveLinkedText(graph Graph, value any) string {
 		return text
 	}
 	return ""
+}
+
+func linkedNodeID(value any) (string, bool) {
+	link, ok := value.([]any)
+	if !ok || len(link) == 0 {
+		return "", false
+	}
+	nodeID, ok := link[0].(string)
+	return nodeID, ok
+}
+
+func literalName(value any) (string, bool) {
+	name, ok := value.(string)
+	if !ok {
+		return "", false
+	}
+	name = strings.TrimSpace(name)
+	return name, name != ""
 }
 
 func numberValue(value any) (float64, bool) {
@@ -222,11 +234,38 @@ func numberValue(value any) (float64, bool) {
 	}
 }
 
+func classTypeContains(node Node, hint string) bool {
+	return strings.Contains(strings.ToLower(node.ClassType), hint)
+}
+
 func sortedNodeIDs(graph Graph) []string {
 	ids := make([]string, 0, len(graph))
 	for id := range graph {
 		ids = append(ids, id)
 	}
-	sort.Strings(ids)
+	sort.Slice(ids, func(left, right int) bool { return nodeIDLess(ids[left], ids[right]) })
 	return ids
+}
+
+func nodeIDLess(left string, right string) bool {
+	leftNumber, leftErr := strconv.Atoi(left)
+	rightNumber, rightErr := strconv.Atoi(right)
+	leftIsNumber, rightIsNumber := leftErr == nil, rightErr == nil
+	switch {
+	case leftIsNumber && rightIsNumber && leftNumber != rightNumber:
+		return leftNumber < rightNumber
+	case leftIsNumber != rightIsNumber:
+		return leftIsNumber
+	default:
+		return left < right
+	}
+}
+
+func sortedInputKeys(inputs map[string]any) []string {
+	keys := make([]string, 0, len(inputs))
+	for key := range inputs {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }

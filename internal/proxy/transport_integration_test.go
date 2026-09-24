@@ -241,6 +241,7 @@ func TestBackendHeaderAllowlistStripsCredentialsAndForwardingMetadata(t *testing
 	request.Header.Set("Forwarded", "for=203.0.113.1")
 	request.Header.Set("X-Forwarded-For", "203.0.113.1")
 	request.Header.Set("X-Real-IP", "203.0.113.1")
+	request.Header.Set("CF-Connecting-IP", "203.0.113.1")
 	request.Header.Set("Proxy-Authorization", "Basic secret")
 	request.Header.Set("Connection", "X-Leak")
 	request.Header.Set("X-Leak", "secret")
@@ -250,7 +251,7 @@ func TestBackendHeaderAllowlistStripsCredentialsAndForwardingMetadata(t *testing
 		t.Fatalf("unexpected status %d body=%s", recorder.Code, recorder.Body.String())
 	}
 	header := <-seen
-	for _, key := range []string{"Authorization", "Cookie", "Forwarded", "X-Forwarded-For", "X-Real-IP", "Proxy-Authorization", "X-Leak"} {
+	for _, key := range []string{"Authorization", "Cookie", "Forwarded", "X-Forwarded-For", "X-Real-IP", "CF-Connecting-IP", "Proxy-Authorization", "X-Leak"} {
 		if header.Get(key) != "" {
 			t.Fatalf("backend received forbidden header %s=%q", key, header.Get(key))
 		}

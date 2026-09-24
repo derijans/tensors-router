@@ -157,6 +157,23 @@ func TestAdaptWhisperResponseFormats(t *testing.T) {
 	}
 }
 
+func TestAdaptWhisperDetectLanguageResponsesReportLanguage(t *testing.T) {
+	payloads := map[string]string{
+		"json":         `{"text":"","language":"latvian"}`,
+		"verbose_json": `{"task":"transcribe","language":"latvian","duration":1.5,"text":"","segments":[],"detected_language":"latvian","detected_language_probability":0.97}`,
+	}
+	for format, payload := range payloads {
+		response := &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(payload))}
+		adapted, err := adaptWhisperResponse(response, format)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if language := adapted.Header.Get("X-Tensors-Audio-Language"); language != "latvian" {
+			t.Errorf("detect-language %s response reported language %q", format, language)
+		}
+	}
+}
+
 func readMultipartValues(t *testing.T, body []byte, contentType string) map[string]string {
 	t.Helper()
 	_, params, err := mime.ParseMediaType(contentType)
