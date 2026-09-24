@@ -72,15 +72,9 @@ func writeUploadCopy(dir string, content []byte) (string, error) {
 }
 
 func (store *comfyVideoJobStore) readUpload(name string, byteLimit int64) (comfyUploadedMedia, error) {
-	store.mu.Lock()
-	upload, ok := store.uploads[strings.TrimSpace(name)]
-	store.mu.Unlock()
-	if !ok {
-		return comfyUploadedMedia{}, errComfyUploadNotStored
-	}
-	file, err := os.Open(upload.path)
+	file, contentType, err := store.openUpload(name)
 	if err != nil {
-		return comfyUploadedMedia{}, errComfyUploadNotStored
+		return comfyUploadedMedia{}, err
 	}
 	defer file.Close()
 	content, err := io.ReadAll(io.LimitReader(file, byteLimit+1))
@@ -90,7 +84,21 @@ func (store *comfyVideoJobStore) readUpload(name string, byteLimit int64) (comfy
 	if int64(len(content)) > byteLimit {
 		return comfyUploadedMedia{}, errComfyUploadOverBudget
 	}
-	return comfyUploadedMedia{content: content, contentType: upload.contentType}, nil
+	return comfyUploadedMedia{content: content, contentType: contentType}, nil
+}
+
+func (store *comfyVideoJobStore) openUpload(name string) (*os.File, string, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	upload, ok := store.uploads[strings.TrimSpace(name)]
+	if !ok {
+		return nil, "", errComfyUploadNotStored
+	}
+	file, err := os.Open(upload.path)
+	if err != nil {
+		return nil, "", errComfyUploadNotStored
+	}
+	return file, upload.contentType, nil
 }
 
 func isPlainComfyUploadName(name string) bool {
