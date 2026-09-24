@@ -271,11 +271,17 @@ func (tester CommandSmokeTester) Test(ctx context.Context, profile Profile, envi
 		// unverified_python_version is an interpreter *request* such as "3.12", which
 		// uv resolves to a specific patch release like 3.12.3. Match it as a version
 		// prefix rather than demanding exact equality the way pinned profiles do.
-		versionCheck := "import sys,vllm; requested = " + strconv.Quote(profile.PythonVersion) +
+		// Compare the installed distribution version (importlib.metadata), not
+		// vllm.__version__: vLLM's own __version__ attribute drops the wheel's local
+		// version segment (a "0.30.0+cpu" wheel still reports "0.30.0"), so pinning a
+		// +cpu/+rocm... build would otherwise fail this check on a fully correct
+		// install. importlib.metadata.version reads it from the installed wheel's
+		// METADATA, the same source uv/pip freeze report from.
+		versionCheck := "import sys,vllm,importlib.metadata as metadata; requested = " + strconv.Quote(profile.PythonVersion) +
 			"; actual = '.'.join(map(str,sys.version_info[:3]))" +
 			"; assert actual == requested or actual.startswith(requested + '.'), 'python ' + actual + ' does not match requested ' + requested"
 		if profile.VLLMVersion != "" {
-			versionCheck += "; assert vllm.__version__ == " + strconv.Quote(profile.VLLMVersion) + ", 'vllm ' + vllm.__version__ + ' does not match pinned ' + " + strconv.Quote(profile.VLLMVersion)
+			versionCheck += "; installed = metadata.version('vllm'); assert installed == " + strconv.Quote(profile.VLLMVersion) + ", 'vllm ' + installed + ' does not match pinned ' + " + strconv.Quote(profile.VLLMVersion)
 		}
 		if err := runner.Run(ctx, pythonPath, []string{"-I", "-c", versionCheck}, environment, environmentPath, io.MultiWriter(logs, captured)); err != nil {
 			if details := captured.String(); details != "" {
@@ -288,7 +294,9 @@ func (tester CommandSmokeTester) Test(ctx context.Context, profile Profile, envi
 		}
 		return nil
 	}
-	versionCheck := "import sys,vllm; assert vllm.__version__ == " + strconv.Quote(profile.VLLMVersion) + "; assert '.'.join(map(str,sys.version_info[:3])) == " + strconv.Quote(profile.PythonVersion)
+	// See the pypi path above for why this reads importlib.metadata rather than
+	// vllm.__version__: the latter drops a wheel's local version segment.
+	versionCheck := "import sys,vllm,importlib.metadata as metadata; assert metadata.version('vllm') == " + strconv.Quote(profile.VLLMVersion) + "; assert '.'.join(map(str,sys.version_info[:3])) == " + strconv.Quote(profile.PythonVersion)
 	if err := runner.Run(ctx, pythonPath, []string{"-I", "-c", versionCheck}, environment, environmentPath, logs); err != nil {
 		return fmt.Errorf("import vLLM: %w", err)
 	}
@@ -366,7 +374,9 @@ func (tester CommandSmokeTester) testOCI(ctx context.Context, profile Profile, e
 	if logs == nil {
 		logs = io.Discard
 	}
-	versionCheck := "import sys,vllm; assert vllm.__version__ == " + strconv.Quote(profile.VLLMVersion) + "; assert '.'.join(map(str,sys.version_info[:3])) == " + strconv.Quote(profile.PythonVersion)
+	// See CommandSmokeTester.Test's pypi path for why this reads importlib.metadata
+	// rather than vllm.__version__: the latter drops a wheel's local version segment.
+	versionCheck := "import sys,vllm,importlib.metadata as metadata; assert metadata.version('vllm') == " + strconv.Quote(profile.VLLMVersion) + "; assert '.'.join(map(str,sys.version_info[:3])) == " + strconv.Quote(profile.PythonVersion)
 	checks := [][]string{{"-I", "-c", versionCheck}}
 	pluginNames := make([]string, 0, len(profile.PluginVersions))
 	for name := range profile.PluginVersions {

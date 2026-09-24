@@ -16,31 +16,21 @@
 #   INSTALL_ONLY=1              Only run generate-check --install-only; skip loading a model
 #
 # Default wheel sources per device (overridable above):
-#   cpu:  vllm from https://wheels.vllm.ai/0.30.0/cpu, plus
+#   cpu:  vllm==0.30.0+cpu from https://wheels.vllm.ai/0.30.0/cpu, plus
 #         https://download.pytorch.org/whl/cpu for torch (uv accepts a space-separated
-#         --extra-index-url list, which the companion passes through verbatim). Left
-#         unpinned by VLLM_VERSION - see the note below.
+#         --extra-index-url list, which the companion passes through verbatim).
 #   cuda: vllm==0.30.0 from PyPI (PyPI's vllm wheel is CUDA-built)
-#   rocm: vllm from https://wheels.vllm.ai/rocm/. Also left unpinned - see below.
+#   rocm: vllm==0.30.0+rocm723 from https://wheels.vllm.ai/rocm/
 #
-# Known issue this script works around: internal/vllm's CommandSmokeTester asserts
-# vllm.__version__ == the exact pinned version string, but vllm.__version__ never
-# carries a local-version segment (a wheel built as "0.30.0+cpu" still reports
-# "0.30.0"). Passing --unverified-vllm-version with a +cpu/+rocm... suffix therefore
-# always fails that assertion, even on a fully correct install (verified against a
-# real vllm-node-cuda-based container running the CPU wheel end to end). cpu/rocm are
-# left unpinned here so the default run actually succeeds; VLLM_VERSION overrides this
-# if you want to reproduce the bug or a fix for it is in place.
-#
-# Known limitation this script does NOT work around: `cpu`'s vllm-node target is built
-# on debian:bookworm-slim (glibc 2.36). vLLM's own CPU and ROCm wheels require glibc
-# >= 2.39 (manylinux_2_39), so `cpu` fails at the "creating isolated Python environment"
-# / dependency-resolution step on that base image no matter which index is used -
-# confirmed by running this exact install against an Ubuntu 24.04 (glibc 2.39) vLLM
-# image instead, where it succeeds and generates text. `rocm`'s vllm-node-rocm target is
-# already Ubuntu 24.04, so it is unaffected. Fixing `cpu` means rebasing runtime-vllm
-# in the Containerfile onto a glibc >= 2.39 distro - a real product change, not
-# something this script can paper over.
+# Two product bugs this script previously had to work around are now fixed:
+#   - vllm-node's base image was debian:bookworm-slim (glibc 2.36), which cannot
+#     install vLLM's own CPU/ROCm wheels (glibc >= 2.39 required). runtime-vllm in the
+#     Containerfile is now ubuntu:24.04, matching runtime-cuda/runtime-rocm.
+#   - CommandSmokeTester's post-install check compared vllm.__version__, which drops a
+#     wheel's local version segment ("0.30.0+cpu" reports as "0.30.0"), against the
+#     exact pinned version - so any +cpu/+rocm... pin always failed even on a correct
+#     install. It now compares importlib.metadata.version('vllm') instead, which
+#     matches the installed wheel's real version.
 #
 # Requires docker and, for cuda/rocm without INSTALL_ONLY, the matching accelerator.
 # Disk note: the rocm image plus its torch wheels are large; prune
@@ -62,7 +52,7 @@ install_only=${INSTALL_ONLY:-0}
 case "$device" in
   cpu)
     target=vllm-node
-    default_version=""
+    default_version="0.30.0+cpu"
     default_extra_index="https://wheels.vllm.ai/0.30.0/cpu https://download.pytorch.org/whl/cpu"
     default_index=""
     ;;
@@ -74,7 +64,7 @@ case "$device" in
     ;;
   rocm)
     target=vllm-node-rocm
-    default_version=""
+    default_version="0.30.0+rocm723"
     default_extra_index="https://wheels.vllm.ai/rocm/"
     default_index=""
     ;;
