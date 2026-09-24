@@ -39,6 +39,9 @@ func run(arguments []string, input io.Reader, output io.Writer) error {
 		if arguments[0] == "profile-check" {
 			return runProfileCheck(arguments[1:], output)
 		}
+		if arguments[0] == "generate-check" {
+			return runGenerateCheck(arguments[1:], output)
+		}
 		return fmt.Errorf("unknown command %q", arguments[0])
 	}
 	if !vllm.SupportedPlatform() {

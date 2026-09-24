@@ -28,6 +28,23 @@ An accelerator detected without its required host driver, SDK, device permission
 
 Initialization is never automatic. Start it from the selected Nodes panel or the administrator API. Model load remains offline and returns `backend_not_initialized` until a profile is ready.
 
+## vLLM container smoke test
+
+`tensor-router-vllm generate-check` and `scripts/test-vllm-container.sh` check that a real `vllm-node*` container image can install vLLM through the companion's own (unverified/PyPI) install path and, unless asked to stop after install, load a small model and generate non-empty text over `/v1/completions`.
+
+```sh
+scripts/test-vllm-container.sh cpu    # builds vllm-node, needs no accelerator
+scripts/test-vllm-container.sh cuda   # builds vllm-node-cuda, needs an NVIDIA GPU
+scripts/test-vllm-container.sh rocm   # builds vllm-node-rocm, needs an AMD GPU
+```
+
+`INSTALL_ONLY=1` runs only the install/import check (`generate-check --install-only`) on a host without the matching accelerator. `CACHE_DIR` (default `.tmp/vllm-smoke`) holds the downloaded model snapshot and the companion's persistent `/data/vllm`, so repeat runs reuse both. `VLLM_VERSION`, `VLLM_INDEX_URL`, and `VLLM_EXTRA_INDEX_URL` override the wheel source; see the script's header comment for the defaults and two things it found:
+
+- `vllm-node`'s base image (debian:bookworm-slim, glibc 2.36) cannot install vLLM's own CPU wheels, which require glibc ≥ 2.39. `vllm-node-cuda` and `vllm-node-rocm` are already Ubuntu 24.04 (glibc 2.39) and are unaffected. Fixing `cpu` needs a base image change in `Containerfile`.
+- `CommandSmokeTester`'s post-install check (`internal/vllm/installation.go`) asserts `vllm.__version__` equals the exact version an operator pinned with `--unverified-vllm-version`, but a locally-versioned wheel (`0.30.0+cpu`, `0.30.0+rocm723`, …) always reports the bare `0.30.0` at import time, so pinning a `+cpu`/`+rocm...` suffix always fails that check even on a fully correct install. The script works around this by leaving the version unpinned on `cpu`/`rocm`.
+
+Confirmed end to end on this project's containers: a real `vllm-node-cuda`-based image installing vLLM's `0.30.0+cpu` wheel and generating text from `Qwen/Qwen2.5-0.5B-Instruct`.
+
 ## Local KoboldCpp smoke test on Windows
 
 Requirements:
