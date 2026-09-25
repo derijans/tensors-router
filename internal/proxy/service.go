@@ -23,6 +23,7 @@ import (
 	"tensors-router/internal/mcp"
 	"tensors-router/internal/modelassets"
 	"tensors-router/internal/modelstate"
+	"tensors-router/internal/offloaddecisions"
 	"tensors-router/internal/proxy/downloads"
 	"tensors-router/internal/recipes"
 	"tensors-router/internal/routinggroups"
@@ -102,6 +103,8 @@ type ServiceConfig struct {
 	SchedulingGrantTTL        time.Duration
 	SchedulingContextReserve  int
 	OffloadRestoreDelay       time.Duration
+	OffloadProbeIdle          time.Duration
+	OffloadDecisionStore      *offloaddecisions.Store
 	LoadCaptureStore          *loadcapture.Store
 	LoadCaptureMaxOutputBytes int64
 	LoadErrorStore            *loaderrors.Store

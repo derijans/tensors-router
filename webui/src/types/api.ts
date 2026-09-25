@@ -478,10 +478,22 @@ export interface BackendLaunchOptionsRequest {
   options: BackendLaunchOptions;
 }
 
+export type NodeHeldRequestState = "held" | "lent";
+
+export interface NodeHeldRequest {
+  lane: string;
+  model_id: string;
+  state: NodeHeldRequestState;
+  waiting_ms: number;
+  helper_node_id?: string;
+  helper_model_id?: string;
+}
+
 export interface NodeState {
   node_id: string;
   backends: NodeStateBackend[];
   active_requests: string[];
+  held_requests?: NodeHeldRequest[];
   // Absent when the node runs a build from before ffmpeg was reported, which
   // a cluster can contain part-way through a rolling upgrade.
   ffmpeg_available?: boolean;

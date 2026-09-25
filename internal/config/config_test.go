@@ -845,6 +845,15 @@ func TestLoadExampleConfigParsesSchedulingKeys(t *testing.T) {
 	if cfg.Cluster.OffloadRestoreDelay != 1500*time.Millisecond {
 		t.Fatalf("offload restore delay = %v, want 1.5s", cfg.Cluster.OffloadRestoreDelay)
 	}
+	if cfg.Cluster.OffloadProbeIdle != 5*time.Second {
+		t.Fatalf("offload probe idle = %v, want 5s", cfg.Cluster.OffloadProbeIdle)
+	}
+}
+
+func TestOffloadProbeIdleDefaultsToFiveSeconds(t *testing.T) {
+	if probeIdle := Defaults().Cluster.OffloadProbeIdle; probeIdle != 5*time.Second {
+		t.Fatalf("offload probe idle = %v, want 5s", probeIdle)
+	}
 }
 
 func TestOffloadRestoreDelayDefaultsTo1500Milliseconds(t *testing.T) {
@@ -874,6 +883,7 @@ func TestSchedulingValuesAreValidated(t *testing.T) {
 		{"zero backend depth", func(cfg *Config) { cfg.Cluster.SchedulingBackendDepth = 0 }},
 		{"zero grant ttl", func(cfg *Config) { cfg.Cluster.SchedulingGrantTTL = 0 }},
 		{"zero offload restore delay", func(cfg *Config) { cfg.Cluster.OffloadRestoreDelay = 0 }},
+		{"zero offload probe idle", func(cfg *Config) { cfg.Cluster.OffloadProbeIdle = 0 }},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			cfg := Defaults()

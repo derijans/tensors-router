@@ -24,6 +24,7 @@ func (service *Service) nodeRoutes() []routing.Route {
 		routing.Exact(http.MethodGet, "/router/v1/node/runtime-status", service.handleNodeRuntimeStatus),
 		routing.Exact(http.MethodPost, "/router/v1/node/offload/grant", service.handleNodeOffloadGrant),
 		routing.Exact(http.MethodPost, "/router/v1/node/offload/request", service.handleNodeOffloadRequest),
+		routing.Exact(http.MethodPost, offloadEventPath, service.handleNodeOffloadEvent),
 		routing.Exact(http.MethodPost, nodeRoutingLinksPath, service.handleNodeRoutingLinks),
 		routing.Exact(http.MethodGet, "/router/v1/node/analytics", service.handleNodeAnalytics),
 		routing.Exact(http.MethodPost, "/router/v1/node/analytics/flush", service.handleNodeAnalyticsFlush),

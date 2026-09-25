@@ -31,6 +31,7 @@ import (
 	"tensors-router/internal/modelassets"
 	"tensors-router/internal/modelstate"
 	"tensors-router/internal/native"
+	"tensors-router/internal/offloaddecisions"
 	"tensors-router/internal/proxy"
 	"tensors-router/internal/recipes"
 	"tensors-router/internal/routerstore"
@@ -139,6 +140,7 @@ func runServe(args []string) error {
 	var analyticsStore *routeranalytics.Store
 	var loadCaptureStore *loadcapture.Store
 	var loadErrorStore *loaderrors.Store
+	var offloadDecisionStore *offloaddecisions.Store
 	var downloaderManager downloader.Service
 	var vllmManager vllm.Service
 	var vllmUnavailableReason string
@@ -155,7 +157,7 @@ func runServe(args []string) error {
 			closeDownloader(downloaderManager),
 			closeVLLM(vllmManager),
 		)
-		return errors.Join(runtimeErr, storeHandle.Close())
+		return errors.Join(runtimeErr, offloadDecisionStore.Close(), storeHandle.Close())
 	}
 	defer func() {
 		if err := cleanupRuntime(); err != nil {
@@ -169,6 +171,7 @@ func runServe(args []string) error {
 			loadcapture.SchemaModule{},
 			loaderrors.SchemaModule{},
 			routinggroups.SchemaModule{},
+			offloaddecisions.SchemaModule{},
 		},
 		LegacySources: legacySources(cfg),
 		Logger:        serveLogger,
@@ -190,6 +193,16 @@ func runServe(args []string) error {
 		}
 	}()
 	routingGroupStore := routinggroups.NewStore(storeHandle.DB(), storeHandle.Reader())
+	offloadDecisionStore, err = offloaddecisions.NewStore(offloaddecisions.StoreConfig{
+		NodeID:    cfg.Cluster.NodeID,
+		DB:        storeHandle.DB(),
+		ReadDB:    storeHandle.Reader(),
+		Retention: cfg.Analytics.RawRetention,
+		Logger:    serveLogger,
+	})
+	if err != nil {
+		return err
+	}
 	analyticsStore, err = newAnalyticsStore(cfg, storeHandle, serveLogger)
 	if err != nil {
 		return err
@@ -321,6 +334,8 @@ func runServe(args []string) error {
 		SchedulingGrantTTL:        cfg.Cluster.SchedulingGrantTTL,
 		SchedulingContextReserve:  cfg.Cluster.SchedulingContextReserve,
 		OffloadRestoreDelay:       cfg.Cluster.OffloadRestoreDelay,
+		OffloadProbeIdle:          cfg.Cluster.OffloadProbeIdle,
+		OffloadDecisionStore:      offloadDecisionStore,
 		AnalyticsStore:            analyticsStore,
 		LoadCaptureStore:          loadCaptureStore,
 		LoadErrorStore:            loadErrorStore,

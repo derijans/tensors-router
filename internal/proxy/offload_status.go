@@ -13,6 +13,7 @@ func (scheduler *scheduler) applyQueueStatus(status *NodeRuntimeStatus) {
 	status.AcceptingBorrowedImage = scheduler.imageQueue.AcceptingBorrowed(activity)
 	status.TextQueue = scheduler.textQueue.Stats()
 	status.AcceptingBorrowedText = scheduler.textQueue.AcceptingBorrowed(activity)
+	status.IdleForMS = scheduler.idleFor(time.Now()).Milliseconds()
 	if costs := scheduler.publishedCosts(); costs != nil {
 		status.Costs = *costs
 	}

@@ -10,6 +10,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"time"
 
 	"tensors-router/internal/backendmode"
 	"tensors-router/internal/cluster"
@@ -398,6 +399,7 @@ func (service *Service) localNodeState() siteapi.NodeState {
 		NodeID:          service.nodeID,
 		Backends:        backends,
 		ActiveRequests:  activeRequests,
+		HeldRequests:    service.scheduler.heldRequests(time.Now()),
 		FFmpegAvailable: service.ffmpeg.Available(),
 		FFmpegPath:      service.ffmpeg.Path(),
 	}

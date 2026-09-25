@@ -44,13 +44,18 @@ func (webUI *webUIProxy) handleSiteWebUIProxy(w http.ResponseWriter, r *http.Req
 		return
 	}
 	defer release()
+	body, err := readProxyRequestBody(r)
+	if err != nil {
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
 	started := time.Now()
-	response, usageInjected, err := webUI.forwardWebUIProxy(r.Context(), r, definition, strippedPath, route, siteWebUIProxyPrefix)
+	response, usageInjected, err := webUI.forwardWebUIProxy(r.Context(), r, body, definition, strippedPath, route, siteWebUIProxyPrefix)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
-	response = webUI.webUIProxyResponseWithAnalytics(response, started, r, definition, strippedPath, route)
+	response = webUI.webUIProxyResponseWithAnalytics(response, started, r, body, definition, strippedPath, route)
 	response = responseWithoutInjectedUsage(response, usageInjected)
 	if err := writeWebUIProxyResponse(webUI.deps, w, response); err != nil {
 		return
@@ -73,13 +78,18 @@ func (webUI *webUIProxy) handleNodeWebUIProxy(w http.ResponseWriter, r *http.Req
 		return
 	}
 	defer release()
+	body, err := readProxyRequestBody(r)
+	if err != nil {
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
 	started := time.Now()
-	response, usageInjected, err := webUI.forwardLocalWebUIProxy(r.Context(), r, definition, strippedPath, route, nodeWebUIProxyPrefix)
+	response, usageInjected, err := webUI.forwardLocalWebUIProxy(r.Context(), r, body, definition, strippedPath, route, nodeWebUIProxyPrefix)
 	if err != nil {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return
 	}
-	response = webUI.webUIProxyResponseWithAnalytics(response, started, r, definition, strippedPath, route)
+	response = webUI.webUIProxyResponseWithAnalytics(response, started, r, body, definition, strippedPath, route)
 	response = responseWithoutInjectedUsage(response, usageInjected)
 	if err := writeWebUIProxyResponse(webUI.deps, w, response); err != nil {
 		return
@@ -178,22 +188,17 @@ func webUIRoutesFromEntry(definition webUIDefinition, entry WebUIEntry, remote b
 	return routes
 }
 
-func (webUI *webUIProxy) forwardWebUIProxy(ctx context.Context, original *http.Request, definition webUIDefinition, strippedPath string, route cluster.Route, publicPrefix string) (*http.Response, bool, error) {
+func (webUI *webUIProxy) forwardWebUIProxy(ctx context.Context, original *http.Request, body []byte, definition webUIDefinition, strippedPath string, route cluster.Route, publicPrefix string) (*http.Response, bool, error) {
 	if route.Remote {
-		response, err := webUI.forwardRemoteWebUIProxy(ctx, original, definition, strippedPath, route)
+		response, err := webUI.forwardRemoteWebUIProxy(ctx, original, body, definition, strippedPath, route)
 		return response, false, err
 	}
-	return webUI.forwardLocalWebUIProxy(ctx, original, definition, strippedPath, route, publicPrefix)
+	return webUI.forwardLocalWebUIProxy(ctx, original, body, definition, strippedPath, route, publicPrefix)
 }
 
-func (webUI *webUIProxy) forwardLocalWebUIProxy(ctx context.Context, original *http.Request, definition webUIDefinition, strippedPath string, route cluster.Route, publicPrefix string) (*http.Response, bool, error) {
+func (webUI *webUIProxy) forwardLocalWebUIProxy(ctx context.Context, original *http.Request, body []byte, definition webUIDefinition, strippedPath string, route cluster.Route, publicPrefix string) (*http.Response, bool, error) {
 	runtime, release, err := webUI.lockWebUIRoute(ctx, definition, route)
 	if err != nil {
-		return nil, false, err
-	}
-	body, err := readProxyRequestBody(original)
-	if err != nil {
-		release()
 		return nil, false, err
 	}
 	backendPath := webUIBackendPath(definition, strippedPath)
@@ -208,7 +213,7 @@ func (webUI *webUIProxy) forwardLocalWebUIProxy(ctx context.Context, original *h
 	return response, usageInjected, nil
 }
 
-func (webUI *webUIProxy) forwardRemoteWebUIProxy(ctx context.Context, original *http.Request, definition webUIDefinition, strippedPath string, route cluster.Route) (*http.Response, error) {
+func (webUI *webUIProxy) forwardRemoteWebUIProxy(ctx context.Context, original *http.Request, body []byte, definition webUIDefinition, strippedPath string, route cluster.Route) (*http.Response, error) {
 	baseURL, err := webUI.identity().client.AuthorizedBaseURL(route.NodeURL)
 	if err != nil {
 		return nil, err
@@ -218,7 +223,7 @@ func (webUI *webUIProxy) forwardRemoteWebUIProxy(ctx context.Context, original *
 		return nil, err
 	}
 	targetPath := nodeWebUIProxyURL(definition, strippedPath)
-	response, err := webUI.forwardWebUIRequest(ctx, original, parsedBaseURL, targetPath)
+	response, err := webUI.forwardWebUIRequestBody(ctx, original, parsedBaseURL, targetPath, body)
 	if err != nil {
 		return nil, err
 	}
@@ -236,14 +241,6 @@ func (webUI *webUIProxy) lockWebUIRoute(ctx context.Context, definition webUIDef
 		return nil, nil, err
 	}
 	return runtime, release, nil
-}
-
-func (webUI *webUIProxy) forwardWebUIRequest(ctx context.Context, original *http.Request, baseURL *url.URL, path string) (*http.Response, error) {
-	body, err := readProxyRequestBody(original)
-	if err != nil {
-		return nil, err
-	}
-	return webUI.forwardWebUIRequestBody(ctx, original, baseURL, path, body)
 }
 
 func (webUI *webUIProxy) forwardWebUIRequestBody(ctx context.Context, original *http.Request, baseURL *url.URL, path string, body []byte) (*http.Response, error) {

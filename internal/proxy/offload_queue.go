@@ -52,14 +52,16 @@ func (activity nodeActivity) idle() bool {
 }
 
 type offloadEntry struct {
-	modelID         string
-	work            schedulingcost.Work
-	requiredContext int64
-	arrived         time.Time
-	borrowed        bool
-	pinned          bool
-	sequence        uint64
-	result          chan offloadOutcome
+	modelID          string
+	work             schedulingcost.Work
+	requiredContext  int64
+	arrived          time.Time
+	borrowed         bool
+	pinned           bool
+	refusedOnArrival bool
+	borrowedAhead    int
+	sequence         uint64
+	result           chan offloadOutcome
 }
 
 type offloadQueue struct {
@@ -94,8 +96,12 @@ func (queue *offloadQueue) Enqueue(request queuedRequest, node nodeActivity, now
 		result:          make(chan offloadOutcome, 1),
 	}
 	if borrowed && (!node.idle() || queue.holdsOwnWorkLocked()) {
+		entry.refusedOnArrival = true
 		entry.result <- offloadReturned
 		return entry
+	}
+	if !borrowed {
+		entry.borrowedAhead = queue.borrowedAdmittedLocked()
 	}
 	queue.pending = append(queue.pending, entry)
 	if !borrowed {
@@ -175,6 +181,10 @@ func (queue *offloadQueue) AcceptingBorrowed(node nodeActivity) bool {
 func (queue *offloadQueue) BorrowedInFlight() int {
 	queue.mu.Lock()
 	defer queue.mu.Unlock()
+	return queue.borrowedAdmittedLocked()
+}
+
+func (queue *offloadQueue) borrowedAdmittedLocked() int {
 	count := 0
 	for entry := range queue.admitted {
 		if entry.borrowed {
@@ -182,6 +192,34 @@ func (queue *offloadQueue) BorrowedInFlight() int {
 		}
 	}
 	return count
+}
+
+func (queue *offloadQueue) HoldsPendingWork(modelID string) bool {
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	for _, entry := range queue.pending {
+		if !entry.borrowed && entry.modelID == modelID {
+			return true
+		}
+	}
+	return false
+}
+
+type heldRequest struct {
+	modelID string
+	arrived time.Time
+}
+
+func (queue *offloadQueue) HeldSnapshot() []heldRequest {
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	held := make([]heldRequest, 0, len(queue.pending))
+	for _, entry := range queue.pending {
+		if !entry.borrowed {
+			held = append(held, heldRequest{modelID: entry.modelID, arrived: entry.arrived})
+		}
+	}
+	return held
 }
 
 type offloadModelStats struct {

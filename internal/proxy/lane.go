@@ -36,6 +36,7 @@ type activeConfigState struct {
 	pendingFilename   string
 	pendingProfile    catalog.ChatTemplateProfile
 	users             int
+	idleSince         time.Time
 	switching         bool
 	switchWaiters     int
 	vramBaselineMB    int64
@@ -576,6 +577,7 @@ func releaseActiveConfigLeaseOnce(state *activeConfigState, leaseTag uint64) fun
 			if state.users > 0 {
 				state.users--
 				if state.users == 0 {
+					state.idleSince = time.Now()
 					notifyActiveConfigLocked(state)
 				}
 			}

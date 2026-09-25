@@ -43,6 +43,34 @@ describe("node state view", () => {
     expect(html.match(/<li>model &lt;one&gt;<\/li>/g)).toHaveLength(2);
   });
 
+  it("lists held and lent requests with their helper, escaped", () => {
+    const state = snapshot();
+    state.held_requests = [
+      {lane: "image", model_id: "krea <a>", state: "held", waiting_ms: 12400},
+      {lane: "text", model_id: "gemma", state: "lent", waiting_ms: 3000, helper_node_id: "master", helper_model_id: "gemma <b>"}
+    ];
+
+    const html = renderNodeStateSnapshot("node-a", state, "");
+
+    expect(html).toContain("Held requests");
+    expect(html).toContain("krea &lt;a&gt;");
+    expect(html).toContain("12.4s");
+    expect(html).toContain("→ master/gemma &lt;b&gt;");
+    expect(html.match(/class="node-held-request"/g)).toHaveLength(2);
+  });
+
+  it("says so when the router holds nothing back", () => {
+    const html = renderNodeStateSnapshot("node-a", {...snapshot(), held_requests: []}, "");
+
+    expect(html).toContain("No held requests.");
+  });
+
+  it("omits the held section for a node that does not report it", () => {
+    const html = renderNodeStateSnapshot("node-a", snapshot(), "");
+
+    expect(html).not.toContain("Held requests");
+  });
+
   it("renders explicit empty states", () => {
     const html = renderNodeStateSnapshot("empty", {node_id: "empty", backends: [], active_requests: []}, "");
 

@@ -54,7 +54,7 @@ func markBorrowRestoreRequested(r *http.Request) *http.Request {
 type offloadRestoreContextKey struct{}
 
 // handleNodeOffloadGrant receives a slot lease from the master. The owner keeps it
-// until it expires; nothing revokes it.
+// until it expires or until the master's answer to one of its queue events clears it.
 func (service *Service) handleNodeOffloadGrant(w http.ResponseWriter, r *http.Request) {
 	var lease offloadLease
 	if err := json.NewDecoder(r.Body).Decode(&lease); err != nil {
@@ -65,7 +65,7 @@ func (service *Service) handleNodeOffloadGrant(w http.ResponseWriter, r *http.Re
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "owner_model_id, helper_node_id and helper_model_id are required")
 		return
 	}
-	service.scheduler.storeOffloadLease(lease)
+	service.scheduler.acceptOffloadLease(lease, "grant")
 	openai.WriteJSON(w, http.StatusOK, lease)
 }
 

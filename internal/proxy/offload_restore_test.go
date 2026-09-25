@@ -116,6 +116,53 @@ func TestBorrowRestoreDoesNotFireWhileBorrowedWorkIsInFlight(t *testing.T) {
 	service.scheduler.textQueue.Complete(entry)
 }
 
+func TestBorrowRestoreRetriesOnceTheNodeGoesQuiet(t *testing.T) {
+	service := newBorrowRestoreTestService(t)
+	mode := service.currentBackendMode()
+
+	if err := service.loadLocalConfig(context.Background(), mode, "a", "a.kcpps", readinessText); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.loadLocalConfig(borrowedRestoreContext(), mode, "b", "b.kcpps", readinessText); err != nil {
+		t.Fatal(err)
+	}
+	entry := service.scheduler.textQueue.Enqueue(queuedRequest{modelID: "group", origin: borrowedFromPeer}, nodeActivity(true), time.Now())
+	if _, err := service.scheduler.textQueue.Await(context.Background(), entry); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * service.scheduler.restoreDelay)
+
+	service.scheduler.textQueue.Complete(entry)
+
+	waitForLoadedModel(t, service, "a.kcpps")
+}
+
+func TestCloseStopsARetryingBorrowRestore(t *testing.T) {
+	service := newBorrowRestoreTestService(t)
+	mode := service.currentBackendMode()
+
+	if err := service.loadLocalConfig(context.Background(), mode, "a", "a.kcpps", readinessText); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.loadLocalConfig(borrowedRestoreContext(), mode, "b", "b.kcpps", readinessText); err != nil {
+		t.Fatal(err)
+	}
+	entry := service.scheduler.textQueue.Enqueue(queuedRequest{modelID: "group", origin: borrowedFromPeer}, nodeActivity(true), time.Now())
+	if _, err := service.scheduler.textQueue.Await(context.Background(), entry); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(3 * service.scheduler.restoreDelay)
+	if err := service.Close(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	service.scheduler.textQueue.Complete(entry)
+	time.Sleep(3 * service.scheduler.restoreDelay)
+	if _, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel(); filename != "b.kcpps" {
+		t.Fatalf("loaded model = %q, want b.kcpps: a retried restore fired after Close", filename)
+	}
+}
+
 func TestCloseStopsAPendingBorrowRestore(t *testing.T) {
 	service := newBorrowRestoreTestService(t)
 	mode := service.currentBackendMode()

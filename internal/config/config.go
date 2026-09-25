@@ -212,6 +212,7 @@ type ClusterConfig struct {
 	SchedulingGrantTTL        time.Duration
 	SchedulingContextReserve  int
 	OffloadRestoreDelay       time.Duration
+	OffloadProbeIdle          time.Duration
 }
 
 type AnalyticsConfig struct {
@@ -345,6 +346,7 @@ func Defaults() Config {
 			SchedulingGrantTTL:        30 * time.Second,
 			SchedulingContextReserve:  256,
 			OffloadRestoreDelay:       1500 * time.Millisecond,
+			OffloadProbeIdle:          5 * time.Second,
 		},
 		Analytics: AnalyticsConfig{
 			Enabled:                false,
@@ -572,6 +574,9 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Cluster.OffloadRestoreDelay <= 0 {
 		return fmt.Errorf("cluster.offload_restore_delay must be positive")
+	}
+	if cfg.Cluster.OffloadProbeIdle <= 0 {
+		return fmt.Errorf("cluster.offload_probe_idle must be positive")
 	}
 	if cfg.Analytics.FlushInterval <= 0 {
 		return fmt.Errorf("analytics.flush_interval must be positive")
@@ -1490,6 +1495,13 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 				return err
 			}
 			cfg.Cluster.OffloadRestoreDelay = parsed
+			return nil
+		case "offload_probe_idle":
+			parsed, err := time.ParseDuration(value)
+			if err != nil {
+				return err
+			}
+			cfg.Cluster.OffloadProbeIdle = parsed
 			return nil
 		}
 	case "analytics":

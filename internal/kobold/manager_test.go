@@ -305,7 +305,7 @@ func TestStartStopsUnhealthyManagedProcessBeforeReplacement(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	manager.client.Timeout = 50 * time.Millisecond
+	manager.probeClient.Timeout = 50 * time.Millisecond
 	manager.cmd = cmd
 	manager.waitDone = waitDone
 
@@ -356,5 +356,29 @@ func expectAbsent(t *testing.T, args []string, key string) {
 		if arg == key {
 			t.Fatalf("did not expect %s in %#v", key, args)
 		}
+	}
+}
+
+func TestReloadOutlivesTheHealthProbeTimeoutWhileAModelLoads(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/admin/reload_config":
+			time.Sleep(300 * time.Millisecond)
+			_, _ = w.Write([]byte(`{"success":true}`))
+		case "/api/extra/version":
+			_, _ = w.Write([]byte(`{"result":"ok"}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	manager, err := NewManager(ProcessConfig{BackendURL: server.URL, BinaryPath: "./koboldcpp", ConfigDir: "./kcpps", DataDir: "./data", Multiuser: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	manager.probeClient.Timeout = 50 * time.Millisecond
+
+	if err := manager.ReloadConfig(context.Background(), "a.kcpps"); err != nil {
+		t.Fatalf("reload of a model slower than the probe timeout failed: %v", err)
 	}
 }

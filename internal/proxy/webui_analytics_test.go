@@ -43,6 +43,25 @@ func TestWebUIProxyRecordsInferenceAnalytics(t *testing.T) {
 	}
 }
 
+func TestWebUIProxyImageGenerationRecordsTheSizeThatPricesIt(t *testing.T) {
+	service := newAnalyticsWebUIService(t)
+	loadWebUIForTest(t, service, "kobold-sd", "combo", "combo-dream")
+	service.webUI.session.set("kobold-sd", true)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/router/webuis/kobold-sd/sdapi/v1/txt2img", strings.NewReader(`{"prompt":"cat","width":768,"height":512,"steps":8}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected proxy status %d body %s", recorder.Code, recorder.Body.String())
+	}
+
+	event := recentEventOfType(t, queryProxyAnalytics(t, service.analytics.store), routeranalytics.EventTypeRequest)
+	if event.Section != routeranalytics.SectionImage || event.ImageWidth != 768 || event.ImageHeight != 512 || event.ImageSteps != 8 {
+		t.Fatalf("webui image event = %#v, want the requested 768x512 at 8 steps", event)
+	}
+}
+
 func TestWebUIProxyStreamRecordsUsageTheClientNeverSees(t *testing.T) {
 	service := newAnalyticsWebUIService(t)
 	loadWebUIForTest(t, service, "kobold-lite", "text", "")
@@ -91,6 +110,9 @@ func newAnalyticsWebUIService(t *testing.T) *Service {
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "text.kcpps"), []byte(`{"model_param":"text.gguf"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "combo.kcpps"), []byte(`{"nomodel":true,"sdmodel":"dream.safetensors"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -1,5 +1,5 @@
 import { SafeHTML, emptyHTML, html } from "./safe-html";
-import type { BackendLaunchOptions, NodeInventory, NodeState, NodeStateBackend, NodeStateModelRow } from "./types";
+import type { BackendLaunchOptions, NodeHeldRequest, NodeInventory, NodeState, NodeStateBackend, NodeStateModelRow } from "./types";
 import { chip, formatBytes } from "./utils";
 
 const backendOrder = ["koboldcpp", "llama-server", "vllm", "sd-server", "whisper-server"];
@@ -48,8 +48,36 @@ export function renderNodeStateSnapshot(nodeID: string, snapshot: NodeState, pen
       <h4>Active requests</h4>
       ${snapshot.active_requests.length > 0 ? html`<ul>${snapshot.active_requests.map(modelID => html`<li>${modelID}</li>`)}</ul>` : html`<p class="muted node-state-empty">No active requests.</p>`}
     </section>
+    ${renderHeldRequests(snapshot.held_requests)}
     ${renderFFmpegAvailability(snapshot)}
   `;
+}
+
+function renderHeldRequests(heldRequests: NodeHeldRequest[] | undefined): SafeHTML {
+  if (heldRequests === undefined) {
+    return emptyHTML;
+  }
+  return html`
+    <section class="node-held-requests" aria-label="Held requests">
+      <h4>Held requests</h4>
+      ${heldRequests.length > 0 ? html`<ul>${heldRequests.map(renderHeldRequest)}</ul>` : html`<p class="muted node-state-empty">No held requests.</p>`}
+    </section>
+  `;
+}
+
+function renderHeldRequest(request: NodeHeldRequest): SafeHTML {
+  return html`
+    <li class="node-held-request">
+      ${chip(request.lane, request.lane === "image" ? "magenta" : "cyan")}
+      <span>${request.model_id}</span>
+      <span class="muted">${formatWaiting(request.waiting_ms)}</span>
+      ${request.state === "lent" ? html`${chip("lent", "lime")}<span class="muted">→ ${request.helper_node_id || "?"}/${request.helper_model_id || "?"}</span>` : chip("held", "amber")}
+    </li>
+  `;
+}
+
+function formatWaiting(waitingMilliseconds: number): string {
+  return `${(Math.max(0, waitingMilliseconds) / 1000).toFixed(1)}s`;
 }
 
 // A node that reports nothing predates ffmpeg reporting, which a cluster can

@@ -86,8 +86,23 @@ type NodeState struct {
 	NodeID          string             `json:"node_id"`
 	Backends        []NodeStateBackend `json:"backends"`
 	ActiveRequests  []string           `json:"active_requests"`
+	HeldRequests    []NodeHeldRequest  `json:"held_requests"`
 	FFmpegAvailable bool               `json:"ffmpeg_available"`
 	FFmpegPath      string             `json:"ffmpeg_path,omitempty"`
+}
+
+const (
+	HeldRequestHeld = "held"
+	HeldRequestLent = "lent"
+)
+
+type NodeHeldRequest struct {
+	Lane          string `json:"lane"`
+	ModelID       string `json:"model_id"`
+	State         string `json:"state"`
+	WaitingMS     int64  `json:"waiting_ms"`
+	HelperNodeID  string `json:"helper_node_id,omitempty"`
+	HelperModelID string `json:"helper_model_id,omitempty"`
 }
 
 type NodeStateBackend struct {

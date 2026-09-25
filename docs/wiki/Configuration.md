@@ -210,11 +210,12 @@ When updates are enabled, each selected backend needs either a direct binary URL
 
 | Field | Type or options | Example or default | Description |
 | --- | --- | --- | --- |
-| `cluster.scheduling_refresh_interval` | Positive duration string | `60s` | How often the master refits node costs and reconsiders offload leases. |
+| `cluster.scheduling_refresh_interval` | Positive duration string | `60s` | How often the master refits node costs and reconsiders offload leases when no queue event arrives in between. Every queue event of a linked model also triggers a decision. |
 | `cluster.scheduling_sample_window` | Positive duration string | `24h` | History window used to fit request duration. Must stay inside `analytics.raw_retention`. |
-| `cluster.scheduling_min_samples` | Integer, at least 2 | `20` | Measured requests a node needs before it can be scheduled predictively. Below this it is never offloaded to. |
+| `cluster.scheduling_min_samples` | Integer, at least 2 | `20` | Measured requests a model needs for its own cost fit. A helper below this is priced with its owner's fit until it has one. |
 | `cluster.scheduling_backend_depth` | Integer, at least 1 | `2` | Requests admitted to the backend at once on a linked model. One running plus one queued keeps the backend busy while the rest stay lendable. |
 | `cluster.scheduling_grant_ttl` | Positive duration string | `30s` | Lifetime of an offload lease. A lease that is not renewed expires on its own. |
+| `cluster.offload_probe_idle` | Positive duration string | `5s` | How long a helper must be idle before it gets a one-request probe even when the cost rule would not lend to it. |
 | `analytics.enabled` | Boolean | `false` | Enables persisted request and runtime analytics. |
 | `analytics.vram_enabled` | Boolean | `true` | Enables VRAM sampling when analytics is active. |
 | `analytics.load_capture_enabled` | Boolean | `false` | Independently records backend load attempts and reuse metadata on each enabled node. |

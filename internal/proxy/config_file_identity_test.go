@@ -45,6 +45,25 @@ func TestConfigFileIdentityBuildsANameForANewID(t *testing.T) {
 	}
 }
 
+func TestConfigFileIdentityKeepsADottedNameOnDisk(t *testing.T) {
+	id, filename, err := configFileIdentity(siteapi.ConfigFileRequest{Filename: "qwen3.8-27b-instruct.kcpps"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if id != "qwen3.8-27b-instruct" || filename != "qwen3.8-27b-instruct.kcpps" {
+		t.Fatalf("dotted config renamed to a file that does not exist: id=%q filename=%q", id, filename)
+	}
+}
+
+func TestConfigFileIdentityStillSanitizesDotOnlyTricks(t *testing.T) {
+	for _, requested := range []string{".hidden.kcpps", "a..b.kcpps"} {
+		_, filename, err := configFileIdentity(siteapi.ConfigFileRequest{Filename: requested})
+		if err == nil && filename == requested {
+			t.Fatalf("%q was taken as a name on disk", requested)
+		}
+	}
+}
+
 func TestConfigFileIdentitySanitizesAnUnusableStem(t *testing.T) {
 	id, filename, err := configFileIdentity(siteapi.ConfigFileRequest{Filename: "my model.kcpps"})
 	if err != nil {

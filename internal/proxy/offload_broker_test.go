@@ -1,15 +1,19 @@
 package proxy
 
 import (
+	"math"
 	"testing"
 	"time"
 
 	"tensors-router/internal/analytics"
 	"tensors-router/internal/cluster"
+	"tensors-router/internal/offloaddecisions"
 	"tensors-router/internal/schedulingcost"
 )
 
 const testJobWork = 30 * 1024 * 1024
+
+var testPlanPolicy = offloadPlanPolicy{ttl: 30 * time.Second, probeIdle: 5 * time.Second, trigger: planTriggerTick}
 
 // costTableFor builds a table directly rather than through a fit, so each test
 // states the per-job cost and load cost it is reasoning about.
@@ -121,7 +125,7 @@ func TestLeaseNamesBothModelsAndCarriesTheLinkFlags(t *testing.T) {
 
 	owner := lendingTo(candidate("node-a", 16, true))
 	owner.helpers = []offloadHelperCandidate{{offloadCandidate: candidate("node-b", 0, false), LoadIfUnloaded: true, RestoreAfterBorrow: true}}
-	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{owner}, costs, now, 30*time.Second)
+	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{owner}, costs, now, testPlanPolicy).leases
 
 	want := offloadLease{
 		Lane:               cluster.RouteLaneImage,
@@ -131,6 +135,7 @@ func TestLeaseNamesBothModelsAndCarriesTheLinkFlags(t *testing.T) {
 		HelperModelID:      "img-node-b",
 		LoadHelperModel:    true,
 		RestoreHelperModel: true,
+		HelperSlots:        fasterHelperSlots,
 		ExpiresAt:          now.Add(30 * time.Second),
 	}
 	if len(leases) != 1 || leases[0] != want {
@@ -145,7 +150,7 @@ func TestLeaseOmitsRestoreWhenTheLinkDidNotRequestIt(t *testing.T) {
 
 	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
 		lendingTo(candidate("node-a", 16, true), candidate("node-b", 0, false)),
-	}, costs, time.Now(), 30*time.Second)
+	}, costs, time.Now(), testPlanPolicy).leases
 
 	if len(leases) != 1 || leases[0].RestoreHelperModel {
 		t.Fatalf("leases = %+v, want RestoreHelperModel false when unticked", leases)
@@ -163,7 +168,7 @@ func TestLeaseIsGrantedWhenTheLoadFitsUnderTheBacklog(t *testing.T) {
 
 	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
 		lendingTo(candidate("node-a", 16, true), candidate("node-b", 0, false)),
-	}, costs, now, 30*time.Second)
+	}, costs, now, testPlanPolicy).leases
 
 	if len(leases) != 1 {
 		t.Fatalf("leases = %+v, want one", leases)
@@ -186,7 +191,7 @@ func TestLeaseIsRefusedWhenTheLoadCostsMoreThanTheBacklog(t *testing.T) {
 
 	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
 		lendingTo(candidate("node-a", 1, true), candidate("node-b", 0, false)),
-	}, costs, time.Now(), 30*time.Second)
+	}, costs, time.Now(), testPlanPolicy).leases
 
 	if len(leases) != 0 {
 		t.Fatalf("leases = %+v, want none when the load outlasts the backlog", leases)
@@ -200,7 +205,7 @@ func TestHelperAlreadyHoldingTheModelPaysNoSwitch(t *testing.T) {
 
 	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
 		lendingTo(candidate("node-a", 1, true), candidate("node-b", 0, true)),
-	}, costs, time.Now(), 30*time.Second)
+	}, costs, time.Now(), testPlanPolicy).leases
 
 	if len(leases) != 1 {
 		t.Fatalf("leases = %+v, want one for a helper that is already loaded", leases)
@@ -214,7 +219,7 @@ func TestUnloadedHelperIsSkippedWhenItsLinkForbidsLoading(t *testing.T) {
 	owner := lendingTo(candidate("node-a", 16, true))
 	owner.helpers = []offloadHelperCandidate{{offloadCandidate: candidate("node-b", 0, false), LoadIfUnloaded: false}}
 
-	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{owner}, costs, time.Now(), 30*time.Second)
+	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{owner}, costs, time.Now(), testPlanPolicy).leases
 
 	if len(leases) != 0 {
 		t.Fatalf("leases = %+v, want none: the helper would have to load and its link forbids that", leases)
@@ -228,7 +233,7 @@ func TestLoadedHelperIsLeasedEvenWhenItsLinkForbidsLoading(t *testing.T) {
 	owner := lendingTo(candidate("node-a", 16, true))
 	owner.helpers = []offloadHelperCandidate{{offloadCandidate: candidate("node-b", 0, true), LoadIfUnloaded: false}}
 
-	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{owner}, costs, time.Now(), 30*time.Second)
+	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{owner}, costs, time.Now(), testPlanPolicy).leases
 
 	if len(leases) != 1 || leases[0].LoadHelperModel {
 		t.Fatalf("leases = %+v, want one lease that does not permit a load", leases)
@@ -244,25 +249,180 @@ func TestHelperWithNoMeasuredLoadIsSkipped(t *testing.T) {
 
 	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
 		lendingTo(candidate("node-a", 16, true), candidate("node-b", 0, false)),
-	}, costs, time.Now(), 30*time.Second)
+	}, costs, time.Now(), testPlanPolicy).leases
 
 	if len(leases) != 0 {
 		t.Fatalf("leases = %+v, want none without a measured load", leases)
 	}
 }
 
-func TestHelperWithNoMeasuredJobCostIsSkipped(t *testing.T) {
+func TestUnpricedHelperIsPricedWithTheOwnersEstimate(t *testing.T) {
 	costs := costTableFor(t,
 		map[string]float64{"node-a": 8000},
 		map[string]float64{"node-b": 1000})
 
-	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
+	plan := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
 		lendingTo(candidate("node-a", 16, true), candidate("node-b", 0, false)),
-	}, costs, time.Now(), 30*time.Second)
+	}, costs, time.Now(), testPlanPolicy)
 
-	if len(leases) != 0 {
-		t.Fatalf("leases = %+v, want none for a helper the cost table cannot price", leases)
+	if len(plan.leases) != 1 || plan.leases[0].Probe {
+		t.Fatalf("leases = %+v, want one cost-rule lease priced from the owner", plan.leases)
 	}
+	if decision := decisionFor(t, plan, "node-b"); decision.ServiceSource != offloaddecisions.ServiceSourceOwnerFallback || decision.ServiceMS != decision.OwnerJobMS {
+		t.Fatalf("decision = %+v, want the owner's job estimate as the helper's service cost", decision)
+	}
+}
+
+func TestHelperWithItsOwnFitIsPricedWithIt(t *testing.T) {
+	costs := costTableFor(t,
+		map[string]float64{"node-a": 8000, "node-b": 3000},
+		map[string]float64{"node-b": 1000})
+
+	plan := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
+		lendingTo(candidate("node-a", 16, true), candidate("node-b", 0, false)),
+	}, costs, time.Now(), testPlanPolicy)
+
+	if decision := decisionFor(t, plan, "node-b"); decision.ServiceSource != offloaddecisions.ServiceSourceHelper || math.Round(decision.ServiceMS) != 3000 {
+		t.Fatalf("decision = %+v, want the helper's own 3000ms estimate", decision)
+	}
+}
+
+func TestHelperAtLeastAsFastAsTheOwnerGetsAFullPipe(t *testing.T) {
+	costs := costTableFor(t,
+		map[string]float64{"node-a": 28000, "node-b": 11000},
+		map[string]float64{"node-b": 12000})
+
+	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
+		lendingTo(candidate("node-a", 8, true), candidate("node-b", 0, false)),
+	}, costs, time.Now(), testPlanPolicy).leases
+
+	if len(leases) != 1 || leases[0].HelperSlots != fasterHelperSlots {
+		t.Fatalf("leases = %+v, want %d slots for a helper faster than the owner", leases, fasterHelperSlots)
+	}
+}
+
+func TestHelperSlowerThanTheOwnerGetsOneSlot(t *testing.T) {
+	costs := costTableFor(t,
+		map[string]float64{"node-a": 8000, "node-b": 12000},
+		nil)
+
+	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
+		lendingTo(candidate("node-a", 16, true), candidate("node-b", 0, true)),
+	}, costs, time.Now(), testPlanPolicy).leases
+
+	if len(leases) != 1 || leases[0].HelperSlots != slowerHelperSlots {
+		t.Fatalf("leases = %+v, want %d slot for a helper slower than the owner", leases, slowerHelperSlots)
+	}
+}
+
+func TestIdleHelperGetsAOneJobProbeWhenTheCostRuleSaysNo(t *testing.T) {
+	costs := costTableFor(t,
+		map[string]float64{"node-a": 8000, "node-b": 8000},
+		map[string]float64{"node-b": 19000})
+	helper := candidate("node-b", 0, false)
+	helper.IdleFor = 6 * time.Second
+
+	plan := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
+		lendingTo(candidate("node-a", 1, true), helper),
+	}, costs, time.Now(), testPlanPolicy)
+
+	if len(plan.leases) != 1 || !plan.leases[0].Probe || plan.leases[0].HelperSlots != probeHelperSlots {
+		t.Fatalf("leases = %+v, want a one-slot probe", plan.leases)
+	}
+	if decision := decisionFor(t, plan, "node-b"); decision.Outcome != offloaddecisions.OutcomeProbe || decision.Reason != reasonCostRejected {
+		t.Fatalf("decision = %+v, want a probe that records why the cost rule refused", decision)
+	}
+}
+
+func TestHelperIdleShorterThanTheProbeThresholdIsNotProbed(t *testing.T) {
+	costs := costTableFor(t,
+		map[string]float64{"node-a": 8000, "node-b": 8000},
+		map[string]float64{"node-b": 19000})
+	helper := candidate("node-b", 0, false)
+	helper.IdleFor = 4 * time.Second
+
+	plan := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
+		lendingTo(candidate("node-a", 1, true), helper),
+	}, costs, time.Now(), testPlanPolicy)
+
+	if len(plan.leases) != 0 {
+		t.Fatalf("leases = %+v, want none before the helper has idled long enough", plan.leases)
+	}
+	if decision := decisionFor(t, plan, "node-b"); decision.Outcome != offloaddecisions.OutcomeSkipped || decision.HelperIdleMS != 4000 {
+		t.Fatalf("decision = %+v, want a skip that records the 4000ms idle", decision)
+	}
+}
+
+func TestIdleHelperIsProbedEvenWhenNeitherSideIsPriced(t *testing.T) {
+	helper := candidate("node-b", 0, true)
+	helper.IdleFor = time.Minute
+
+	plan := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
+		lendingTo(candidate("node-a", 3, true), helper),
+	}, schedulingcost.Merge(nil), time.Now(), testPlanPolicy)
+
+	if len(plan.leases) != 1 || !plan.leases[0].Probe {
+		t.Fatalf("leases = %+v, want a probe so the pair starts gathering samples", plan.leases)
+	}
+	if decision := decisionFor(t, plan, "node-b"); decision.Reason != reasonOwnerUnpriced {
+		t.Fatalf("decision = %+v, want the probe to record that the owner is unpriced", decision)
+	}
+}
+
+func TestBusyHelperIsNotProbedHoweverLongItIdled(t *testing.T) {
+	costs := costTableFor(t, map[string]float64{"node-a": 8000}, nil)
+	helper := candidate("node-b", 0, true)
+	helper.IdleFor = time.Minute
+	helper.AcceptingBorrowed = false
+
+	plan := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
+		lendingTo(candidate("node-a", 3, true), helper),
+	}, costs, time.Now(), testPlanPolicy)
+
+	if len(plan.leases) != 0 {
+		t.Fatalf("leases = %+v, want none for a helper that is not accepting", plan.leases)
+	}
+	if decision := decisionFor(t, plan, "node-b"); decision.Reason != reasonHelperNotAccepting {
+		t.Fatalf("decision = %+v, want reason %q", decision, reasonHelperNotAccepting)
+	}
+}
+
+func TestEveryEvaluatedPairIsRecordedWithTheTrigger(t *testing.T) {
+	costs := costTableFor(t,
+		map[string]float64{"node-a": 8000, "node-b": 20000, "node-c": 6000},
+		map[string]float64{"node-b": 1000, "node-c": 1000})
+	policy := testPlanPolicy
+	policy.trigger = queueEventCompleted
+
+	plan := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
+		lendingTo(candidate("node-a", 16, true), candidate("node-b", 0, false), candidate("node-c", 0, false)),
+	}, costs, time.Now(), policy)
+
+	if len(plan.decisions) != 2 {
+		t.Fatalf("decisions = %+v, want one per evaluated helper", plan.decisions)
+	}
+	for _, decision := range plan.decisions {
+		if decision.Trigger != queueEventCompleted || decision.Kind != offloaddecisions.KindPlan {
+			t.Fatalf("decision = %+v, want a plan decision carrying the trigger", decision)
+		}
+	}
+	if granted := decisionFor(t, plan, "node-c"); granted.Outcome != offloaddecisions.OutcomeGranted {
+		t.Fatalf("node-c decision = %+v, want granted", granted)
+	}
+	if outranked := decisionFor(t, plan, "node-b"); outranked.Outcome != offloaddecisions.OutcomeSkipped || outranked.Reason != reasonOutranked {
+		t.Fatalf("node-b decision = %+v, want skipped as outranked", outranked)
+	}
+}
+
+func decisionFor(t *testing.T, plan offloadPlan, helperNodeID string) offloaddecisions.Record {
+	t.Helper()
+	for _, decision := range plan.decisions {
+		if decision.HelperNodeID == helperNodeID {
+			return decision
+		}
+	}
+	t.Fatalf("no decision recorded for helper %q in %+v", helperNodeID, plan.decisions)
+	return offloaddecisions.Record{}
 }
 
 func TestBusyHelperIsNeverLeased(t *testing.T) {
@@ -274,7 +434,7 @@ func TestBusyHelperIsNeverLeased(t *testing.T) {
 
 	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
 		lendingTo(candidate("node-a", 16, true), notAccepting),
-	}, costs, time.Now(), 30*time.Second)
+	}, costs, time.Now(), testPlanPolicy).leases
 
 	if len(leases) != 0 {
 		t.Fatalf("leases = %+v, want none for a helper that is not accepting", leases)
@@ -288,7 +448,7 @@ func TestSlowerHelperLosesToTheFasterOne(t *testing.T) {
 
 	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
 		lendingTo(candidate("node-a", 16, true), candidate("node-b", 0, false), candidate("node-c", 0, false)),
-	}, costs, time.Now(), 30*time.Second)
+	}, costs, time.Now(), testPlanPolicy).leases
 
 	if len(leases) != 1 || leases[0].HelperNodeID != "node-c" {
 		t.Fatalf("leases = %+v, want the faster helper", leases)
@@ -303,7 +463,7 @@ func TestOwnerNeverLendsToANodeItHasNoLinkTo(t *testing.T) {
 	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
 		lendingTo(candidate("node-a", 16, true)),
 		lendingTo(candidate("node-b", 0, true), candidate("node-a", 0, true)),
-	}, costs, time.Now(), 30*time.Second)
+	}, costs, time.Now(), testPlanPolicy).leases
 
 	if len(leases) != 0 {
 		t.Fatalf("leases = %+v, want none: node-a lends to nobody and node-b has nothing queued", leases)
@@ -319,7 +479,7 @@ func TestEachHelperIsLeasedToAtMostOneOwner(t *testing.T) {
 	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
 		lendingTo(candidate("node-b", 12, true), candidate("node-c", 0, false)),
 		lendingTo(candidate("node-a", 16, true), candidate("node-c", 0, false)),
-	}, costs, time.Now(), 30*time.Second)
+	}, costs, time.Now(), testPlanPolicy).leases
 
 	if len(leases) != 1 {
 		t.Fatalf("leases = %+v, want one", leases)
@@ -336,13 +496,13 @@ func TestNoLeasesWithoutQueuedWorkOrAnIdleHelper(t *testing.T) {
 
 	if leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
 		lendingTo(candidate("node-a", 0, true), candidate("node-b", 0, true)),
-	}, costs, time.Now(), 30*time.Second); len(leases) != 0 {
+	}, costs, time.Now(), testPlanPolicy).leases; len(leases) != 0 {
 		t.Fatalf("leases = %+v, want none when nothing is queued", leases)
 	}
 
 	if leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
 		lendingTo(candidate("node-a", 5, true), candidate("node-b", 5, true)),
-	}, costs, time.Now(), 30*time.Second); len(leases) != 0 {
+	}, costs, time.Now(), testPlanPolicy).leases; len(leases) != 0 {
 		t.Fatalf("leases = %+v, want none when the helper is busy too", leases)
 	}
 }
@@ -350,7 +510,7 @@ func TestNoLeasesWithoutQueuedWorkOrAnIdleHelper(t *testing.T) {
 func TestNilCostTableGrantsNothing(t *testing.T) {
 	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
 		lendingTo(candidate("node-a", 16, true), candidate("node-b", 0, true)),
-	}, nil, time.Now(), 30*time.Second)
+	}, nil, time.Now(), testPlanPolicy).leases
 	if len(leases) != 0 {
 		t.Fatalf("leases = %+v, want none without a cost table", leases)
 	}
@@ -422,17 +582,52 @@ func TestOffloadLeasesAreKeyedByLaneAndOwnerModel(t *testing.T) {
 	}
 }
 
-func TestTextOffloadSkipsAnUnpricedHelper(t *testing.T) {
+func TestTextOffloadPricesAnUnpricedHelperWithTheOwnersEstimate(t *testing.T) {
 	costs := costTableWithDecodeOnlySlope(t,
 		map[string]float64{"node-a": 8000},
 		map[string]float64{"node-b": 1000})
 
-	leases := planOffloadLeases(cluster.RouteLaneText, []lendingOwner{
+	plan := planOffloadLeases(cluster.RouteLaneText, []lendingOwner{
 		lendingTo(textCandidateWithContextWindow("node-a", 16, true, 8192), textCandidateWithContextWindow("node-b", 0, false, 8192)),
-	}, costs, time.Now(), 30*time.Second)
+	}, costs, time.Now(), testPlanPolicy)
 
-	if len(leases) != 0 {
-		t.Fatalf("leases = %+v, want none while the helper is unpriced", leases)
+	if len(plan.leases) != 1 || plan.leases[0].Probe {
+		t.Fatalf("leases = %+v, want one cost-rule text lease priced from the owner", plan.leases)
+	}
+	if decision := decisionFor(t, plan, "node-b"); decision.ServiceSource != offloaddecisions.ServiceSourceOwnerFallback {
+		t.Fatalf("decision = %+v, want the owner's estimate as the text helper's service cost", decision)
+	}
+}
+
+func TestIdleTextHelperGetsAProbeWhenTheCostRuleSaysNo(t *testing.T) {
+	costs := costTableWithDecodeOnlySlope(t,
+		map[string]float64{"node-a": 8000, "node-b": 8000},
+		map[string]float64{"node-b": 60000})
+	helper := textCandidateWithContextWindow("node-b", 0, false, 8192)
+	helper.IdleFor = 10 * time.Second
+
+	leases := planOffloadLeases(cluster.RouteLaneText, []lendingOwner{
+		lendingTo(textCandidateWithContextWindow("node-a", 1, true, 8192), helper),
+	}, costs, time.Now(), testPlanPolicy).leases
+
+	if len(leases) != 1 || !leases[0].Probe || leases[0].HelperSlots != probeHelperSlots {
+		t.Fatalf("leases = %+v, want a one-slot text probe", leases)
+	}
+}
+
+func TestTextProbeStillRequiresTheHelperWindowToHoldTheContext(t *testing.T) {
+	owner := textCandidateWithContextWindow("node-a", 4, true, 32768)
+	owner.PendingContext = 6000 * owner.PendingCount
+	helper := textCandidateWithContextWindow("node-b", 0, true, 4096)
+	helper.IdleFor = time.Minute
+
+	plan := planOffloadLeases(cluster.RouteLaneText, []lendingOwner{lendingTo(owner, helper)}, schedulingcost.Merge(nil), time.Now(), testPlanPolicy)
+
+	if len(plan.leases) != 0 {
+		t.Fatalf("leases = %+v, want no probe into a window that cannot hold the work", plan.leases)
+	}
+	if decision := decisionFor(t, plan, "node-b"); decision.Reason != reasonContextTooSmall {
+		t.Fatalf("decision = %+v, want reason %q", decision, reasonContextTooSmall)
 	}
 }
 
@@ -445,7 +640,7 @@ func TestTextOffloadHelperMustHoldTheOwnersMeanContext(t *testing.T) {
 	owner.PendingContext = 6000 * owner.PendingCount
 	helper := textCandidateWithContextWindow("node-b", 0, false, 4096)
 
-	leases := planOffloadLeases(cluster.RouteLaneText, []lendingOwner{lendingTo(owner, helper)}, costs, time.Now(), 30*time.Second)
+	leases := planOffloadLeases(cluster.RouteLaneText, []lendingOwner{lendingTo(owner, helper)}, costs, time.Now(), testPlanPolicy).leases
 
 	if len(leases) != 0 {
 		t.Fatalf("leases = %+v, want none when the only helper's window is too small", leases)
@@ -461,7 +656,7 @@ func TestTextOffloadGrantsWhenTheHelperCanHoldTheContext(t *testing.T) {
 	owner.PendingContext = 6000 * owner.PendingCount
 	helper := textCandidateWithContextWindow("node-b", 0, false, 8192)
 
-	leases := planOffloadLeases(cluster.RouteLaneText, []lendingOwner{lendingTo(owner, helper)}, costs, time.Now(), 30*time.Second)
+	leases := planOffloadLeases(cluster.RouteLaneText, []lendingOwner{lendingTo(owner, helper)}, costs, time.Now(), testPlanPolicy).leases
 
 	if len(leases) != 1 {
 		t.Fatalf("leases = %+v, want one when the helper's window fits", leases)
@@ -475,7 +670,7 @@ func TestUnloadedTextHelperIsSkippedWhenItsLinkForbidsLoading(t *testing.T) {
 	owner := lendingTo(textCandidateWithContextWindow("node-a", 16, true, 8192))
 	owner.helpers = []offloadHelperCandidate{{offloadCandidate: textCandidateWithContextWindow("node-b", 0, false, 8192), LoadIfUnloaded: false}}
 
-	leases := planOffloadLeases(cluster.RouteLaneText, []lendingOwner{owner}, costs, time.Now(), 30*time.Second)
+	leases := planOffloadLeases(cluster.RouteLaneText, []lendingOwner{owner}, costs, time.Now(), testPlanPolicy).leases
 
 	if len(leases) != 0 {
 		t.Fatalf("leases = %+v, want none: the text helper would have to load and its link forbids that", leases)
@@ -487,5 +682,35 @@ func TestMeanWorkIsElementwise(t *testing.T) {
 	mean := summed.Mean(4)
 	if mean.Term(0) != 200 || mean.Term(1) != 50 {
 		t.Fatalf("mean = %+v, want (200, 50)", mean)
+	}
+}
+
+func TestPlanSaysWhenAnIdleHelperWillBecomeDueForAProbe(t *testing.T) {
+	costs := costTableFor(t,
+		map[string]float64{"node-a": 8000, "node-b": 8000},
+		map[string]float64{"node-b": 19000})
+	helper := candidate("node-b", 0, false)
+	helper.IdleFor = 3 * time.Second
+
+	plan := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
+		lendingTo(candidate("node-a", 1, true), helper),
+	}, costs, time.Now(), testPlanPolicy)
+
+	if plan.nextProbeDue != 2*time.Second {
+		t.Fatalf("next probe due in %v, want the 2s left until the helper has idled 5s", plan.nextProbeDue)
+	}
+}
+
+func TestPlanSchedulesNoProbeForAHelperThatCannotTakeTheWork(t *testing.T) {
+	costs := costTableFor(t, map[string]float64{"node-a": 8000}, nil)
+	helper := candidate("node-b", 0, true)
+	helper.AcceptingBorrowed = false
+
+	plan := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
+		lendingTo(candidate("node-a", 1, true), helper),
+	}, costs, time.Now(), testPlanPolicy)
+
+	if plan.nextProbeDue != 0 {
+		t.Fatalf("next probe due in %v, want none for a busy helper", plan.nextProbeDue)
 	}
 }

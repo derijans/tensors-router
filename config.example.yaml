@@ -177,8 +177,9 @@ cluster:
   # pushing it all at the backend, so surplus work can still be lent along its
   # one-way links to an idle helper. scheduling_backend_depth is how many requests
   # reach the backend at once: 2 keeps one running and one queued so the backend
-  # never idles between jobs. A model is only leased once it has at least
-  # scheduling_min_samples measured requests inside scheduling_sample_window.
+  # never idles between jobs. A model has its own cost fit once it has at least
+  # scheduling_min_samples measured requests inside scheduling_sample_window; a
+  # helper without one is priced with its owner's fit until it has.
   scheduling_refresh_interval: "60s"
   scheduling_sample_window: "24h"
   scheduling_min_samples: 20
@@ -188,6 +189,9 @@ cluster:
   # borrowed work through that link reloads whatever model it held before, once
   # offload_restore_delay passes with no further borrowed work arriving.
   offload_restore_delay: "1.5s"
+  # A helper idle this long gets a one-job probe even when the cost rule says no,
+  # so every linked pair keeps gathering the samples its own cost fit needs.
+  offload_probe_idle: "5s"
   # Text routing links reuse every key above. A .kcpps that sets parallel or
   # vllm.settings.max_number_sequences above 1 serves requests concurrently and
   # cannot be linked at all, which is what keeps one backend depth

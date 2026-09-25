@@ -46,7 +46,8 @@ type Manager struct {
 	config        ProcessConfig
 	endpoint      *backendendpoint.Endpoint
 	adminPassword string
-	client        *http.Client
+	probeClient   *http.Client
+	reloadClient  *http.Client
 	mu            sync.Mutex
 	exitMu        sync.RWMutex
 	cmd           *exec.Cmd
@@ -64,6 +65,8 @@ type Manager struct {
 }
 
 const embeddingsRole = "embeddings"
+
+const adminReloadTimeout = 15 * time.Minute
 
 type reloadResponse struct {
 	Success bool   `json:"success"`
@@ -99,13 +102,14 @@ func newManager(config ProcessConfig, role string) (*Manager, error) {
 		config:        config,
 		endpoint:      endpoint,
 		adminPassword: adminPassword,
-		client: &http.Client{
+		probeClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		capture:    backenddiagnostic.NewCapture(adminPassword),
-		captureHub: loadcapture.NewHub(),
-		role:       role,
-		generated:  make(map[string]struct{}),
+		reloadClient: &http.Client{},
+		capture:      backenddiagnostic.NewCapture(adminPassword),
+		captureHub:   loadcapture.NewHub(),
+		role:         role,
+		generated:    make(map[string]struct{}),
 	}, nil
 }
 
@@ -414,14 +418,16 @@ func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error
 	target := manager.URL()
 	target.Path = "/api/admin/reload_config"
 
-	request, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(body))
+	reloadContext, cancelReload := context.WithTimeout(ctx, adminReloadTimeout)
+	defer cancelReload()
+	request, err := http.NewRequestWithContext(reloadContext, http.MethodPost, target.String(), bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Authorization", "Bearer "+manager.adminPassword)
 
-	response, err := manager.client.Do(request)
+	response, err := manager.reloadClient.Do(request)
 	if err != nil {
 		manager.removeGenerated(generatedPath)
 		return err
@@ -471,7 +477,7 @@ func (manager *Manager) Healthy(ctx context.Context) bool {
 		return false
 	}
 
-	response, err := manager.client.Do(request)
+	response, err := manager.probeClient.Do(request)
 	if err != nil {
 		return false
 	}

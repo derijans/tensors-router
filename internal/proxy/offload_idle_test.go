@@ -123,3 +123,45 @@ func waitForCondition(t *testing.T, condition func() bool) {
 	}
 	t.Fatal("condition was never satisfied")
 }
+
+func TestOnlyTheLastReleaseStampsWhenTheRuntimeWentIdle(t *testing.T) {
+	state := newActiveConfigState()
+	state.users = 2
+	releaseFirst, releaseSecond := releaseActiveConfigOnce(state), releaseActiveConfigOnce(state)
+
+	releaseFirst()
+	if !state.idleSince.IsZero() {
+		t.Fatal("idle was stamped while a user still held the runtime")
+	}
+	beforeLastRelease := time.Now()
+	releaseSecond()
+	if state.idleSince.Before(beforeLastRelease) {
+		t.Fatalf("idle since %v, want the moment the last user released", state.idleSince)
+	}
+}
+
+func TestIdleForIsZeroWhileARequestRunsAndCountsUpAfterwards(t *testing.T) {
+	gate := make(chan struct{})
+	service, _, _ := newSplitTestServiceWithConfigContents(t,
+		handlerBlockingOnlyInferencePath(t, gate, "/v1/chat/completions", `{"model":"backend","choices":[{"message":{"content":"ok"}}]}`),
+		http.NotFoundHandler(),
+		map[string]string{"text-only": `{"model_param":"C:\\models\\llm.gguf"}`},
+	)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"text-only","messages":[]}`))
+		request.Header.Set("Content-Type", "application/json")
+		service.ServeHTTP(httptest.NewRecorder(), request)
+	}()
+	waitForCondition(t, func() bool { return service.requestsRunningOnEveryBackendFamily() > 0 })
+
+	if idle := service.scheduler.idleFor(time.Now()); idle != 0 {
+		t.Fatalf("idle for %v while a request runs, want 0", idle)
+	}
+	close(gate)
+	<-done
+	if idle := service.scheduler.idleFor(time.Now().Add(6 * time.Second)); idle < 6*time.Second {
+		t.Fatalf("idle for %v six seconds after the request finished, want at least 6s", idle)
+	}
+}

@@ -1917,7 +1917,8 @@ td {
 
 .node-state-header h3,
 .node-backend-heading h4,
-.node-active-requests h4 {
+.node-active-requests h4,
+.node-held-requests h4 {
   margin: 0;
 }
 
@@ -1928,7 +1929,8 @@ td {
 }
 
 .node-state-backend,
-.node-active-requests {
+.node-active-requests,
+.node-held-requests {
   display: grid;
   gap: 10px;
   padding: 12px;
@@ -1978,6 +1980,21 @@ td {
   gap: 5px;
   margin: 0;
   padding-left: 20px;
+}
+
+.node-held-requests ul {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.node-held-request {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
 }
 
 .routing-dialog {

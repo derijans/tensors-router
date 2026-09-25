@@ -8,7 +8,7 @@ import (
 	"tensors-router/internal/cluster"
 )
 
-func (webUI *webUIProxy) webUIProxyResponseWithAnalytics(response *http.Response, started time.Time, r *http.Request, definition webUIDefinition, strippedPath string, route cluster.Route) *http.Response {
+func (webUI *webUIProxy) webUIProxyResponseWithAnalytics(response *http.Response, started time.Time, r *http.Request, body []byte, definition webUIDefinition, strippedPath string, route cluster.Route) *http.Response {
 	if webUI.analytics.store == nil || route.Remote || !webUIInferencePath(definition, strippedPath) {
 		return response
 	}
@@ -17,7 +17,7 @@ func (webUI *webUIProxy) webUIProxyResponseWithAnalytics(response *http.Response
 	if section == routeranalytics.SectionImage && route.LocalImageID != "" {
 		modelID = route.LocalImageID
 	}
-	event := webUI.analytics.newEvent(started, r, nil, modelID, section, definition.backendMode)
+	event := webUI.analytics.newEvent(started, r, body, modelID, section, definition.backendMode)
 	event.Route = routeranalytics.RouteClass(strippedPath)
 	event.ConfigFilename = route.Filename
 	return webUI.analytics.withResponse(response, event)

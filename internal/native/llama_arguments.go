@@ -62,7 +62,7 @@ func appendLlamaComputeArguments(args *[]string, metadata catalog.RuntimeConfig)
 	appendIntArg(args, "--batch-size", metadata.BatchSize)
 	appendIntArg(args, "--ubatch-size", metadata.UBatchSize)
 	appendStringArg(args, "--device", metadata.Device)
-	appendIntArg(args, "--n-gpu-layers", metadata.GPULayers)
+	appendIntArg(args, "--n-gpu-layers", int(metadata.GPULayers))
 	appendIntArg(args, "--n-cpu-ffn", positive(metadata.NCPUFFN))
 	appendStringArg(args, "--split-mode", metadata.SplitMode)
 	appendStringArg(args, "--tensor-split", metadata.TensorSplitValue())
@@ -97,7 +97,7 @@ func appendLlamaSpeculativeArguments(args *[]string, metadata catalog.RuntimeCon
 	appendFloatArg(args, "--spec-draft-p-min", metadata.SpecDraftPMin)
 	appendStringArg(args, "--model-draft", metadata.DraftModel)
 	appendIntArg(args, "--spec-draft-n-max", metadata.DraftAmount)
-	appendIntArg(args, "--spec-draft-ngl", metadata.DraftGPULayers)
+	appendIntArg(args, "--spec-draft-ngl", int(metadata.DraftGPULayers))
 }
 
 func llamaSpeculativeTypes(metadata catalog.RuntimeConfig) []string {

@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"tensors-router/internal/offloaddecisions"
 	"tensors-router/internal/schedulingcost"
 )
 
@@ -15,6 +16,7 @@ type offloadCandidate struct {
 	Section           string
 	Loaded            bool
 	AcceptingBorrowed bool
+	IdleFor           time.Duration
 	ContextCapacity   int
 	PendingCount      int64
 	PendingWork       schedulingcost.Work
@@ -42,11 +44,38 @@ type offloadLease struct {
 	HelperModelID      string    `json:"helper_model_id"`
 	LoadHelperModel    bool      `json:"load_helper_model"`
 	RestoreHelperModel bool      `json:"restore_helper_model"`
+	HelperSlots        int       `json:"helper_slots"`
+	Probe              bool      `json:"probe,omitempty"`
 	ExpiresAt          time.Time `json:"expires_at"`
+}
+
+func (lease offloadLease) slots() int {
+	if lease.HelperSlots < 1 {
+		return 1
+	}
+	return lease.HelperSlots
 }
 
 func laneModelKey(lane string, modelID string) string {
 	return lane + "\x00" + modelID
+}
+
+type offloadPlanPolicy struct {
+	ttl       time.Duration
+	probeIdle time.Duration
+	trigger   string
+}
+
+type offloadPlan struct {
+	leases       []offloadLease
+	decisions    []offloaddecisions.Record
+	nextProbeDue time.Duration
+}
+
+func (plan *offloadPlan) probeDueIn(wait time.Duration) {
+	if wait > 0 && (plan.nextProbeDue == 0 || wait < plan.nextProbeDue) {
+		plan.nextProbeDue = wait
+	}
 }
 
 // planOffloadLeases decides which owners may lend queued work to which of the
@@ -57,40 +86,53 @@ func laneModelKey(lane string, modelID string) string {
 // once when the slot opens and amortises over every job that flows through it,
 // which is why a deep backlog justifies a switch that a shallow one does not.
 //
-// A node with too little history is never scheduled on a guess: an owner or helper
-// the cost table cannot price is skipped. One helper node takes one owner per plan.
-func planOffloadLeases(lane string, owners []lendingOwner, costs *schedulingcost.Table, now time.Time, ttl time.Duration) []offloadLease {
+// One helper node takes one owner per plan.
+func planOffloadLeases(lane string, owners []lendingOwner, costs *schedulingcost.Table, now time.Time, policy offloadPlanPolicy) offloadPlan {
+	var plan offloadPlan
 	if costs == nil {
-		return nil
+		return plan
 	}
-	backlogged := ownersWithPendingWork(owners)
 	claimed := map[string]bool{}
-	leases := make([]offloadLease, 0, len(backlogged))
-	for _, candidate := range backlogged {
-		owner := candidate.owner
-		keepMS, ok := costs.PredictQueueMS(offloadModelKey(owner), owner.BacklogCount, owner.BacklogWork)
-		if !ok {
+	for _, candidate := range ownersWithPendingWork(owners) {
+		lease, decisions, granted := planOwner(lane, candidate, costs, claimed, now, policy)
+		plan.decisions = append(plan.decisions, decisions...)
+		if granted {
+			claimed[lease.HelperNodeID] = true
+			plan.leases = append(plan.leases, lease)
 			continue
 		}
-		meanWork := owner.PendingWork.Mean(owner.PendingCount)
-		meanContext := int(owner.PendingContext / owner.PendingCount)
-		helper, helpMS, found := bestOffloadHelper(candidate.helpers, claimed, costs, meanWork, meanContext)
-		if !found || helpMS >= keepMS {
-			continue
-		}
-		claimed[helper.NodeID] = true
-		leases = append(leases, offloadLease{
-			Lane:               lane,
-			OwnerNodeID:        owner.NodeID,
-			OwnerModelID:       owner.ModelID,
-			HelperNodeID:       helper.NodeID,
-			HelperModelID:      helper.ModelID,
-			LoadHelperModel:    helper.LoadIfUnloaded,
-			RestoreHelperModel: helper.RestoreAfterBorrow,
-			ExpiresAt:          now.Add(ttl),
-		})
+		plan.probeDueIn(soonestProbeFor(candidate.helpers, claimed, ownerDemandFor(candidate.owner, costs).meanContext, policy.probeIdle))
 	}
-	return leases
+	return plan
+}
+
+func planOwner(lane string, candidate lendingOwner, costs *schedulingcost.Table, claimed map[string]bool, now time.Time, policy offloadPlanPolicy) (offloadLease, []offloaddecisions.Record, bool) {
+	demand := ownerDemandFor(candidate.owner, costs)
+	evaluations := make([]helperEvaluation, 0, len(candidate.helpers))
+	for _, helper := range candidate.helpers {
+		evaluations = append(evaluations, evaluateHelper(helper, claimed, costs, demand))
+	}
+	chosen, probe := chooseHelper(evaluations, demand, policy.probeIdle)
+	decisions := make([]offloaddecisions.Record, 0, len(evaluations))
+	for index, evaluation := range evaluations {
+		decisions = append(decisions, planDecision(lane, policy.trigger, demand, evaluation, index == chosen, probe))
+	}
+	if chosen < 0 {
+		return offloadLease{}, decisions, false
+	}
+	helper := evaluations[chosen].helper
+	return offloadLease{
+		Lane:               lane,
+		OwnerNodeID:        demand.owner.NodeID,
+		OwnerModelID:       demand.owner.ModelID,
+		HelperNodeID:       helper.NodeID,
+		HelperModelID:      helper.ModelID,
+		LoadHelperModel:    helper.LoadIfUnloaded,
+		RestoreHelperModel: helper.RestoreAfterBorrow,
+		HelperSlots:        decisions[chosen].Slots,
+		Probe:              probe,
+		ExpiresAt:          now.Add(policy.ttl),
+	}, decisions, true
 }
 
 func ownersWithPendingWork(owners []lendingOwner) []lendingOwner {
@@ -121,48 +163,6 @@ func backlogMagnitude(work schedulingcost.Work) float64 {
 	return total
 }
 
-func helperWindowHolds(helper offloadCandidate, meanContext int) bool {
-	return meanContext <= 0 || helper.ContextCapacity >= meanContext
-}
-
-func helperMayServe(helper offloadHelperCandidate, claimed map[string]bool, meanContext int) bool {
-	return helper.AcceptingBorrowed &&
-		!claimed[helper.NodeID] &&
-		(helper.Loaded || helper.LoadIfUnloaded) &&
-		helperWindowHolds(helper.offloadCandidate, meanContext)
-}
-
-func bestOffloadHelper(helpers []offloadHelperCandidate, claimed map[string]bool, costs *schedulingcost.Table, meanWork schedulingcost.Work, meanContext int) (offloadHelperCandidate, float64, bool) {
-	var best offloadHelperCandidate
-	bestMS := 0.0
-	found := false
-	for _, helper := range helpers {
-		if !helperMayServe(helper, claimed, meanContext) {
-			continue
-		}
-		switchMS, ok := offloadSwitchMS(helper.offloadCandidate, costs)
-		if !ok {
-			continue
-		}
-		serviceMS, ok := costs.PredictMS(offloadModelKey(helper.offloadCandidate), meanWork)
-		if !ok {
-			continue
-		}
-		totalMS := switchMS + serviceMS
-		if !found || totalMS < bestMS || (totalMS == bestMS && helper.NodeID < best.NodeID) {
-			best, bestMS, found = helper, totalMS, true
-		}
-	}
-	return best, bestMS, found
-}
-
-func offloadSwitchMS(helper offloadCandidate, costs *schedulingcost.Table) (float64, bool) {
-	if helper.Loaded {
-		return 0, true
-	}
-	return costs.LoadMS(schedulingcost.LoadKey{NodeID: helper.NodeID, ConfigFilename: helper.ConfigFilename})
-}
-
 func offloadModelKey(candidate offloadCandidate) schedulingcost.ModelKey {
 	return schedulingcost.ModelKey{
 		NodeID:  candidate.NodeID,
@@ -190,7 +190,7 @@ func offloadLeaseBookKey(lane string, ownerNodeID string, ownerModelID string) s
 
 // Replace installs the leases this cycle planned. Anything not replanned simply
 // disappears: a lease the rule no longer justifies should stop being renewed, and
-// the owner stops offloading as soon as its copy expires.
+// the owner stops offloading once its copy expires or the master answers without it.
 func (book *offloadLeaseBook) Replace(planned []offloadLease) {
 	live := make(map[string]offloadLease, len(planned))
 	for _, lease := range planned {

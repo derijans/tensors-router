@@ -17,26 +17,60 @@ func (scheduler *scheduler) refreshOffloadPlan(ctx context.Context) {
 	if identity.role != cluster.RoleMaster || identity.registry == nil {
 		return
 	}
-	statuses := scheduler.collectRuntimeStatuses(ctx, identity.nodeID)
-	scheduler.applyClusterCosts(statuses)
-
 	snapshot, loaded := scheduler.deps.installStoredRoutingLinks(ctx)
 	if !loaded {
 		return
 	}
 	scheduler.deps.publishRoutingLinks(ctx, snapshot)
+	plan := scheduler.planNow(ctx, identity, planTriggerTick)
+	scheduler.deliverOffloadLeases(ctx, identity, plan.leases, queueEvent{})
+}
+
+func (scheduler *scheduler) planNow(ctx context.Context, identity clusterIdentity, trigger string) offloadPlan {
+	scheduler.planMu.Lock()
+	defer scheduler.planMu.Unlock()
+	statuses := scheduler.collectRuntimeStatuses(ctx, identity.nodeID)
+	scheduler.applyClusterCosts(statuses)
 
 	costs := scheduler.costSource.Table()
 	now := time.Now()
 	index := scheduler.deps.routingLinkIndex()
 	models := identity.registry.Models()
-	var planned []offloadLease
+	policy := offloadPlanPolicy{ttl: scheduler.grantTTL, probeIdle: scheduler.probeIdle, trigger: trigger}
+	var plan offloadPlan
 	for _, lane := range lendingLanes {
 		owners := lendingOwnersForLane(lane, models, index, statuses)
-		planned = append(planned, planOffloadLeases(lane, owners, costs, now, scheduler.grantTTL)...)
+		lanePlan := planOffloadLeases(lane, owners, costs, now, policy)
+		plan.leases = append(plan.leases, lanePlan.leases...)
+		plan.decisions = append(plan.decisions, lanePlan.decisions...)
+		plan.probeDueIn(lanePlan.nextProbeDue)
 	}
-	scheduler.leaseBook.Replace(planned)
-	scheduler.deliverOffloadLeases(ctx, identity, planned)
+	scheduler.leaseBook.Replace(plan.leases)
+	for _, decision := range plan.decisions {
+		scheduler.record(decision)
+	}
+	scheduler.scheduleProbeReplan(plan.nextProbeDue)
+	return plan
+}
+
+func (scheduler *scheduler) scheduleProbeReplan(due time.Duration) {
+	if scheduler.probeReplan != nil {
+		scheduler.probeReplan.Stop()
+		scheduler.probeReplan = nil
+	}
+	if due <= 0 || scheduler.lifetime.Err() != nil {
+		return
+	}
+	scheduler.probeReplan = time.AfterFunc(due, scheduler.replanWhenProbeIsDue)
+}
+
+func (scheduler *scheduler) replanWhenProbeIsDue() {
+	identity := scheduler.deps.clusterIdentity()
+	if identity.role != cluster.RoleMaster || identity.registry == nil || scheduler.lifetime.Err() != nil {
+		return
+	}
+	plan := scheduler.planNow(scheduler.lifetime, identity, planTriggerProbeDue)
+	scheduler.deliverOffloadLeases(scheduler.lifetime, identity, plan.leases, queueEvent{Trigger: planTriggerProbeDue})
 }
 
 func (scheduler *scheduler) collectRuntimeStatuses(ctx context.Context, localNodeID string) map[string]NodeRuntimeStatus {
@@ -130,6 +164,7 @@ func offloadCandidateFor(lane string, endpoint routinggroups.Endpoint, models ma
 		ModelID:        endpoint.ModelID,
 		ConfigFilename: model.Filename,
 		Section:        laneSection(lane),
+		IdleFor:        time.Duration(status.IdleForMS) * time.Millisecond,
 		PendingCount:   stats.PendingCount,
 		PendingWork:    stats.PendingWork,
 		BacklogCount:   stats.BacklogCount,
@@ -147,11 +182,18 @@ func offloadCandidateFor(lane string, endpoint routinggroups.Endpoint, models ma
 	return candidate, true
 }
 
-func (scheduler *scheduler) deliverOffloadLeases(ctx context.Context, identity clusterIdentity, leases []offloadLease) {
+func (scheduler *scheduler) deliverOffloadLeases(ctx context.Context, identity clusterIdentity, leases []offloadLease, answeredInline queueEvent) {
 	nodeURLs := identity.registry.NodeURLsByID()
+	trigger := planTriggerTick
+	if answeredInline.Trigger != "" {
+		trigger = answeredInline.Trigger
+	}
 	for _, lease := range leases {
+		if lease.Lane == answeredInline.Lane && lease.OwnerNodeID == answeredInline.OwnerNodeID && lease.OwnerModelID == answeredInline.ModelID {
+			continue
+		}
 		if lease.OwnerNodeID == identity.nodeID {
-			scheduler.storeOffloadLease(lease)
+			scheduler.acceptOffloadLease(lease, trigger)
 			continue
 		}
 		nodeURL := nodeURLs[lease.OwnerNodeID]
@@ -162,10 +204,6 @@ func (scheduler *scheduler) deliverOffloadLeases(ctx context.Context, identity c
 			scheduler.logger.Printf("offload grant delivery failed node=%s error=%v", lease.OwnerNodeID, err)
 		}
 	}
-}
-
-func (scheduler *scheduler) storeOffloadLease(lease offloadLease) {
-	scheduler.offloadLeases.Store(laneModelKey(lease.Lane, lease.OwnerModelID), lease)
 }
 
 func (scheduler *scheduler) activeOffloadLease(lane string, modelID string, now time.Time) (offloadLease, bool) {

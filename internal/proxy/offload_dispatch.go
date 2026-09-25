@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"tensors-router/internal/cluster"
+	"tensors-router/internal/offloaddecisions"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/routinggroups"
 	"tensors-router/internal/schedulingcost"
@@ -37,11 +38,12 @@ func (scheduler *scheduler) enterQueue(ctx context.Context, lane string, modelID
 		origin:          origin,
 		withdrawal:      withdrawal,
 	}, scheduler.nodeActivity(), time.Now())
-	scheduler.maybeOffload(lane, modelID)
+	scheduler.reportQueueEvent(lane, modelID, queueEventEnqueued)
 	outcome, err := queue.Await(ctx, entry)
 	if err != nil {
 		return queueAdmission{}, err
 	}
+	scheduler.recordHelperQueueOutcome(lane, entry, outcome)
 	return queueAdmission{entry: entry, outcome: outcome}, nil
 }
 
@@ -55,7 +57,7 @@ func (scheduler *scheduler) enterTextQueue(ctx context.Context, modelID string, 
 
 func (scheduler *scheduler) completeQueueEntry(lane string, modelID string, entry *offloadEntry) {
 	scheduler.queueForLane(lane).Complete(entry)
-	scheduler.maybeOffload(lane, modelID)
+	scheduler.reportQueueEvent(lane, modelID, queueEventCompleted)
 }
 
 func (scheduler *scheduler) completeImageQueueEntry(modelID string, entry *offloadEntry) {
@@ -70,48 +72,87 @@ func (scheduler *scheduler) maybeOffload(lane string, modelID string) {
 	if modelID == "" {
 		return
 	}
-	key := laneModelKey(lane, modelID)
-	if _, live := scheduler.activeOffloadLease(lane, modelID, time.Now()); !live {
+	scheduler.dispatchMu.Lock()
+	defer scheduler.dispatchMu.Unlock()
+	lease, live := scheduler.activeOffloadLease(lane, modelID, time.Now())
+	if !live {
 		return
 	}
-	if _, busy := scheduler.offloadInFlight.LoadOrStore(key, true); busy {
-		return
-	}
-	withdrawn := scheduler.queueForLane(lane).WithdrawNewest(modelID, 1)
-	if len(withdrawn) == 0 {
-		scheduler.offloadInFlight.Delete(key)
+	queue := scheduler.queueForLane(lane)
+	for scheduler.lent.Count(lane, modelID) < lease.slots() {
+		withdrawn := queue.WithdrawNewest(modelID, 1)
+		if len(withdrawn) == 0 {
+			return
+		}
+		scheduler.lendWithdrawn(lease, withdrawn[0])
 	}
 }
 
-func (scheduler *scheduler) finishOffload(lane string, modelID string) {
-	scheduler.offloadInFlight.Delete(laneModelKey(lane, modelID))
-	scheduler.maybeOffload(lane, modelID)
+func (scheduler *scheduler) lendWithdrawn(lease offloadLease, entry *offloadEntry) {
+	scheduler.lent.Add(entry, lentRequest{
+		lane:          lease.Lane,
+		modelID:       lease.OwnerModelID,
+		arrived:       entry.arrived,
+		helperNodeID:  lease.HelperNodeID,
+		helperModelID: lease.HelperModelID,
+	})
+	scheduler.record(offloaddecisions.Record{
+		Kind:          offloaddecisions.KindDispatch,
+		Lane:          lease.Lane,
+		OwnerNodeID:   lease.OwnerNodeID,
+		OwnerModelID:  lease.OwnerModelID,
+		HelperNodeID:  lease.HelperNodeID,
+		HelperModelID: lease.HelperModelID,
+		Outcome:       offloaddecisions.OutcomeLent,
+		Slots:         lease.slots(),
+		LentOut:       scheduler.lent.Count(lease.Lane, lease.OwnerModelID),
+		WaitMS:        time.Since(entry.arrived).Milliseconds(),
+	})
+}
+
+func (scheduler *scheduler) finishOffload(lane string, modelID string, entry *offloadEntry, returned bool) {
+	request, lent := scheduler.lent.Remove(entry)
+	if lent && returned {
+		scheduler.record(offloaddecisions.Record{
+			Kind:          offloaddecisions.KindDispatch,
+			Lane:          lane,
+			OwnerModelID:  modelID,
+			HelperNodeID:  request.helperNodeID,
+			HelperModelID: request.helperModelID,
+			Outcome:       offloaddecisions.OutcomeReturned,
+			LentOut:       scheduler.lent.Count(lane, modelID),
+		})
+	}
+	scheduler.reportQueueEvent(lane, modelID, queueEventBorrowedCompleted)
 }
 
 func writeOffloadReturned(w http.ResponseWriter) {
 	openai.WriteError(w, http.StatusConflict, offloadReturnedCode, "node has work of its own and returned this borrowed request")
 }
 
-func (service *Service) forwardOffloadedRequest(w http.ResponseWriter, original *http.Request, forwarded *http.Request, body []byte, lane string, modelID string, publicID string, release func()) bool {
-	defer service.scheduler.finishOffload(lane, modelID)
-
-	response, err := service.sendOffloadedRequest(original.Context(), lane, modelID, forwarded, body)
+func (service *Service) forwardOffloadedRequest(w http.ResponseWriter, original *http.Request, forwarded *http.Request, body []byte, lane string, entry *offloadEntry, publicID string, release func()) bool {
+	response, err := service.sendOffloadedRequest(original.Context(), lane, entry.modelID, forwarded, body)
 	if err != nil {
+		service.scheduler.finishOffload(lane, entry.modelID, entry, true)
 		return false
 	}
+	defer service.scheduler.finishOffload(lane, entry.modelID, entry, false)
 	response = responseWithRelease(response, release)
-	if err := service.writeProxyResponse(w, response, publicID, true); err != nil {
-		return true
-	}
+	_ = service.writeProxyResponse(w, response, publicID, true)
 	return true
 }
 
-func (service *Service) forwardOffloadedImageRequest(w http.ResponseWriter, original *http.Request, forwarded *http.Request, body []byte, modelID string, publicImageID string, release func()) bool {
-	return service.forwardOffloadedRequest(w, original, forwarded, body, cluster.RouteLaneImage, modelID, publicImageID, release)
+func (service *Service) forwardOffloadedImageRequest(w http.ResponseWriter, original *http.Request, forwarded *http.Request, body []byte, entry *offloadEntry, publicImageID string, release func()) bool {
+	return service.forwardOffloadedRequest(w, original, forwarded, body, cluster.RouteLaneImage, entry, publicImageID, release)
 }
 
-func (service *Service) forwardOffloadedTextRequest(w http.ResponseWriter, original *http.Request, forwarded *http.Request, body []byte, modelID string, publicID string, release func()) bool {
-	return service.forwardOffloadedRequest(w, original, forwarded, body, cluster.RouteLaneText, modelID, publicID, release)
+func (service *Service) forwardOffloadedTextRequest(w http.ResponseWriter, original *http.Request, forwarded *http.Request, body []byte, entry *offloadEntry, publicID string, release func()) bool {
+	return service.forwardOffloadedRequest(w, original, forwarded, body, cluster.RouteLaneText, entry, publicID, release)
+}
+
+func (service *Service) lentTextRequestFitsHelper(modelID string, entry *offloadEntry) bool {
+	lease, leased := service.scheduler.activeOffloadLease(cluster.RouteLaneText, modelID, time.Now())
+	return leased && service.leasedHelperContextFits(routinggroups.Endpoint{NodeID: lease.HelperNodeID, ModelID: lease.HelperModelID}, entry.requiredContext)
 }
 
 func (service *Service) leasedHelperContextFits(helper routinggroups.Endpoint, requiredContext int64) bool {

@@ -47,6 +47,7 @@ Both paths restore the public model ID in JSON, SSE, and NDJSON responses (`writ
 | `unloadpolicy` | How a config's `router_unload_policy` decides between reuse, reload, and restart. |
 | `schedulingcost` | Fits load and token costs from history to price queues and offload decisions. |
 | `routinggroups` | Operator-declared links that let one node lend work to another. |
+| `offloaddecisions` | The lending decision log: every plan, dispatch, and helper decision, kept in the router database. |
 | `openai`, `ollama` | Wire formats and error shapes for the OpenAI and Ollama APIs. |
 
 ### `proxy` components
@@ -61,7 +62,7 @@ Both paths restore the public model ID in JSON, SSE, and NDJSON responses (`writ
 | `assetManager` | `model_asset*.go` | Model file hashing, lookup cache, peer transfer, Hugging Face resolution, and background asset jobs. `Close` waits for those jobs. |
 | `requestAnalytics` | `analytics.go`, `vram_analytics.go` | Request events, load hooks, and VRAM sampling (`analytics.VRAMWorkSampler`). |
 | `webUIProxy` | `webui_*.go` | Backend WebUI proxying and its route snapshot. `Service.onRuntimeChanged` invalidates the snapshot when a runtime loads or unloads. |
-| `scheduler` | `scheduler.go`, `offload_*.go`, `scheduling_costs.go`, `text_work.go` | Image and text queues, offload leases, the fitted cost table, the refresh loop, and borrow restore. `Close` stops the loop and the restore timers. |
+| `scheduler` | `scheduler.go`, `offload_*.go`, `scheduling_costs.go`, `text_work.go` | Image and text queues, offload leases, lent-request slots, queue events the master decides on, the fitted cost table, the refresh loop, and borrow restore. `Close` stops the loop, the event reports, and the restore timers. |
 
 Every unload claims the runtime through one protocol in `lane.go` (`claimIdleRuntime`). The unload policy, the node UI unload with its generation check, the disabled-model unload, and backend stop all use it.
 

@@ -28,6 +28,7 @@ type NodeRuntimeStatus struct {
 	AcceptingBorrowedText  bool                     `json:"accepting_borrowed_text"`
 	TextQueue              []offloadModelStats      `json:"text_queue,omitempty"`
 	ActiveTextConfig       string                   `json:"active_text_config,omitempty"`
+	IdleForMS              int64                    `json:"idle_for_ms"`
 	Costs                  schedulingcost.NodeCosts `json:"costs,omitempty"`
 }
 

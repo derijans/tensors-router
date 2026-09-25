@@ -20,7 +20,7 @@ type RuntimeConfig struct {
 	BLASThreads               int                    `json:"blasthreads"`
 	BatchSize                 int                    `json:"batchsize"`
 	UBatchSize                int                    `json:"ubatchsize"`
-	GPULayers                 int                    `json:"gpulayers"`
+	GPULayers                 LenientInt             `json:"gpulayers"`
 	SplitMode                 string                 `json:"splitmode"`
 	TensorSplit               any                    `json:"tensor_split"`
 	MainGPU                   int                    `json:"maingpu"`
@@ -38,7 +38,7 @@ type RuntimeConfig struct {
 	RPCTargets                string                 `json:"rpctargets"`
 	DraftModel                string                 `json:"draftmodel"`
 	DraftAmount               int                    `json:"draftamount"`
-	DraftGPULayers            int                    `json:"draftgpulayers"`
+	DraftGPULayers            LenientInt             `json:"draftgpulayers"`
 	DraftDFlash               bool                   `json:"draft_dflash"`
 	DraftDSpark               bool                   `json:"draft_dspark"`
 	QuantKV                   string                 `json:"quantkv"`

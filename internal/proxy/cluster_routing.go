@@ -16,7 +16,6 @@ import (
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/recipes"
-	"tensors-router/internal/routinggroups"
 )
 
 func borrowedRequestMustStayOnThisNode(r *http.Request, route cluster.Route) bool {
@@ -159,10 +158,12 @@ func (service *Service) serveTextThroughLendingQueue(w http.ResponseWriter, r *h
 		writeOffloadReturned(w)
 		return nil, true
 	case offloadWithdrawn:
-		if lease, leased := service.scheduler.activeOffloadLease(cluster.RouteLaneText, modelID, time.Now()); leased &&
-			service.leasedHelperContextFits(routinggroups.Endpoint{NodeID: lease.HelperNodeID, ModelID: lease.HelperModelID}, admission.entry.requiredContext) &&
-			service.forwardOffloadedTextRequest(w, r, r, requestBody, modelID, publicID, release) {
-			return nil, true
+		if service.lentTextRequestFitsHelper(modelID, admission.entry) {
+			if service.forwardOffloadedTextRequest(w, r, r, requestBody, admission.entry, publicID, release) {
+				return nil, true
+			}
+		} else {
+			service.scheduler.finishOffload(cluster.RouteLaneText, modelID, admission.entry, true)
 		}
 		requeued := service.scheduler.textQueue.Requeue(modelID, workHint.Work, int64(workHint.RequiredContext), time.Now())
 		if outcome, waitErr := service.scheduler.textQueue.Await(r.Context(), requeued); waitErr != nil || outcome != offloadAdmitted {
@@ -273,7 +274,7 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 				writeOffloadReturned(w)
 				return true
 			case offloadWithdrawn:
-				handled := service.forwardOffloadedImageRequest(w, r, request, requestBody, modelID, publicImageID, release)
+				handled := service.forwardOffloadedImageRequest(w, r, request, requestBody, admission.entry, publicImageID, release)
 				if handled {
 					return true
 				}

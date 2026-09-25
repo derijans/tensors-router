@@ -329,11 +329,25 @@ func existingConfigStem(filename string) (string, bool) {
 		return "", false
 	}
 	stem := strings.TrimSuffix(filename, filepath.Ext(filename))
-	sanitized, err := cook.SanitizedID(stem)
-	if err != nil || sanitized != stem {
+	if !usableExistingConfigStem(stem) {
 		return "", false
 	}
 	return stem, true
+}
+
+func usableExistingConfigStem(stem string) bool {
+	if stem == "" || strings.HasPrefix(stem, ".") || strings.Contains(stem, "..") {
+		return false
+	}
+	for _, char := range stem {
+		switch {
+		case char >= 'a' && char <= 'z', char >= 'A' && char <= 'Z', char >= '0' && char <= '9':
+		case char == '_' || char == '-' || char == '.':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 func (service *Service) localConfigFileTarget(filename string) (string, error) {
