@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "396122842",
+      "tag": "master-913-b167b94",
+      "published_at": "2026-09-24T22:21:34Z",
+      "payloads": [
+        {
+          "name": "sd-master-b167b94-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-913-b167b94/sd-master-b167b94-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 25506036,
+          "sha256": "e6036c1f5c19be44694fad4f4292a4c49320d15cf9be97430c56aadf1192c342"
+        }
+      ]
+    }
+  ]
+}
