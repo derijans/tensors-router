@@ -44,7 +44,7 @@ RUN apk upgrade --no-cache && apk add --no-cache ca-certificates tzdata ffmpeg &
 WORKDIR /data
 STOPSIGNAL SIGTERM
 
-FROM debian:bookworm-slim@sha256:abd67ffcfa541b485a3dff59865ab629aa048a6c613e639d36e7456b0b229241 AS runtime-vllm
+FROM ubuntu:24.04@sha256:561618e2c15bf2397621dd04f96926663a3b5616c189cf7e38db7e82f5c538ea AS runtime-vllm
 RUN apt-get update && apt-get dist-upgrade --yes && apt-get install --yes --no-install-recommends ca-certificates libgomp1 tzdata ffmpeg && rm -rf /var/lib/apt/lists/*
 RUN getent group video >/dev/null || groupadd --system video
 RUN getent group render >/dev/null || groupadd --system render

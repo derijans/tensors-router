@@ -271,11 +271,11 @@ func (tester CommandSmokeTester) Test(ctx context.Context, profile Profile, envi
 		// unverified_python_version is an interpreter *request* such as "3.12", which
 		// uv resolves to a specific patch release like 3.12.3. Match it as a version
 		// prefix rather than demanding exact equality the way pinned profiles do.
-		versionCheck := "import sys,vllm; requested = " + strconv.Quote(profile.PythonVersion) +
+		versionCheck := "import sys,vllm,importlib.metadata; requested = " + strconv.Quote(profile.PythonVersion) +
 			"; actual = '.'.join(map(str,sys.version_info[:3]))" +
 			"; assert actual == requested or actual.startswith(requested + '.'), 'python ' + actual + ' does not match requested ' + requested"
 		if profile.VLLMVersion != "" {
-			versionCheck += "; assert vllm.__version__ == " + strconv.Quote(profile.VLLMVersion) + ", 'vllm ' + vllm.__version__ + ' does not match pinned ' + " + strconv.Quote(profile.VLLMVersion)
+			versionCheck += "; installed = " + installedVLLMDistributionVersion + "; assert installed == " + strconv.Quote(profile.VLLMVersion) + ", 'vllm ' + installed + ' does not match pinned ' + " + strconv.Quote(profile.VLLMVersion)
 		}
 		if err := runner.Run(ctx, pythonPath, []string{"-I", "-c", versionCheck}, environment, environmentPath, io.MultiWriter(logs, captured)); err != nil {
 			if details := captured.String(); details != "" {
@@ -288,8 +288,7 @@ func (tester CommandSmokeTester) Test(ctx context.Context, profile Profile, envi
 		}
 		return nil
 	}
-	versionCheck := "import sys,vllm; assert vllm.__version__ == " + strconv.Quote(profile.VLLMVersion) + "; assert '.'.join(map(str,sys.version_info[:3])) == " + strconv.Quote(profile.PythonVersion)
-	if err := runner.Run(ctx, pythonPath, []string{"-I", "-c", versionCheck}, environment, environmentPath, logs); err != nil {
+	if err := runner.Run(ctx, pythonPath, []string{"-I", "-c", pinnedVLLMImportCheck(profile)}, environment, environmentPath, logs); err != nil {
 		return fmt.Errorf("import vLLM: %w", err)
 	}
 	pluginNames := make([]string, 0, len(profile.PluginVersions))
@@ -304,6 +303,12 @@ func (tester CommandSmokeTester) Test(ctx context.Context, profile Profile, envi
 		}
 	}
 	return tester.testNativeServing(ctx, pythonPath, environmentPath, environment, logs)
+}
+
+const installedVLLMDistributionVersion = "importlib.metadata.version('vllm')"
+
+func pinnedVLLMImportCheck(profile Profile) string {
+	return "import sys,vllm,importlib.metadata; assert " + installedVLLMDistributionVersion + " == " + strconv.Quote(profile.VLLMVersion) + "; assert '.'.join(map(str,sys.version_info[:3])) == " + strconv.Quote(profile.PythonVersion)
 }
 
 // checkUnverifiedAccelerator rejects an install whose torch build does not match the
@@ -366,8 +371,7 @@ func (tester CommandSmokeTester) testOCI(ctx context.Context, profile Profile, e
 	if logs == nil {
 		logs = io.Discard
 	}
-	versionCheck := "import sys,vllm; assert vllm.__version__ == " + strconv.Quote(profile.VLLMVersion) + "; assert '.'.join(map(str,sys.version_info[:3])) == " + strconv.Quote(profile.PythonVersion)
-	checks := [][]string{{"-I", "-c", versionCheck}}
+	checks := [][]string{{"-I", "-c", pinnedVLLMImportCheck(profile)}}
 	pluginNames := make([]string, 0, len(profile.PluginVersions))
 	for name := range profile.PluginVersions {
 		pluginNames = append(pluginNames, name)
