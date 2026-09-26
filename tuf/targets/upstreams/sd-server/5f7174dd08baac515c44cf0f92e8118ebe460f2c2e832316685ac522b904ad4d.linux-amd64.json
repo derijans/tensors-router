@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "396900994",
+      "tag": "master-920-2f88688",
+      "published_at": "2026-09-25T20:18:26Z",
+      "payloads": [
+        {
+          "name": "sd-master-2f88688-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-920-2f88688/sd-master-2f88688-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 25529878,
+          "sha256": "7367e4034a77a425aaa7d0795e02b6007329a58a893541c9fd6a4c79c196796b"
+        }
+      ]
+    }
+  ]
+}

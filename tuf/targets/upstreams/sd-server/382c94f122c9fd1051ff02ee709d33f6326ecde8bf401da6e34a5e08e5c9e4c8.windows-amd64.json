@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "396900994",
+      "tag": "master-920-2f88688",
+      "published_at": "2026-09-25T20:18:26Z",
+      "payloads": [
+        {
+          "name": "sd-master-2f88688-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-920-2f88688/sd-master-2f88688-bin-win-cpu-x64.zip",
+          "length": 17248878,
+          "sha256": "10fc73b25bd97fb071c6bb6ba2a18e8811e6dd421c32bead98c18c84cd305d7f"
+        }
+      ]
+    }
+  ]
+}
