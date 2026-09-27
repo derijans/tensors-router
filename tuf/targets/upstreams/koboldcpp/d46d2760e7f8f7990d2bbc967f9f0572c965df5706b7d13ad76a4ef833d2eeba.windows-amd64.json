@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/LostRuins/koboldcpp",
+  "releases": [
+    {
+      "id": "396676059",
+      "tag": "v1.122.1",
+      "published_at": "2026-09-26T09:05:10Z",
+      "payloads": [
+        {
+          "name": "koboldcpp.exe",
+          "url": "https://github.com/LostRuins/koboldcpp/releases/download/v1.122.1/koboldcpp.exe",
+          "length": 636192312,
+          "sha256": "c0955f60aac10d139cfdb3ffbd73ad5c7045bfff32656b4a971363d08ff31289"
+        }
+      ]
+    }
+  ]
+}
