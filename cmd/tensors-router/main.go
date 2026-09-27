@@ -32,6 +32,7 @@ import (
 	"tensors-router/internal/modelstate"
 	"tensors-router/internal/native"
 	"tensors-router/internal/offloaddecisions"
+	"tensors-router/internal/offloadsettings"
 	"tensors-router/internal/proxy"
 	"tensors-router/internal/recipes"
 	"tensors-router/internal/routerstore"
@@ -165,13 +166,15 @@ func runServe(args []string) error {
 		}
 	}()
 	storeHandle, err = routerstore.Open(ctx, routerstore.Config{
-		Path: cfg.Cluster.DatabasePath,
+		Path:          cfg.Cluster.DatabasePath,
+		BinaryVersion: buildinfo.Current().Version,
 		Modules: []routerstore.Module{
 			routeranalytics.SchemaModule{},
 			loadcapture.SchemaModule{},
 			loaderrors.SchemaModule{},
 			routinggroups.SchemaModule{},
 			offloaddecisions.SchemaModule{},
+			offloadsettings.SchemaModule{},
 		},
 		LegacySources: legacySources(cfg),
 		Logger:        serveLogger,
@@ -194,11 +197,11 @@ func runServe(args []string) error {
 	}()
 	routingGroupStore := routinggroups.NewStore(storeHandle.DB(), storeHandle.Reader())
 	offloadDecisionStore, err = offloaddecisions.NewStore(offloaddecisions.StoreConfig{
-		NodeID:    cfg.Cluster.NodeID,
-		DB:        storeHandle.DB(),
-		ReadDB:    storeHandle.Reader(),
-		Retention: cfg.Analytics.RawRetention,
-		Logger:    serveLogger,
+		NodeID:        cfg.Cluster.NodeID,
+		RouterVersion: buildinfo.Current().Version,
+		DB:            storeHandle.DB(),
+		ReadDB:        storeHandle.Reader(),
+		Logger:        serveLogger,
 	})
 	if err != nil {
 		return err
@@ -327,14 +330,8 @@ func runServe(args []string) error {
 		BenchmarkStore:            benchmarkStore,
 		ModelStateStore:           modelStateStore,
 		RoutingGroups:             routingGroupStore,
-		SchedulingSampleWindow:    cfg.Cluster.SchedulingSampleWindow,
-		SchedulingMinSamples:      cfg.Cluster.SchedulingMinSamples,
-		SchedulingBackendDepth:    cfg.Cluster.SchedulingBackendDepth,
-		SchedulingRefreshInterval: cfg.Cluster.SchedulingRefreshInterval,
-		SchedulingGrantTTL:        cfg.Cluster.SchedulingGrantTTL,
-		SchedulingContextReserve:  cfg.Cluster.SchedulingContextReserve,
-		OffloadRestoreDelay:       cfg.Cluster.OffloadRestoreDelay,
-		OffloadProbeIdle:          cfg.Cluster.OffloadProbeIdle,
+		LendingFileValues:         cfg.Cluster.LendingFileValues,
+		LendingSettingsStore:      offloadsettings.NewStore(storeHandle.DB(), storeHandle.Reader()),
 		OffloadDecisionStore:      offloadDecisionStore,
 		AnalyticsStore:            analyticsStore,
 		LoadCaptureStore:          loadCaptureStore,
@@ -500,6 +497,7 @@ func newAnalyticsStore(cfg config.Config, handle *routerstore.Handle, logger *lo
 	}
 	return routeranalytics.NewStore(routeranalytics.StoreConfig{
 		NodeID:        cfg.Cluster.NodeID,
+		RouterVersion: buildinfo.Current().Version,
 		DB:            handle.DB(),
 		ReadDB:        handle.Reader(),
 		FlushInterval: cfg.Analytics.FlushInterval,

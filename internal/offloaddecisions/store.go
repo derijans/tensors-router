@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -19,6 +20,7 @@ const (
 
 type StoreConfig struct {
 	NodeID        string
+	RouterVersion string
 	DB            *sql.DB
 	ReadDB        *sql.DB
 	Retention     time.Duration
@@ -30,7 +32,8 @@ type Store struct {
 	writer        *sql.DB
 	reader        *sql.DB
 	nodeID        string
-	retention     time.Duration
+	routerVersion string
+	retention     atomic.Int64
 	flushInterval time.Duration
 	logger        *log.Logger
 
@@ -51,10 +54,6 @@ func NewStore(config StoreConfig) (*Store, error) {
 	if nodeID == "" {
 		nodeID = "local"
 	}
-	retention := config.Retention
-	if retention <= 0 {
-		retention = defaultRetention
-	}
 	flushInterval := config.FlushInterval
 	if flushInterval <= 0 {
 		flushInterval = defaultFlushInterval
@@ -67,14 +66,25 @@ func NewStore(config StoreConfig) (*Store, error) {
 		writer:        config.DB,
 		reader:        config.ReadDB,
 		nodeID:        nodeID,
-		retention:     retention,
+		routerVersion: config.RouterVersion,
 		flushInterval: flushInterval,
 		logger:        logger,
 		closed:        make(chan struct{}),
 		done:          make(chan struct{}),
 	}
+	store.SetRetention(config.Retention)
 	go store.flushLoop()
 	return store, nil
+}
+
+func (store *Store) SetRetention(retention time.Duration) {
+	if store == nil {
+		return
+	}
+	if retention <= 0 {
+		retention = defaultRetention
+	}
+	store.retention.Store(int64(retention))
 }
 
 func (store *Store) Record(record Record) {
@@ -86,6 +96,9 @@ func (store *Store) Record(record Record) {
 	}
 	if record.NodeID == "" {
 		record.NodeID = store.nodeID
+	}
+	if record.RouterVersion == "" {
+		record.RouterVersion = store.routerVersion
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -114,29 +127,6 @@ func (store *Store) Close() error {
 	store.closeOnce.Do(func() { close(store.closed) })
 	<-store.done
 	return store.Flush(context.Background())
-}
-
-func (store *Store) Recent(ctx context.Context, limit int) ([]Record, error) {
-	if store == nil {
-		return nil, nil
-	}
-	if limit <= 0 {
-		limit = 200
-	}
-	rows, err := store.reader.QueryContext(ctx, `SELECT `+recordColumns+` FROM offload_decisions ORDER BY id DESC LIMIT ?`, limit)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var records []Record
-	for rows.Next() {
-		record, scanErr := scanRecord(rows)
-		if scanErr != nil {
-			return nil, scanErr
-		}
-		records = append(records, record)
-	}
-	return records, rows.Err()
 }
 
 func (store *Store) flushLoop() {
@@ -177,7 +167,7 @@ const recordColumns = `recorded_at, node_id, kind, trigger, lane,
 	owner_node_id, owner_model_id, helper_node_id, helper_model_id,
 	outcome, reason, pending_count, backlog_count,
 	keep_ms, switch_ms, service_ms, owner_job_ms, service_source,
-	helper_idle_ms, slots, lent_out, borrowed_ahead, wait_ms`
+	helper_idle_ms, slots, lent_out, borrowed_ahead, wait_ms, router_version`
 
 func (store *Store) write(ctx context.Context, records []Record) error {
 	if len(records) == 0 {
@@ -189,7 +179,7 @@ func (store *Store) write(ctx context.Context, records []Record) error {
 	}
 	defer func() { _ = transaction.Rollback() }()
 	statement, err := transaction.PrepareContext(ctx, `INSERT INTO offload_decisions (`+recordColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -200,7 +190,7 @@ func (store *Store) write(ctx context.Context, records []Record) error {
 			record.OwnerNodeID, record.OwnerModelID, record.HelperNodeID, record.HelperModelID,
 			record.Outcome, record.Reason, record.PendingCount, record.BacklogCount,
 			record.KeepMS, record.SwitchMS, record.ServiceMS, record.OwnerJobMS, record.ServiceSource,
-			record.HelperIdleMS, record.Slots, record.LentOut, record.BorrowedAhead, record.WaitMS,
+			record.HelperIdleMS, record.Slots, record.LentOut, record.BorrowedAhead, record.WaitMS, record.RouterVersion,
 		); err != nil {
 			return err
 		}
@@ -218,22 +208,6 @@ func (store *Store) pruneExpired(ctx context.Context, now time.Time) error {
 	if !due {
 		return nil
 	}
-	_, err := store.writer.ExecContext(ctx, `DELETE FROM offload_decisions WHERE recorded_at < ?`, now.Add(-store.retention).UnixMilli())
+	_, err := store.writer.ExecContext(ctx, `DELETE FROM offload_decisions WHERE recorded_at < ?`, now.Add(-time.Duration(store.retention.Load())).UnixMilli())
 	return err
-}
-
-func scanRecord(rows *sql.Rows) (Record, error) {
-	var record Record
-	var recordedAt int64
-	var kind string
-	err := rows.Scan(
-		&recordedAt, &record.NodeID, &kind, &record.Trigger, &record.Lane,
-		&record.OwnerNodeID, &record.OwnerModelID, &record.HelperNodeID, &record.HelperModelID,
-		&record.Outcome, &record.Reason, &record.PendingCount, &record.BacklogCount,
-		&record.KeepMS, &record.SwitchMS, &record.ServiceMS, &record.OwnerJobMS, &record.ServiceSource,
-		&record.HelperIdleMS, &record.Slots, &record.LentOut, &record.BorrowedAhead, &record.WaitMS,
-	)
-	record.RecordedAt = time.UnixMilli(recordedAt)
-	record.Kind = Kind(kind)
-	return record, err
 }

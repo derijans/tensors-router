@@ -169,6 +169,36 @@ func TestNodeStateClusterAuthenticationAndRemoteRouting(t *testing.T) {
 	}
 }
 
+func TestRemoteNodeStateFromOlderSlaveReportsEmptyRequestLists(t *testing.T) {
+	olderSlave := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"node_id":"worker","backends":[]}`))
+	}))
+	t.Cleanup(olderSlave.Close)
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "")
+	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: "worker", NodeURL: olderSlave.URL}); err != nil {
+		t.Fatal(err)
+	}
+	master, _ := newTestServiceWithRegistry(t, registry, http.NotFoundHandler(), "secret")
+	master.nodeID = "master"
+	master.clusterRole = cluster.RoleMaster
+
+	recorder := httptest.NewRecorder()
+	master.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/router/v1/site/nodes/state?node_id=worker", nil))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("remote state status=%d body=%s", recorder.Code, recorder.Body.String())
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(recorder.Body.Bytes(), &raw); err != nil {
+		t.Fatal(err)
+	}
+	for _, field := range []string{"backends", "active_requests", "held_requests"} {
+		if string(raw[field]) != "[]" {
+			t.Fatalf("%s = %s, want []", field, raw[field])
+		}
+	}
+}
+
 type fakeVLLMService struct {
 	state         vllm.State
 	job           vllm.InitializationJob

@@ -226,7 +226,16 @@ export interface AnalyticsResponse {
   models: AnalyticsModelUsage[];
   nodes: AnalyticsNodeUsage[];
   recent: AnalyticsRecentEvent[];
+  router_versions?: AnalyticsVersionUsage[] | null;
   node_errors?: AnalyticsNodeError[];
+}
+
+export interface AnalyticsVersionUsage {
+  node_id: string;
+  router_version: string;
+  first_seen: number;
+  last_seen: number;
+  event_count: number;
 }
 
 export interface LoadConfigRequest {
@@ -435,6 +444,7 @@ export interface NodeInventory {
   hardware: HardwareInfo;
   models: Model[];
   files: FileRecord[];
+  build_version?: string;
   error?: string;
 }
 
@@ -492,8 +502,8 @@ export interface NodeHeldRequest {
 export interface NodeState {
   node_id: string;
   backends: NodeStateBackend[];
-  active_requests: string[];
-  held_requests?: NodeHeldRequest[];
+  active_requests: string[] | null;
+  held_requests?: NodeHeldRequest[] | null;
   // Absent when the node runs a build from before ffmpeg was reported, which
   // a cluster can contain part-way through a rolling upgrade.
   ffmpeg_available?: boolean;

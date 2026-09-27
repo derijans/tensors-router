@@ -192,6 +192,14 @@ cluster:
   # A helper idle this long gets a one-job probe even when the cost rule says no,
   # so every linked pair keeps gathering the samples its own cost fit needs.
   offload_probe_idle: "5s"
+  # Requests one lease lends at once: to a helper at least as fast as the owner,
+  # to a slower helper that still pays off, and while probing an unpriced pair.
+  offload_faster_helper_slots: 2
+  offload_slower_helper_slots: 1
+  offload_probe_helper_slots: 1
+  offload_decisions_retention: "720h"
+  # Every scheduling_* and offload_* value can be overridden from the WebUI
+  # Lending tab. Priority from lowest: built-in default, this file, the database.
   # Text routing links reuse every key above. A .kcpps that sets parallel or
   # vllm.settings.max_number_sequences above 1 serves requests concurrently and
   # cannot be linked at all, which is what keeps one backend depth

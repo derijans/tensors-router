@@ -219,6 +219,12 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/load-captures/"+strings.TrimPrefix(r.URL.Path, "/api/load-captures/"))
 	case r.URL.Path == "/api/load-errors" && r.Method == http.MethodGet:
 		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/load-errors")
+	case r.URL.Path == "/api/offload/settings" && (r.Method == http.MethodGet || r.Method == http.MethodPost || r.Method == http.MethodDelete):
+		server.proxyRouter(w, r, r.Method, "/router/v1/site/offload/settings")
+	case r.URL.Path == "/api/offload/decisions" && r.Method == http.MethodGet:
+		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/offload/decisions")
+	case r.URL.Path == "/api/offload/summary" && r.Method == http.MethodGet:
+		server.proxyRouter(w, r, http.MethodGet, "/router/v1/site/offload/summary")
 	case r.URL.Path == "/api/load" && r.Method == http.MethodPost:
 		server.proxyRouter(w, r, http.MethodPost, "/router/v1/load")
 	case r.URL.Path == "/api/cook/preview" && r.Method == http.MethodPost:

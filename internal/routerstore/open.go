@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
@@ -19,6 +20,7 @@ const (
 
 type Config struct {
 	Path          string
+	BinaryVersion string
 	Modules       []Module
 	LegacySources []LegacySource
 	Logger        *log.Logger
@@ -65,6 +67,10 @@ func Open(ctx context.Context, config Config) (*Handle, error) {
 	}
 	handle := &Handle{path: path, writer: writer, logger: logger}
 	if err := prepareDatabase(ctx, handle, config.Modules); err != nil {
+		_ = writer.Close()
+		return nil, err
+	}
+	if err := recordBinaryOpen(ctx, handle.writer, config.BinaryVersion, time.Now()); err != nil {
 		_ = writer.Close()
 		return nil, err
 	}

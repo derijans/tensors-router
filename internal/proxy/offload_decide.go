@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/offloaddecisions"
@@ -78,7 +79,15 @@ func (scheduler *scheduler) applyDecidedLease(event queueEvent, lease offloadLea
 	}
 }
 
+const leaseRefusedNotAnOwner = "not_an_owner"
+
 func (scheduler *scheduler) acceptOffloadLease(lease offloadLease, trigger string) {
+	owner := routinggroups.Endpoint{NodeID: scheduler.deps.clusterIdentity().nodeID, ModelID: lease.OwnerModelID}
+	if len(scheduler.deps.routingLinkIndex().lendTargets(lease.Lane, owner)) == 0 {
+		scheduler.refuseOffloadLease(lease, trigger)
+		return
+	}
+	lease = lease.timedOnReceipt(time.Now())
 	scheduler.offloadLeases.Store(laneModelKey(lease.Lane, lease.OwnerModelID), lease)
 	scheduler.record(offloaddecisions.Record{
 		Kind:          offloaddecisions.KindDispatch,
@@ -93,6 +102,21 @@ func (scheduler *scheduler) acceptOffloadLease(lease offloadLease, trigger strin
 		LentOut:       scheduler.lent.Count(lease.Lane, lease.OwnerModelID),
 	})
 	scheduler.maybeOffload(lease.Lane, lease.OwnerModelID)
+}
+
+func (scheduler *scheduler) refuseOffloadLease(lease offloadLease, trigger string) {
+	scheduler.offloadLeases.Delete(laneModelKey(lease.Lane, lease.OwnerModelID))
+	scheduler.record(offloaddecisions.Record{
+		Kind:          offloaddecisions.KindDispatch,
+		Trigger:       trigger,
+		Lane:          lease.Lane,
+		OwnerNodeID:   lease.OwnerNodeID,
+		OwnerModelID:  lease.OwnerModelID,
+		HelperNodeID:  lease.HelperNodeID,
+		HelperModelID: lease.HelperModelID,
+		Outcome:       offloaddecisions.OutcomeLeaseRefused,
+		Reason:        leaseRefusedNotAnOwner,
+	})
 }
 
 func (service *Service) handleNodeOffloadEvent(w http.ResponseWriter, r *http.Request) {

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"tensors-router/internal/offloadsettings"
 )
 
 func TestLoadYAMLOverridesDefaults(t *testing.T) {
@@ -482,20 +484,17 @@ limits:
 	}
 }
 
-func TestSchedulingContextReserveDefaultsAndParses(t *testing.T) {
-	if got := Defaults().Cluster.SchedulingContextReserve; got != 256 {
-		t.Fatalf("default scheduling_context_reserve = %d, want 256", got)
-	}
+func TestLendingValuesTheFileSetsFormTheConfigLayer(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
-	if err := os.WriteFile(path, []byte("cluster:\n  scheduling_context_reserve: 512\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("cluster:\n  scheduling_context_reserve: 512\n  offload_restore_delay: 1500ms\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	cfg, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Cluster.SchedulingContextReserve != 512 {
-		t.Fatalf("scheduling_context_reserve = %d, want 512", cfg.Cluster.SchedulingContextReserve)
+	if want := (offloadsettings.Values{"scheduling_context_reserve": "512", "offload_restore_delay": "1.5s"}); !reflect.DeepEqual(cfg.Cluster.LendingFileValues, want) {
+		t.Fatalf("lending values = %v, want only what the file set, canonicalised: %v", cfg.Cluster.LendingFileValues, want)
 	}
 }
 
@@ -825,41 +824,13 @@ func TestValidateRejectsUnverifiedInstallDisabledWithNoManifest(t *testing.T) {
 	}
 }
 
-func TestLoadExampleConfigParsesSchedulingKeys(t *testing.T) {
+func TestLoadExampleConfigStatesTheLendingDefaults(t *testing.T) {
 	cfg, err := Load(filepath.Join("..", "..", "config.example.yaml"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.Cluster.SchedulingRefreshInterval != time.Minute {
-		t.Fatalf("refresh interval = %v, want 1m", cfg.Cluster.SchedulingRefreshInterval)
-	}
-	if cfg.Cluster.SchedulingSampleWindow != 24*time.Hour {
-		t.Fatalf("sample window = %v, want 24h", cfg.Cluster.SchedulingSampleWindow)
-	}
-	if cfg.Cluster.SchedulingMinSamples != 20 || cfg.Cluster.SchedulingBackendDepth != 2 {
-		t.Fatalf("unexpected scheduling sizing %#v", cfg.Cluster)
-	}
-	if cfg.Cluster.SchedulingGrantTTL != 30*time.Second {
-		t.Fatalf("grant ttl = %v, want 30s", cfg.Cluster.SchedulingGrantTTL)
-	}
-	if cfg.Cluster.OffloadRestoreDelay != 1500*time.Millisecond {
-		t.Fatalf("offload restore delay = %v, want 1.5s", cfg.Cluster.OffloadRestoreDelay)
-	}
-	if cfg.Cluster.OffloadProbeIdle != 5*time.Second {
-		t.Fatalf("offload probe idle = %v, want 5s", cfg.Cluster.OffloadProbeIdle)
-	}
-}
-
-func TestOffloadProbeIdleDefaultsToFiveSeconds(t *testing.T) {
-	if probeIdle := Defaults().Cluster.OffloadProbeIdle; probeIdle != 5*time.Second {
-		t.Fatalf("offload probe idle = %v, want 5s", probeIdle)
-	}
-}
-
-func TestOffloadRestoreDelayDefaultsTo1500Milliseconds(t *testing.T) {
-	cfg := Defaults()
-	if cfg.Cluster.OffloadRestoreDelay != 1500*time.Millisecond {
-		t.Fatalf("offload restore delay = %v, want 1.5s", cfg.Cluster.OffloadRestoreDelay)
+	if resolved := offloadsettings.Resolve(cfg.Cluster.LendingFileValues, nil).Settings; resolved != offloadsettings.Defaults() {
+		t.Fatalf("example config resolves to %+v, want the built-in defaults %+v", resolved, offloadsettings.Defaults())
 	}
 }
 
@@ -867,29 +838,28 @@ func TestOffloadRestoreDelayDefaultsTo1500Milliseconds(t *testing.T) {
 // but discard the per-request pairing the fit needs.
 func TestSchedulingSampleWindowFitsInsideRawRetention(t *testing.T) {
 	cfg := Defaults()
-	if cfg.Cluster.SchedulingSampleWindow > cfg.Analytics.RawRetention {
-		t.Fatalf("sample window %v exceeds raw retention %v", cfg.Cluster.SchedulingSampleWindow, cfg.Analytics.RawRetention)
+	if window := offloadsettings.Defaults().SampleWindow; window > cfg.Analytics.RawRetention {
+		t.Fatalf("sample window %v exceeds raw retention %v", window, cfg.Analytics.RawRetention)
 	}
 }
 
-func TestSchedulingValuesAreValidated(t *testing.T) {
-	for _, testCase := range []struct {
-		name   string
-		mutate func(*Config)
-	}{
-		{"zero refresh interval", func(cfg *Config) { cfg.Cluster.SchedulingRefreshInterval = 0 }},
-		{"zero sample window", func(cfg *Config) { cfg.Cluster.SchedulingSampleWindow = 0 }},
-		{"one sample floor", func(cfg *Config) { cfg.Cluster.SchedulingMinSamples = 1 }},
-		{"zero backend depth", func(cfg *Config) { cfg.Cluster.SchedulingBackendDepth = 0 }},
-		{"zero grant ttl", func(cfg *Config) { cfg.Cluster.SchedulingGrantTTL = 0 }},
-		{"zero offload restore delay", func(cfg *Config) { cfg.Cluster.OffloadRestoreDelay = 0 }},
-		{"zero offload probe idle", func(cfg *Config) { cfg.Cluster.OffloadProbeIdle = 0 }},
+func TestLendingValuesAreValidatedOnLoad(t *testing.T) {
+	for _, line := range []string{
+		"scheduling_refresh_interval: 0s",
+		"scheduling_sample_window: 0s",
+		"scheduling_min_samples: 1",
+		"scheduling_backend_depth: 0",
+		"scheduling_grant_ttl: 0s",
+		"offload_restore_delay: 0s",
+		"offload_probe_idle: soon",
 	} {
-		t.Run(testCase.name, func(t *testing.T) {
-			cfg := Defaults()
-			testCase.mutate(&cfg)
-			if err := validate(&cfg); err == nil {
-				t.Fatal("invalid scheduling value was accepted")
+		t.Run(line, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			if err := os.WriteFile(path, []byte("cluster:\n  "+line+"\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := Load(path); err == nil || !strings.Contains(err.Error(), "cluster.") {
+				t.Fatalf("Load accepted %q or reported %v", line, err)
 			}
 		})
 	}

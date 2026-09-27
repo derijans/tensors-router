@@ -8,12 +8,13 @@ import (
 	"tensors-router/internal/analytics"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/offloaddecisions"
+	"tensors-router/internal/offloadsettings"
 	"tensors-router/internal/schedulingcost"
 )
 
 const testJobWork = 30 * 1024 * 1024
 
-var testPlanPolicy = offloadPlanPolicy{ttl: 30 * time.Second, probeIdle: 5 * time.Second, trigger: planTriggerTick}
+var testPlanPolicy = planPolicyFor(offloadsettings.Defaults(), planTriggerTick)
 
 // costTableFor builds a table directly rather than through a fit, so each test
 // states the per-job cost and load cost it is reasoning about.
@@ -135,8 +136,9 @@ func TestLeaseNamesBothModelsAndCarriesTheLinkFlags(t *testing.T) {
 		HelperModelID:      "img-node-b",
 		LoadHelperModel:    true,
 		RestoreHelperModel: true,
-		HelperSlots:        fasterHelperSlots,
+		HelperSlots:        testPlanPolicy.slots.faster,
 		ExpiresAt:          now.Add(30 * time.Second),
+		TTLMS:              (30 * time.Second).Milliseconds(),
 	}
 	if len(leases) != 1 || leases[0] != want {
 		t.Fatalf("leases = %+v, want %+v", leases, want)
@@ -296,8 +298,8 @@ func TestHelperAtLeastAsFastAsTheOwnerGetsAFullPipe(t *testing.T) {
 		lendingTo(candidate("node-a", 8, true), candidate("node-b", 0, false)),
 	}, costs, time.Now(), testPlanPolicy).leases
 
-	if len(leases) != 1 || leases[0].HelperSlots != fasterHelperSlots {
-		t.Fatalf("leases = %+v, want %d slots for a helper faster than the owner", leases, fasterHelperSlots)
+	if len(leases) != 1 || leases[0].HelperSlots != testPlanPolicy.slots.faster {
+		t.Fatalf("leases = %+v, want %d slots for a helper faster than the owner", leases, testPlanPolicy.slots.faster)
 	}
 }
 
@@ -310,8 +312,8 @@ func TestHelperSlowerThanTheOwnerGetsOneSlot(t *testing.T) {
 		lendingTo(candidate("node-a", 16, true), candidate("node-b", 0, true)),
 	}, costs, time.Now(), testPlanPolicy).leases
 
-	if len(leases) != 1 || leases[0].HelperSlots != slowerHelperSlots {
-		t.Fatalf("leases = %+v, want %d slot for a helper slower than the owner", leases, slowerHelperSlots)
+	if len(leases) != 1 || leases[0].HelperSlots != testPlanPolicy.slots.slower {
+		t.Fatalf("leases = %+v, want %d slot for a helper slower than the owner", leases, testPlanPolicy.slots.slower)
 	}
 }
 
@@ -326,7 +328,7 @@ func TestIdleHelperGetsAOneJobProbeWhenTheCostRuleSaysNo(t *testing.T) {
 		lendingTo(candidate("node-a", 1, true), helper),
 	}, costs, time.Now(), testPlanPolicy)
 
-	if len(plan.leases) != 1 || !plan.leases[0].Probe || plan.leases[0].HelperSlots != probeHelperSlots {
+	if len(plan.leases) != 1 || !plan.leases[0].Probe || plan.leases[0].HelperSlots != testPlanPolicy.slots.probe {
 		t.Fatalf("leases = %+v, want a one-slot probe", plan.leases)
 	}
 	if decision := decisionFor(t, plan, "node-b"); decision.Outcome != offloaddecisions.OutcomeProbe || decision.Reason != reasonCostRejected {
@@ -610,7 +612,7 @@ func TestIdleTextHelperGetsAProbeWhenTheCostRuleSaysNo(t *testing.T) {
 		lendingTo(textCandidateWithContextWindow("node-a", 1, true, 8192), helper),
 	}, costs, time.Now(), testPlanPolicy).leases
 
-	if len(leases) != 1 || !leases[0].Probe || leases[0].HelperSlots != probeHelperSlots {
+	if len(leases) != 1 || !leases[0].Probe || leases[0].HelperSlots != testPlanPolicy.slots.probe {
 		t.Fatalf("leases = %+v, want a one-slot text probe", leases)
 	}
 }

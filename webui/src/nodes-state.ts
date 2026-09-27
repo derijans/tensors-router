@@ -4,7 +4,7 @@ import { closestElement } from "./dom";
 import { elements } from "./elements";
 import { state } from "./state";
 import type { BackendInitializationJob, BackendInitializationRequest, BackendLaunchOptions, NodeInventory, NodeRuntimeSlice, NodeStateBackend } from "./types";
-import { nodeStatePanelID, renderNodeCard, renderNodeStateSnapshot } from "./node-state-view";
+import { clusterBuildVersion, nodeStatePanelID, renderNodeCard, renderNodeStateSnapshot } from "./node-state-view";
 import { reportErrorToConsole } from "./console-report";
 
 const pollIntervalMilliseconds = 1000;
@@ -15,7 +15,8 @@ export function renderNodesPanel(): void {
   reconcileNodeStateSelection(nodes);
   elements.nodeCount.textContent = `${nodes.length} node${nodes.length === 1 ? "" : "s"}`;
   setHTML(elements.nodesScanNotices, scanNotices(nodes));
-  setHTML(elements.nodesGrid, html`${nodes.map(node => renderNodeCard(node, state.nodes.expanded.includes(node.node_id)))}`);
+  const buildVersion = clusterBuildVersion(nodes);
+  setHTML(elements.nodesGrid, html`${nodes.map(node => renderNodeCard(node, state.nodes.expanded.includes(node.node_id), buildVersion))}`);
   setHTML(elements.nodesDetail, html`${nodes
     .filter(node => state.nodes.expanded.includes(node.node_id))
     .map(node => nodeStatePanel(node.node_id))}`);

@@ -65,6 +65,13 @@ describe("node state view", () => {
     expect(html).toContain("No held requests.");
   });
 
+  it("renders a node that reports its request lists as null", () => {
+    const html = renderNodeStateSnapshot("node-a", {...snapshot(), active_requests: null, held_requests: null}, "");
+
+    expect(html).toContain("No active requests.");
+    expect(html).not.toContain("Held requests");
+  });
+
   it("omits the held section for a node that does not report it", () => {
     const html = renderNodeStateSnapshot("node-a", snapshot(), "");
 
@@ -206,6 +213,23 @@ describe("node state view", () => {
     expect(html).toContain('aria-controls="nodeStatePanel-node &lt;one&gt;"');
     expect(html).toContain("node &lt;one&gt;");
     expect(html).toContain(">slave</span>");
+  });
+
+  it("flags a node whose build differs from the master's", () => {
+    const node: NodeInventory = {
+      node_id: "slave-1",
+      source: "slave",
+      role: "slave",
+      backend_mode: "kobold",
+      available: true,
+      hardware: {max_threads: 8, gpu_backend: "cpu", gpu_count: 0},
+      models: [],
+      files: []
+    };
+
+    expect(renderNodeCard({...node, build_version: "v0.7.2"}, false, "v0.7.2")).toContain('class="chip violet">v0.7.2</span>');
+    expect(renderNodeCard({...node, build_version: "v0.7.1"}, false, "v0.7.2")).toContain('class="chip amber">v0.7.1 ≠ v0.7.2</span>');
+    expect(renderNodeCard(node, false, "v0.7.2")).toContain('class="chip amber">unknown build ≠ v0.7.2</span>');
   });
 
   it("shows a node as down when unavailable", () => {

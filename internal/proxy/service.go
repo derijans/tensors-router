@@ -24,6 +24,7 @@ import (
 	"tensors-router/internal/modelassets"
 	"tensors-router/internal/modelstate"
 	"tensors-router/internal/offloaddecisions"
+	"tensors-router/internal/offloadsettings"
 	"tensors-router/internal/proxy/downloads"
 	"tensors-router/internal/recipes"
 	"tensors-router/internal/routinggroups"
@@ -96,14 +97,8 @@ type ServiceConfig struct {
 	ModelStateStore           *modelstate.Store
 	AnalyticsStore            *routeranalytics.Store
 	RoutingGroups             *routinggroups.Store
-	SchedulingSampleWindow    time.Duration
-	SchedulingMinSamples      int
-	SchedulingBackendDepth    int
-	SchedulingRefreshInterval time.Duration
-	SchedulingGrantTTL        time.Duration
-	SchedulingContextReserve  int
-	OffloadRestoreDelay       time.Duration
-	OffloadProbeIdle          time.Duration
+	LendingFileValues         offloadsettings.Values
+	LendingSettingsStore      *offloadsettings.Store
 	OffloadDecisionStore      *offloaddecisions.Store
 	LoadCaptureStore          *loadcapture.Store
 	LoadCaptureMaxOutputBytes int64
@@ -157,6 +152,8 @@ type Service struct {
 	analytics                 *requestAnalytics
 	routingGroups             *routinggroups.Store
 	scheduler                 *scheduler
+	lending                   *lendingSettings
+	offloadDecisions          *offloaddecisions.Store
 	routingLinks              atomic.Pointer[routingLinkIndex]
 	loadCaptureStore          *loadcapture.Store
 	loadCaptureMaxOutputBytes int64

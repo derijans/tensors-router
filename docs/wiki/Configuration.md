@@ -216,6 +216,20 @@ When updates are enabled, each selected backend needs either a direct binary URL
 | `cluster.scheduling_backend_depth` | Integer, at least 1 | `2` | Requests admitted to the backend at once on a linked model. One running plus one queued keeps the backend busy while the rest stay lendable. |
 | `cluster.scheduling_grant_ttl` | Positive duration string | `30s` | Lifetime of an offload lease. A lease that is not renewed expires on its own. |
 | `cluster.offload_probe_idle` | Positive duration string | `5s` | How long a helper must be idle before it gets a one-request probe even when the cost rule would not lend to it. |
+| `cluster.scheduling_context_reserve` | Integer, at least 0 | `256` | Tokens kept free for the answer when a text request states no limit. |
+| `cluster.offload_restore_delay` | Positive duration string | `1.5s` | Idle time before a helper reloads the model it held before borrowing, when the link asks for it. |
+| `cluster.offload_faster_helper_slots` | Integer, `1`–`64` | `2` | Requests lent at once to a helper predicted to be at least as fast as the owner. |
+| `cluster.offload_slower_helper_slots` | Integer, `1`–`64` | `1` | Requests lent at once to a helper that pays off but is slower than the owner. |
+| `cluster.offload_probe_helper_slots` | Integer, `1`–`64` | `1` | Requests lent at once while probing an unpriced pair. |
+| `cluster.offload_decisions_retention` | Positive duration string | `720h` | How long lending decisions are kept. |
+
+The `scheduling_*` and `offload_*` settings are layered. From lowest to highest
+priority: the built-in default, the config file, and a value saved in the WebUI
+**Lending** tab, which is stored in the router database. **Default** on a row
+removes the saved value, so the config file value or the default applies again.
+Every change applies at once, without a restart. A slave runs exactly the values
+its master resolved: the master pushes them on every refresh and after every
+change.
 | `analytics.enabled` | Boolean | `false` | Enables persisted request and runtime analytics. |
 | `analytics.vram_enabled` | Boolean | `true` | Enables VRAM sampling when analytics is active. |
 | `analytics.load_capture_enabled` | Boolean | `false` | Independently records backend load attempts and reuse metadata on each enabled node. |

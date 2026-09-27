@@ -528,7 +528,7 @@ func (service *Service) forwardRemote(ctx context.Context, original *http.Reques
 	if err != nil {
 		return nil, err
 	}
-	target.Path = joinPath(target.Path, "/router/v1/node/inference"+original.URL.Path)
+	target.Path = joinPath(target.Path, nodeInferencePrefix+original.URL.Path)
 	target.RawQuery = original.URL.RawQuery
 
 	request, err := http.NewRequestWithContext(ctx, original.Method, target.String(), bytes.NewReader(body))

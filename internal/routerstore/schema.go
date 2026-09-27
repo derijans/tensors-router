@@ -38,6 +38,11 @@ func createRegistryTables(ctx context.Context, db *sql.DB) error {
 			version INTEGER NOT NULL,
 			applied_at INTEGER NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS routerstore_binary_opens (
+			version TEXT PRIMARY KEY,
+			first_opened_at INTEGER NOT NULL,
+			last_opened_at INTEGER NOT NULL
+		)`,
 		`CREATE TABLE IF NOT EXISTS routerstore_legacy_imports (
 			module TEXT NOT NULL,
 			source TEXT NOT NULL,
@@ -67,4 +72,15 @@ func migrateModules(ctx context.Context, db *sql.DB, modules []Module) error {
 		}
 	}
 	return nil
+}
+
+func recordBinaryOpen(ctx context.Context, db *sql.DB, version string, now time.Time) error {
+	if version == "" {
+		return nil
+	}
+	openedAt := now.UTC().UnixMilli()
+	_, err := db.ExecContext(ctx, `INSERT INTO routerstore_binary_opens (version, first_opened_at, last_opened_at)
+		VALUES (?, ?, ?)
+		ON CONFLICT(version) DO UPDATE SET last_opened_at = excluded.last_opened_at`, version, openedAt, openedAt)
+	return err
 }

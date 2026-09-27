@@ -17,6 +17,8 @@ import (
 	"tensors-router/internal/unloadpolicy"
 )
 
+const nodeInferencePrefix = "/router/v1/node/inference"
+
 type modelControlRequest struct {
 	Model  string `json:"model"`
 	Target string `json:"target"`
@@ -53,7 +55,7 @@ func (service *Service) handleNodeInference(w http.ResponseWriter, r *http.Reque
 }
 
 func nodeInferencePath(requestPath string) (string, bool) {
-	path := strings.TrimPrefix(requestPath, "/router/v1/node/inference")
+	path := strings.TrimPrefix(requestPath, nodeInferencePrefix)
 	if !isLocalInferencePath(path) {
 		return "", false
 	}

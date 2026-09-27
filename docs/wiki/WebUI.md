@@ -56,7 +56,17 @@ Token counts come from the backend report: the OpenAI `usage` object, llama.cpp 
 
 Generation speed is measured over the decode window, between the first and the last streamed content, so queue waiting, model loading and prompt evaluation stay out of the rate.
 
+**Router versions** lists, per node, each router build that recorded events in the selected period, with when it was first and last seen. Events from builds that did not stamp a version appear as unknown. The router database also keeps every build that opened it in `routerstore_binary_opens`.
+
 **Vectors** counts the embeddings a request returned. The count survives responses larger than the observed body limit, and so do the usage fields of such a response.
+
+## Lending
+
+The Lending tab shows how owners lend queued work to linked helpers:
+
+- **Nodes**: each node's build, whether it runs the master's lending settings, and its held and lent requests, plus the live leases.
+- **Settings**: every lending setting with its default, config file and database value, and which one applies. Type a value and **Save** to store it in the database; **Default** removes a stored value. See [Configuration](Configuration) for the priority order.
+- **Decision log**: every node's lending decisions for the chosen window, lane and outcome. Repeats are folded into one row; select a row to see all of its variables.
 
 ## Load captures
 

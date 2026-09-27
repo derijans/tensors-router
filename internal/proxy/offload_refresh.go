@@ -22,6 +22,7 @@ func (scheduler *scheduler) refreshOffloadPlan(ctx context.Context) {
 		return
 	}
 	scheduler.deps.publishRoutingLinks(ctx, snapshot)
+	scheduler.deps.publishLendingSettings(ctx)
 	plan := scheduler.planNow(ctx, identity, planTriggerTick)
 	scheduler.deliverOffloadLeases(ctx, identity, plan.leases, queueEvent{})
 }
@@ -36,7 +37,7 @@ func (scheduler *scheduler) planNow(ctx context.Context, identity clusterIdentit
 	now := time.Now()
 	index := scheduler.deps.routingLinkIndex()
 	models := identity.registry.Models()
-	policy := offloadPlanPolicy{ttl: scheduler.grantTTL, probeIdle: scheduler.probeIdle, trigger: trigger}
+	policy := planPolicyFor(scheduler.currentSettings(), trigger)
 	var plan offloadPlan
 	for _, lane := range lendingLanes {
 		owners := lendingOwnersForLane(lane, models, index, statuses)

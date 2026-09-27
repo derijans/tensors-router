@@ -10,6 +10,7 @@ import (
 
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/offloaddecisions"
+	"tensors-router/internal/offloadsettings"
 	"tensors-router/internal/routinggroups"
 )
 
@@ -30,6 +31,11 @@ type lendingCluster struct {
 
 func newLendingCluster(t *testing.T) lendingCluster {
 	t.Helper()
+	return newLendingClusterWithMasterAdvertising(t, true)
+}
+
+func newLendingClusterWithMasterAdvertising(t *testing.T, masterAdvertisesURL bool) lendingCluster {
+	t.Helper()
 	var masterServed atomic.Int32
 	releaseSlave := make(chan struct{})
 	master, _ := newTestServiceWithConfigContents(t, imageBackendHandler(func() { masterServed.Add(1) }), map[string]string{
@@ -46,12 +52,17 @@ func newLendingCluster(t *testing.T) lendingCluster {
 	joinCluster(t, master, "master", cluster.RoleMaster, masterServer.URL, masterServer.URL, slaveServer.URL)
 	joinCluster(t, slave, "slave", cluster.RoleSlave, slaveServer.URL, masterServer.URL, masterServer.URL)
 	master.masterURL = ""
+	masterPublicURL := masterServer.URL
+	if !masterAdvertisesURL {
+		masterPublicURL = ""
+		master.nodeURL = ""
+	}
 
 	helperModel := testClusterImageModel("krea11", "master", "weights", "config-master", cluster.SourceMaster, "dream")
-	helperModel.NodeURL = masterServer.URL
+	helperModel.NodeURL = masterPublicURL
 	ownerModel := testClusterImageModel("krea", "slave", "weights", "config-slave", cluster.SourceLocal, "dream")
 	ownerModel.NodeURL = slaveServer.URL
-	master.registry = registryWith(t, cluster.RoleMaster, "master", masterServer.URL, helperModel)
+	master.registry = registryWith(t, cluster.RoleMaster, "master", masterPublicURL, helperModel)
 	if err := master.registry.UpdateNode(cluster.Snapshot{NodeID: "slave", NodeURL: slaveServer.URL, Models: []cluster.Model{ownerModel}, ProtocolVersion: cluster.ProtocolVersion}); err != nil {
 		t.Fatal(err)
 	}
@@ -65,7 +76,7 @@ func newLendingCluster(t *testing.T) lendingCluster {
 	master.installRoutingLinks(link)
 	slave.installRoutingLinks(link)
 
-	master.scheduler.probeIdle = time.Nanosecond
+	tuneScheduler(master.scheduler, func(settings *offloadsettings.Settings) { settings.ProbeIdle = time.Nanosecond })
 	masterDecisions, slaveDecisions := &recordedDecisions{}, &recordedDecisions{}
 	master.scheduler.decisions = masterDecisions
 	slave.scheduler.decisions = slaveDecisions
@@ -159,6 +170,26 @@ func TestSlaveLendsHeldImageWorkToAnIdleMasterThatDecidesOnEveryEvent(t *testing
 	}
 	if !anyTrigger(probes, queueEventBorrowedCompleted) && !anyTrigger(probes, planTriggerProbeDue) {
 		t.Fatalf("master probe decisions = %+v, want the second lend decided when the first lent result came back", probes)
+	}
+}
+
+func TestSlaveLendsToMasterHelperThatHasNoPublicURL(t *testing.T) {
+	lending := newLendingClusterWithMasterAdvertising(t, false)
+	const requests = 3
+	codes := make(chan int, requests)
+	for range requests {
+		go func() { codes <- postOwnerImage(t, lending.slaveURL) }()
+	}
+
+	lending.waitForMasterToServe(t, 1)
+	close(lending.releaseSlave)
+	for range requests {
+		if code := <-codes; code != http.StatusOK {
+			t.Fatalf("owner request status %d, want 200", code)
+		}
+	}
+	if refused := lending.masterDecisions.withOutcome(offloaddecisions.OutcomeRelayRefused); len(refused) != 0 {
+		t.Fatalf("master refused relays %+v, want the master to serve its own lease in-process", refused)
 	}
 }
 

@@ -8,12 +8,6 @@ import (
 )
 
 const (
-	fasterHelperSlots = 2
-	slowerHelperSlots = 1
-	probeHelperSlots  = 1
-)
-
-const (
 	reasonHelperNotAccepting = "helper_not_accepting"
 	reasonHelperClaimed      = "helper_claimed"
 	reasonLoadForbidden      = "load_forbidden"
@@ -172,14 +166,20 @@ func soonestProbeFor(helpers []offloadHelperCandidate, claimed map[string]bool, 
 	return soonest
 }
 
-func helperSlotsFor(evaluation helperEvaluation, demand ownerDemand, probe bool) int {
+type helperSlots struct {
+	faster int
+	slower int
+	probe  int
+}
+
+func (slots helperSlots) forHelper(evaluation helperEvaluation, demand ownerDemand, probe bool) int {
 	switch {
 	case probe:
-		return probeHelperSlots
+		return slots.probe
 	case evaluation.serviceMS <= demand.jobMS:
-		return fasterHelperSlots
+		return slots.faster
 	default:
-		return slowerHelperSlots
+		return slots.slower
 	}
 }
 
@@ -198,10 +198,10 @@ func costRuleRejection(evaluation helperEvaluation, demand ownerDemand) string {
 	}
 }
 
-func planDecision(lane string, trigger string, demand ownerDemand, evaluation helperEvaluation, chosen bool, probe bool) offloaddecisions.Record {
+func planDecision(lane string, policy offloadPlanPolicy, demand ownerDemand, evaluation helperEvaluation, chosen bool, probe bool) offloaddecisions.Record {
 	record := offloaddecisions.Record{
 		Kind:          offloaddecisions.KindPlan,
-		Trigger:       trigger,
+		Trigger:       policy.trigger,
 		Lane:          lane,
 		OwnerNodeID:   demand.owner.NodeID,
 		OwnerModelID:  demand.owner.ModelID,
@@ -221,7 +221,7 @@ func planDecision(lane string, trigger string, demand ownerDemand, evaluation he
 	if !chosen {
 		return record
 	}
-	record.Slots = helperSlotsFor(evaluation, demand, probe)
+	record.Slots = policy.slots.forHelper(evaluation, demand, probe)
 	if probe {
 		record.Outcome = offloaddecisions.OutcomeProbe
 		return record

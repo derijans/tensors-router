@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>tensor-router-webui</title>
-  <script type="module" crossorigin src="/assets/index-C-8eXnb2.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-CMUXL0ug.css">
+  <script type="module" crossorigin src="/assets/index-P_I1kSMQ.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-C0YSXtuZ.css">
 </head>
 <body>
   <main class="shell">
@@ -52,6 +52,7 @@
         <button class="tab-button" type="button" data-tab="analytics">Analytics</button>
         <button id="loadCapturesTab" class="tab-button" type="button" data-tab="load-captures" hidden>Load captures</button>
         <button id="loadErrorsTab" class="tab-button" type="button" data-tab="load-errors" hidden>Errors</button>
+        <button class="tab-button" type="button" data-tab="lending">Lending</button>
         <button class="tab-button" type="button" data-tab="cook">Cook</button>
         <button class="tab-button" type="button" data-tab="recipes">Recipes</button>
       </nav>
@@ -301,6 +302,13 @@
                 <tbody id="analyticsNodesTable"></tbody>
               </table>
             </div>
+            <h3>Router versions</h3>
+            <div class="table-wrap">
+              <table>
+                <thead><tr><th>Node</th><th>Version</th><th>First seen</th><th>Last seen</th><th>Events</th></tr></thead>
+                <tbody id="analyticsVersionsTable"></tbody>
+              </table>
+            </div>
           </div>
         </div>
         <div>
@@ -389,6 +397,55 @@
             <pre id="loadErrorOutput" class="load-capture-console"></pre>
           </section>
         </div>
+      </section>
+
+      <section class="tab-panel" data-panel="lending">
+        <div class="panel-head">
+          <div>
+            <h2>Lending</h2>
+            <p class="muted">how owners lend queued work to linked helpers</p>
+          </div>
+          <button id="lendingRefreshButton" type="button" data-operation-group="lending">Refresh</button>
+        </div>
+        <div id="lendingStatus"></div>
+        <section class="lending-section" aria-label="Lending nodes">
+          <h3>Nodes</h3>
+          <div id="lendingSummary"></div>
+        </section>
+        <section class="lending-section" aria-label="Lending settings">
+          <div class="panel-head">
+            <div>
+              <h3>Settings</h3>
+              <p class="muted">priority from lowest: default, config file, database. An empty database value falls back.</p>
+            </div>
+            <div class="panel-head-actions">
+              <button id="lendingSettingsSaveButton" type="button" data-operation-group="lending">Save</button>
+              <button id="lendingSettingsResetAllButton" type="button" data-operation-group="lending">Clear all database values</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Setting</th><th>Default</th><th>Config file</th><th>Database</th><th>Effective</th><th></th></tr></thead>
+              <tbody id="lendingSettingsRows"></tbody>
+            </table>
+          </div>
+        </section>
+        <section class="lending-section" aria-label="Lending decisions">
+          <h3>Decision log</h3>
+          <div class="load-capture-controls">
+            <label>Window<select id="lendingWindowSelect"><option value="900000">15 minutes</option><option value="3600000" selected>1 hour</option><option value="86400000">24 hours</option><option value="">All</option></select></label>
+            <label>Lane<select id="lendingLaneSelect"><option value="">All</option><option value="image">Image</option><option value="text">Text</option></select></label>
+            <label>Outcome<select id="lendingOutcomeSelect"><option value="">All</option><option value="probe">probe</option><option value="granted">granted</option><option value="skipped">skipped</option><option value="lease_updated">lease updated</option><option value="lease_cleared">lease cleared</option><option value="lease_refused">lease refused</option><option value="lent">lent</option><option value="returned">returned</option><option value="relay_refused">relay refused</option><option value="borrowed_returned">borrowed returned</option><option value="native_waited_behind_borrowed">native waited behind borrowed</option></select></label>
+            <label>Search<input id="lendingSearchInput" type="search" placeholder="node or model"></label>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>When</th><th>Repeats</th><th>Node</th><th>Kind</th><th>Trigger</th><th>Lane</th><th>Owner</th><th>Helper</th><th>Outcome</th><th>Reason</th></tr></thead>
+              <tbody id="lendingDecisionRows"></tbody>
+            </table>
+          </div>
+          <section id="lendingDecisionDetail" class="lending-detail"></section>
+        </section>
       </section>
 
       <section class="tab-panel" data-panel="cook">

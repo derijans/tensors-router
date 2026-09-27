@@ -2107,3 +2107,52 @@ td {
   padding: 0.6rem 0 0.6rem 0.9rem;
   margin-top: 0.75rem;
 }
+
+.lending-section {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: rgba(12, 20, 32, .72);
+}
+
+.lending-section h3,
+.lending-section h4 {
+  margin: 0;
+}
+
+.lending-setting-description {
+  max-width: 48ch;
+  font-size: .85em;
+}
+
+.lending-setting-input {
+  width: 11ch;
+}
+
+.lending-setting-effective {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lending-leases {
+  display: grid;
+  gap: 5px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.lending-leases li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.lending-detail:empty {
+  display: none;
+}

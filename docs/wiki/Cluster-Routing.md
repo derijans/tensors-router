@@ -27,6 +27,11 @@ chosen by hand in the WebUI and the two models are not required to share a name,
 config hash, or a checkpoint. The common case is one checkpoint that two nodes
 configured differently.
 
+A model that is only a helper never lends. Its own requests are never withdrawn or
+reported to the master, and a lease that names it as owner is refused and logged as
+`lease_refused` / `not_an_owner`. Its own requests still run through the router
+queue, so that its own work always goes ahead of borrowed work.
+
 Image models and LLM models are linked separately, under
 `/router/v1/site/routing-groups` and `/router/v1/site/text-routing-groups`. Both
 lanes use the same lending rules below. Each lane keeps its own cost model.
@@ -80,6 +85,13 @@ the lease's slot count and stops when the answer is no lease. A request already
 lent is never recalled. The master rewrites each lent request to the helper's own
 model ID.
 
+A lease carries its lifetime (`ttl_ms`), and the owner times it on its own clock,
+so clock skew between master and owner does not end a lease early. When the helper
+is the master itself, the master serves the lent request in-process and needs no
+`cluster.public_url` for it. The master writes a `relay_refused` row for every
+lent request it cannot pass on: `no_live_lease`, `helper_unreachable` or
+`forward_failed`. The owner then runs the request itself.
+
 ### Pricing
 
 The master compares what the owner needs to drain its backlog alone against what
@@ -118,7 +130,8 @@ waits behind borrowed work, the wait is written to the decision log.
 ### Decision log
 
 Every lending decision is written to the `offload_decisions` table in the router
-database, pruned after `analytics.raw_retention`:
+database, stamped with the router version that wrote it, and pruned after
+`cluster.offload_decisions_retention`:
 
 - `plan` rows on the master, one per owner and helper pair per decision: the
   trigger (`enqueued`, `completed`, `borrowed_completed`, `probe_due`, `tick`), held and backlog counts, the owner's drain time, the helper's switch and
@@ -128,12 +141,19 @@ database, pruned after `analytics.raw_retention`:
   (`owner_unpriced`, `switch_unpriced`, `service_unpriced`, `cost_rejected`,
   `outranked`, `helper_not_accepting`, `helper_claimed`, `load_forbidden`,
   `context_too_small`), and the slots granted.
-- `dispatch` rows on the owner: `lease_updated`, `lease_cleared`, `lent`, and
-  `returned`, with the slots and how many requests were out at that moment.
+- `dispatch` rows on the owner: `lease_updated`, `lease_cleared`,
+  `lease_refused`, `lent`, and `returned`, with the slots and how many requests
+  were out at that moment.
+- `dispatch` rows on the master: `relay_refused`, with the reason.
 - `helper` rows on the helper: `native_waited_behind_borrowed`, with how many
   borrowed jobs were already in the backend and how long its own request waited
   before reaching the backend, and `borrowed_returned`, with whether the helper
   was already busy when the request arrived or its own work arrived afterwards.
+
+The WebUI **Lending** tab gathers this log from every node. Repeated rows are
+folded into one line with a count and time span, and one row shows every
+variable of the decision. The same tab shows each node's build and whether it
+runs the master's settings, the live leases, and the settings below.
 
 The Nodes page lists each node's held requests: requests the router holds before
 passing them to a backend, and requests currently lent to a helper. Requests that

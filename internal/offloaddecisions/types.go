@@ -19,6 +19,8 @@ const (
 	OutcomeReturned     = "returned"
 	OutcomeLeaseUpdated = "lease_updated"
 	OutcomeLeaseCleared = "lease_cleared"
+	OutcomeLeaseRefused = "lease_refused"
+	OutcomeRelayRefused = "relay_refused"
 
 	OutcomeNativeWaitedBehindBorrowed = "native_waited_behind_borrowed"
 	OutcomeBorrowedReturned           = "borrowed_returned"
@@ -30,6 +32,7 @@ const (
 )
 
 type Record struct {
+	ID            int64     `json:"id,omitempty"`
 	RecordedAt    time.Time `json:"recorded_at"`
 	NodeID        string    `json:"node_id"`
 	Kind          Kind      `json:"kind"`
@@ -53,4 +56,5 @@ type Record struct {
 	LentOut       int       `json:"lent_out,omitempty"`
 	BorrowedAhead int       `json:"borrowed_ahead,omitempty"`
 	WaitMS        int64     `json:"wait_ms,omitempty"`
+	RouterVersion string    `json:"router_version,omitempty"`
 }

@@ -325,7 +325,20 @@ func (service *Service) nodeState(ctx context.Context, nodeID string) (siteapi.N
 	if state.NodeID != nodeID {
 		return siteapi.NodeState{}, fmt.Errorf("node %q returned state for %q", nodeID, state.NodeID)
 	}
-	return state, nil
+	return withEmptyRequestListsForOlderNodes(state), nil
+}
+
+func withEmptyRequestListsForOlderNodes(state siteapi.NodeState) siteapi.NodeState {
+	if state.Backends == nil {
+		state.Backends = []siteapi.NodeStateBackend{}
+	}
+	if state.ActiveRequests == nil {
+		state.ActiveRequests = []string{}
+	}
+	if state.HeldRequests == nil {
+		state.HeldRequests = []siteapi.NodeHeldRequest{}
+	}
+	return state
 }
 
 func (service *Service) unloadNodeRuntime(ctx context.Context, request siteapi.NodeUnloadRequest) error {

@@ -8,7 +8,7 @@ export function nodeStatePanelID(nodeID: string): string {
   return `nodeStatePanel-${nodeID}`;
 }
 
-export function renderNodeCard(node: NodeInventory, expanded: boolean): SafeHTML {
+export function renderNodeCard(node: NodeInventory, expanded: boolean, clusterBuildVersion = ""): SafeHTML {
   const hardware = node.hardware;
   const nodeID = node.node_id || node.node_url || "unknown";
   return html`
@@ -22,10 +22,22 @@ export function renderNodeCard(node: NodeInventory, expanded: boolean): SafeHTML
         ${chip(node.available ? "available" : "down", node.available ? "lime" : "amber")}
         ${chip(`${hardware.max_threads || "?"} threads`, "magenta")}
         ${chip(`${hardware.gpu_backend || "unknown"} gpu`, "cyan")}
+        ${renderBuildVersion(node, clusterBuildVersion)}
       </span>
       ${node.error ? html`<span class="error-text">${node.error}</span>` : ""}
     </button>
   `;
+}
+
+function renderBuildVersion(node: NodeInventory, clusterBuildVersion: string): SafeHTML {
+  const version = node.build_version || "unknown build";
+  const mismatched = clusterBuildVersion !== "" && node.build_version !== clusterBuildVersion;
+  return mismatched ? chip(`${version} ≠ ${clusterBuildVersion}`, "amber") : chip(version, "violet");
+}
+
+export function clusterBuildVersion(nodes: NodeInventory[]): string {
+  const master = nodes.find(node => node.role === "master") ?? nodes[0];
+  return master?.build_version ?? "";
 }
 
 function roleColor(role: string): string {
@@ -46,15 +58,19 @@ export function renderNodeStateSnapshot(nodeID: string, snapshot: NodeState, pen
     </div>
     <section class="node-active-requests" aria-label="Active requests">
       <h4>Active requests</h4>
-      ${snapshot.active_requests.length > 0 ? html`<ul>${snapshot.active_requests.map(modelID => html`<li>${modelID}</li>`)}</ul>` : html`<p class="muted node-state-empty">No active requests.</p>`}
+      ${renderActiveRequests(snapshot.active_requests ?? [])}
     </section>
     ${renderHeldRequests(snapshot.held_requests)}
     ${renderFFmpegAvailability(snapshot)}
   `;
 }
 
-function renderHeldRequests(heldRequests: NodeHeldRequest[] | undefined): SafeHTML {
-  if (heldRequests === undefined) {
+function renderActiveRequests(activeRequests: string[]): SafeHTML {
+  return activeRequests.length > 0 ? html`<ul>${activeRequests.map(modelID => html`<li>${modelID}</li>`)}</ul>` : html`<p class="muted node-state-empty">No active requests.</p>`;
+}
+
+function renderHeldRequests(heldRequests: NodeHeldRequest[] | null | undefined): SafeHTML {
+  if (heldRequests == null) {
     return emptyHTML;
   }
   return html`

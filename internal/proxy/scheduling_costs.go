@@ -55,19 +55,20 @@ func (scheduler *scheduler) fitLocalCosts(ctx context.Context) schedulingcost.No
 	if scheduler.analytics.store == nil {
 		return schedulingcost.NodeCosts{}
 	}
-	minSamples := int64(scheduler.minSamples)
+	settings := scheduler.currentSettings()
+	minSamples := int64(settings.MinSamples)
 
-	imageSamples, loadSamples, err := scheduler.analytics.store.CostSamples(ctx, routeranalytics.SectionImage, scheduler.sampleWindow, time.Now())
+	imageSamples, loadSamples, err := scheduler.analytics.store.CostSamples(ctx, routeranalytics.SectionImage, settings.SampleWindow, time.Now())
 	if err != nil {
 		scheduler.logger.Printf("scheduling cost sampling failed: %v", err)
 		return schedulingcost.NodeCosts{}
 	}
-	textSamples, err := scheduler.analytics.store.TextCostSamples(ctx, scheduler.sampleWindow, time.Now())
+	textSamples, err := scheduler.analytics.store.TextCostSamples(ctx, settings.SampleWindow, time.Now())
 	if err != nil {
 		scheduler.logger.Printf("scheduling text cost sampling failed: %v", err)
 		textSamples = nil
 	}
-	profileSamples, err := scheduler.analytics.store.TokenProfileSamples(ctx, scheduler.sampleWindow, time.Now())
+	profileSamples, err := scheduler.analytics.store.TokenProfileSamples(ctx, settings.SampleWindow, time.Now())
 	if err != nil {
 		scheduler.logger.Printf("scheduling token profile sampling failed: %v", err)
 		profileSamples = nil

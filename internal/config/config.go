@@ -13,6 +13,7 @@ import (
 
 	"tensors-router/internal/backendendpoint"
 	"tensors-router/internal/backendmode"
+	"tensors-router/internal/offloadsettings"
 )
 
 type Config struct {
@@ -205,14 +206,7 @@ type ClusterConfig struct {
 	ControlTimeout  time.Duration
 	SyncConcurrency int
 
-	SchedulingRefreshInterval time.Duration
-	SchedulingSampleWindow    time.Duration
-	SchedulingMinSamples      int
-	SchedulingBackendDepth    int
-	SchedulingGrantTTL        time.Duration
-	SchedulingContextReserve  int
-	OffloadRestoreDelay       time.Duration
-	OffloadProbeIdle          time.Duration
+	LendingFileValues offloadsettings.Values
 }
 
 type AnalyticsConfig struct {
@@ -330,23 +324,15 @@ func Defaults() Config {
 			Enabled: true,
 		},
 		Cluster: ClusterConfig{
-			Role:            "standalone",
-			NodeID:          "local",
-			SlaveURLs:       []string{},
-			StoreDir:        "./router-store",
-			SyncInterval:    60 * time.Second,
-			HealthInterval:  15 * time.Second,
-			ControlTimeout:  30 * time.Second,
-			SyncConcurrency: 4,
-
-			SchedulingRefreshInterval: 60 * time.Second,
-			SchedulingSampleWindow:    24 * time.Hour,
-			SchedulingMinSamples:      20,
-			SchedulingBackendDepth:    2,
-			SchedulingGrantTTL:        30 * time.Second,
-			SchedulingContextReserve:  256,
-			OffloadRestoreDelay:       1500 * time.Millisecond,
-			OffloadProbeIdle:          5 * time.Second,
+			Role:              "standalone",
+			NodeID:            "local",
+			SlaveURLs:         []string{},
+			StoreDir:          "./router-store",
+			SyncInterval:      60 * time.Second,
+			HealthInterval:    15 * time.Second,
+			ControlTimeout:    30 * time.Second,
+			SyncConcurrency:   4,
+			LendingFileValues: offloadsettings.Values{},
 		},
 		Analytics: AnalyticsConfig{
 			Enabled:                false,
@@ -553,30 +539,6 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Cluster.SyncConcurrency <= 0 || cfg.Cluster.SyncConcurrency > 128 {
 		return fmt.Errorf("cluster.sync_concurrency must be between 1 and 128")
-	}
-	if cfg.Cluster.SchedulingRefreshInterval <= 0 {
-		return fmt.Errorf("cluster.scheduling_refresh_interval must be positive")
-	}
-	if cfg.Cluster.SchedulingSampleWindow <= 0 {
-		return fmt.Errorf("cluster.scheduling_sample_window must be positive")
-	}
-	if cfg.Cluster.SchedulingMinSamples < 2 {
-		return fmt.Errorf("cluster.scheduling_min_samples must be at least 2")
-	}
-	if cfg.Cluster.SchedulingBackendDepth < 1 {
-		return fmt.Errorf("cluster.scheduling_backend_depth must be at least 1")
-	}
-	if cfg.Cluster.SchedulingGrantTTL <= 0 {
-		return fmt.Errorf("cluster.scheduling_grant_ttl must be positive")
-	}
-	if cfg.Cluster.SchedulingContextReserve < 0 {
-		return fmt.Errorf("cluster.scheduling_context_reserve must not be negative")
-	}
-	if cfg.Cluster.OffloadRestoreDelay <= 0 {
-		return fmt.Errorf("cluster.offload_restore_delay must be positive")
-	}
-	if cfg.Cluster.OffloadProbeIdle <= 0 {
-		return fmt.Errorf("cluster.offload_probe_idle must be positive")
 	}
 	if cfg.Analytics.FlushInterval <= 0 {
 		return fmt.Errorf("analytics.flush_interval must be positive")
@@ -1447,62 +1409,15 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			}
 			cfg.Cluster.SyncConcurrency = parsed
 			return nil
-		case "scheduling_refresh_interval":
-			parsed, err := time.ParseDuration(value)
-			if err != nil {
-				return err
+		default:
+			if offloadsettings.Known(key) {
+				normalized, err := offloadsettings.Normalize(key, value)
+				if err != nil {
+					return fmt.Errorf("cluster.%w", err)
+				}
+				cfg.Cluster.LendingFileValues[key] = normalized
+				return nil
 			}
-			cfg.Cluster.SchedulingRefreshInterval = parsed
-			return nil
-		case "scheduling_sample_window":
-			parsed, err := time.ParseDuration(value)
-			if err != nil {
-				return err
-			}
-			cfg.Cluster.SchedulingSampleWindow = parsed
-			return nil
-		case "scheduling_min_samples":
-			parsed, err := strconv.Atoi(value)
-			if err != nil {
-				return err
-			}
-			cfg.Cluster.SchedulingMinSamples = parsed
-			return nil
-		case "scheduling_backend_depth":
-			parsed, err := strconv.Atoi(value)
-			if err != nil {
-				return err
-			}
-			cfg.Cluster.SchedulingBackendDepth = parsed
-			return nil
-		case "scheduling_grant_ttl":
-			parsed, err := time.ParseDuration(value)
-			if err != nil {
-				return err
-			}
-			cfg.Cluster.SchedulingGrantTTL = parsed
-			return nil
-		case "scheduling_context_reserve":
-			parsed, err := strconv.Atoi(value)
-			if err != nil {
-				return err
-			}
-			cfg.Cluster.SchedulingContextReserve = parsed
-			return nil
-		case "offload_restore_delay":
-			parsed, err := time.ParseDuration(value)
-			if err != nil {
-				return err
-			}
-			cfg.Cluster.OffloadRestoreDelay = parsed
-			return nil
-		case "offload_probe_idle":
-			parsed, err := time.ParseDuration(value)
-			if err != nil {
-				return err
-			}
-			cfg.Cluster.OffloadProbeIdle = parsed
-			return nil
 		}
 	case "analytics":
 		switch key {

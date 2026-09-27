@@ -84,12 +84,8 @@ func (service *Service) handleNodeOffloadRequest(w http.ResponseWriter, r *http.
 	}
 	lease, ok := service.scheduler.leaseBook.Lease(lane, ownerNodeID, ownerModelID, time.Now())
 	if !ok {
-		openai.WriteError(w, http.StatusConflict, offloadReturnedCode, "no live offload lease for this owner")
-		return
-	}
-	nodeURL := service.registry.NodeURLsByID()[lease.HelperNodeID]
-	if nodeURL == "" {
-		openai.WriteError(w, http.StatusConflict, offloadReturnedCode, "helper node is not reachable")
+		lease = offloadLease{Lane: lane, OwnerNodeID: ownerNodeID, OwnerModelID: ownerModelID}
+		service.refuseOffloadRelay(w, lease, relayRefusedNoLiveLease, "no live offload lease for this owner")
 		return
 	}
 	body, err := io.ReadAll(r.Body)
@@ -98,9 +94,18 @@ func (service *Service) handleNodeOffloadRequest(w http.ResponseWriter, r *http.
 		return
 	}
 	relayed, relayedBody := requestAddressedToHelper(r, body, lease)
+	if lease.HelperNodeID == service.nodeID {
+		service.serveBorrowedRequestLocally(w, path, relayed, relayedBody, lease)
+		return
+	}
+	nodeURL := service.registry.NodeURLsByID()[lease.HelperNodeID]
+	if nodeURL == "" {
+		service.refuseOffloadRelay(w, lease, relayRefusedHelperUnreachable, "helper node is not reachable")
+		return
+	}
 	response, err := service.forwardBorrowedRequest(r.Context(), nodeURL, path, relayed, relayedBody, lease)
 	if err != nil {
-		openai.WriteError(w, http.StatusConflict, offloadReturnedCode, err.Error())
+		service.refuseOffloadRelay(w, lease, relayRefusedForwardFailed, err.Error())
 		return
 	}
 	if err := service.writeProxyResponse(w, response, "", false); err != nil {
@@ -124,7 +129,7 @@ func (service *Service) forwardBorrowedRequest(ctx context.Context, nodeURL stri
 	if err != nil {
 		return nil, err
 	}
-	target.Path = joinPath(target.Path, "/router/v1/node/inference"+path)
+	target.Path = joinPath(target.Path, nodeInferencePrefix+path)
 	target.RawQuery = original.URL.RawQuery
 
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, target.String(), bytes.NewReader(body))
@@ -133,15 +138,35 @@ func (service *Service) forwardBorrowedRequest(ctx context.Context, nodeURL stri
 	}
 	copyClusterRequestHeaders(request.Header, original.Header)
 	request.Header.Set("Authorization", "Bearer "+service.clusterToken)
-	request.Header.Set(offloadMarkerHeader, "1")
-	if lease.RestoreHelperModel {
-		request.Header.Set(offloadRestoreHeader, "1")
-	}
-	if lease.LoadHelperModel {
-		request.Header.Set(offloadLoadHeader, "1")
-	}
+	setBorrowedRequestHeaders(request.Header, lease)
 	request.Host = target.Host
 	return service.client.Do(request)
+}
+
+// serveBorrowedRequestLocally is the master relaying to itself: it is the helper,
+// so the request never leaves the process and needs no advertised URL.
+func (service *Service) serveBorrowedRequestLocally(w http.ResponseWriter, path string, original *http.Request, body []byte, lease offloadLease) {
+	request := original.Clone(original.Context())
+	localURL := *original.URL
+	localURL.Path = nodeInferencePrefix + path
+	request.URL = &localURL
+	request.RequestURI = ""
+	request.Body = io.NopCloser(bytes.NewReader(body))
+	request.ContentLength = int64(len(body))
+	request.Header = http.Header{}
+	copyClusterRequestHeaders(request.Header, original.Header)
+	setBorrowedRequestHeaders(request.Header, lease)
+	service.handleNodeInference(w, request)
+}
+
+func setBorrowedRequestHeaders(header http.Header, lease offloadLease) {
+	header.Set(offloadMarkerHeader, "1")
+	if lease.RestoreHelperModel {
+		header.Set(offloadRestoreHeader, "1")
+	}
+	if lease.LoadHelperModel {
+		header.Set(offloadLoadHeader, "1")
+	}
 }
 
 // sendOffloadedRequest is the owner handing one request to the master for

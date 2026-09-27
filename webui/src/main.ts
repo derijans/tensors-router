@@ -63,6 +63,7 @@ import {
   updateLoadCaptureFilters
 } from "./load-captures";
 import { loadLoadErrors, selectLoadError } from "./load-errors";
+import { bindLendingTab, loadLending, setLendingTabActive } from "./lending-tab";
 import { closestElement, elementTarget, queryElements } from "./dom";
 import { bootstrapApplication } from "./bootstrap";
 import { elements } from "./elements";
@@ -162,6 +163,7 @@ async function refreshAll(): Promise<void> {
   await loadDownloads();
   await loadLoadCaptures();
   await loadLoadErrors();
+  await loadLending();
 }
 
 async function refreshRouterStatus(): Promise<void> {
@@ -184,6 +186,7 @@ function activateTab(name: string): void {
   queryElements("[data-tab]", HTMLButtonElement).forEach(tab => tab.classList.toggle("active", tab.dataset.tab === name));
   queryElements("[data-panel]", HTMLElement).forEach(panel => panel.classList.toggle("active", panel.dataset.panel === name));
   setNodesTabActive(name === "nodes");
+  setLendingTabActive(name === "lending");
   if (name === "download") {
     syncDownloadJobPolling();
   } else {
@@ -521,6 +524,7 @@ elements.loadCaptureRows.addEventListener("click", event => {
     runTask(() => selectLoadCapture(nodeID, attemptID), `load-capture-${attemptID}`, "load-captures", "Loading capture…");
   }
 });
+bindLendingTab((task, key, label) => runTask(task, key, "lending", label));
 elements.loadErrorsRefreshButton.addEventListener("click", () => runTask(loadLoadErrors, "load-errors-refresh", "load-errors", "Loading errors…"));
 elements.loadErrorPhaseSelect.addEventListener("change", () => runTask(loadLoadErrors, "load-errors-filter", "load-errors", "Loading errors…"));
 elements.loadErrorSeveritySelect.addEventListener("change", () => runTask(loadLoadErrors, "load-errors-filter", "load-errors", "Loading errors…"));

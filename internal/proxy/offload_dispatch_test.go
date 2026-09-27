@@ -101,6 +101,20 @@ func TestLeaseSlotsBoundHowManyHeldRequestsAreLent(t *testing.T) {
 	}
 }
 
+func TestOwnerTimesTheLeaseOnItsOwnClock(t *testing.T) {
+	scheduler, _ := schedulerRecordingDecisions(t)
+	entries := holdNativeImageRequests(scheduler, 3)
+	lease := imageLeaseWithSlots(1)
+	lease.ExpiresAt = time.Now().Add(-time.Minute)
+	lease.TTLMS = time.Minute.Milliseconds()
+
+	scheduler.acceptOffloadLease(lease, queueEventEnqueued)
+
+	if withdrawn := withdrawnEntries(entries); len(withdrawn) != 1 {
+		t.Fatalf("withdrew %d, want the lease honoured although the master's clock says it already expired", len(withdrawn))
+	}
+}
+
 func TestFinishedLentRequestWaitsForTheMastersNextAnswerBeforeLendingMore(t *testing.T) {
 	scheduler, _ := schedulerRecordingDecisions(t)
 	entries := holdNativeImageRequests(scheduler, 10)

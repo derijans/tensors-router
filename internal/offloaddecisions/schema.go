@@ -13,7 +13,7 @@ var _ routerstore.Module = SchemaModule{}
 
 func (SchemaModule) Name() string { return "offloaddecisions" }
 
-func (SchemaModule) Version() int { return 1 }
+func (SchemaModule) Version() int { return 2 }
 
 func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 	statements := []string{
@@ -50,7 +50,7 @@ func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 			return err
 		}
 	}
-	return nil
+	return routerstore.AddColumnIfMissing(ctx, db, "offload_decisions", "router_version", "TEXT NOT NULL DEFAULT ''")
 }
 
 func (SchemaModule) ImportLegacy(context.Context, *sql.Tx, string) (int64, error) {

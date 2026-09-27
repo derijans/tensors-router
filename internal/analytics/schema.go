@@ -3,7 +3,6 @@ package analytics
 import (
 	"context"
 	"database/sql"
-	"fmt"
 
 	"tensors-router/internal/routerstore"
 )
@@ -14,7 +13,7 @@ var _ routerstore.Module = SchemaModule{}
 
 func (SchemaModule) Name() string { return "analytics" }
 
-func (SchemaModule) Version() int { return 8 }
+func (SchemaModule) Version() int { return 9 }
 
 func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 	statements := []string{
@@ -106,7 +105,7 @@ func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 		}
 	}
 	for _, column := range migrationColumns() {
-		if err := addColumnIfMissing(ctx, db, column.table, column.name, column.definition); err != nil {
+		if err := routerstore.AddColumnIfMissing(ctx, db, column.table, column.name, column.definition); err != nil {
 			return err
 		}
 	}
@@ -182,6 +181,7 @@ func migrationColumns() []migrationColumn {
 		{"analytics_events", "finish_reason", "TEXT NOT NULL DEFAULT ''"},
 		{"analytics_events", "aborted", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_events", "embedding_count", "INTEGER NOT NULL DEFAULT 0"},
+		{"analytics_events", "router_version", "TEXT NOT NULL DEFAULT ''"},
 		{"analytics_rollups", "load_count", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_rollups", "load_duration_ms_total", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_rollups", "vram_peak_mb", "INTEGER NOT NULL DEFAULT 0"},
@@ -190,31 +190,4 @@ func migrationColumns() []migrationColumn {
 		{"analytics_rollups", "model_vram_estimate_mb", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_rollups", "embedding_count", "INTEGER NOT NULL DEFAULT 0"},
 	}
-}
-
-func addColumnIfMissing(ctx context.Context, db *sql.DB, table string, name string, definition string) error {
-	rows, err := db.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var id int
-		var columnName string
-		var columnType string
-		var notNull int
-		var defaultValue any
-		var primaryKey int
-		if err := rows.Scan(&id, &columnName, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
-			return err
-		}
-		if columnName == name {
-			return rows.Err()
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	_, err = db.ExecContext(ctx, fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", table, name, definition))
-	return err
 }

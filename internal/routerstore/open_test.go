@@ -22,6 +22,23 @@ func TestOpenRecordsModuleVersionsAndFileFormat(t *testing.T) {
 	}
 }
 
+func TestOpenRemembersEveryRouterBuildThatOpenedTheFile(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "analytics.sqlite")
+	for _, version := range []string{"v0.7.1", "v0.7.2", "v0.7.1"} {
+		handle := routerstoretest.OpenConfig(t, routerstore.Config{Path: path, BinaryVersion: version, Modules: []routerstore.Module{notesModule{}}})
+		if err := handle.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	reopened := routerstoretest.OpenAt(t, path, notesModule{})
+	if got := scalarInt(t, reopened.DB(), `SELECT COUNT(*) FROM routerstore_binary_opens`); got != 2 {
+		t.Fatalf("recorded builds = %d, want one row per distinct version", got)
+	}
+	if got := scalarInt(t, reopened.DB(), `SELECT COUNT(*) FROM routerstore_binary_opens WHERE version = 'v0.7.1' AND last_opened_at >= first_opened_at`); got != 1 {
+		t.Fatalf("v0.7.1 rows with a sane span = %d, want 1", got)
+	}
+}
+
 func TestOpenNeverLowersFileFormatVersion(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "analytics.sqlite")
 	seed, err := sql.Open("sqlite", path)

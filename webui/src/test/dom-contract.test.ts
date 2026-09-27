@@ -28,3 +28,18 @@ describe("models dashboard DOM contract", () => {
     expect(tagNameForID("separateRuntimeDialogStatus")).toBe("p");
   });
 });
+
+describe("lending tab DOM contract", () => {
+  it.each(["lendingWindowSelect", "lendingLaneSelect", "lendingOutcomeSelect"])("renders #%s as a select", id => {
+    expect(tagNameForID(id)).toBe("select");
+  });
+
+  it.each(["lendingSettingsRows", "lendingDecisionRows"])("renders #%s as a table body", id => {
+    expect(tagNameForID(id)).toBe("tbody");
+  });
+
+  it("offers the Lending tab next to its panel", () => {
+    expect(page).toContain('data-tab="lending"');
+    expect(page).toContain('data-panel="lending"');
+  });
+});

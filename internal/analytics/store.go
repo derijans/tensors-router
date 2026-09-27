@@ -18,6 +18,7 @@ const (
 
 type StoreConfig struct {
 	NodeID        string
+	RouterVersion string
 	DB            *sql.DB
 	ReadDB        *sql.DB
 	FlushInterval time.Duration
@@ -29,6 +30,7 @@ type Store struct {
 	writer        *sql.DB
 	reader        *sql.DB
 	nodeID        string
+	routerVersion string
 	flushInterval time.Duration
 	rawRetention  time.Duration
 	bufferLimit   int
@@ -67,6 +69,7 @@ func NewStore(config StoreConfig) (*Store, error) {
 		writer:        config.DB,
 		reader:        config.ReadDB,
 		nodeID:        nodeID,
+		routerVersion: config.RouterVersion,
 		flushInterval: config.FlushInterval,
 		rawRetention:  rawRetention,
 		bufferLimit:   defaultBufferLimit,
@@ -225,6 +228,9 @@ func (store *Store) normalizeEvent(event Event) Event {
 	if event.NodeID == "" {
 		event.NodeID = store.nodeID
 	}
+	if event.RouterVersion == "" {
+		event.RouterVersion = store.routerVersion
+	}
 	event.ModelID = strings.TrimSpace(event.ModelID)
 	event.Section = strings.TrimSpace(event.Section)
 	event.BackendMode = strings.TrimSpace(event.BackendMode)
@@ -293,8 +299,8 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 		image_type, audio_seconds, audio_tokens, audio_language, audio_task, load_vram_before_mb, load_vram_after_mb,
 		load_vram_delta_mb, work_vram_start_mb, work_vram_max_mb, work_vram_end_mb,
 		model_vram_estimate_mb, vram_total_mb, vram_peak_percent,
-		ttft_ms, decode_ms, max_gap_ms, finish_reason, aborted
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		ttft_ms, decode_ms, max_gap_ms, finish_reason, aborted, router_version
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -352,6 +358,7 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 			event.MaxGapMS,
 			event.FinishReason,
 			boolInt(event.Aborted),
+			event.RouterVersion,
 		); err != nil {
 			return err
 		}

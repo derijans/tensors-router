@@ -13,6 +13,7 @@ func DisabledResponse(query Query) Response {
 		To:          query.EndMS,
 		Granularity: Granularity(query),
 		Filters:     emptyFilters(),
+		Versions:    []VersionUsage{},
 	}
 }
 
@@ -54,6 +55,9 @@ func (store *Store) Query(ctx context.Context, query Query) (Response, error) {
 		return Response{}, err
 	}
 	if response.Recent, err = store.queryRecent(ctx, normalized); err != nil {
+		return Response{}, err
+	}
+	if response.Versions, err = store.queryVersions(ctx, normalized); err != nil {
 		return Response{}, err
 	}
 	return response, nil

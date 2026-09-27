@@ -6,6 +6,7 @@ import (
 	"tensors-router/internal/downloader"
 	"tensors-router/internal/hardware"
 	"tensors-router/internal/inventory"
+	"tensors-router/internal/offloadsettings"
 	"tensors-router/internal/recipes"
 	"tensors-router/internal/routinggroups"
 	"tensors-router/internal/vllm"
@@ -70,16 +71,17 @@ type ModelAssetSubstitutionRequest struct {
 }
 
 type NodeInventory struct {
-	NodeID      string                 `json:"node_id"`
-	NodeURL     string                 `json:"node_url,omitempty"`
-	Source      string                 `json:"source"`
-	Role        string                 `json:"role"`
-	BackendMode string                 `json:"backend_mode"`
-	Available   bool                   `json:"available"`
-	Hardware    hardware.Info          `json:"hardware"`
-	Models      []cluster.Model        `json:"models"`
-	Files       []inventory.FileRecord `json:"files"`
-	Error       string                 `json:"error,omitempty"`
+	NodeID       string                 `json:"node_id"`
+	NodeURL      string                 `json:"node_url,omitempty"`
+	Source       string                 `json:"source"`
+	Role         string                 `json:"role"`
+	BackendMode  string                 `json:"backend_mode"`
+	Available    bool                   `json:"available"`
+	Hardware     hardware.Info          `json:"hardware"`
+	Models       []cluster.Model        `json:"models"`
+	Files        []inventory.FileRecord `json:"files"`
+	BuildVersion string                 `json:"build_version,omitempty"`
+	Error        string                 `json:"error,omitempty"`
 }
 
 type NodeState struct {
@@ -341,4 +343,14 @@ type ModelFileHashResponse struct {
 	NodeID string `json:"node_id"`
 	Path   string `json:"path"`
 	SHA256 string `json:"sha256"`
+}
+
+type LendingSettingsResponse struct {
+	Entries     []offloadsettings.Entry `json:"entries"`
+	Fingerprint string                  `json:"fingerprint"`
+	Editable    bool                    `json:"editable"`
+}
+
+type LendingSettingsRequest struct {
+	Values offloadsettings.Values `json:"values"`
 }

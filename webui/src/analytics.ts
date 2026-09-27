@@ -14,6 +14,7 @@ import {
   normalizedAnalyticsQuery
 } from "./analytics-data";
 import { elements } from "./elements";
+import { renderVersionRows } from "./analytics-versions-view";
 import { state } from "./state";
 import type { AnalyticsModelUsage, AnalyticsNodeUsage, AnalyticsQuery, AnalyticsRecentEvent, AnalyticsSectionUsage, AnalyticsTimeline, SelectChoice } from "./types";
 
@@ -183,12 +184,14 @@ function renderAnalyticsTables(): void {
   if (!data?.enabled) {
     setHTML(elements.analyticsModelsTable, emptyHTML);
     setHTML(elements.analyticsNodesTable, emptyHTML);
+    setHTML(elements.analyticsVersionsTable, emptyHTML);
     setHTML(elements.analyticsRecentTable, emptyHTML);
     setHTML(elements.analyticsNodeErrors, emptyHTML);
     return;
   }
   setHTML(elements.analyticsModelsTable, html`${data.models.map(modelRow)}`);
   setHTML(elements.analyticsNodesTable, html`${data.nodes.map(nodeRow)}`);
+  setHTML(elements.analyticsVersionsTable, renderVersionRows(data.router_versions ?? []));
   setHTML(elements.analyticsRecentTable, html`${data.recent.map(recentRow)}`);
   setHTML(elements.analyticsNodeErrors, html`${(data.node_errors ?? []).map(error => html`
     <div class="error-text">${error.node_id || error.node_url || "node"}: ${error.error}</div>

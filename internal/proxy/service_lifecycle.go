@@ -143,17 +143,11 @@ func NewService(config ServiceConfig) *Service {
 		service.logger.Printf("cluster target setup failed: %v", err)
 	}
 	service.separatePool = newSeparateRuntimePool(config.SeparateRuntimeLimit)
-	service.scheduler = newScheduler(service, service.analytics, decisionRecorderOrNil(config.OffloadDecisionStore), schedulingSettings{
-		sampleWindow:    config.SchedulingSampleWindow,
-		minSamples:      config.SchedulingMinSamples,
-		backendDepth:    config.SchedulingBackendDepth,
-		refreshInterval: config.SchedulingRefreshInterval,
-		grantTTL:        config.SchedulingGrantTTL,
-		contextReserve:  config.SchedulingContextReserve,
-		restoreDelay:    config.OffloadRestoreDelay,
-		probeIdle:       config.OffloadProbeIdle,
-	}, logger)
+	service.offloadDecisions = config.OffloadDecisionStore
+	service.lending = newLendingSettings(config.LendingFileValues, lendingOverrideStoreOrNil(config.LendingSettingsStore), service.applyLendingSettings)
+	service.scheduler = newScheduler(service, service.analytics, decisionRecorderOrNil(config.OffloadDecisionStore), service.lending.snapshot().Settings, logger)
 	service.installStoredRoutingLinks(context.Background())
+	service.reloadLendingSettings(context.Background())
 	service.routes = newRouteTable(service.requireClusterToken, service.controlRoutes(), service.siteRoutes(), service.nodeRoutes(), service.downloads.Routes(), service.benchmarks.routes(), service.assets.routes(), service.webUI.routes())
 	return service
 }

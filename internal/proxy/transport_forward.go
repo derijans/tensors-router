@@ -129,7 +129,7 @@ func (service *Service) forwardTransportRemote(ctx context.Context, original *ht
 	if err != nil {
 		return nil, err
 	}
-	target.Path = joinPath(target.Path, "/router/v1/node/inference"+original.URL.Path)
+	target.Path = joinPath(target.Path, nodeInferencePrefix+original.URL.Path)
 	target.RawQuery = original.URL.RawQuery
 	return service.doTransportAttempts(ctx, original, target, body, nil, true)
 }

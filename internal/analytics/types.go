@@ -63,6 +63,7 @@ type Event struct {
 	MaxGapMS        int64     `json:"max_gap_ms,omitempty"`
 	FinishReason    string    `json:"finish_reason,omitempty"`
 	Aborted         bool      `json:"aborted,omitempty"`
+	RouterVersion   string    `json:"router_version,omitempty"`
 }
 
 type Query struct {
@@ -86,7 +87,16 @@ type Response struct {
 	Models      []ModelUsage   `json:"models"`
 	Nodes       []NodeUsage    `json:"nodes"`
 	Recent      []RecentEvent  `json:"recent"`
+	Versions    []VersionUsage `json:"router_versions"`
 	NodeErrors  []NodeError    `json:"node_errors,omitempty"`
+}
+
+type VersionUsage struct {
+	NodeID        string `json:"node_id"`
+	RouterVersion string `json:"router_version"`
+	FirstSeen     int64  `json:"first_seen"`
+	LastSeen      int64  `json:"last_seen"`
+	EventCount    int64  `json:"event_count"`
 }
 
 type Filters struct {

@@ -78,7 +78,7 @@ func Granularity(query Query) string {
 }
 
 func Merge(responses ...Response) Response {
-	merged := Response{Filters: emptyFilters()}
+	merged := Response{Filters: emptyFilters(), Recent: []RecentEvent{}, Versions: []VersionUsage{}}
 	timelineByBucket := map[int64]*Timeline{}
 	sectionsByName := map[string]*SectionUsage{}
 	modelsByKey := map[string]*ModelUsage{}
@@ -146,6 +146,7 @@ func Merge(responses ...Response) Response {
 			addNode(existing, item)
 		}
 		merged.Recent = append(merged.Recent, response.Recent...)
+		merged.Versions = append(merged.Versions, response.Versions...)
 		merged.NodeErrors = append(merged.NodeErrors, response.NodeErrors...)
 	}
 
@@ -174,6 +175,12 @@ func Merge(responses ...Response) Response {
 	if len(merged.Recent) > 100 {
 		merged.Recent = merged.Recent[:100]
 	}
+	sort.SliceStable(merged.Versions, func(left, right int) bool {
+		if merged.Versions[left].NodeID != merged.Versions[right].NodeID {
+			return merged.Versions[left].NodeID < merged.Versions[right].NodeID
+		}
+		return merged.Versions[left].FirstSeen < merged.Versions[right].FirstSeen
+	})
 	merged.Filters = Filters{
 		NodeIDs:  sortedFilterValues(filterNodeIDs),
 		ModelIDs: sortedFilterValues(filterModelIDs),

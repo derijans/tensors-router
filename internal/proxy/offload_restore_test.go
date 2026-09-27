@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"tensors-router/internal/offloadsettings"
 )
 
 func borrowedRestoreContext() context.Context {
@@ -21,7 +23,7 @@ func newBorrowRestoreTestService(t *testing.T) *Service {
 	service, _ := newTestServiceWithModels(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"ok":true}`))
 	}), "a", "b")
-	service.scheduler.restoreDelay = 20 * time.Millisecond
+	tuneScheduler(service.scheduler, func(settings *offloadsettings.Settings) { settings.RestoreDelay = 20 * time.Millisecond })
 	return service
 }
 
@@ -66,7 +68,7 @@ func TestBorrowRestoreDoesNothingWithoutTheRestoreMarker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(3 * service.scheduler.restoreDelay)
+	time.Sleep(3 * service.scheduler.currentSettings().RestoreDelay)
 	if _, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel(); filename != "b.kcpps" {
 		t.Fatalf("loaded model = %q, want b.kcpps to stay loaded with no restore requested", filename)
 	}
@@ -86,7 +88,7 @@ func TestBorrowRestoreIsCancelledByNativeTraffic(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(3 * service.scheduler.restoreDelay)
+	time.Sleep(3 * service.scheduler.currentSettings().RestoreDelay)
 	if _, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel(); filename != "b.kcpps" {
 		t.Fatalf("loaded model = %q, want b.kcpps to stay loaded once native traffic claimed it", filename)
 	}
@@ -108,7 +110,7 @@ func TestBorrowRestoreDoesNotFireWhileBorrowedWorkIsInFlight(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(3 * service.scheduler.restoreDelay)
+	time.Sleep(3 * service.scheduler.currentSettings().RestoreDelay)
 	if _, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel(); filename != "b.kcpps" {
 		t.Fatalf("loaded model = %q, want b.kcpps to stay loaded while borrowed work is in flight", filename)
 	}
@@ -130,7 +132,7 @@ func TestBorrowRestoreRetriesOnceTheNodeGoesQuiet(t *testing.T) {
 	if _, err := service.scheduler.textQueue.Await(context.Background(), entry); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(3 * service.scheduler.restoreDelay)
+	time.Sleep(3 * service.scheduler.currentSettings().RestoreDelay)
 
 	service.scheduler.textQueue.Complete(entry)
 
@@ -151,13 +153,13 @@ func TestCloseStopsARetryingBorrowRestore(t *testing.T) {
 	if _, err := service.scheduler.textQueue.Await(context.Background(), entry); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(3 * service.scheduler.restoreDelay)
+	time.Sleep(3 * service.scheduler.currentSettings().RestoreDelay)
 	if err := service.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 
 	service.scheduler.textQueue.Complete(entry)
-	time.Sleep(3 * service.scheduler.restoreDelay)
+	time.Sleep(3 * service.scheduler.currentSettings().RestoreDelay)
 	if _, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel(); filename != "b.kcpps" {
 		t.Fatalf("loaded model = %q, want b.kcpps: a retried restore fired after Close", filename)
 	}
@@ -177,7 +179,7 @@ func TestCloseStopsAPendingBorrowRestore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	time.Sleep(3 * service.scheduler.restoreDelay)
+	time.Sleep(3 * service.scheduler.currentSettings().RestoreDelay)
 	if _, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel(); filename != "b.kcpps" {
 		t.Fatalf("loaded model = %q, want b.kcpps: the restore timer fired after Close", filename)
 	}

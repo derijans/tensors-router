@@ -18,7 +18,7 @@ func (scheduler *scheduler) textWorkHint(profileNodeID string, profileModelID st
 	if !ok {
 		return requestWorkHint{}
 	}
-	requiredContext, ok := profile.RequiredContext(promptBytes, requestedOutputTokens(body), scheduler.contextReserve)
+	requiredContext, ok := profile.RequiredContext(promptBytes, requestedOutputTokens(body), scheduler.currentSettings().ContextReserve)
 	if !ok {
 		return requestWorkHint{}
 	}

@@ -6,11 +6,6 @@ import (
 	"time"
 )
 
-const (
-	defaultOffloadRestoreDelay = 1500 * time.Millisecond
-	defaultOffloadProbeIdle    = 5 * time.Second
-)
-
 type displacedConfig struct {
 	mode      string
 	modelID   string
@@ -59,10 +54,7 @@ func (scheduler *scheduler) touchBorrowRestore(runtime *backendRuntime) {
 	if state.target == nil {
 		return
 	}
-	delay := scheduler.restoreDelay
-	if delay <= 0 {
-		delay = defaultOffloadRestoreDelay
-	}
+	delay := scheduler.currentSettings().RestoreDelay
 	if state.timer != nil {
 		state.timer.Stop()
 	}
@@ -133,7 +125,7 @@ func (scheduler *scheduler) retryBorrowRestoreLater(runtime *backendRuntime, sta
 	if state.target != target {
 		return
 	}
-	state.timer = time.AfterFunc(scheduler.restoreDelay, func() { scheduler.fireBorrowRestore(runtime, state) })
+	state.timer = time.AfterFunc(scheduler.currentSettings().RestoreDelay, func() { scheduler.fireBorrowRestore(runtime, state) })
 }
 
 func contextIsBorrowed(ctx context.Context) bool {

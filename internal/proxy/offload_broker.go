@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"tensors-router/internal/offloaddecisions"
+	"tensors-router/internal/offloadsettings"
 	"tensors-router/internal/schedulingcost"
 )
 
@@ -47,6 +48,16 @@ type offloadLease struct {
 	HelperSlots        int       `json:"helper_slots"`
 	Probe              bool      `json:"probe,omitempty"`
 	ExpiresAt          time.Time `json:"expires_at"`
+	TTLMS              int64     `json:"ttl_ms,omitempty"`
+}
+
+// timedOnReceipt restarts the lifetime on the owner's clock, so master/owner clock
+// skew cannot expire a lease early; a master without ttl_ms keeps its expiry.
+func (lease offloadLease) timedOnReceipt(now time.Time) offloadLease {
+	if lease.TTLMS > 0 {
+		lease.ExpiresAt = now.Add(time.Duration(lease.TTLMS) * time.Millisecond)
+	}
+	return lease
 }
 
 func (lease offloadLease) slots() int {
@@ -63,7 +74,17 @@ func laneModelKey(lane string, modelID string) string {
 type offloadPlanPolicy struct {
 	ttl       time.Duration
 	probeIdle time.Duration
+	slots     helperSlots
 	trigger   string
+}
+
+func planPolicyFor(settings offloadsettings.Settings, trigger string) offloadPlanPolicy {
+	return offloadPlanPolicy{
+		ttl:       settings.GrantTTL,
+		probeIdle: settings.ProbeIdle,
+		slots:     helperSlots{faster: settings.FasterHelperSlots, slower: settings.SlowerHelperSlots, probe: settings.ProbeHelperSlots},
+		trigger:   trigger,
+	}
 }
 
 type offloadPlan struct {
@@ -115,7 +136,7 @@ func planOwner(lane string, candidate lendingOwner, costs *schedulingcost.Table,
 	chosen, probe := chooseHelper(evaluations, demand, policy.probeIdle)
 	decisions := make([]offloaddecisions.Record, 0, len(evaluations))
 	for index, evaluation := range evaluations {
-		decisions = append(decisions, planDecision(lane, policy.trigger, demand, evaluation, index == chosen, probe))
+		decisions = append(decisions, planDecision(lane, policy, demand, evaluation, index == chosen, probe))
 	}
 	if chosen < 0 {
 		return offloadLease{}, decisions, false
@@ -132,6 +153,7 @@ func planOwner(lane string, candidate lendingOwner, costs *schedulingcost.Table,
 		HelperSlots:        decisions[chosen].Slots,
 		Probe:              probe,
 		ExpiresAt:          now.Add(policy.ttl),
+		TTLMS:              policy.ttl.Milliseconds(),
 	}, decisions, true
 }
 
@@ -199,6 +221,22 @@ func (book *offloadLeaseBook) Replace(planned []offloadLease) {
 	book.mu.Lock()
 	defer book.mu.Unlock()
 	book.leases = live
+}
+
+func (book *offloadLeaseBook) Live(now time.Time) []offloadLease {
+	book.mu.RLock()
+	defer book.mu.RUnlock()
+	live := make([]offloadLease, 0, len(book.leases))
+	for _, lease := range book.leases {
+		if lease.ExpiresAt.After(now) {
+			live = append(live, lease)
+		}
+	}
+	sort.Slice(live, func(left, right int) bool {
+		return offloadLeaseBookKey(live[left].Lane, live[left].OwnerNodeID, live[left].OwnerModelID) <
+			offloadLeaseBookKey(live[right].Lane, live[right].OwnerNodeID, live[right].OwnerModelID)
+	})
+	return live
 }
 
 func (book *offloadLeaseBook) Lease(lane string, ownerNodeID string, ownerModelID string, now time.Time) (offloadLease, bool) {

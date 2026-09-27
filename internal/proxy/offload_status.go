@@ -74,13 +74,15 @@ func (scheduler *scheduler) startRefresh(ctx context.Context) {
 }
 
 func (scheduler *scheduler) runRefresh(ctx context.Context) {
-	ticker := time.NewTicker(scheduler.refreshInterval)
+	ticker := time.NewTicker(scheduler.currentSettings().RefreshInterval)
 	defer ticker.Stop()
 	scheduler.refreshLocalCosts(ctx)
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-scheduler.intervalReset:
+			ticker.Reset(scheduler.currentSettings().RefreshInterval)
 		case <-ticker.C:
 			scheduler.refreshLocalCosts(ctx)
 			scheduler.refreshOffloadPlan(ctx)

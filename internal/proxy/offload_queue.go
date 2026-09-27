@@ -73,10 +73,16 @@ type offloadQueue struct {
 }
 
 func newOffloadQueue(depth int) *offloadQueue {
-	if depth < 1 {
-		depth = 1
-	}
-	return &offloadQueue{depth: depth, admitted: map[*offloadEntry]struct{}{}}
+	queue := &offloadQueue{admitted: map[*offloadEntry]struct{}{}}
+	queue.SetDepth(depth)
+	return queue
+}
+
+func (queue *offloadQueue) SetDepth(depth int) {
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	queue.depth = max(depth, 1)
+	queue.admitLocked()
 }
 
 func (queue *offloadQueue) Enqueue(request queuedRequest, node nodeActivity, now time.Time) *offloadEntry {
