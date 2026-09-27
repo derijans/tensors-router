@@ -57,8 +57,6 @@ func openRouterStore(t *testing.T, path string, sources ...routerstore.LegacySou
 	return handle
 }
 
-// The legacy analytics table predates the image_steps and vram columns, so the
-// import copies what the two schemas share and leaves the rest at its default.
 func seedLegacyAnalytics(t *testing.T, path string) {
 	t.Helper()
 	writeLegacyDatabase(t, path,

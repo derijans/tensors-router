@@ -50,8 +50,6 @@ func newRoutingLinkService(t *testing.T, local []cluster.Model, slaveModels []cl
 	return service
 }
 
-// The fixture is the case the feature exists for: one checkpoint, configured
-// differently on two nodes, plus an unrelated checkpoint on the second node.
 func newImageRoutingLinkService(t *testing.T) *Service {
 	return newRoutingLinkService(t,
 		[]cluster.Model{routingImageModel("cc-ff", "master", "ff", "config-cc", cluster.SourceMaster)},
@@ -100,8 +98,6 @@ func candidatesByModel(candidates []siteapi.RoutingCandidate) map[string]siteapi
 	return byModel
 }
 
-// Filtering candidates by name or config hash would hide exactly the models worth
-// linking, so the list is deliberately unfiltered and labelled instead.
 func TestRoutingCandidatesIncludeDifferentNamesAndConfigsButNotTheAnchorNode(t *testing.T) {
 	service := newImageRoutingLinkService(t)
 	response := getRoutingLinks(t, service, imageLinksPath, "?node_id=master&model_id=cc-ff")
@@ -144,8 +140,6 @@ func TestSavedLinksKeepTheirDirectionAndFlags(t *testing.T) {
 	}
 }
 
-// A saved link has to reach request handling straight away, not at the next
-// refresh tick, or the operator sees no effect from what they just did.
 func TestSavingLinksMakesTheModelsQueueImmediately(t *testing.T) {
 	service := newImageRoutingLinkService(t)
 	body := `{"anchor":{"node_id":"master","model_id":"cc-ff"},"lends_to":[{"node_id":"slave-a","model_id":"cc11-ff","load_if_unloaded":true}],"borrows_from":[]}`
@@ -192,7 +186,6 @@ func TestDeletingLinksRequiresAnAnchor(t *testing.T) {
 	}
 }
 
-// Site control endpoints are admin surface and must stay closed on a slave.
 func TestRoutingLinkEndpointsAreClosedOnASlave(t *testing.T) {
 	service := newImageRoutingLinkService(t)
 	service.clusterRole = cluster.RoleSlave

@@ -39,7 +39,6 @@ const (
 	LaneMusic         Lane = "music"
 )
 
-// Family names the backend process whose output is being read.
 type Family string
 
 const (
@@ -47,15 +46,11 @@ const (
 	FamilyNative Family = "native"
 )
 
-// Verdict is the conclusion drawn from the output so far.
 type Verdict int
 
 const (
-	// Undecided means the output so far carries no definitive marker.
 	Undecided Verdict = iota
-	// Ready means the backend reported the model loaded and serving.
 	Ready
-	// Failed means the backend reported the load could not complete.
 	Failed
 )
 
@@ -63,11 +58,9 @@ const (
 // progress bar cannot grow the scanner's buffer without bound.
 const maxLineBytes = 64 * 1024
 
-// Result is the outcome of scanning backend output.
 type Result struct {
 	Verdict Verdict
-	// Reason is the decisive output line, verbatim, when Verdict is Failed.
-	Reason string
+	Reason  string
 }
 
 // Scanner consumes backend output incrementally and reports the first definitive
@@ -84,7 +77,6 @@ type Scanner struct {
 	result  Result
 }
 
-// Loading reports whether the backend announced that a load is under way.
 func (scanner *Scanner) Loading() bool {
 	return scanner.loading
 }
@@ -117,7 +109,6 @@ func (scanner *Scanner) Write(chunk []byte) Result {
 	}
 }
 
-// Result reports the verdict reached so far.
 func (scanner *Scanner) Result() Result {
 	return scanner.result
 }
@@ -170,13 +161,11 @@ func koboldLoadLabel(lane Lane) (string, string) {
 func (scanner *Scanner) classifyKobold(line string) (Result, bool) {
 	label, module := koboldLoadLabel(scanner.lane)
 
-	// "Loading <lane> Model: <ref>" means a load is under way for this lane.
 	if strings.HasPrefix(line, "Loading "+label+" Model:") {
 		scanner.loading = true
 		return Result{}, false
 	}
 
-	// The per-load verdict, when KoboldCpp prints one, is decisive on its own.
 	if prefix := "Load " + label + " Model OK: "; strings.HasPrefix(line, prefix) {
 		value := strings.TrimSpace(strings.TrimPrefix(line, prefix))
 		if strings.EqualFold(value, "True") {
@@ -246,8 +235,6 @@ var nativeDiagnosticMarkers = []string{
 	"out of memory",
 }
 
-// nativeReadyMarkers appear once the server has the model resident and is accepting
-// connections.
 var nativeReadyMarkers = []string{
 	"llama_server: model loaded",
 	"server is listening on",
@@ -284,7 +271,6 @@ func DecisiveFailureLine(output string) string {
 	return best
 }
 
-// nativeLoadingMarkers are printed when a load begins.
 var nativeLoadingMarkers = []string{
 	"load_model: loading model",
 	"loading model from",

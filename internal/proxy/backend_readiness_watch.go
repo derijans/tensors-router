@@ -18,8 +18,6 @@ type backendOutputWatcher interface {
 	WatchOutput(observe func(loadcapture.Stream, []byte)) func()
 }
 
-// readinessWatch reports the first definitive verdict found in a backend's output, and
-// tracks when that output last arrived.
 type readinessWatch struct {
 	mu       sync.Mutex
 	scanner  *backendreadiness.Scanner
@@ -82,9 +80,6 @@ func (watch *readinessWatch) verdict() backendreadiness.Result {
 	return watch.result
 }
 
-// loading reports whether the backend has announced a load in progress. Measured: while
-// loading, both backends print progress and eventually a completion marker; with no model
-// they print neither and serve "no model" forever.
 func (watch *readinessWatch) loading() bool {
 	if watch == nil {
 		return false
@@ -94,8 +89,6 @@ func (watch *readinessWatch) loading() bool {
 	return watch.scanner.Loading()
 }
 
-// lastActivity reports when the backend last produced output, or the zero time if it has
-// produced none. A load that is still printing is still working, however slowly.
 func (watch *readinessWatch) lastActivity() time.Time {
 	if watch == nil {
 		return time.Time{}
@@ -160,7 +153,6 @@ func (service *Service) awaitOutputGate(watch *readinessWatch, ctx context.Conte
 		service.logger.Printf("backend output reports load complete; probing model=%q config=%q", modelID, configFilename)
 		return nil
 	case <-timer.C:
-		// Nothing recognisable was printed in time. Fall through and probe anyway.
 		return nil
 	}
 }

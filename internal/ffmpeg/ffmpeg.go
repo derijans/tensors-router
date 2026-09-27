@@ -25,12 +25,10 @@ type Tool struct {
 	path string
 }
 
-// Available reports whether a working ffmpeg binary was located.
 func (tool Tool) Available() bool {
 	return tool.path != ""
 }
 
-// Path returns the resolved ffmpeg binary path, or "" when unavailable.
 func (tool Tool) Path() string {
 	return tool.path
 }
@@ -81,8 +79,6 @@ func (tool Tool) RemuxToMP4(ctx context.Context, src io.Reader, dst io.Writer) e
 	})
 }
 
-// ConvertToWAV converts src (any ffmpeg-demuxable audio container) into the
-// 16-bit mono PCM WAV the whisper.cpp transcription path requires.
 func (tool Tool) ConvertToWAV(ctx context.Context, src io.Reader, dst io.Writer) error {
 	if !tool.Available() {
 		return ErrNotAvailable

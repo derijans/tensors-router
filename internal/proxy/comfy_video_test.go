@@ -46,9 +46,6 @@ func requireFFmpegTool(t *testing.T) ffmpeg.Tool {
 	return tool
 }
 
-// synthTestAVI produces a tiny real MJPG-AVI with a silent audio track, the
-// same shape KoboldCpp's video_output_type=1 and sd-server's "avi" output
-// format both emit, so RemuxToMP4 has real bytes to transcode.
 func synthTestAVI(t *testing.T) []byte {
 	t.Helper()
 	cmd := exec.Command("ffmpeg",
@@ -62,10 +59,6 @@ func synthTestAVI(t *testing.T) []byte {
 	return output
 }
 
-// warmUpActiveImageModel makes imageModelID the router's active image model,
-// the same way a client selecting a model in the WebUI would, since a
-// ComfyUI /prompt request (like KoboldCpp's own emulation) never names a
-// model explicitly and only operates on whatever is already active.
 func warmUpActiveImageModel(t *testing.T, service *Service, imageModelID string) {
 	t.Helper()
 	recorder := httptest.NewRecorder()
@@ -168,8 +161,6 @@ func TestComfyVideoWorkflowGeneratesMP4ViaKobold(t *testing.T) {
 		t.Fatalf("view response is not a valid MP4: %d bytes", len(video))
 	}
 
-	// A plain image workflow must still reach KoboldCpp's own ComfyUI
-	// emulation unchanged.
 	imagePromptRecorder := httptest.NewRecorder()
 	imagePromptRequest := httptest.NewRequest(http.MethodPost, "/prompt", strings.NewReader(stillImagePromptBody))
 	imagePromptRequest.Header.Set("Content-Type", "application/json")
@@ -262,11 +253,6 @@ const wanImageToVideoPromptBody = `{"prompt":{
 	"7":{"class_type":"SaveWEBM","inputs":{"images":["6",0]}}
 }}`
 
-// An upload too large for the router to copy must still reach the backend
-// intact: handing back only the prefix already read would silently truncate a
-// legitimate image workflow's upload. The declared length is cleared so the
-// router cannot bail out before reading, which is what a chunked upload looks
-// like and is the only way into the truncating path.
 func TestComfyUploadImageTooLargeToCopyStillReachesTheBackendWhole(t *testing.T) {
 	tool := requireFFmpegTool(t)
 	oversized := bytes.Repeat([]byte("A"), maxComfyUploadRequestBytes+(1<<20))
@@ -304,8 +290,6 @@ func TestComfyUploadImageTooLargeToCopyStillReachesTheBackendWhole(t *testing.T)
 		t.Fatal("an upload past the copy limit must not be kept by the router")
 	}
 
-	// Whatever the router declined to copy must still be readable in full by
-	// the handler it fell through to.
 	fellThrough, err := io.ReadAll(request.Body)
 	if err != nil {
 		t.Fatalf("body left unreadable after declining to copy: %v", err)
@@ -345,10 +329,6 @@ func uploadMediaRequest(t *testing.T, filename string, contentType string, conte
 	return request
 }
 
-// The router must not divert /upload/image away from the backend: KoboldCpp
-// still serves image workflows that reference the uploaded name, so the
-// upload is teed, and the router's copy is keyed by the name the backend
-// assigned rather than one of its own.
 func TestComfyUploadImageIsForwardedToTheBackendAndCopiedLocally(t *testing.T) {
 	tool := requireFFmpegTool(t)
 	reference := []byte("\x89PNG\r\n\x1a\nreference-image-bytes")
@@ -457,8 +437,6 @@ func TestComfyVideoImageToVideoSendsTheUploadedStartFrame(t *testing.T) {
 	}
 }
 
-// A workflow naming an image this router never stored must be refused at
-// submission rather than silently generating text-to-video instead.
 func TestComfyVideoRejectsAnUnknownReferenceImage(t *testing.T) {
 	tool := requireFFmpegTool(t)
 	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

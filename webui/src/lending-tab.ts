@@ -37,15 +37,13 @@ export async function loadLending(): Promise<void> {
   await refresh(true);
 }
 
-// setLendingTabActive keeps the log and node state live while the tab is open.
-// Settings are not polled, so a value being typed is never overwritten.
 export function setLendingTabActive(active: boolean): void {
   if (view.pollTimer !== null) {
     window.clearInterval(view.pollTimer);
     view.pollTimer = null;
   }
   if (active) {
-    view.pollTimer = window.setInterval(() => void refresh(false), pollIntervalMilliseconds);
+    view.pollTimer = window.setInterval(() => void refreshKeepingTypedSettings(), pollIntervalMilliseconds);
   }
 }
 
@@ -53,7 +51,7 @@ export function bindLendingTab(run: TaskRunner): void {
   const reload = (): void => run(loadLending, "lending-refresh", "Loading lending…");
   elements.lendingRefreshButton.addEventListener("click", reload);
   for (const filter of [elements.lendingWindowSelect, elements.lendingLaneSelect, elements.lendingOutcomeSelect]) {
-    filter.addEventListener("change", () => run(() => refresh(false), "lending-filter", "Loading lending…"));
+    filter.addEventListener("change", () => run(refreshKeepingTypedSettings, "lending-filter", "Loading lending…"));
   }
   elements.lendingSearchInput.addEventListener("input", renderDecisions);
   elements.lendingSettingsSaveButton.addEventListener("click", () => run(saveEditedSettings, "lending-save", "Saving lending settings…"));
@@ -71,6 +69,10 @@ export function bindLendingTab(run: TaskRunner): void {
       renderDecisions();
     }
   });
+}
+
+function refreshKeepingTypedSettings(): Promise<void> {
+  return refresh(false);
 }
 
 async function refresh(includeSettings: boolean): Promise<void> {

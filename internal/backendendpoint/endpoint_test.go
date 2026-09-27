@@ -99,8 +99,6 @@ func TestDynamicEndpointReserveAssignsDistinctPort(t *testing.T) {
 	if firstPort == secondPort {
 		t.Fatalf("expected distinct ports, both got %s", firstPort)
 	}
-	// Reserve only tracks the port logically; nothing is bound on the OS
-	// after it returns, so the port is available to a plain probe.
 	if err := first.CheckAvailable(); err != nil {
 		t.Fatalf("expected reserved-but-unbound port to be available to a probe: %v", err)
 	}

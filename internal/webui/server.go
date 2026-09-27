@@ -748,9 +748,6 @@ func isWebHopByHopHeader(key string) bool {
 }
 
 func WebHTTPServer(bind string, handler http.Handler) *http.Server {
-	// Normalize bind to a TCP address. Accept values like
-	// "0.0.0.0:8443" or with a scheme like "https://0.0.0.0:8443" and
-	// strip any scheme so net.Listen gets a valid host:port.
 	addr := NormalizeBind(bind)
 	return &http.Server{
 		Addr:              addr,

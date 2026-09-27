@@ -49,9 +49,6 @@ func TestOllamaLocalErrorsDoNotUseOpenAIEnvelope(t *testing.T) {
 	}
 }
 
-// /api/show is metadata, and Ollama's own handler answers it from disk without ever
-// scheduling the model. Forwarding it to the backend both loaded a model for a metadata
-// call and 404'd on backends that have no such route, so it is answered locally now.
 func TestOllamaShowAnswersLocallyWithoutTouchingBackend(t *testing.T) {
 	service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("backend received %s %s for a metadata call", r.Method, r.URL.Path)
@@ -97,8 +94,6 @@ func TestOllamaShowRequiresModelAndReportsUnknown(t *testing.T) {
 	}
 }
 
-// An embedding-only model must be visible and must report Ollama's "embedding"
-// capability without also claiming "completion" — upstream treats the two as exclusive.
 func TestOllamaShowReportsEmbeddingOnlyModel(t *testing.T) {
 	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("backend received %s %s", r.Method, r.URL.Path)

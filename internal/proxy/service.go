@@ -207,9 +207,7 @@ const (
 	// already past it, or this backend words it differently — the cost must be a brief
 	// pause, not a stalled load. Failure markers are still honoured throughout the probe
 	// loop, so failing fast does not depend on this window.
-	backendOutputGraceWait = 5 * time.Second
-	// backendSelfRestartWait bounds how long to wait for a backend that restarts itself to
-	// apply a config reload before concluding it needs a restart from us.
+	backendOutputGraceWait       = 5 * time.Second
 	backendSelfRestartWait       = 60 * time.Second
 	defaultBackendRetryDelay     = 1 * time.Second
 	defaultBackendRetryMaxDelay  = 2 * time.Second
@@ -222,10 +220,6 @@ const (
 	BackendModeVLLM              = backendmode.VLLM
 )
 
-// llamaTextToSpeechUnsupportedMessage is the single wording for the split
-// backend losing speech: llama.cpp removed --model-vocoder and --model-talker,
-// and current llama-server exposes no speech endpoint at all, so this is a
-// capability removal rather than a flag rename.
 const llamaTextToSpeechUnsupportedMessage = "text-to-speech is not supported by the split backend: llama.cpp removed --model-vocoder and --model-talker, and llama-server has no /v1/audio/speech endpoint; use backend_mode kobold or vllm for text-to-speech"
 
 type replayReadCloser struct {

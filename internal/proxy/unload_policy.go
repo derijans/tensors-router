@@ -68,7 +68,6 @@ func (service *Service) resolveUnloadPolicy(filename string) (unloadpolicy.Selec
 	return unloadpolicy.ResolveSelection(metadata.RouterUnloadPolicy)
 }
 
-// runtimesForUnloadPolicy is the union of the shared runtimes every trigger names.
 func (service *Service) runtimesForUnloadPolicy(mode string, policy unloadpolicy.Selection) ([]*backendRuntime, error) {
 	resolvedMode, err := service.resolveBackendMode(mode)
 	if err != nil {

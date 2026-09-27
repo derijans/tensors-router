@@ -9,8 +9,6 @@ func SupportedPlatform() bool {
 	return supportedPlatform(runtime.GOOS, runtime.GOARCH)
 }
 
-// PlatformKey returns the "<os>-<arch>" key used for manifest targets and embedded
-// defaults on the running host.
 func PlatformKey() string {
 	return runtime.GOOS + "-" + runtime.GOARCH
 }

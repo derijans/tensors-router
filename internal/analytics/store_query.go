@@ -57,7 +57,7 @@ func (store *Store) Query(ctx context.Context, query Query) (Response, error) {
 	if response.Recent, err = store.queryRecent(ctx, normalized); err != nil {
 		return Response{}, err
 	}
-	if response.Versions, err = store.queryVersions(ctx, normalized); err != nil {
+	if response.Versions, err = store.queryVersionsFromRawEvents(ctx, normalized); err != nil {
 		return Response{}, err
 	}
 	return response, nil

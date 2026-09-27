@@ -88,9 +88,6 @@ func waitForBacklog(t *testing.T, service *Service, want int64) {
 	t.Fatalf("queue never reached a backlog of %d: %+v", want, service.scheduler.imageQueue.Stats())
 }
 
-// A linked model routes through the router-held queue, and the queue reports the
-// backlog a master needs in order to decide whether to lend it out. Without this
-// the requests would already be inside the backend and could not be moved.
 func TestLinkedImageRequestsQueueInTheRouter(t *testing.T) {
 	gate := make(chan struct{})
 	service := newLinkedImageService(t, gate, true)
@@ -117,8 +114,6 @@ func TestLinkedImageRequestsQueueInTheRouter(t *testing.T) {
 	}
 }
 
-// A model with no link must not be queued at all, so nothing changes for traffic
-// that was never enrolled.
 func TestUnlinkedImageRequestsBypassTheQueue(t *testing.T) {
 	service := newLinkedImageService(t, nil, false)
 
@@ -130,8 +125,6 @@ func TestUnlinkedImageRequestsBypassTheQueue(t *testing.T) {
 	}
 }
 
-// Borrowed work that has not started is handed back the moment this node has work
-// of its own, and the owner sees a distinct code rather than a failure.
 func TestBorrowedRequestIsReturnedWhileTheNodeHasItsOwnWork(t *testing.T) {
 	gate := make(chan struct{})
 	service := newLinkedImageService(t, gate, true)
@@ -154,7 +147,6 @@ func TestBorrowedRequestIsReturnedWhileTheNodeHasItsOwnWork(t *testing.T) {
 	}
 }
 
-// An idle node lends: borrowed work is served exactly like its own.
 func TestIdleNodeServesBorrowedWork(t *testing.T) {
 	service := newLinkedImageService(t, nil, true)
 
@@ -186,8 +178,6 @@ func TestBorrowedWorkWithoutLoadPermissionIsServedWhileTheModelIsLoaded(t *testi
 	}
 }
 
-// The status a master polls has to describe both halves of the arrangement: what
-// this node still has to do, and whether it can take anything more.
 func TestRuntimeStatusReportsQueueAndBorrowingState(t *testing.T) {
 	gate := make(chan struct{})
 	service := newLinkedImageService(t, gate, true)
@@ -213,9 +203,6 @@ func TestRuntimeStatusReportsQueueAndBorrowingState(t *testing.T) {
 	}
 }
 
-// The marker is read once, at the cluster-token gated node entry, and deleted
-// there. A client that sets the header itself must never be treated as borrowed,
-// or it could make its own request preemptible and have it handed back.
 func TestOffloadMarkerIsOnlyTrustedFromTheNodeEndpoint(t *testing.T) {
 	plain := httptest.NewRequest(http.MethodPost, "/sdapi/v1/txt2img", strings.NewReader(txt2imgBody))
 	plain.Header.Set(offloadMarkerHeader, "1")
@@ -229,8 +216,6 @@ func TestOffloadMarkerIsOnlyTrustedFromTheNodeEndpoint(t *testing.T) {
 	go func() { native <- postImage(service).Code }()
 	waitForBacklog(t, service, 1)
 
-	// Through the node endpoint the marker is honoured, so the request is handed
-	// back rather than queued behind this node's own work.
 	viaNode := httptest.NewRecorder()
 	forwarded := httptest.NewRequest(http.MethodPost, "/router/v1/node/inference/sdapi/v1/txt2img", strings.NewReader(txt2imgBody))
 	forwarded.Header.Set("Content-Type", "application/json")
@@ -241,8 +226,6 @@ func TestOffloadMarkerIsOnlyTrustedFromTheNodeEndpoint(t *testing.T) {
 		t.Fatalf("node endpoint status %d body %s, want 409", viaNode.Code, viaNode.Body.String())
 	}
 
-	// The identical header straight from a client is ignored, so that request
-	// queues normally and is served.
 	fromClient := make(chan int, 1)
 	go func() {
 		recorder := httptest.NewRecorder()

@@ -87,7 +87,7 @@ func (scheduler *scheduler) acceptOffloadLease(lease offloadLease, trigger strin
 		scheduler.refuseOffloadLease(lease, trigger)
 		return
 	}
-	lease = lease.timedOnReceipt(time.Now())
+	lease = lease.restartedOnOwnerClock(time.Now())
 	scheduler.offloadLeases.Store(laneModelKey(lease.Lane, lease.OwnerModelID), lease)
 	scheduler.record(offloaddecisions.Record{
 		Kind:          offloaddecisions.KindDispatch,

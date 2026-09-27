@@ -89,8 +89,6 @@ func TestSelectReleaseAssetSkipsAReleaseCarryingNoMatchingAsset(t *testing.T) {
 	}
 }
 
-// A glob loose enough to match two downloads cannot identify what to publish,
-// so it must fail loudly rather than silently picking one.
 func TestSelectReleaseAssetRejectsAnAmbiguousGlob(t *testing.T) {
 	releases := []release{{Tag: "b10636", Assets: []asset{
 		{Name: "llama-b10636-bin-win-cpu-x64.zip", URL: "https://example.test/a.zip", Size: 1024},
@@ -129,8 +127,6 @@ func TestSelectReleaseAssetSkipsDraftsAndPrereleases(t *testing.T) {
 	}
 }
 
-// Skipping assetless releases must not become "publish nothing quietly": when
-// no release carries the asset at all, that is still a hard failure.
 func TestSelectReleaseAssetFailsWhenNoReleaseCarriesTheAsset(t *testing.T) {
 	releases := []release{
 		{Tag: "v0.3.0", Assets: []asset{{Name: "nightly-tag.txt", URL: "https://example.test/n.txt", Size: 12}}},

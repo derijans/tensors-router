@@ -26,7 +26,6 @@ type Allocator struct {
 	listen   func(network, address string) (net.Listener, error)
 }
 
-// New returns an Allocator. Most callers should use Default.
 func New() *Allocator {
 	return &Allocator{
 		reserved: make(map[string]struct{}),
@@ -36,7 +35,6 @@ func New() *Allocator {
 
 var defaultAllocator = New()
 
-// Default returns the process-wide allocator shared by all backend managers.
 func Default() *Allocator {
 	return defaultAllocator
 }
@@ -80,8 +78,6 @@ func (allocator *Allocator) probeFreePort(host string) (string, error) {
 	return port, nil
 }
 
-// Release returns a previously reserved host:port to the pool. Releasing a
-// port that was never reserved (or already released) is a no-op.
 func (allocator *Allocator) Release(host, port string) {
 	if port == "" {
 		return

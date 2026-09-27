@@ -76,9 +76,6 @@ func TestStoreRoundTripsImageSteps(t *testing.T) {
 	}
 }
 
-// Nodes upgrading from an earlier release already hold a schema without the
-// column, so the additive migration has to add it in place rather than requiring
-// the database to be rebuilt.
 func TestMigrationAddsImageStepsToAnExistingDatabase(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "analytics.sqlite")
 	legacy, err := sql.Open("sqlite", path)

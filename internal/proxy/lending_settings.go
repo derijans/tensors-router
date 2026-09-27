@@ -28,8 +28,6 @@ type lendingSettings struct {
 	deliveryFailures *deliveryFailures
 }
 
-// newLendingSettings starts from defaults and the config file; the database
-// layer joins on the first reload, once the scheduler it applies to exists.
 func newLendingSettings(fileValues offloadsettings.Values, store lendingOverrideStore, apply func(offloadsettings.Settings)) *lendingSettings {
 	return &lendingSettings{
 		fileValues: fileValues,
@@ -47,7 +45,7 @@ func (settings *lendingSettings) snapshot() offloadsettings.Resolution {
 	return settings.resolution
 }
 
-func (settings *lendingSettings) reload(ctx context.Context) (offloadsettings.Resolution, error) {
+func (settings *lendingSettings) applyDatabaseLayer(ctx context.Context) (offloadsettings.Resolution, error) {
 	overrides := offloadsettings.Values{}
 	if settings.store != nil {
 		stored, err := settings.store.Overrides(ctx)
@@ -68,7 +66,7 @@ func (settings *lendingSettings) set(ctx context.Context, values offloadsettings
 	if err := settings.store.Set(ctx, values); err != nil {
 		return settings.snapshot(), err
 	}
-	return settings.reload(ctx)
+	return settings.applyDatabaseLayer(ctx)
 }
 
 func (settings *lendingSettings) clear(ctx context.Context, key string) (offloadsettings.Resolution, error) {
@@ -84,19 +82,11 @@ func (settings *lendingSettings) clear(ctx context.Context, key string) (offload
 	if err != nil {
 		return settings.snapshot(), err
 	}
-	return settings.reload(ctx)
+	return settings.applyDatabaseLayer(ctx)
 }
 
-// adoptFromMaster runs exactly the values the master resolved. Keys this build
-// does not know come from a newer master and are left out rather than refused.
 func (settings *lendingSettings) adoptFromMaster(values offloadsettings.Values) error {
-	known := offloadsettings.Values{}
-	for key, value := range values {
-		if offloadsettings.Known(key) {
-			known[key] = value
-		}
-	}
-	adopted, err := offloadsettings.Parse(known)
+	adopted, err := offloadsettings.Parse(withoutKeysFromNewerBuilds(values))
 	if err != nil {
 		return err
 	}
@@ -111,4 +101,14 @@ func (settings *lendingSettings) install(resolution offloadsettings.Resolution) 
 	if settings.apply != nil {
 		settings.apply(resolution.Settings)
 	}
+}
+
+func withoutKeysFromNewerBuilds(values offloadsettings.Values) offloadsettings.Values {
+	known := offloadsettings.Values{}
+	for key, value := range values {
+		if offloadsettings.Known(key) {
+			known[key] = value
+		}
+	}
+	return known
 }

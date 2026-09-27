@@ -28,7 +28,6 @@ type ManifestSource interface {
 // platform. It never reports a signature, freshness, transport, or digest failure.
 var ErrManifestNotPublished = errors.New("vLLM runtime manifest is not published")
 
-// ManifestTrust names how strongly the manifest that was loaded is authorized.
 type ManifestTrust string
 
 const (
@@ -43,14 +42,11 @@ const (
 	ManifestTrustUnknown    ManifestTrust = "unknown"
 )
 
-// ResolvingManifestSource is implemented by sources that decide their trust tier while
-// loading rather than statically.
 type ResolvingManifestSource interface {
 	ManifestSource
 	Resolve(context.Context) (Manifest, string, ManifestTrust, error)
 }
 
-// ResolveManifest loads a manifest and reports which trust tier produced it.
 func ResolveManifest(ctx context.Context, source ManifestSource) (Manifest, string, ManifestTrust, error) {
 	if resolving, ok := source.(ResolvingManifestSource); ok {
 		return resolving.Resolve(ctx)

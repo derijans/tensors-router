@@ -202,8 +202,6 @@ func (installer UVEnvironmentInstaller) installFromPyPI(ctx context.Context, pro
 	if err := phase("creating_environment"); err != nil {
 		return err
 	}
-	// --allow-existing: the bootstrap directory staged above already lives inside the
-	// environment, and uv refuses a non-empty target without it.
 	if err := runner.Run(ctx, uvPath, []string{"venv", "--python", profile.PythonVersion, "--no-project", "--allow-existing", environmentPath}, environment, environmentPath, output); err != nil {
 		return failure("create isolated Python environment", err)
 	}

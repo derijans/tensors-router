@@ -51,9 +51,7 @@ type offloadLease struct {
 	TTLMS              int64     `json:"ttl_ms,omitempty"`
 }
 
-// timedOnReceipt restarts the lifetime on the owner's clock, so master/owner clock
-// skew cannot expire a lease early; a master without ttl_ms keeps its expiry.
-func (lease offloadLease) timedOnReceipt(now time.Time) offloadLease {
+func (lease offloadLease) restartedOnOwnerClock(now time.Time) offloadLease {
 	if lease.TTLMS > 0 {
 		lease.ExpiresAt = now.Add(time.Duration(lease.TTLMS) * time.Millisecond)
 	}

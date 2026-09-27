@@ -147,8 +147,6 @@ func (service *Service) acquireSeparateConfig(family *backendFamily, ctx context
 	return entry.runtime, release, loadedFresh, nil
 }
 
-// reserveEntry returns the config's entry, plus any residents it had to evict to
-// stay within the cap for a freshly created one.
 func (pool *separateRuntimePool) reserveEntry(family *backendFamily, modelID string, configFilename string, readiness backendReadiness, triggers unloadpolicy.Selection) (*separateRuntimeEntry, []*separateRuntimeEntry, error) {
 	pool.mu.Lock()
 	defer pool.mu.Unlock()
@@ -230,8 +228,6 @@ func (pool *separateRuntimePool) remove(configFilename string) *separateRuntimeE
 	return entry
 }
 
-// applySeparateRuntimeTriggers evicts pool entries whose triggers match the config
-// that just finished loading anywhere else.
 func (service *Service) applySeparateRuntimeTriggers(ctx context.Context, loadingMode string, loadingFilename string, loadingModelID string) {
 	if service.separatePool == nil {
 		return

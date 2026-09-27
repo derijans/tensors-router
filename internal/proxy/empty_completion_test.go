@@ -8,9 +8,6 @@ import (
 	"testing"
 )
 
-// A thinking model answers with reasoning_content and an empty content field. That is a
-// finished response, not a sign the backend is still warming, so it must be passed
-// straight through without regenerating or reloading.
 func TestReasoningOnlyChatCompletionIsNotRetried(t *testing.T) {
 	var requests atomic.Int32
 	service, backend := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -31,9 +28,8 @@ func TestReasoningOnlyChatCompletionIsNotRetried(t *testing.T) {
 	if requests.Load() != 1 {
 		t.Fatalf("expected one backend request, got %d", requests.Load())
 	}
-	// One reload is the initial config acquire; a second would mean the response was
-	// mistaken for a warming backend and triggered a reload-and-retry.
-	if backend.reloads.Load() != 1 {
+	const initialConfigAcquireReloads = 1
+	if backend.reloads.Load() != initialConfigAcquireReloads {
 		t.Fatalf("expected only the initial load, got %d reloads", backend.reloads.Load())
 	}
 	if !strings.Contains(recorder.Body.String(), "Let me think about this.") {
@@ -41,9 +37,6 @@ func TestReasoningOnlyChatCompletionIsNotRetried(t *testing.T) {
 	}
 }
 
-// When a backend keeps answering successfully but never generates text, the retries run
-// out. The client must receive that valid — if empty — completion, not a 502 invented
-// from a series of 200s.
 func TestPersistentlyEmptyCompletionIsReturnedNotFailed(t *testing.T) {
 	var requests atomic.Int32
 	service, _ := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -69,8 +62,6 @@ func TestPersistentlyEmptyCompletionIsReturnedNotFailed(t *testing.T) {
 	}
 }
 
-// Re-running inference is expensive, so an empty completion must not consume the large
-// readiness-probe budget. Three regenerations, not three hundred.
 func TestEmptyCompletionUsesSmallInferenceRetryBudget(t *testing.T) {
 	var requests atomic.Int32
 	service, _ := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -87,8 +78,8 @@ func TestEmptyCompletionUsesSmallInferenceRetryBudget(t *testing.T) {
 	request.Header.Set("Content-Type", "application/json")
 	service.ServeHTTP(recorder, request)
 
-	// One initial attempt plus the bounded retries.
-	if total := requests.Load(); total > 4 {
-		t.Fatalf("backend was called %d times, want at most 4 with a 3-attempt inference budget", total)
+	const initialAttempt = 1
+	if total := requests.Load(); total > initialAttempt+defaultBackendInferenceRetryAttempts {
+		t.Fatalf("backend was called %d times, want at most %d", total, initialAttempt+defaultBackendInferenceRetryAttempts)
 	}
 }

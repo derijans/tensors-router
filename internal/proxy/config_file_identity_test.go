@@ -94,8 +94,6 @@ func TestLocalConfigFileTargetStillRejectsOtherExtensions(t *testing.T) {
 	}
 }
 
-// A config discovered as .KCPPS has to resolve its assets under that exact name;
-// rebuilding it as .kcpps only finds the file on a case-insensitive filesystem.
 func TestEnsureModelAssetsResolvesAConfigNamedWithAnUppercaseExtension(t *testing.T) {
 	root := t.TempDir()
 	assetPath := filepath.Join(root, "weights.gguf")

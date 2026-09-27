@@ -148,8 +148,6 @@ func TestModelAwareTextEndpointsRouteSelectedConfig(t *testing.T) {
 		"/api/extra/tokencount",
 		"/api/generate",
 		"/api/chat",
-		// /api/show is deliberately absent: it is metadata, answered from the catalog
-		// without forwarding or loading. See TestOllamaShowAnswersLocallyWithoutTouchingBackend.
 	}
 
 	for _, endpoint := range endpoints {
@@ -408,10 +406,6 @@ func TestSplitModeRejectsAudioRoutes(t *testing.T) {
 	}
 }
 
-// Split-mode text-to-speech is gone rather than merely unconfigured: llama.cpp
-// removed --model-vocoder and --model-talker, and llama-server exposes no
-// speech endpoint, so even a fully specified voice config must be rejected
-// without starting or reloading a backend.
 func TestSplitModeRejectsTextToSpeechRegardlessOfVoiceAssets(t *testing.T) {
 	tests := []struct {
 		name   string

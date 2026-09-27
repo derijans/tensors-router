@@ -13,16 +13,13 @@ import (
 	"strings"
 )
 
-// Node is one entry of a ComfyUI API-format prompt graph.
 type Node struct {
 	ClassType string         `json:"class_type"`
 	Inputs    map[string]any `json:"inputs"`
 }
 
-// Graph is a full ComfyUI API-format prompt, keyed by node id.
 type Graph map[string]Node
 
-// Params is what a video generation request needs, extracted from a Graph.
 type Params struct {
 	Prompt         string
 	NegativePrompt string

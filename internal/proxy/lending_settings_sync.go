@@ -28,7 +28,7 @@ func (service *Service) reloadLendingSettings(ctx context.Context) {
 	if service.clusterRole == cluster.RoleSlave {
 		return
 	}
-	if _, err := service.lending.reload(ctx); err != nil {
+	if _, err := service.lending.applyDatabaseLayer(ctx); err != nil {
 		service.logger.Printf("lending settings load failed: %v", err)
 	}
 }

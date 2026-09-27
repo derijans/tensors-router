@@ -227,10 +227,6 @@ func (manager *Manager) startLocked(ctx context.Context) error {
 		if attempt >= maxPortAttempts || !manager.endpoint.Dynamic() || !errors.As(err, &exitErr) {
 			return err
 		}
-		// The child exited during startup on a dynamically allocated port,
-		// which is the signature of a lost race for that port (something
-		// else bound it between our probe and the child's own bind). Free
-		// the port and try again with a freshly reserved one.
 		manager.endpoint.Release(portalloc.Default())
 	}
 }
@@ -544,8 +540,6 @@ func unexpectedExitError(name string, err error) error {
 	return &backendExitedError{name: name, err: err}
 }
 
-// reloadErrorDetail summarises an admin reload response body for an error message,
-// bounded so a stray HTML error page cannot flood the log.
 func reloadErrorDetail(body []byte) string {
 	detail := strings.TrimSpace(string(body))
 	if detail == "" {
@@ -567,8 +561,6 @@ func (manager *Manager) BeginLoadCapture(maxOutputBytes int64) func() loadcaptur
 	}
 }
 
-// WatchOutput delivers backend output to observe as it is produced, so a caller can
-// decide readiness from what the process reports instead of polling an HTTP endpoint.
 func (manager *Manager) WatchOutput(observe func(loadcapture.Stream, []byte)) func() {
 	return manager.captureHub.Watch(observe)
 }

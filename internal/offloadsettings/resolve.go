@@ -24,20 +24,17 @@ type Resolution struct {
 	Entries  []Entry
 }
 
-// Resolve layers the settings from lowest to highest priority: built-in
-// defaults, then the config file, then values stored in the database. A stored
-// value that no longer validates is shown but not applied.
-func Resolve(fileValues Values, overrides Values) Resolution {
+func Resolve(configFileValues Values, databaseOverrides Values) Resolution {
 	var resolution Resolution
 	for _, field := range fields {
 		entry := Entry{Key: field.Key, Kind: field.Kind, Description: field.Description, Default: field.Default, Effective: field.Default, Source: SourceDefault}
-		if value, present := fileValues[field.Key]; present {
+		if value, present := configFileValues[field.Key]; present {
 			entry.Config = value
 			if normalized, err := field.normalize(value); err == nil {
 				entry.Config, entry.Effective, entry.Source = normalized, normalized, SourceConfig
 			}
 		}
-		if value, present := overrides[field.Key]; present {
+		if value, present := databaseOverrides[field.Key]; present {
 			entry.Override = value
 			if normalized, err := field.normalize(value); err == nil {
 				entry.Override, entry.Effective, entry.Source = normalized, normalized, SourceDatabase

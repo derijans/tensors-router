@@ -299,9 +299,6 @@ func ollamaModels(models []cluster.Model, loadedOnly bool) []ollamaModel {
 	seen := map[string]struct{}{}
 	result := make([]ollamaModel, 0, len(models))
 	for _, model := range models {
-		// Ollama lists embedding models alongside chat models, and /api/embed already
-		// serves them here, so hiding them from discovery leaves clients unable to name a
-		// model they can actually use.
 		servable := model.HasLLM || model.HasEmbeddings
 		if !servable || strings.TrimSpace(model.PublicID) == "" || loadedOnly && (!model.Available || !modelRuntimeLoaded(model)) {
 			continue

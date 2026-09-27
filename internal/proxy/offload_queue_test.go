@@ -44,9 +44,6 @@ func enqueueBorrowedOnIdleNode(queue *offloadQueue, modelID string, work float64
 	return queue.Enqueue(queuedRequest{modelID: modelID, work: schedulingcost.ImageWork(work), origin: borrowedFromPeer}, nodeActivity(true), time.Now())
 }
 
-// The whole point of the queue is that the backend keeps exactly one job running
-// and one queued behind it, so it never idles between jobs while the router still
-// holds everything else and can move it.
 func TestQueueAdmitsUpToDepthAndHoldsTheRest(t *testing.T) {
 	queue := newOffloadQueue(2)
 	first := enqueueNativeOnIdleNode(queue, "group", 10)
@@ -125,8 +122,6 @@ func TestWithdrawIgnoresOtherGroupsAndBorrowedWork(t *testing.T) {
 	mustBeWaiting(t, other, "other group entry")
 }
 
-// A helper lends idle time. If it has work of its own there is no idle time to
-// lend, so borrowed work is refused at the door rather than queued behind it.
 func TestBorrowedWorkIsRefusedWhileTheNodeHasItsOwn(t *testing.T) {
 	queue := newOffloadQueue(2)
 	native := enqueueNativeOnIdleNode(queue, "group", 10)
@@ -142,8 +137,6 @@ func TestBorrowedWorkIsRefusedWhileTheNodeHasItsOwn(t *testing.T) {
 	}
 }
 
-// The two halves of the rule: finish the borrowed job already running, hand back
-// every borrowed job that has not started.
 func TestNativeWorkReturnsPendingBorrowedButNotTheRunningOne(t *testing.T) {
 	queue := newOffloadQueue(1)
 	running := enqueueBorrowedOnIdleNode(queue, "group", 10)

@@ -16,8 +16,6 @@ const testJobWork = 30 * 1024 * 1024
 
 var testPlanPolicy = planPolicyFor(offloadsettings.Defaults(), planTriggerTick)
 
-// costTableFor builds a table directly rather than through a fit, so each test
-// states the per-job cost and load cost it is reasoning about.
 func costTableFor(t *testing.T, perJobMS map[string]float64, loadMS map[string]float64) *schedulingcost.Table {
 	t.Helper()
 	models := map[string]schedulingcost.NodeCosts{}
@@ -62,8 +60,6 @@ func costTableWithDecodeOnlySlope(t *testing.T, perJobMS map[string]float64, loa
 
 const testTextDecodeTokens = 100.0
 
-// candidate models a node running one job with pendingCount more queued behind
-// it, which is what an owner under load actually looks like.
 func candidate(nodeID string, pendingCount int64, loaded bool) offloadCandidate {
 	backlogCount := pendingCount
 	if pendingCount > 0 {
@@ -159,9 +155,6 @@ func TestLeaseOmitsRestoreWhenTheLinkDidNotRequestIt(t *testing.T) {
 	}
 }
 
-// The idle node has to load the model first. With a deep backlog on the owner
-// that load is still worth paying, because it amortises over every job that then
-// flows through the slot.
 func TestLeaseIsGrantedWhenTheLoadFitsUnderTheBacklog(t *testing.T) {
 	costs := costTableFor(t,
 		map[string]float64{"node-a": 8000, "node-b": 8000},
@@ -183,9 +176,6 @@ func TestLeaseIsGrantedWhenTheLoadFitsUnderTheBacklog(t *testing.T) {
 	}
 }
 
-// The same pair with a shallow backlog. This is the case that proves the load is
-// genuinely weighed rather than treated as a discount: nothing about the nodes
-// changed, only the size of the queue.
 func TestLeaseIsRefusedWhenTheLoadCostsMoreThanTheBacklog(t *testing.T) {
 	costs := costTableFor(t,
 		map[string]float64{"node-a": 8000, "node-b": 8000},
@@ -242,8 +232,6 @@ func TestLoadedHelperIsLeasedEvenWhenItsLinkForbidsLoading(t *testing.T) {
 	}
 }
 
-// A helper that has never been measured loading this config cannot have its
-// switch priced, so it is skipped rather than assumed to load instantly.
 func TestHelperWithNoMeasuredLoadIsSkipped(t *testing.T) {
 	costs := costTableFor(t,
 		map[string]float64{"node-a": 8000, "node-b": 8000},
@@ -472,7 +460,6 @@ func TestOwnerNeverLendsToANodeItHasNoLinkTo(t *testing.T) {
 	}
 }
 
-// One helper cannot serve two owners at once, because a lease is a single slot.
 func TestEachHelperIsLeasedToAtMostOneOwner(t *testing.T) {
 	costs := costTableFor(t,
 		map[string]float64{"node-a": 8000, "node-b": 8000, "node-c": 8000},

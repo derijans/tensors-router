@@ -42,11 +42,9 @@ type LaunchOptions struct {
 	// HubOffline controls HF_HUB_OFFLINE. Offline is the safe default: it keeps a
 	// running model from reaching Hugging Face, so only the local pinned snapshot is
 	// ever used. Turning it off lets vLLM resolve missing files over the network.
-	HubOffline bool `json:"hf_hub_offline"`
-	// TransformersOffline controls TRANSFORMERS_OFFLINE.
+	HubOffline          bool `json:"hf_hub_offline"`
 	TransformersOffline bool `json:"transformers_offline"`
-	// DatasetsOffline controls HF_DATASETS_OFFLINE.
-	DatasetsOffline bool `json:"hf_datasets_offline"`
+	DatasetsOffline     bool `json:"hf_datasets_offline"`
 }
 
 // DefaultLaunchOptions keeps the fully offline behaviour that was previously hardcoded

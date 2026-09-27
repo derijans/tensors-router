@@ -106,9 +106,6 @@ func TestFitRejectsTooFewSamples(t *testing.T) {
 	}
 }
 
-// A node that only ever served one resolution at one step count carries no
-// information about how duration scales, so it must stay unqualified rather than
-// report a slope derived from rounding error.
 func TestFitRejectsDegenerateWorkVariance(t *testing.T) {
 	identical := make([]float64, 40)
 	for index := range identical {
@@ -157,10 +154,6 @@ func TestFitLoadAveragesRecordedLoads(t *testing.T) {
 	}
 }
 
-// Work values clustered within a fraction of a percent of each other produce a
-// slope dominated by measurement noise, so they must be rejected just as firmly
-// as identical ones. Without the relative spread test this fit is accepted and
-// the slope extrapolates wildly.
 func TestFitRejectsNarrowWorkSpread(t *testing.T) {
 	works := make([]float64, 40)
 	for index := range works {

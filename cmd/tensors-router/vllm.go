@@ -40,7 +40,6 @@ func optionalVLLMCompanion(routerConfigPath string, configuration config.VLLMCon
 	manifestPath := configuration.ManifestPath
 	switch {
 	case strings.TrimSpace(configuration.TUFRepositoryURL) != "":
-		// A TUF target path is a repository-relative name and must stay verbatim.
 	case strings.TrimSpace(configuration.ManifestSHA256) != "" || configuration.ManifestSize != 0:
 		manifestPath = resolveOptionalVLLMPath(configDirectory, manifestPath)
 	default:

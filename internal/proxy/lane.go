@@ -203,7 +203,6 @@ func (service *Service) ensureModelConfigHash(filename string) error {
 func (service *Service) loadModelConfig(runtime *backendRuntime, ctx context.Context, modelID string, configFilename string, readiness backendReadiness) error {
 	var lastErr error
 	for attempt := 1; attempt <= modelLoadAttempts; attempt++ {
-		// Watch from before the reload so the load's own output cannot be missed.
 		watch := service.watchBackendReadiness(runtime, readiness)
 		err := service.reloadModelConfig(runtime, ctx, modelID, configFilename)
 		if err == nil {

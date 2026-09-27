@@ -96,9 +96,6 @@ function formatWaiting(waitingMilliseconds: number): string {
   return `${(Math.max(0, waitingMilliseconds) / 1000).toFixed(1)}s`;
 }
 
-// A node that reports nothing predates ffmpeg reporting, which a cluster can
-// contain part-way through a rolling upgrade; saying so beats claiming the
-// tool is missing.
 function renderFFmpegAvailability(snapshot: NodeState): SafeHTML {
   if (snapshot.ffmpeg_available === undefined) {
     return emptyHTML;

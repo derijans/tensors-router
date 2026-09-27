@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-// koboldReadyTranscript mirrors a successful text load captured from a production node.
 const koboldReadyTranscript = `***
 Welcome to KoboldCpp - Version 1.119
 Loading Text Model: sha256:4c5e2db039e9325ac7724c8846c71356a24ad1cdfa28002d73ecb6be645f9675
@@ -17,8 +16,6 @@ Starting Kobold API on port 5001 at http://127.0.0.1:5001/api/
 Please connect to custom endpoint at http://127.0.0.1:5001
 `
 
-// koboldAbortedTranscript mirrors the 628s failure: the load is interrupted and the
-// process restarts serving no model at all. An HTTP probe sees only "inactive" here.
 const koboldAbortedTranscript = `Loading Text Model: sha256:4c5e2db039e9325ac7724c8846c71356a24ad1cdfa28002d73ecb6be645f9675
 Traceback (most recent call last):
   File "koboldcpp.py", line 11615, in main
@@ -73,11 +70,6 @@ func TestScannerVerdicts(t *testing.T) {
 	}
 }
 
-// The router starts KoboldCpp with no model, so a healthy start prints every module as
-// inactive moments before the admin reload loads the model. That banner is a startup
-// state, not a load verdict — the text is identical in both cases — so it must never
-// abort a load. Reading it as failure aborted loads that were about to succeed, which is
-// precisely the seam the router exists to hide.
 func TestKoboldStartupBannerIsNotALoadFailure(t *testing.T) {
 	scanner := NewScanner(FamilyKobold, LaneText)
 	banner := "Inactive Modules: TextGeneration ImageGeneration VoiceRecognition MultimodalVision VectorEmbeddings MusicGen RouterMode\n"
@@ -85,16 +77,12 @@ func TestKoboldStartupBannerIsNotALoadFailure(t *testing.T) {
 		t.Fatalf("no-model startup banner produced verdict %v; it must not abort a load", result.Verdict)
 	}
 
-	// KoboldCpp restarts to apply a reload, so the banner also follows a "Loading ..."
-	// line on the healthy path. No ordering makes it a failure signal.
 	scanner.Write([]byte("Loading Text Model: sha256:abc\n"))
 	if result := scanner.Write([]byte(banner)); result.Verdict != Undecided {
 		t.Fatalf("banner after a load began = %v; a normal restart looks identical", result.Verdict)
 	}
 }
 
-// A healthy switch prints the startup banner and then loads. It must end Ready, never
-// Failed — this is the sequence that was aborting live loads.
 func TestKoboldHealthySwitchAfterNoModelStartIsNotAFailure(t *testing.T) {
 	scanner := NewScanner(FamilyKobold, LaneText)
 	transcript := "Welcome to KoboldCpp - Version 1.119\n" +
@@ -107,7 +95,6 @@ func TestKoboldHealthySwitchAfterNoModelStartIsNotAFailure(t *testing.T) {
 	}
 }
 
-// A verdict for one capability must not satisfy a watcher waiting on another.
 func TestKoboldLaneIsolation(t *testing.T) {
 	scanner := NewScanner(FamilyKobold, LaneImage)
 	if result := scanner.Write([]byte("Load Text Model OK: False\n")); result.Verdict != Undecided {
@@ -126,8 +113,6 @@ func TestKoboldExplicitLoadFailure(t *testing.T) {
 	}
 }
 
-// Output arrives in arbitrarily split chunks; a marker straddling a chunk boundary must
-// still be recognised.
 func TestScannerHandlesSplitChunks(t *testing.T) {
 	scanner := NewScanner(FamilyNative, LaneText)
 	for _, chunk := range []string{"0.00 I srv  llama_ser", "ver: model loa", "ded\n"} {
@@ -147,8 +132,6 @@ func TestScannerKeepsFirstVerdict(t *testing.T) {
 	}
 }
 
-// The cause must win over its consequence: "exiting due to model loading error" is true
-// but explains nothing, while the allocation failure above it is the actual reason.
 func TestDecisiveFailureLinePrefersTheCause(t *testing.T) {
 	line := DecisiveFailureLine(nativeOOMTranscript)
 	if !strings.Contains(line, "cudaMalloc failed: out of memory") {
@@ -162,7 +145,6 @@ func TestDecisiveFailureLineEmptyWhenNothingRecognisable(t *testing.T) {
 	}
 }
 
-// An unterminated line must not grow without bound.
 func TestScannerBoundsPendingLine(t *testing.T) {
 	scanner := NewScanner(FamilyNative, LaneText)
 	scanner.Write([]byte(strings.Repeat("x", maxLineBytes*3)))

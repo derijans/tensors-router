@@ -25,8 +25,6 @@ func slowNodeServer(t *testing.T) *httptest.Server {
 	return server
 }
 
-// A first load on a portable config transfers its assets from a peer before the
-// backend starts, which routinely outlasts cluster.control_timeout.
 func TestLoadOutlastsControlTimeout(t *testing.T) {
 	server := slowNodeServer(t)
 	client := NewClientWithTimeout("secret", 25*time.Millisecond, server.URL)

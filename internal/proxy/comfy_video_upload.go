@@ -88,8 +88,6 @@ func (service *Service) handleComfyUploadImage(w http.ResponseWriter, r *http.Re
 func readComfyUploadBody(r *http.Request) ([]byte, bool) {
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxComfyUploadRequestBytes+1))
 	if err != nil || len(body) > maxComfyUploadRequestBytes {
-		// Hand the untouched stream back rather than the prefix already read,
-		// so an upload too large to copy still reaches the backend whole.
 		r.Body = struct {
 			io.Reader
 			io.Closer

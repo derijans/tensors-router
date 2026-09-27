@@ -7,7 +7,6 @@ import (
 	"strings"
 )
 
-// UnverifiedProfileID is the fixed profile ID synthesized by UnverifiedManifestSource.
 const UnverifiedProfileID = "unverified-pypi"
 
 // UnverifiedManifestSource synthesizes a single-profile manifest that installs vLLM
@@ -25,8 +24,7 @@ const UnverifiedProfileID = "unverified-pypi"
 type UnverifiedManifestSource struct {
 	// VLLMVersion pins `vllm==<version>`. Empty installs whatever `uv pip install
 	// vllm` resolves as latest, which is inherently unpinned even by version.
-	VLLMVersion string
-	// PythonVersion selects the interpreter uv provisions for the isolated venv.
+	VLLMVersion   string
 	PythonVersion string
 }
 

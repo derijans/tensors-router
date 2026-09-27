@@ -195,17 +195,11 @@ func TestAnalyticsVRAMToggleLeavesRequestAnalyticsEnabled(t *testing.T) {
 	if response.Summary.VRAMPeakMB != 0 || response.Summary.ModelVRAMMB != 0 || response.Summary.VRAMTotalMB != 0 {
 		t.Fatalf("vram sampling should be disabled %#v", response.Summary)
 	}
-	// vram_enabled gates VRAM sampling, not load timing. How long a model takes
-	// to load is what a scheduler weighs against a queue, so it is recorded
-	// whenever analytics is on, with or without a VRAM source.
 	if response.Summary.LoadCount != 1 {
 		t.Fatalf("load timing should survive the vram toggle %#v", response.Summary)
 	}
 }
 
-// A node with no VRAM source at all still has to report how long its model
-// loads take, because that duration is the cost a scheduler weighs when deciding
-// whether an idle node is worth switching.
 func TestAnalyticsRecordsLoadTimingWithoutAVRAMSource(t *testing.T) {
 	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

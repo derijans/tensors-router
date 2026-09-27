@@ -36,9 +36,6 @@ type Endpoint struct {
 	port     string // current port; "0" for a dynamic endpoint that has never been reserved
 }
 
-// NewEndpoint parses rawURL as a loopback backend address. See the Endpoint
-// documentation for the meaning of an explicit port, port 0, and a missing
-// port.
 func NewEndpoint(rawURL string) (*Endpoint, error) {
 	parsed, err := ParseLoopback(rawURL)
 	if err != nil {
@@ -65,8 +62,6 @@ func NewEndpoint(rawURL string) (*Endpoint, error) {
 	return endpoint, nil
 }
 
-// Dynamic reports whether the endpoint's port is router-allocated rather
-// than pinned by configuration.
 func (endpoint *Endpoint) Dynamic() bool {
 	endpoint.mu.RLock()
 	defer endpoint.mu.RUnlock()
@@ -84,8 +79,6 @@ func (endpoint *Endpoint) URL() *url.URL {
 	return &result
 }
 
-// HostPort returns the endpoint's current host and port, for callers that
-// render CLI arguments rather than a URL.
 func (endpoint *Endpoint) HostPort() (string, string) {
 	endpoint.mu.RLock()
 	defer endpoint.mu.RUnlock()
@@ -117,9 +110,6 @@ func (endpoint *Endpoint) Reserve(allocator *portalloc.Allocator) error {
 	return nil
 }
 
-// Release returns a dynamic endpoint's port to the allocator and resets the
-// endpoint to its unreserved (port "0") state. It is a no-op for a pinned
-// endpoint or one that was never reserved.
 func (endpoint *Endpoint) Release(allocator *portalloc.Allocator) {
 	endpoint.mu.Lock()
 	defer endpoint.mu.Unlock()

@@ -53,8 +53,6 @@ func markBorrowRestoreRequested(r *http.Request) *http.Request {
 
 type offloadRestoreContextKey struct{}
 
-// handleNodeOffloadGrant receives a slot lease from the master. The owner keeps it
-// until it expires or until the master's answer to one of its queue events clears it.
 func (service *Service) handleNodeOffloadGrant(w http.ResponseWriter, r *http.Request) {
 	var lease offloadLease
 	if err := json.NewDecoder(r.Body).Decode(&lease); err != nil {
@@ -143,8 +141,6 @@ func (service *Service) forwardBorrowedRequest(ctx context.Context, nodeURL stri
 	return service.client.Do(request)
 }
 
-// serveBorrowedRequestLocally is the master relaying to itself: it is the helper,
-// so the request never leaves the process and needs no advertised URL.
 func (service *Service) serveBorrowedRequestLocally(w http.ResponseWriter, path string, original *http.Request, body []byte, lease offloadLease) {
 	request := original.Clone(original.Context())
 	localURL := *original.URL

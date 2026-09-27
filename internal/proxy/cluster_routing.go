@@ -278,7 +278,6 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 				if handled {
 					return true
 				}
-				// The helper could not take it after all, so this node runs it.
 				requeued := service.scheduler.imageQueue.Requeue(modelID, imageWorkHint(r, body).Work, 0, time.Now())
 				if outcome, waitErr := service.scheduler.imageQueue.Await(r.Context(), requeued); waitErr != nil || outcome != offloadAdmitted {
 					release()

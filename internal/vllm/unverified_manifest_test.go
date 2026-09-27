@@ -121,7 +121,6 @@ func TestServeArgumentsPreferRunnerOverRemovedTaskFlag(t *testing.T) {
 		t.Fatal(err)
 	}
 	joined := strings.Join(arguments, " ")
-	// Current vLLM exits with "unrecognized arguments: --task" before it can serve.
 	if strings.Contains(joined, "--task") {
 		t.Fatalf("runner-based config must not emit the removed --task flag: %s", joined)
 	}
@@ -163,7 +162,6 @@ func TestOCIArgumentsOnlyDropHostIdentityWhenOptedIn(t *testing.T) {
 	if !slices.Equal(expected, optedIn) {
 		t.Fatalf("opting in must differ from the default only by the identity arguments:\n want %v\n got  %v", expected, optedIn)
 	}
-	// The rest of the containment must survive either way.
 	for _, guarantee := range []string{"--read-only", "--cap-drop=ALL", "--security-opt=no-new-privileges", "--device=/dev/kfd"} {
 		if !slices.Contains(optedIn, guarantee) {
 			t.Fatalf("opting in must not weaken %q: %v", guarantee, optedIn)

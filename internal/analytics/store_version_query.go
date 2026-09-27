@@ -2,9 +2,7 @@ package analytics
 
 import "context"
 
-// queryVersions reads raw events only: rollups keep totals, not the build that
-// recorded them, so versions cover the raw retention window at most.
-func (store *Store) queryVersions(ctx context.Context, query Query) ([]VersionUsage, error) {
+func (store *Store) queryVersionsFromRawEvents(ctx context.Context, query Query) ([]VersionUsage, error) {
 	where, args := eventWhere(query)
 	rows, err := store.reader.QueryContext(ctx, `SELECT node_id, router_version, MIN(started_at), MAX(finished_at), COUNT(*)
 		FROM analytics_events `+where+`

@@ -8,15 +8,6 @@ import (
 	"testing"
 )
 
-// A retry must not hand the runtime back between attempts.
-//
-// Releasing the lease to force a reload opened a window in which a request wanting a
-// different model could take the runtime and switch it; the retry then switched it back.
-// With two models in play the pair traded the runtime until the retry budget ran out.
-// Telemetry showed the consequence plainly: of the requests that ended in 502, 83% had a
-// model load overlapping them, against 1.3% of the ones that succeeded. Long requests were
-// the visible victims only because being in flight longer exposed them to someone else's
-// switch.
 func TestRetryHoldsTheRuntimeInsteadOfReloading(t *testing.T) {
 	var requests atomic.Int32
 	service, backend := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -57,8 +48,6 @@ func TestRetryHoldsTheRuntimeInsteadOfReloading(t *testing.T) {
 	if requests.Load() != 3 {
 		t.Fatalf("expected warm-up plus one retried request (3 backend calls), got %d", requests.Load())
 	}
-	// Any reload beyond the warm-up means the retry released the runtime and reloaded it,
-	// which is the window that lets another model steal it.
 	if reloads := backend.reloads.Load() - reloadsAfterWarm; reloads != 0 {
 		t.Fatalf("retry reloaded the runtime %d times; it must retry against the config it already holds", reloads)
 	}

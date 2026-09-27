@@ -236,9 +236,6 @@ func (manager *Manager) startLocked(ctx context.Context, filename string) error 
 		if attempt >= maxPortAttempts || !manager.endpoint.Dynamic() || !errors.As(err, &exitErr) {
 			return err
 		}
-		// The child exited during startup on a dynamically allocated port,
-		// the signature of a lost race for that port. Free it and retry
-		// with a freshly reserved one.
 		manager.endpoint.Release(portalloc.Default())
 	}
 }
@@ -382,10 +379,8 @@ func (manager *Manager) BackendExitError() error {
 // while a plain timeout means the process is alive and a retry would just
 // waste the same 90 second wait again.
 type backendExitedError struct {
-	name string
-	err  error
-	// detail is the decisive line from the backend's own output, so the failure names
-	// its cause rather than only an exit status.
+	name   string
+	err    error
 	detail string
 }
 
@@ -404,8 +399,6 @@ func (exitErr *backendExitedError) Unwrap() error {
 	return exitErr.err
 }
 
-// exitError builds the startup failure for this manager, enriched with the decisive line
-// from the captured output when the backend explained itself before dying.
 func (manager *Manager) exitError(err error) error {
 	detail := backendreadiness.DecisiveFailureLine(manager.capture.Snapshot().Output)
 	return &backendExitedError{name: "native server", err: err, detail: detail}
@@ -415,8 +408,6 @@ func (manager *Manager) BeginLoadCapture(maxOutputBytes int64) func() loadcaptur
 	return manager.captureHub.Subscribe(maxOutputBytes)
 }
 
-// WatchOutput delivers backend output to observe as it is produced, so a caller can
-// decide readiness from what the process reports instead of polling an HTTP endpoint.
 func (manager *Manager) WatchOutput(observe func(loadcapture.Stream, []byte)) func() {
 	return manager.captureHub.Watch(observe)
 }

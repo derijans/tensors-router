@@ -16,8 +16,6 @@ import (
 	"tensors-router/internal/loadcapture"
 )
 
-// watchableBackend is a fake backend that can emit process output, the way a real
-// KoboldCpp or llama.cpp child does.
 type watchableBackend struct {
 	*fakeBackend
 	hub *loadcapture.Hub
@@ -31,12 +29,6 @@ func (backend *watchableBackend) emit(text string) {
 	_, _ = backend.hub.Stdout().Write([]byte(text))
 }
 
-// When the backend reports a genuine per-load failure, the wait ends there instead of
-// burning the retry budget against a process that will never become ready.
-//
-// Only KoboldCpp's own per-load verdict counts. The module banner is not usable for this:
-// a healthy no-model start prints the same "Inactive Modules: TextGeneration" line, so
-// reading it as failure aborts loads that were about to succeed.
 func TestLoadFailsImmediatelyWhenOutputReportsNoModel(t *testing.T) {
 	var probes atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -86,7 +78,6 @@ func TestLoadFailsImmediatelyWhenOutputReportsNoModel(t *testing.T) {
 	if !strings.Contains(err.Error(), "Load Text Model OK: False") {
 		t.Fatalf("error must name the reason from the backend output, got %v", err)
 	}
-	// The full budget would be 300 attempts; failing fast is the whole point.
 	if elapsed > 2*time.Second {
 		t.Fatalf("took %s to notice a backend that reported no model", elapsed)
 	}
@@ -95,10 +86,6 @@ func TestLoadFailsImmediatelyWhenOutputReportsNoModel(t *testing.T) {
 	}
 }
 
-// Readiness must NOT be taken from the output. The markers identify a lane, not a model,
-// so a banner from one load is visible to the next one's watcher; trusting it declares a
-// model loaded that is not, and the request then hits an unloaded backend. Here the probe
-// keeps reporting "inactive" while the output claims success — the wait must not finish.
 func TestReadyOutputDoesNotShortCircuitTheProbe(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -139,8 +126,6 @@ func TestReadyOutputDoesNotShortCircuitTheProbe(t *testing.T) {
 	}
 }
 
-// A backend that becomes genuinely ready is accepted via the probe, with the output
-// watcher active and harmless.
 func TestLoadSucceedsWhenProbeReportsModelLoaded(t *testing.T) {
 	var probes atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -186,7 +171,6 @@ func TestLoadSucceedsWhenProbeReportsModelLoaded(t *testing.T) {
 	}
 }
 
-// Backends that cannot stream output must still work through the HTTP probe alone.
 func TestReadinessFallsBackToProbeWithoutOutput(t *testing.T) {
 	var probes atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

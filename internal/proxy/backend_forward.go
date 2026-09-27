@@ -84,13 +84,6 @@ func (service *Service) forwardWithFallbackObserved(ctx context.Context, origina
 		}
 		recoveredBackend = true
 	} else if !loadedFresh && !isBackendWaitingResponse(lastStatus, lastBody) {
-		// Retry against the runtime we already hold. Reloading here used to mean
-		// releasing the lease first, which opened a window for a request wanting a
-		// different model to take the runtime and switch it. The retry then had to switch
-		// it back, and under two competing models the pair could trade the runtime until
-		// the budget ran out — which is how a long request, in flight long enough to
-		// overlap someone else's switch, ends as a 502. The backend being genuinely
-		// unhealthy is handled above, where a reload is actually warranted.
 		service.logger.Printf("backend returned a retryable response; retrying without reload model=%q config=%q status=%d", modelID, configFilename, lastStatus)
 	} else if !loadedFresh {
 		service.logger.Printf("backend unavailable while config already active; retrying without reload model=%q config=%q", modelID, configFilename)
@@ -146,9 +139,6 @@ func (service *Service) forwardWithFallbackObserved(ctx context.Context, origina
 	}
 
 	service.logger.Printf("backend retry exhausted path=%s model=%q config=%q attempts=%d status=%d error=%v body=%q", original.URL.Path, modelID, configFilename, service.inferenceRetryAttempts(retryResult), lastStatus, lastErr, lastBody)
-	// The backend never produced generated text, but it did answer successfully every
-	// time. That is a valid — if empty — completion, so return it instead of turning it
-	// into a gateway error the client cannot act on.
 	if retryResult.emptyOutput {
 		return responseWithRelease(emptyOutputResponse(retryResult), releaseModel), workFinalizer, nil
 	}
@@ -206,9 +196,6 @@ func (service *Service) shouldRecoverBackend(runtime *backendRuntime, ctx contex
 
 func (service *Service) recoverBackendForModel(runtime *backendRuntime, ctx context.Context, releaseModel func(), modelID string, configFilename string, readiness backendReadiness, path string, cause error) (func(), error) {
 	service.logger.Printf("backend transport recovery attempt path=%s model=%q config=%q error=%v", path, modelID, configFilename, cause)
-	// Keep the lease. Releasing it here let a request for another model take the runtime
-	// mid-recovery and switch it away, which is how the model this request needs ended up
-	// being swapped out from under it.
 	if err := service.reloadHeldModelConfig(runtime, ctx, modelID, configFilename, readiness); err != nil {
 		releaseModel()
 		return nil, err
@@ -291,10 +278,6 @@ func (service *Service) successRetryResult(response *http.Response, path string)
 	if isCorePath(path) && isJSONResponse(response.Header) {
 		inactive := coreResponseIsInactive(body)
 		if inactive || coreResponseHasEmptyText(body) {
-			// An empty completion usually means the backend is still warming, so it is
-			// worth retrying — but it can also be a genuine empty answer. Carry the body
-			// so that if the retries run out we can hand the client this response rather
-			// than inventing a gateway error out of a valid 2xx.
 			return backendRetryResult{
 				retry:       true,
 				inactive:    inactive,

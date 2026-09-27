@@ -783,7 +783,6 @@ func validateVLLMManifestSource(cfg VLLMConfig) error {
 			return nil
 		}
 		if cfg.AllowUnverifiedInstall {
-			// No TUF target, no operator pin: vLLM installs unpinned from PyPI.
 			return nil
 		}
 		return fmt.Errorf("vllm.manifest_sha256 and vllm.manifest_size are required when vllm.tuf_repository_url is empty and vllm.allow_unverified_install is false")

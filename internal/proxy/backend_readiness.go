@@ -115,9 +115,6 @@ func (service *Service) waitForBackendEndpointWatching(runtime *backendRuntime, 
 	idleLimit := service.backendReadinessTimeout()
 	lastProgress := time.Now()
 
-	// Wait for the backend to say it is ready before probing it. Probing through a load
-	// answers "inactive" over and over and tells us nothing; the output says when there is
-	// something to confirm, and a failure marker ends the wait immediately.
 	if err := service.awaitOutputGate(watch, ctx, backendOutputGraceWait, modelID, configFilename); err != nil {
 		return err
 	}
@@ -180,8 +177,6 @@ func (service *Service) waitForBackendEndpointWatching(runtime *backendRuntime, 
 	return fmt.Errorf("backend model endpoint unavailable after retries: status %d error=%v body=%q", lastStatus, lastErr, lastBody)
 }
 
-// backendReadinessTimeout bounds how long a single load may sit un-ready before the
-// router stops waiting on it.
 func (service *Service) backendReadinessTimeout() time.Duration {
 	if service.backendReadinessWait > 0 {
 		return service.backendReadinessWait
@@ -196,8 +191,6 @@ func (service *Service) backendReadinessTimeout() time.Duration {
 // reported as-is so recovery stays bounded.
 var errBackendServingNoModel = errors.New("backend is serving no model")
 
-// probeReportsNoModel reports whether a readiness probe body says the backend holds
-// nothing, as opposed to holding something that is not ready yet.
 func probeReportsNoModel(status int, body string) bool {
 	if status < 200 || status >= 300 {
 		return false

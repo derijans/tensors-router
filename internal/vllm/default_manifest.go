@@ -11,8 +11,6 @@ import (
 //go:embed defaults
 var embeddedDefaults embed.FS
 
-// EmbeddedManifest returns the reviewed default manifest compiled into this binary for
-// the given platform key, if one was shipped.
 func EmbeddedManifest(platform string) ([]byte, bool) {
 	if platform == "" || path.Clean(platform) != platform {
 		return nil, false

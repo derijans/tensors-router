@@ -75,8 +75,6 @@ func TestConvertToWAVProducesARIFFWaveHeader(t *testing.T) {
 	}
 }
 
-// generateTestAVI synthesizes a tiny MJPG-AVI with a silent audio track using
-// ffmpeg itself, mirroring what KoboldCpp's video_output_type=1 produces.
 func generateTestAVI(t *testing.T) []byte {
 	t.Helper()
 	var buf bytes.Buffer
@@ -94,8 +92,6 @@ func generateTestAVI(t *testing.T) []byte {
 	return buf.Bytes()
 }
 
-// generateTestTone synthesizes a tiny non-WAV (MP3) audio clip so
-// ConvertToWAV has something real to transcode.
 func generateTestTone(t *testing.T) []byte {
 	t.Helper()
 	var buf bytes.Buffer

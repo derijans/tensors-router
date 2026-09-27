@@ -12,8 +12,6 @@ import (
 	"tensors-router/internal/routerstore/routerstoretest"
 )
 
-// The shared handle has to outlive every store that writes through it, so the
-// analytics flush on shutdown still has a database to land in.
 func TestAnalyticsShutdownFlushLandsBeforeTheDatabaseCloses(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "analytics.sqlite")
 	handle := routerstoretest.OpenAt(t, path, routeranalytics.SchemaModule{})

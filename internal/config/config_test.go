@@ -522,9 +522,6 @@ func TestDefaultsIncludeSecureStreamingAndRetentionValues(t *testing.T) {
 	if !cfg.Downloader.Enabled || cfg.Downloader.BinaryLocation != "" {
 		t.Fatalf("unexpected downloader defaults %#v", cfg.Downloader)
 	}
-	// Port 0 means the router allocates a free loopback port at spawn
-	// time, so the default embeddings endpoints can never collide with
-	// each other or with the primary backend.
 	if cfg.Kobold.EmbeddingsBackendURL != "http://127.0.0.1:0" || cfg.Llama.EmbeddingsBackendURL != "http://127.0.0.1:0" {
 		t.Fatalf("unexpected embeddings endpoint defaults kobold=%q llama=%q", cfg.Kobold.EmbeddingsBackendURL, cfg.Llama.EmbeddingsBackendURL)
 	}
@@ -834,8 +831,6 @@ func TestLoadExampleConfigStatesTheLendingDefaults(t *testing.T) {
 	}
 }
 
-// The fit window has to stay inside the raw retention, because rollups keep totals
-// but discard the per-request pairing the fit needs.
 func TestSchedulingSampleWindowFitsInsideRawRetention(t *testing.T) {
 	cfg := Defaults()
 	if window := offloadsettings.Defaults().SampleWindow; window > cfg.Analytics.RawRetention {

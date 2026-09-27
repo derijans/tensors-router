@@ -46,8 +46,6 @@ const (
 	comfyVideoOutputNodeIDForHistory = "1"
 )
 
-// handleComfyPrompt answers POST /prompt. A workflow that is not video-shaped
-// is handed to the ordinary image-request path unchanged.
 func (service *Service) handleComfyPrompt(w http.ResponseWriter, r *http.Request) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {

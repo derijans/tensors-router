@@ -119,9 +119,6 @@ func newComfyVideoJobStore(scratchDir string) *comfyVideoJobStore {
 	}
 }
 
-// create mints a job id and reserves its output file path. The file itself is
-// only written once generation finishes, so a queued or failed job costs no
-// disk.
 func (store *comfyVideoJobStore) create() (string, *comfyVideoJob, error) {
 	id := newComfyVideoID()
 	store.mu.Lock()
@@ -175,9 +172,6 @@ func (store *comfyVideoJobStore) jobForFilename(filename string) (*comfyVideoJob
 	return job, true
 }
 
-// writeVideo streams produce's output straight to the job's file, capped so a
-// runaway generation cannot fill the volume. The file is removed if produce
-// fails, so a failed job never leaves bytes behind.
 func (store *comfyVideoJobStore) writeVideo(job *comfyVideoJob, produce func(io.Writer) error) (int64, error) {
 	file, err := os.OpenFile(job.path, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err != nil {
@@ -229,8 +223,6 @@ func (store *comfyVideoJobStore) evictOldestLocked() {
 	}
 }
 
-// enforceStoreBudgetLocked evicts the oldest completed jobs until the stored
-// video bytes fit the budget, never evicting the job that just finished.
 func (store *comfyVideoJobStore) enforceStoreBudgetLocked(protectedID string) {
 	type sized struct {
 		id        string

@@ -16,10 +16,6 @@ func newTestComfyVideoStore(t *testing.T) *comfyVideoJobStore {
 	return newComfyVideoJobStore(t.TempDir())
 }
 
-// A finished video must live on disk rather than in the router process: a
-// single generation runs to hundreds of megabytes and completed jobs are kept
-// for a day, so holding them resident would let a few concurrent jobs exhaust
-// the process.
 func TestComfyVideoOutputIsWrittenToDiskAndServedFromThere(t *testing.T) {
 	store := newTestComfyVideoStore(t)
 	_, job, err := store.create()

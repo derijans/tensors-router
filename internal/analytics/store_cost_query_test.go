@@ -176,8 +176,6 @@ func TestCostSamplesReportsModelLoadDurations(t *testing.T) {
 	}
 }
 
-// A day of large jobs squares to well past the range of exact integer
-// arithmetic, so the work terms have to be accumulated as floating point.
 func TestCostSamplesSurvivesLargeWorkValuesWithoutOverflow(t *testing.T) {
 	store := newTestStore(t, "node-a")
 	now := time.Now().UTC()
@@ -202,9 +200,6 @@ func TestCostSamplesSurvivesLargeWorkValuesWithoutOverflow(t *testing.T) {
 	}
 }
 
-// The coefficients are fitted from the SQL expression and then applied to a value
-// computed in Go. If the two ever diverge, predictions are made in different units
-// from the model that produced them, and nothing else in the system would notice.
 func TestImageWorkMatchesTheFitExpression(t *testing.T) {
 	store := newTestStore(t, "node-a")
 	now := time.Now().UTC()

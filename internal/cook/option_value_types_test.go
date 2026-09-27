@@ -47,8 +47,6 @@ func TestOptionValueTypesMatchBackendArguments(t *testing.T) {
 	}
 }
 
-// A non-boolean option must not offer true/false as its choices, or the editor presents a
-// control that can only produce invalid values.
 func TestNonBooleanOptionsDoNotOfferBooleanChoices(t *testing.T) {
 	for _, definition := range OptionCatalog() {
 		if definition.ValueType == ValueBool || len(definition.Choices) != 2 {

@@ -267,8 +267,6 @@ describe("node state view", () => {
     expect(html).toContain("Video generation");
   });
 
-  // A node from before ffmpeg reporting must not be shown as missing it: a
-  // cluster can contain one part-way through a rolling upgrade.
   it("says nothing when the node does not report ffmpeg at all", () => {
     const html = renderNodeStateSnapshot("node-a", snapshot(), "");
 

@@ -38,10 +38,8 @@ type ManagerOptions struct {
 	AllowTrustRemoteCode bool
 	AllowExternalTools   bool
 	AllowDynamicLoRA     bool
-	// OCIRunAsImageUser lets an OCI runtime keep the image own user instead of the
-	// host user. Needed for vendor images that install their interpreter under /root.
-	OCIRunAsImageUser bool
-	DisableRecovery   bool
+	OCIRunAsImageUser    bool
+	DisableRecovery      bool
 }
 
 type Manager struct {

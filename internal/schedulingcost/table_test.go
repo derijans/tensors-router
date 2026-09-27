@@ -52,8 +52,6 @@ func TestNilTableReportsUnqualified(t *testing.T) {
 	}
 }
 
-// A queue pays the fixed per-request cost once per entry, so pricing it as a
-// single request scaled by total work would badly understate a deep backlog.
 func TestPredictQueueChargesBasePerEntry(t *testing.T) {
 	table := buildTestTable(t)
 	key := ModelKey{NodeID: "node-a", ModelID: "sdxl", Section: "image"}
@@ -133,8 +131,6 @@ func TestMergeDropsCostsWithoutSlopes(t *testing.T) {
 	}
 }
 
-// ModelCosts is published per node and merged back under the publishing node's
-// id, so it must not carry a node id of its own that could disagree.
 func TestPublishedCostsAreScopedByPublishingNode(t *testing.T) {
 	table := buildTestTable(t)
 	merged := Merge(map[string]NodeCosts{"node-z": {Models: table.ModelCosts()}})
