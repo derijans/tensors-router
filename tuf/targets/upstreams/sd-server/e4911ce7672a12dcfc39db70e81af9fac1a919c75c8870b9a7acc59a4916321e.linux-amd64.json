@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "397764969",
+      "tag": "master-929-3f8527a",
+      "published_at": "2026-09-27T18:38:31Z",
+      "payloads": [
+        {
+          "name": "sd-master-3f8527a-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-929-3f8527a/sd-master-3f8527a-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 26025088,
+          "sha256": "9ad35ed309dbe59f5e66f35edafac9a69e6cc233ea6b9577071feae829159d37"
+        }
+      ]
+    }
+  ]
+}
