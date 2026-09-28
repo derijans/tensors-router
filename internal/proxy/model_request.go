@@ -161,9 +161,8 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 	analyticsEvent.PromptBytes = int64(len(body))
 	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readiness, selectedBackendMode)
 	if err != nil {
-		status, _, _ := backendFailureResponse(err)
 		if hasModel || isTextInferencePath(r.URL.Path) {
-			service.analytics.recordFailure(analyticsEvent, status, workFinalizer)
+			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
 		}
 		writeBackendFailure(w, err)
 		return

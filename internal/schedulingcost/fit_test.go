@@ -106,17 +106,57 @@ func TestFitRejectsTooFewSamples(t *testing.T) {
 	}
 }
 
-func TestFitRejectsDegenerateWorkVariance(t *testing.T) {
+func identicalImagePoints() ([][2]float64, float64, float64) {
+	const work = 30 * 1024 * 1024
 	identical := make([]float64, 40)
 	for index := range identical {
-		identical[index] = 30 * 1024 * 1024
+		identical[index] = work
 	}
 	points := linearPoints(700, 0.00001, identical)
+	sum := 0.0
 	for index := range points {
 		points[index][1] += float64(index%5) * 12
+		sum += points[index][1]
 	}
-	if _, ok := Fit(sampleFromPoints(points), 20); ok {
-		t.Fatal("fit accepted samples with no work variance")
+	return points, work, sum / float64(len(points))
+}
+
+func TestFitPricesIdenticalWorkAtItsMeanDuration(t *testing.T) {
+	points, work, meanDuration := identicalImagePoints()
+
+	estimate, ok := Fit(sampleFromPoints(points), 20)
+	if !ok {
+		t.Fatal("fit left a model unpriced although every job did the same work")
+	}
+	predicted, priced := estimate.PredictMS(ImageWork(work))
+	if !priced || math.Abs(predicted-meanDuration) > 1e-6 {
+		t.Fatalf("predicted = %v priced=%t, want the mean duration %v", predicted, priced, meanDuration)
+	}
+}
+
+func TestUniformFitLeavesDifferentWorkUnpriced(t *testing.T) {
+	points, work, _ := identicalImagePoints()
+	estimate, ok := Fit(sampleFromPoints(points), 20)
+	if !ok {
+		t.Fatal("fit rejected identical work")
+	}
+	if predicted, priced := estimate.PredictMS(ImageWork(2 * work)); priced {
+		t.Fatalf("priced unseen work at %v from a history that only ever did one size", predicted)
+	}
+	if predicted, priced := estimate.PredictQueueMS(3, ImageWork(6*work)); priced {
+		t.Fatalf("priced a queue of unseen work at %v", predicted)
+	}
+}
+
+func TestUniformFitPricesAQueueOfTheSameWorkPerEntry(t *testing.T) {
+	points, work, meanDuration := identicalImagePoints()
+	estimate, ok := Fit(sampleFromPoints(points), 20)
+	if !ok {
+		t.Fatal("fit rejected identical work")
+	}
+	predicted, priced := estimate.PredictQueueMS(3, ImageWork(3*work))
+	if !priced || math.Abs(predicted-3*meanDuration) > 1e-6 {
+		t.Fatalf("queue = %v priced=%t, want %v", predicted, priced, 3*meanDuration)
 	}
 }
 
@@ -154,7 +194,7 @@ func TestFitLoadAveragesRecordedLoads(t *testing.T) {
 	}
 }
 
-func TestFitRejectsNarrowWorkSpread(t *testing.T) {
+func TestFitTreatsNarrowWorkSpreadAsUniform(t *testing.T) {
 	works := make([]float64, 40)
 	for index := range works {
 		works[index] = 30*1024*1024 + float64(index%5)*100
@@ -171,8 +211,12 @@ func TestFitRejectsNarrowWorkSpread(t *testing.T) {
 		t.Fatal("test data is exactly degenerate, so it would not exercise the spread test")
 	}
 
-	if _, ok := Fit(sample, 20); ok {
-		t.Fatal("fit accepted work values spread far below the relative floor")
+	estimate, ok := Fit(sample, 20)
+	if !ok || !estimate.Uniform {
+		t.Fatalf("estimate = %+v ok=%t, want a uniform estimate for work spread far below the relative floor", estimate, ok)
+	}
+	if slope := estimate.SlopeMS[0]; slope != 0 {
+		t.Fatalf("slope = %v, want 0: a spread this narrow cannot measure one", slope)
 	}
 }
 

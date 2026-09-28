@@ -102,7 +102,7 @@ async function saveEditedSettings(): Promise<void> {
   if (!view.settings) {
     return;
   }
-  const inputs = [...elements.lendingSettingsRows.querySelectorAll<HTMLInputElement>("[data-lending-setting-input]")]
+  const inputs = [...elements.lendingSettingsRows.querySelectorAll<HTMLInputElement | HTMLSelectElement>("[data-lending-setting-input]")]
     .map(input => ({key: input.dataset.lendingSettingInput ?? "", value: input.value}));
   const changes = pendingSettingChanges(view.settings.entries, inputs);
   if (Object.keys(changes.set).length > 0) {

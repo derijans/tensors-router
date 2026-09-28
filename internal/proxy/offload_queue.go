@@ -61,21 +61,45 @@ type offloadEntry struct {
 	refusedOnArrival bool
 	borrowedAhead    int
 	sequence         uint64
+	admittedAt       time.Time
+	heldForHelper    bool
+	returnedByHelper bool
 	result           chan offloadOutcome
 }
 
+type ownerPipeline struct {
+	inFlight        int
+	generatingSince time.Time
+}
+
+type admissionHold func(next *offloadEntry, pipeline ownerPipeline) bool
+
 type offloadQueue struct {
-	mu       sync.Mutex
-	depth    int
-	sequence uint64
-	pending  []*offloadEntry
-	admitted map[*offloadEntry]struct{}
+	mu                sync.Mutex
+	depth             int
+	sequence          uint64
+	pending           []*offloadEntry
+	admitted          map[*offloadEntry]struct{}
+	lastOwnCompletion time.Time
+	holdForHelper     admissionHold
 }
 
 func newOffloadQueue(depth int) *offloadQueue {
 	queue := &offloadQueue{admitted: map[*offloadEntry]struct{}{}}
 	queue.SetDepth(depth)
 	return queue
+}
+
+func (queue *offloadQueue) SetAdmissionHold(hold admissionHold) {
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	queue.holdForHelper = hold
+}
+
+func (queue *offloadQueue) Readmit() {
+	queue.mu.Lock()
+	defer queue.mu.Unlock()
+	queue.admitLocked()
 }
 
 func (queue *offloadQueue) SetDepth(depth int) {
@@ -130,6 +154,9 @@ func (queue *offloadQueue) Await(ctx context.Context, entry *offloadEntry) (offl
 func (queue *offloadQueue) Complete(entry *offloadEntry) {
 	queue.mu.Lock()
 	defer queue.mu.Unlock()
+	if _, running := queue.admitted[entry]; running && !entry.borrowed {
+		queue.lastOwnCompletion = time.Now()
+	}
 	delete(queue.admitted, entry)
 	queue.admitLocked()
 }
@@ -151,6 +178,7 @@ func (queue *offloadQueue) WithdrawNewest(modelID string, limit int) []*offloadE
 		entry.result <- offloadWithdrawn
 		withdrawn = append(withdrawn, entry)
 	}
+	queue.admitLocked()
 	return withdrawn
 }
 
@@ -160,12 +188,13 @@ func (queue *offloadQueue) Requeue(modelID string, work schedulingcost.Work, req
 
 	queue.sequence++
 	entry := &offloadEntry{
-		modelID:         modelID,
-		work:            work,
-		requiredContext: requiredContext,
-		arrived:         now,
-		sequence:        queue.sequence,
-		result:          make(chan offloadOutcome, 1),
+		modelID:          modelID,
+		work:             work,
+		requiredContext:  requiredContext,
+		arrived:          now,
+		returnedByHelper: true,
+		sequence:         queue.sequence,
+		result:           make(chan offloadOutcome, 1),
 	}
 	queue.pending = append([]*offloadEntry{entry}, queue.pending...)
 	queue.admitLocked()
@@ -300,10 +329,41 @@ func (queue *offloadQueue) discard(entry *offloadEntry) {
 func (queue *offloadQueue) admitLocked() {
 	for len(queue.admitted) < queue.depth && len(queue.pending) > 0 {
 		entry := queue.pending[0]
+		if queue.heldForHelperLocked(entry) {
+			return
+		}
 		queue.pending = queue.pending[1:]
+		entry.admittedAt = time.Now()
 		queue.admitted[entry] = struct{}{}
 		entry.result <- offloadAdmitted
 	}
+}
+
+func (queue *offloadQueue) heldForHelperLocked(next *offloadEntry) bool {
+	if queue.holdForHelper == nil || next.borrowed || next.pinned || next.returnedByHelper {
+		return false
+	}
+	pipeline, sameModelOnly := queue.ownerPipelineLocked(next.modelID)
+	if !sameModelOnly || pipeline.inFlight == 0 {
+		return false
+	}
+	return queue.holdForHelper(next, pipeline)
+}
+
+func (queue *offloadQueue) ownerPipelineLocked(modelID string) (ownerPipeline, bool) {
+	pipeline := ownerPipeline{inFlight: len(queue.admitted)}
+	for entry := range queue.admitted {
+		if entry.borrowed || entry.modelID != modelID {
+			return ownerPipeline{}, false
+		}
+		if pipeline.generatingSince.IsZero() || entry.admittedAt.Before(pipeline.generatingSince) {
+			pipeline.generatingSince = entry.admittedAt
+		}
+	}
+	if queue.lastOwnCompletion.After(pipeline.generatingSince) {
+		pipeline.generatingSince = queue.lastOwnCompletion
+	}
+	return pipeline, true
 }
 
 func (queue *offloadQueue) returnPendingBorrowedLocked() int {

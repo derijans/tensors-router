@@ -116,9 +116,8 @@ func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter
 		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, forwardModelID, route.Filename, true, readiness, routeBackendMode)
 	}
 	if err != nil {
-		status, _, _ := backendFailureResponse(err)
 		if recordAnalytics {
-			service.analytics.recordFailure(analyticsEvent, status, workFinalizer)
+			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
 		}
 		writeBackendFailure(w, err)
 		return
@@ -305,7 +304,7 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 	if forwardErr != nil {
 		release()
 		if recordAnalytics {
-			service.analytics.recordFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
+			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, forwardErr, workFinalizer)
 		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", forwardErr.Error())
 		return true
@@ -469,7 +468,7 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 	if err != nil {
 		release()
 		if recordAnalytics {
-			service.analytics.recordFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
+			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
 		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return

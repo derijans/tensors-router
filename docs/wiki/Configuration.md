@@ -215,12 +215,13 @@ When updates are enabled, each selected backend needs either a direct binary URL
 | `cluster.scheduling_min_samples` | Integer, at least 2 | `20` | Measured requests a model needs for its own cost fit. A helper below this is priced with its owner's fit until it has one. |
 | `cluster.scheduling_backend_depth` | Integer, at least 1 | `2` | Requests admitted to the backend at once on a linked model. One running plus one queued keeps the backend busy while the rest stay lendable. |
 | `cluster.scheduling_grant_ttl` | Positive duration string | `30s` | Lifetime of an offload lease. A lease that is not renewed expires on its own. |
-| `cluster.offload_probe_idle` | Positive duration string | `5s` | How long a helper must be idle before it gets a one-request probe even when the cost rule would not lend to it. |
+| `cluster.offload_probe_idle` | Positive duration string | `5s` | How long a helper must be idle from its own work (its own requests and its own model loads; borrowed work does not count) before it gets a one-request probe even when the cost rule would not lend to it. |
 | `cluster.scheduling_context_reserve` | Integer, at least 0 | `256` | Tokens kept free for the answer when a text request states no limit. |
 | `cluster.offload_restore_delay` | Positive duration string | `1.5s` | Idle time before a helper reloads the model it held before borrowing, when the link asks for it. |
 | `cluster.offload_faster_helper_slots` | Integer, `1`–`64` | `2` | Requests lent at once to a helper predicted to be at least as fast as the owner. |
 | `cluster.offload_slower_helper_slots` | Integer, `1`–`64` | `1` | Requests lent at once to a helper that pays off but is slower than the owner. |
 | `cluster.offload_probe_helper_slots` | Integer, `1`–`64` | `1` | Requests lent at once while probing an unpriced pair. |
+| `cluster.offload_hold_for_faster_helper` | Boolean | `true` | When the owner would queue a waiting request behind the one it is generating, keep it for the busy helper if the helper is predicted to finish it sooner. |
 | `cluster.offload_decisions_retention` | Positive duration string | `720h` | How long lending decisions are kept. |
 
 The `scheduling_*` and `offload_*` settings are layered. From lowest to highest

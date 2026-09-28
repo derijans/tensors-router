@@ -24,14 +24,14 @@ func (scheduler *scheduler) borrowRestoreStateFor(runtime *backendRuntime) *borr
 	return value.(*borrowRestoreState)
 }
 
-func (scheduler *scheduler) noteBorrowRestoreActivity(ctx context.Context, runtime *backendRuntime, mode string, incomingFilename string, readiness backendReadiness) {
+func (scheduler *scheduler) noteBorrowRestoreActivity(ctx context.Context, runtime *backendRuntime, mode string, incomingFilename string) {
 	if !contextIsBorrowed(ctx) {
 		scheduler.clearBorrowRestore(runtime)
 		return
 	}
 	if contextBorrowRestoreRequested(ctx) {
-		if modelID, filename := runtime.state.loadedModel(); filename != "" && filename != incomingFilename {
-			scheduler.recordFirstDisplacement(runtime, mode, modelID, filename, readiness)
+		if modelID, filename, loadedReadiness := runtime.state.loadedModelWithReadiness(); filename != "" && filename != incomingFilename {
+			scheduler.recordFirstDisplacement(runtime, mode, modelID, filename, loadedReadiness)
 		}
 	}
 	scheduler.touchBorrowRestore(runtime)
@@ -104,6 +104,8 @@ func (scheduler *scheduler) fireBorrowRestore(runtime *backendRuntime, state *bo
 		return
 	}
 
+	scheduler.logger.Printf("borrow restore loading mode=%s config=%q section=%s", target.mode, target.filename, readinessAnalyticsSection(target.readiness))
+	started := time.Now()
 	_, release, _, err := scheduler.deps.acquireModelConfigForBackendMode(target.mode, context.Background(), target.modelID, target.filename, target.readiness, false)
 
 	state.mu.Lock()
@@ -113,9 +115,10 @@ func (scheduler *scheduler) fireBorrowRestore(runtime *backendRuntime, state *bo
 	state.mu.Unlock()
 
 	if err != nil {
-		scheduler.logger.Printf("borrow restore failed mode=%s config=%q error=%v", target.mode, target.filename, err)
+		scheduler.logger.Printf("borrow restore failed mode=%s config=%q elapsed=%s error=%v", target.mode, target.filename, time.Since(started), err)
 		return
 	}
+	scheduler.logger.Printf("borrow restore finished mode=%s config=%q elapsed=%s", target.mode, target.filename, time.Since(started))
 	release()
 }
 

@@ -214,6 +214,8 @@ Detailed records and paged output are available from:
 
 Details contain the sanitized KCPPS snapshot and asset hashes. Output payloads are base64-encoded JSON byte fields, preserve stdout/stderr ordering, and may be marked truncated when the configured capture limit is reached. Site routes require admin authentication; corresponding `/router/v1/node/load-captures/...` routes require the cluster token.
 
+A request whose client disconnected before the backend answered is recorded with status `499` and `aborted: true`, not as a `502` backend failure.
+
 `POST /router/v1/site/analytics/flush` writes the buffered analytics events out and folds the write-ahead log back into the database file. A master also asks every reachable slave over `/router/v1/node/analytics/flush`. The response lists the nodes that persisted their buffer and reports any node that could not.
 
 The WebUI catalog, session toggle, model load, and proxied browser routes are described in [Backend WebUI Interfaces](Backend-WebUI-Interfaces).

@@ -48,13 +48,14 @@ func TestResolveShowsButDoesNotApplyAStoredValueThatNoLongerValidates(t *testing
 
 func TestNormalizeRejectsValuesOutsideTheirRange(t *testing.T) {
 	for key, value := range map[string]string{
-		"scheduling_min_samples":     "1",
-		"scheduling_backend_depth":   "0",
-		"scheduling_context_reserve": "-1",
-		"offload_probe_idle":         "0s",
-		"scheduling_grant_ttl":       "soon",
-		"offload_probe_helper_slots": "65",
-		"not_a_setting":              "1",
+		"scheduling_min_samples":         "1",
+		"scheduling_backend_depth":       "0",
+		"scheduling_context_reserve":     "-1",
+		"offload_probe_idle":             "0s",
+		"scheduling_grant_ttl":           "soon",
+		"offload_probe_helper_slots":     "65",
+		"offload_hold_for_faster_helper": "sometimes",
+		"not_a_setting":                  "1",
 	} {
 		if _, err := Normalize(key, value); err == nil {
 			t.Errorf("Normalize(%q, %q) accepted", key, value)
@@ -65,6 +66,21 @@ func TestNormalizeRejectsValuesOutsideTheirRange(t *testing.T) {
 func TestNormalizeWritesDurationsCanonically(t *testing.T) {
 	if normalized, err := Normalize("offload_restore_delay", " 1500ms "); err != nil || normalized != "1.5s" {
 		t.Fatalf("Normalize = %q, %v, want 1.5s", normalized, err)
+	}
+}
+
+func TestHoldForFasterHelperDefaultsOnAndTurnsOffFromAnyLayer(t *testing.T) {
+	if !Defaults().HoldForFasterHelper {
+		t.Fatal("holding for a faster helper is off by default, want on")
+	}
+	if normalized, err := Normalize("offload_hold_for_faster_helper", " FALSE "); err != nil || normalized != "false" {
+		t.Fatalf("Normalize = %q, %v, want false", normalized, err)
+	}
+	if Resolve(Values{"offload_hold_for_faster_helper": "false"}, nil).Settings.HoldForFasterHelper {
+		t.Fatal("config file value false did not switch holding off")
+	}
+	if !Resolve(Values{"offload_hold_for_faster_helper": "false"}, Values{"offload_hold_for_faster_helper": "true"}).Settings.HoldForFasterHelper {
+		t.Fatal("database value true did not override the config file")
 	}
 }
 

@@ -85,7 +85,7 @@ func TestGenerationCheckedUnloadDrainsLeasesAndRejectsStaleState(t *testing.T) {
 	if backend.unloads.Load() != 0 {
 		t.Fatal("backend unloaded before its active lease drained")
 	}
-	releaseActiveConfigLeaseOnce(state, 41)()
+	releaseActiveConfigLeaseOnce(state, 41, false)()
 	select {
 	case err := <-result:
 		if err != nil {

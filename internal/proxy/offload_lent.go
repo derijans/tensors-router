@@ -10,6 +10,7 @@ type lentRequest struct {
 	lane          string
 	modelID       string
 	arrived       time.Time
+	lentAt        time.Time
 	helperNodeID  string
 	helperModelID string
 }
@@ -57,5 +58,18 @@ func (book *lentRequestBook) Snapshot() []lentRequest {
 	}
 	book.mu.Unlock()
 	sort.Slice(requests, func(left, right int) bool { return requests[left].arrived.Before(requests[right].arrived) })
+	return requests
+}
+
+func (book *lentRequestBook) InFlight(lane string, modelID string) []lentRequest {
+	book.mu.Lock()
+	requests := make([]lentRequest, 0, len(book.byEntry))
+	for _, request := range book.byEntry {
+		if request.lane == lane && request.modelID == modelID {
+			requests = append(requests, request)
+		}
+	}
+	book.mu.Unlock()
+	sort.Slice(requests, func(left, right int) bool { return requests[left].lentAt.Before(requests[right].lentAt) })
 	return requests
 }

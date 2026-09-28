@@ -197,6 +197,9 @@ cluster:
   offload_faster_helper_slots: 2
   offload_slower_helper_slots: 1
   offload_probe_helper_slots: 1
+  # An owner already generating keeps its next waiting request for a busy helper
+  # predicted to finish it sooner, instead of queueing it behind its own job.
+  offload_hold_for_faster_helper: true
   offload_decisions_retention: "720h"
   # Every scheduling_* and offload_* value can be overridden from the WebUI
   # Lending tab. Priority from lowest: built-in default, this file, the database.

@@ -12,6 +12,7 @@ type Kind string
 const (
 	KindDuration Kind = "duration"
 	KindInteger  Kind = "integer"
+	KindBoolean  Kind = "boolean"
 )
 
 type Field struct {
@@ -49,6 +50,8 @@ var fields = []Field{
 		func(settings *Settings) *int { return &settings.SlowerHelperSlots }),
 	integerField("offload_probe_helper_slots", "Requests lent at once while probing an unpriced pair.", 1, 1, maximumSlotsOrDepth,
 		func(settings *Settings) *int { return &settings.ProbeHelperSlots }),
+	booleanField("offload_hold_for_faster_helper", "When the owner would queue a waiting request behind the one it is generating, keep it for the busy helper if the helper is predicted to finish it sooner.", true,
+		func(settings *Settings) *bool { return &settings.HoldForFasterHelper }),
 	durationField("offload_decisions_retention", "How long lending decisions are kept in the log.", "720h0m0s",
 		func(settings *Settings) *time.Duration { return &settings.DecisionRetention }),
 }
@@ -124,5 +127,25 @@ func integerField(key string, description string, fallback int, minimum int, max
 			*target(settings) = parsed
 		},
 		read: func(settings Settings) string { return strconv.Itoa(*target(&settings)) },
+	}
+}
+
+func booleanField(key string, description string, fallback bool, target func(*Settings) *bool) Field {
+	return Field{
+		Key:         key,
+		Kind:        KindBoolean,
+		Description: description,
+		Default:     strconv.FormatBool(fallback),
+		normalize: func(value string) (string, error) {
+			parsed, err := strconv.ParseBool(strings.TrimSpace(value))
+			if err != nil {
+				return "", fmt.Errorf("%s must be true or false", key)
+			}
+			return strconv.FormatBool(parsed), nil
+		},
+		assign: func(settings *Settings, normalized string) {
+			*target(settings) = normalized == "true"
+		},
+		read: func(settings Settings) string { return strconv.FormatBool(*target(&settings)) },
 	}
 }

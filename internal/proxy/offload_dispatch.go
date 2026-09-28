@@ -93,6 +93,7 @@ func (scheduler *scheduler) lendWithdrawn(lease offloadLease, entry *offloadEntr
 		lane:          lease.Lane,
 		modelID:       lease.OwnerModelID,
 		arrived:       entry.arrived,
+		lentAt:        time.Now(),
 		helperNodeID:  lease.HelperNodeID,
 		helperModelID: lease.HelperModelID,
 	})

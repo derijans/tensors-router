@@ -2132,10 +2132,53 @@ td {
   width: 11ch;
 }
 
+select.lending-setting-input {
+  width: auto;
+}
+
+.lending-section > * {
+  min-width: 0;
+}
+
 .lending-setting-effective {
-  display: flex;
+  display: inline-flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+}
+
+.lending-settings-table td,
+.lending-decision-table td {
+  vertical-align: middle;
+}
+
+.lending-decision-table tr[data-lending-group] {
+  cursor: pointer;
+}
+
+.lending-decision-table tr[data-lending-group]:hover td {
+  background: rgba(19, 217, 255, .05);
+}
+
+.lending-decision-table tr.selected td {
+  background: rgba(19, 217, 255, .16);
+}
+
+.lending-nowrap {
+  white-space: nowrap;
+}
+
+.lending-endpoint {
+  min-width: 24ch;
+  overflow-wrap: break-word;
+}
+
+.lending-endpoint > span {
+  display: block;
+}
+
+.lending-endpoint-node {
+  color: var(--cyan);
 }
 
 .lending-leases {

@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -130,13 +131,13 @@ func TestOnlyTheLastReleaseStampsWhenTheRuntimeWentIdle(t *testing.T) {
 	releaseFirst, releaseSecond := releaseActiveConfigOnce(state), releaseActiveConfigOnce(state)
 
 	releaseFirst()
-	if !state.idleSince.IsZero() {
+	if !state.ownIdleSince.IsZero() {
 		t.Fatal("idle was stamped while a user still held the runtime")
 	}
 	beforeLastRelease := time.Now()
 	releaseSecond()
-	if state.idleSince.Before(beforeLastRelease) {
-		t.Fatalf("idle since %v, want the moment the last user released", state.idleSince)
+	if state.ownIdleSince.Before(beforeLastRelease) {
+		t.Fatalf("idle since %v, want the moment the last user released", state.ownIdleSince)
 	}
 }
 
@@ -164,4 +165,80 @@ func TestIdleForIsZeroWhileARequestRunsAndCountsUpAfterwards(t *testing.T) {
 	if idle := service.scheduler.idleFor(time.Now().Add(6 * time.Second)); idle < 6*time.Second {
 		t.Fatalf("idle for %v six seconds after the request finished, want at least 6s", idle)
 	}
+}
+
+func TestHelperIdleClockIgnoresBorrowedWork(t *testing.T) {
+	service := newBorrowRestoreTestService(t)
+	mode := service.currentBackendMode()
+	if err := service.loadLocalConfig(context.Background(), mode, "a", "a.kcpps", readinessText); err != nil {
+		t.Fatal(err)
+	}
+	ownWorkEnded, idle := service.ownWorkIdleSince()
+	if !idle {
+		t.Fatal("helper busy after its own load finished")
+	}
+
+	if err := service.loadLocalConfig(borrowedContext(), mode, "b", "b.kcpps", readinessText); err != nil {
+		t.Fatal(err)
+	}
+
+	if idleSince, idle := service.ownWorkIdleSince(); !idle || !idleSince.Equal(ownWorkEnded) {
+		t.Fatalf("idle since %v idle=%t, want still idle since its own work ended at %v: borrowed work restarted the probe clock", idleSince, idle, ownWorkEnded)
+	}
+}
+
+func TestHelperIsBusyWhileLoadingItsOwnModel(t *testing.T) {
+	service, gate := serviceWithBlockingReload(t)
+
+	loaded := loadInBackground(service, context.Background())
+
+	waitForCondition(t, func() bool {
+		_, idle := service.ownWorkIdleSince()
+		return !idle
+	})
+	close(gate)
+	if err := <-loaded; err != nil {
+		t.Fatal(err)
+	}
+	if _, idle := service.ownWorkIdleSince(); !idle {
+		t.Fatal("helper still busy after its own load finished")
+	}
+}
+
+func TestBorrowedLoadLeavesTheHelperIdle(t *testing.T) {
+	service, gate := serviceWithBlockingReload(t)
+	runtime := defaultFamilyRuntime(t, service, readinessText)
+
+	loaded := loadInBackground(service, borrowedContext())
+
+	waitForCondition(t, func() bool {
+		runtime.state.mu.Lock()
+		defer runtime.state.mu.Unlock()
+		return runtime.state.switching
+	})
+	if _, idle := service.ownWorkIdleSince(); !idle {
+		t.Fatal("a load for borrowed work made the helper look busy with its own")
+	}
+	close(gate)
+	if err := <-loaded; err != nil {
+		t.Fatal(err)
+	}
+}
+
+func serviceWithBlockingReload(t *testing.T) (*Service, chan struct{}) {
+	t.Helper()
+	gate := make(chan struct{})
+	service, backend := newTestServiceWithModels(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}), "a")
+	backend.onReload = func(string) { <-gate }
+	return service, gate
+}
+
+func loadInBackground(service *Service, ctx context.Context) <-chan error {
+	loaded := make(chan error, 1)
+	go func() {
+		loaded <- service.loadLocalConfig(ctx, service.currentBackendMode(), "a", "a.kcpps", readinessText)
+	}()
+	return loaded
 }

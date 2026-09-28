@@ -4,7 +4,7 @@ export type LendingSettingSource = "default" | "config" | "db";
 
 export interface LendingSettingEntry {
   key: string;
-  kind: "duration" | "integer";
+  kind: "duration" | "integer" | "boolean";
   description: string;
   default: string;
   config?: string;

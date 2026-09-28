@@ -58,9 +58,8 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readiness, backendMode)
 	}
 	if err != nil {
-		status, _, _ := backendFailureResponse(err)
 		if recordAnalytics {
-			service.analytics.recordFailure(analyticsEvent, status, workFinalizer)
+			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
 		}
 		writeBackendFailure(w, err)
 		return true
@@ -132,7 +131,7 @@ func (service *Service) handleRecipeImageRequest(w http.ResponseWriter, r *http.
 	}
 	if err != nil {
 		if recordAnalytics {
-			service.analytics.recordFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
+			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
 		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return true
@@ -294,7 +293,7 @@ func (service *Service) handleRecipeAudioRequest(w http.ResponseWriter, r *http.
 	}
 	if err != nil {
 		if recordAnalytics {
-			service.analytics.recordFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
+			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
 		}
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 		return true

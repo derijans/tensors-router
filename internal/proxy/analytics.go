@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 	"strings"
@@ -63,6 +64,18 @@ func (analytics *requestAnalytics) withResponse(response *http.Response, event r
 	}
 	response.Body = routeranalytics.NewResponseObserver(analytics.store, event, response.Header.Get("Content-Type"), response.Body, finalizers...)
 	return response
+}
+
+const statusClientClosedRequest = 499
+
+func (analytics *requestAnalytics) recordForwardFailure(requestContext context.Context, event routeranalytics.Event, err error, finalizers ...routeranalytics.EventFinalizer) {
+	if requestContext.Err() != nil {
+		event.Aborted = true
+		analytics.recordFailure(event, statusClientClosedRequest, finalizers...)
+		return
+	}
+	status, _, _ := backendFailureResponse(err)
+	analytics.recordFailure(event, status, finalizers...)
 }
 
 func (analytics *requestAnalytics) recordFailure(event routeranalytics.Event, statusCode int, finalizers ...routeranalytics.EventFinalizer) {

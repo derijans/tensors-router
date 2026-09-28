@@ -22,14 +22,14 @@ export function renderDecisionRows(groups: LendingDecisionGroup[], selectedID: s
     const decision = group.latest;
     const selected = group.id === selectedID ? html` class="selected"` : emptyHTML;
     return html`<tr data-lending-group="${group.id}"${selected}>
-      <td>${formatSpan(group)}</td>
-      <td>${group.count > 1 ? `×${group.count}` : ""}</td>
-      <td>${decision.node_id}</td>
-      <td>${decision.kind}</td>
-      <td>${decision.trigger ?? ""}</td>
-      <td>${decision.lane}</td>
-      <td>${endpoint(decision.owner_node_id, decision.owner_model_id)}</td>
-      <td>${endpoint(decision.helper_node_id, decision.helper_model_id)}</td>
+      <td class="lending-nowrap">${formatSpan(group)}</td>
+      <td class="lending-nowrap">${group.count > 1 ? `×${group.count}` : ""}</td>
+      <td class="lending-nowrap">${decision.node_id}</td>
+      <td class="lending-nowrap">${decision.kind}</td>
+      <td class="lending-nowrap">${decision.trigger ?? ""}</td>
+      <td class="lending-nowrap">${decision.lane}</td>
+      <td class="lending-endpoint">${endpointCell(decision.owner_node_id, decision.owner_model_id)}</td>
+      <td class="lending-endpoint">${endpointCell(decision.helper_node_id, decision.helper_model_id)}</td>
       <td>${chip(decision.outcome, outcomeColor(decision.outcome))}</td>
       <td>${decision.reason ?? ""}</td>
     </tr>`;
@@ -87,6 +87,13 @@ function formatSpan(group: LendingDecisionGroup): string {
 function formatTime(value: string): string {
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleTimeString();
+}
+
+function endpointCell(nodeID: string | undefined, modelID: string | undefined): SafeHTML {
+  if (!nodeID && !modelID) {
+    return emptyHTML;
+  }
+  return html`<span class="lending-endpoint-node">${nodeID ?? "?"}</span><span class="muted">${modelID ?? "?"}</span>`;
 }
 
 function endpoint(nodeID: string | undefined, modelID: string | undefined): string {

@@ -29,11 +29,26 @@ function renderLendingSettingRow(entry: LendingSettingEntry, editable: boolean):
       </td>
       <td><code>${entry.default}</code></td>
       <td>${entry.config ? html`<code>${entry.config}</code>` : html`<span class="muted">not set</span>`}</td>
-      <td><input class="lending-setting-input" type="text" data-lending-setting-input="${entry.key}" value="${entry.override ?? ""}" placeholder="${valueWithoutOverride}" aria-label="Database value for ${entry.key}"${editable ? emptyHTML : html` disabled`}></td>
-      <td class="lending-setting-effective">${chip(entry.effective, sourceColors[entry.source])}<span class="muted">${sourceLabels[entry.source]}</span></td>
+      <td>${entry.kind === "boolean" ? renderBooleanInput(entry, valueWithoutOverride, editable) : renderTextInput(entry, valueWithoutOverride, editable)}</td>
+      <td><span class="lending-setting-effective">${chip(entry.effective, sourceColors[entry.source])}<span class="muted">${sourceLabels[entry.source]}</span></span></td>
       <td>${entry.override !== undefined && editable ? html`<button type="button" data-lending-setting-reset="${entry.key}">Default</button>` : emptyHTML}</td>
     </tr>
   `;
+}
+
+function renderTextInput(entry: LendingSettingEntry, valueWithoutOverride: string, editable: boolean): SafeHTML {
+  return html`<input class="lending-setting-input" type="text" data-lending-setting-input="${entry.key}" value="${entry.override ?? ""}" placeholder="${valueWithoutOverride}" aria-label="Database value for ${entry.key}"${disabledUnless(editable)}>`;
+}
+
+function renderBooleanInput(entry: LendingSettingEntry, valueWithoutOverride: string, editable: boolean): SafeHTML {
+  const options: [string, string][] = [["", `not set (${valueWithoutOverride})`], ["true", "true"], ["false", "false"]];
+  return html`<select class="lending-setting-input" data-lending-setting-input="${entry.key}" aria-label="Database value for ${entry.key}"${disabledUnless(editable)}>
+    ${options.map(([value, label]) => html`<option value="${value}"${value === (entry.override ?? "") ? html` selected` : emptyHTML}>${label}</option>`)}
+  </select>`;
+}
+
+function disabledUnless(editable: boolean): SafeHTML {
+  return editable ? emptyHTML : html` disabled`;
 }
 
 export function pendingSettingChanges(entries: LendingSettingEntry[], inputs: LendingSettingInput[]): LendingSettingChanges {

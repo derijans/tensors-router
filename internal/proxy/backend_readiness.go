@@ -155,7 +155,7 @@ func (service *Service) waitForBackendEndpointWatching(runtime *backendRuntime, 
 		// stretches. Only a backend that never announced one, and is answering that it
 		// holds nothing, has actually stopped: that is a reload that was accepted and
 		// lost, and it is reported so the caller can re-issue it.
-		if !watch.loading() && probeReportsNoModel(status, body) && time.Since(lastProgress) > idleLimit {
+		if !watch.loading() && probeAnswersWithoutModel(readiness, status, body) && time.Since(lastProgress) > idleLimit {
 			service.logger.Printf("backend is serving no model and no load is in progress model=%q config=%q attempt=%d", modelID, configFilename, attempt)
 			break
 		}
@@ -190,6 +190,18 @@ func (service *Service) backendReadinessTimeout() time.Duration {
 // fixes. Every other readiness failure — unreachable, exited, capability disabled — is
 // reported as-is so recovery stays bounded.
 var errBackendServingNoModel = errors.New("backend is serving no model")
+
+func probeAnswersWithoutModel(readiness backendReadiness, status int, body string) bool {
+	return probeReportsNoModel(status, body) || readiness == readinessImage && probeListsNoImageModel(status, body)
+}
+
+func probeListsNoImageModel(status int, body string) bool {
+	if status < 200 || status >= 300 {
+		return false
+	}
+	var models []map[string]any
+	return json.Unmarshal([]byte(strings.TrimSpace(body)), &models) == nil && len(models) == 0
+}
 
 func probeReportsNoModel(status int, body string) bool {
 	if status < 200 || status >= 300 {

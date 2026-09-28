@@ -22,14 +22,21 @@ type LoadSample struct {
 }
 
 type Estimate struct {
-	BaseMS  float64
-	SlopeMS [MaxWorkTerms]float64
-	Arity   int
-	Samples int64
+	BaseMS      float64
+	SlopeMS     [MaxWorkTerms]float64
+	Arity       int
+	Samples     int64
+	Uniform     bool
+	UniformWork [MaxWorkTerms]float64
 }
+
+const uniformWorkMatchTolerance = 2 * minRelativeWorkSpread
 
 func (estimate Estimate) PredictMS(work Work) (float64, bool) {
 	if work.Arity() != estimate.Arity {
+		return 0, false
+	}
+	if estimate.Uniform && !estimate.matchesUniformWork(work) {
 		return 0, false
 	}
 	total := estimate.BaseMS
@@ -53,6 +60,9 @@ func (estimate Estimate) PredictQueueMS(count int64, totalWork Work) (float64, b
 	if totalWork.Arity() != estimate.Arity {
 		return 0, false
 	}
+	if estimate.Uniform && !estimate.matchesUniformWork(totalWork.Mean(count)) {
+		return 0, false
+	}
 	total := float64(count) * estimate.BaseMS
 	for index := 0; index < estimate.Arity; index++ {
 		term := totalWork.Term(index)
@@ -62,6 +72,15 @@ func (estimate Estimate) PredictQueueMS(count int64, totalWork Work) (float64, b
 		total += estimate.SlopeMS[index] * term
 	}
 	return total, true
+}
+
+func (estimate Estimate) matchesUniformWork(work Work) bool {
+	for index := 0; index < estimate.Arity; index++ {
+		if math.Abs(work.Term(index)-estimate.UniformWork[index]) > uniformWorkMatchTolerance*estimate.UniformWork[index] {
+			return false
+		}
+	}
+	return true
 }
 
 const minSamplesFloor = 2
@@ -78,6 +97,9 @@ func Fit(sample Sample, minSamples int64) (Estimate, bool) {
 	if sample.Count < minSamples {
 		return Estimate{}, false
 	}
+	if everyRegressorIsUniform(sample, arity) {
+		return uniformEstimate(sample, arity), true
+	}
 	if !everyRegressorIsMeasurable(sample, arity) {
 		return Estimate{}, false
 	}
@@ -90,11 +112,31 @@ func Fit(sample Sample, minSamples int64) (Estimate, bool) {
 	return estimateFromSolution(solution, arity, sample.Count)
 }
 
-func everyRegressorIsMeasurable(sample Sample, arity int) bool {
-	count := float64(sample.Count)
+func everyRegressorIsUniform(sample Sample, arity int) bool {
 	for index := 0; index < arity; index++ {
-		denominator := count*sample.SumWorkProduct[index][index] - sample.SumWork[index]*sample.SumWork[index]
-		if !relativeWorkSpreadIsMeasurable(denominator, sample.SumWork[index]) {
+		if relativeWorkSpreadIsMeasurable(workSpreadDenominator(sample, index), sample.SumWork[index]) {
+			return false
+		}
+	}
+	return true
+}
+
+func uniformEstimate(sample Sample, arity int) Estimate {
+	count := float64(sample.Count)
+	estimate := Estimate{BaseMS: sample.SumDuration / count, Arity: arity, Samples: sample.Count, Uniform: true}
+	for index := 0; index < arity; index++ {
+		estimate.UniformWork[index] = sample.SumWork[index] / count
+	}
+	return estimate
+}
+
+func workSpreadDenominator(sample Sample, index int) float64 {
+	return float64(sample.Count)*sample.SumWorkProduct[index][index] - sample.SumWork[index]*sample.SumWork[index]
+}
+
+func everyRegressorIsMeasurable(sample Sample, arity int) bool {
+	for index := 0; index < arity; index++ {
+		if !relativeWorkSpreadIsMeasurable(workSpreadDenominator(sample, index), sample.SumWork[index]) {
 			return false
 		}
 	}

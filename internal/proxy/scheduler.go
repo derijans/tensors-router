@@ -21,7 +21,7 @@ type schedulerDeps interface {
 	remoteRuntimeStatuses(ctx context.Context) map[string]NodeRuntimeStatus
 	localRuntimeStatus() NodeRuntimeStatus
 	requestsRunningOnEveryBackendFamily() int
-	backendsIdleSince() (time.Time, bool)
+	ownWorkIdleSince() (time.Time, bool)
 	acquireModelConfigForBackendMode(mode string, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (*backendRuntime, func(), bool, error)
 }
 
@@ -74,6 +74,7 @@ func newScheduler(deps schedulerDeps, analytics *requestAnalytics, decisions dec
 	}
 	scheduler.settings.Store(&settings)
 	scheduler.eventReports = newQueueEventCoalescer(scheduler.decideOnQueueEvent)
+	scheduler.installAdmissionHolds()
 	return scheduler
 }
 

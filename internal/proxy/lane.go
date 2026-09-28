@@ -29,22 +29,25 @@ type activeConfigState struct {
 	physicalFingerprint string
 	physicalShareable   bool
 	physicalAttemptID   string
+	physicalReadiness   backendReadiness
 	// pendingFilename and pendingProfile describe the config currently being loaded while
 	// switching is true. Without them a concurrent caller wanting that same config sees
 	// only "switching" and concludes the runtime holds something else, then unloads it —
 	// killing the load in flight.
-	pendingFilename   string
-	pendingProfile    catalog.ChatTemplateProfile
-	users             int
-	idleSince         time.Time
-	switching         bool
-	switchWaiters     int
-	vramBaselineMB    int64
-	vramTotalMB       int64
-	vramBaselineValid bool
-	modelID           string
-	generation        uint64
-	leases            map[uint64]string
+	pendingFilename      string
+	pendingProfile       catalog.ChatTemplateProfile
+	users                int
+	borrowedUsers        int
+	ownIdleSince         time.Time
+	switching            bool
+	switchingForBorrowed bool
+	switchWaiters        int
+	vramBaselineMB       int64
+	vramTotalMB          int64
+	vramBaselineValid    bool
+	modelID              string
+	generation           uint64
+	leases               map[uint64]string
 }
 
 func newActiveConfigState() *activeConfigState {
@@ -52,12 +55,17 @@ func newActiveConfigState() *activeConfigState {
 }
 
 func (state *activeConfigState) loadedModel() (string, string) {
+	modelID, filename, _ := state.loadedModelWithReadiness()
+	return modelID, filename
+}
+
+func (state *activeConfigState) loadedModelWithReadiness() (string, string, backendReadiness) {
 	state.mu.Lock()
 	defer state.mu.Unlock()
 	if state.switching {
-		return "", ""
+		return "", "", readinessText
 	}
-	return state.modelID, state.filename
+	return state.modelID, state.filename, state.physicalReadiness
 }
 
 func (service *Service) acquireModelConfigForBackendMode(mode string, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (*backendRuntime, func(), bool, error) {
@@ -104,7 +112,7 @@ func (service *Service) acquireModelConfigForBackendModeWithOptions(mode string,
 	if err := service.ensureBackendFamily(ctx, mode); err != nil {
 		return nil, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
 	}
-	service.scheduler.noteBorrowRestoreActivity(ctx, runtime, mode, configFilename, readiness)
+	service.scheduler.noteBorrowRestoreActivity(ctx, runtime, mode, configFilename)
 	if err := service.enforceUnloadPolicy(ctx, mode, configFilename, readiness); err != nil {
 		return nil, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
 	}
@@ -268,7 +276,7 @@ func (service *Service) reloadHeldModelConfig(runtime *backendRuntime, ctx conte
 			continue
 		}
 		state.switchWaiters--
-		state.switching = true
+		beginRuntimeSwitchLocked(state, contextIsBorrowed(ctx))
 		state.pendingFilename = configFilename
 		state.pendingProfile = profile
 		state.mu.Unlock()
@@ -278,7 +286,7 @@ func (service *Service) reloadHeldModelConfig(runtime *backendRuntime, ctx conte
 		service.analytics.finishLoad(ctx, vramLoad)
 
 		state.mu.Lock()
-		state.switching = false
+		endRuntimeSwitchLocked(state)
 		state.pendingFilename = ""
 		state.pendingProfile = catalog.ChatTemplateProfile{}
 		if err != nil {
@@ -295,7 +303,7 @@ func (service *Service) reloadHeldModelConfig(runtime *backendRuntime, ctx conte
 		state.filename = configFilename
 		state.modelID = modelID
 		state.generation++
-		applyPhysicalLoadProfileLocked(state, configFilename, profile)
+		applyPhysicalLoadProfileLocked(state, configFilename, profile, readiness)
 		applyVRAMLoadStateLocked(state, vramLoad)
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
@@ -313,6 +321,7 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 	waitingSwitch := false
 	state := runtime.state
 	profile := service.chatTemplateProfileForConfig(configFilename)
+	borrowed := contextIsBorrowed(ctx)
 	for {
 		state.mu.Lock()
 		if !options.forceReload && activeConfigMatchesAcquireOptions(state, configFilename, profile, options) && !state.switching && (state.switchWaiters == 0 || waitingSwitch) {
@@ -327,11 +336,8 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 			if logicalConfigChanged || logicalModelChanged {
 				state.generation++
 			}
-			state.users++
-			leaseTag := service.nextRuntimeLease.Add(1)
-			state.leases[leaseTag] = modelID
+			release := service.addRuntimeLeaseLocked(state, modelID, borrowed)
 			physicalAttemptID := state.physicalAttemptID
-			release := releaseActiveConfigLeaseOnce(state, leaseTag)
 			state.mu.Unlock()
 			service.recordLoadReuse(physicalAttemptID)
 			if logicalConfigChanged {
@@ -363,7 +369,7 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 		}
 
 		state.switchWaiters--
-		state.switching = true
+		beginRuntimeSwitchLocked(state, borrowed)
 		state.pendingFilename = configFilename
 		state.pendingProfile = profile
 		state.mu.Unlock()
@@ -371,7 +377,7 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 		capture, err := service.beginPhysicalLoadCapture(ctx, runtime, configFilename, readiness)
 		if err != nil {
 			state.mu.Lock()
-			state.switching = false
+			endRuntimeSwitchLocked(state)
 			state.pendingFilename = ""
 			state.pendingProfile = catalog.ChatTemplateProfile{}
 			state.filename = ""
@@ -390,7 +396,7 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 		service.finishPhysicalLoadCapture(capture, err)
 
 		state.mu.Lock()
-		state.switching = false
+		endRuntimeSwitchLocked(state)
 		state.pendingFilename = ""
 		state.pendingProfile = catalog.ChatTemplateProfile{}
 		if err != nil {
@@ -412,12 +418,9 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 		} else {
 			state.physicalAttemptID = ""
 		}
-		applyPhysicalLoadProfileLocked(state, configFilename, profile)
+		applyPhysicalLoadProfileLocked(state, configFilename, profile, readiness)
 		applyVRAMLoadStateLocked(state, vramLoad)
-		state.users++
-		leaseTag := service.nextRuntimeLease.Add(1)
-		state.leases[leaseTag] = modelID
-		release := releaseActiveConfigLeaseOnce(state, leaseTag)
+		release := service.addRuntimeLeaseLocked(state, modelID, borrowed)
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
 		service.analytics.recordLoad(modelID, configFilename, readiness, runtime.mode, vramLoad)
@@ -535,7 +538,7 @@ func claimIdleRuntime(ctx context.Context, state *activeConfigState, stillUnload
 		state.modelID = ""
 		state.generation++
 		state.switchWaiters--
-		state.switching = true
+		beginRuntimeSwitchLocked(state, false)
 		state.filename = ""
 		clearPhysicalLoadProfileLocked(state)
 		clearVRAMLoadStateLocked(state)
@@ -547,7 +550,7 @@ func claimIdleRuntime(ctx context.Context, state *activeConfigState, stillUnload
 
 func finishRuntimeSwitch(state *activeConfigState) {
 	state.mu.Lock()
-	state.switching = false
+	endRuntimeSwitchLocked(state)
 	notifyActiveConfigLocked(state)
 	state.mu.Unlock()
 }
@@ -562,10 +565,10 @@ func cancelConfigSwitchWaiter(state *activeConfigState) {
 }
 
 func releaseActiveConfigOnce(state *activeConfigState) func() {
-	return releaseActiveConfigLeaseOnce(state, 0)
+	return releaseActiveConfigLeaseOnce(state, 0, false)
 }
 
-func releaseActiveConfigLeaseOnce(state *activeConfigState, leaseTag uint64) func() {
+func releaseActiveConfigLeaseOnce(state *activeConfigState, leaseTag uint64, borrowed bool) func() {
 	var once sync.Once
 	return func() {
 		once.Do(func() {
@@ -575,8 +578,13 @@ func releaseActiveConfigLeaseOnce(state *activeConfigState, leaseTag uint64) fun
 			}
 			if state.users > 0 {
 				state.users--
+				if borrowed && state.borrowedUsers > 0 {
+					state.borrowedUsers--
+				}
+				if !borrowed && state.users == state.borrowedUsers {
+					state.ownIdleSince = time.Now()
+				}
 				if state.users == 0 {
-					state.idleSince = time.Now()
 					notifyActiveConfigLocked(state)
 				}
 			}
@@ -651,8 +659,9 @@ func pendingConfigMatchesProfileLocked(state *activeConfigState, filename string
 		state.pendingProfile.HasConfiguredKwargs() && state.pendingProfile.PhysicalLoadFingerprint() == fingerprint
 }
 
-func applyPhysicalLoadProfileLocked(state *activeConfigState, filename string, profile catalog.ChatTemplateProfile) {
+func applyPhysicalLoadProfileLocked(state *activeConfigState, filename string, profile catalog.ChatTemplateProfile, readiness backendReadiness) {
 	state.physicalFilename = filename
+	state.physicalReadiness = readiness
 	state.physicalFingerprint = profile.PhysicalLoadFingerprint()
 	state.physicalShareable = profile.Valid() && profile.HasConfiguredKwargs() && state.physicalFingerprint != ""
 }

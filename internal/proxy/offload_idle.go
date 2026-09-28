@@ -14,14 +14,14 @@ func (service *Service) requestsRunningOnEveryBackendFamily() int {
 	return active
 }
 
-func (service *Service) backendsIdleSince() (time.Time, bool) {
+func (service *Service) ownWorkIdleSince() (time.Time, bool) {
 	var latest time.Time
 	for _, family := range service.backendFamilies {
 		for _, runtime := range uniqueBackendRuntimes(family) {
 			runtime.state.mu.Lock()
-			users, idleSince := runtime.state.users, runtime.state.idleSince
+			busy, idleSince := runtime.state.busyWithOwnWorkLocked(), runtime.state.ownIdleSince
 			runtime.state.mu.Unlock()
-			if users > 0 {
+			if busy {
 				return time.Time{}, false
 			}
 			if idleSince.After(latest) {
@@ -41,7 +41,7 @@ func (scheduler *scheduler) idleForBorrowedWork() bool {
 }
 
 func (scheduler *scheduler) idleFor(now time.Time) time.Duration {
-	idleSince, idle := scheduler.deps.backendsIdleSince()
+	idleSince, idle := scheduler.deps.ownWorkIdleSince()
 	if !idle {
 		return 0
 	}

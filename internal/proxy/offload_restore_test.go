@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -55,6 +56,35 @@ func TestBorrowRestoreReloadsTheDisplacedModel(t *testing.T) {
 	}
 
 	waitForLoadedModel(t, service, "a.kcpps")
+}
+
+func TestBorrowRestoreReloadsADisplacedTextModelWithTextReadiness(t *testing.T) {
+	var loadedConfig atomic.Value
+	loadedConfig.Store("")
+	service, backend := newTestServiceWithModels(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/sdapi/v1/sd-models" {
+			w.Header().Set("Content-Type", "application/json")
+			if loadedConfig.Load() == "image.kcpps" {
+				_, _ = w.Write([]byte(`[{"model_name":"ready"}]`))
+				return
+			}
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}), "text", "image")
+	backend.onReload = func(filename string) { loadedConfig.Store(filename) }
+	tuneScheduler(service.scheduler, func(settings *offloadsettings.Settings) { settings.RestoreDelay = 20 * time.Millisecond })
+	mode := service.currentBackendMode()
+
+	if err := service.loadLocalConfig(context.Background(), mode, "text", "text.kcpps", readinessText); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.loadLocalConfig(borrowedRestoreContext(), mode, "image", "image.kcpps", readinessImage); err != nil {
+		t.Fatal(err)
+	}
+
+	waitForLoadedModel(t, service, "text.kcpps")
 }
 
 func TestBorrowRestoreDoesNothingWithoutTheRestoreMarker(t *testing.T) {

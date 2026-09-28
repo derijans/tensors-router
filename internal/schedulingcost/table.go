@@ -97,13 +97,17 @@ func (table *Table) ModelCosts() []ModelCost {
 	}
 	costs := make([]ModelCost, 0, len(table.estimates))
 	for key, estimate := range table.estimates {
-		costs = append(costs, ModelCost{
+		cost := ModelCost{
 			ModelID:  key.ModelID,
 			Section:  key.Section,
 			BaseMS:   estimate.BaseMS,
 			SlopesMS: append([]float64{}, estimate.SlopeMS[:estimate.Arity]...),
 			Samples:  estimate.Samples,
-		})
+		}
+		if estimate.Uniform {
+			cost.UniformWork = append([]float64{}, estimate.UniformWork[:estimate.Arity]...)
+		}
+		costs = append(costs, cost)
 	}
 	return costs
 }
@@ -136,11 +140,12 @@ func (table *Table) TokenCosts() []TokenCost {
 }
 
 type ModelCost struct {
-	ModelID  string    `json:"model_id"`
-	Section  string    `json:"section"`
-	BaseMS   float64   `json:"base_ms"`
-	SlopesMS []float64 `json:"slopes_ms"`
-	Samples  int64     `json:"samples"`
+	ModelID     string    `json:"model_id"`
+	Section     string    `json:"section"`
+	BaseMS      float64   `json:"base_ms"`
+	SlopesMS    []float64 `json:"slopes_ms"`
+	Samples     int64     `json:"samples"`
+	UniformWork []float64 `json:"uniform_work,omitempty"`
 }
 
 type LoadCost struct {
@@ -177,12 +182,17 @@ func Merge(costsByNode map[string]NodeCosts) *Table {
 			}
 			var slopes [MaxWorkTerms]float64
 			copy(slopes[:], cost.SlopesMS)
-			estimates[ModelKey{NodeID: nodeID, ModelID: cost.ModelID, Section: cost.Section}] = Estimate{
+			estimate := Estimate{
 				BaseMS:  cost.BaseMS,
 				SlopeMS: slopes,
 				Arity:   arity,
 				Samples: cost.Samples,
 			}
+			if len(cost.UniformWork) == arity {
+				estimate.Uniform = true
+				copy(estimate.UniformWork[:], cost.UniformWork)
+			}
+			estimates[ModelKey{NodeID: nodeID, ModelID: cost.ModelID, Section: cost.Section}] = estimate
 		}
 		for _, cost := range costs.Loads {
 			loads[LoadKey{NodeID: nodeID, ConfigFilename: cost.ConfigFilename}] = cost.LoadMS

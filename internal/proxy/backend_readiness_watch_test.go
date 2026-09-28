@@ -207,3 +207,76 @@ func TestReadinessFallsBackToProbeWithoutOutput(t *testing.T) {
 		t.Fatalf("probe-only readiness failed: %v", err)
 	}
 }
+
+func newImageReadinessService(t *testing.T, backendWithOutput bool, sdModelsBody func(probe int32) string) (*Service, *watchableBackend, *atomic.Int32) {
+	t.Helper()
+	var probes atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(sdModelsBody(probes.Add(1))))
+	}))
+	t.Cleanup(server.Close)
+	backendURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	backend := &watchableBackend{
+		fakeBackend: &fakeBackend{url: backendURL, healthy: true},
+		hub:         loadcapture.NewHub(),
+	}
+	var configured Backend = backend.fakeBackend
+	if backendWithOutput {
+		configured = backend
+	}
+	dir := t.TempDir()
+	writeProxyTestConfig(t, dir, "text", `{"model_param":"text.gguf"}`)
+	service := NewService(ServiceConfig{
+		Backend:   configured,
+		Catalog:   catalog.New(dir),
+		ConfigDir: dir,
+		Logger:    log.New(os.Stderr, "", 0),
+	})
+	service.backendRetryAttempts = 300
+	service.backendRetryDelay = 10 * time.Millisecond
+	service.backendRetryMaxDelay = 10 * time.Millisecond
+	service.backendReadinessWait = 50 * time.Millisecond
+	return service, backend, &probes
+}
+
+func TestImageReadinessGivesUpOnAConfigWithNoImageModel(t *testing.T) {
+	service, _, probes := newImageReadinessService(t, false, func(int32) string { return `[]` })
+	runtime, err := service.runtimeForBackendMode(BackendModeKobold, readinessImage)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = service.waitForBackendEndpoint(runtime, context.Background(), readinessImage, "text", "text.kcpps")
+
+	if err == nil {
+		t.Fatal("a backend listing no image model must not be reported ready")
+	}
+	if probes.Load() >= int32(service.backendRetryAttempts) {
+		t.Fatalf("probed %d times: an empty image list with no load in progress burned the whole retry budget", probes.Load())
+	}
+}
+
+func TestImageReadinessWaitsOutAnAnnouncedImageLoad(t *testing.T) {
+	const probesWellPastTheIdleLimit = 30
+	service, backend, _ := newImageReadinessService(t, true, func(probe int32) string {
+		if probe > probesWellPastTheIdleLimit {
+			return `[{"model_name":"ready"}]`
+		}
+		return `[]`
+	})
+	runtime, err := service.runtimeForBackendMode(BackendModeKobold, readinessImage)
+	if err != nil {
+		t.Fatal(err)
+	}
+	watch := service.watchBackendReadiness(runtime, readinessImage)
+	defer watch.close()
+	backend.emit("Loading Image Model: image.safetensors\n")
+
+	if err := service.waitForBackendEndpointWatching(runtime, context.Background(), readinessImage, "image", "image.kcpps", watch); err != nil {
+		t.Fatalf("an image load the backend announced must be waited out past the idle limit, got %v", err)
+	}
+}

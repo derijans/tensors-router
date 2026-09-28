@@ -68,6 +68,7 @@ func (scheduler *scheduler) applyDecidedLease(event queueEvent, lease offloadLea
 		return
 	}
 	if _, held := scheduler.offloadLeases.LoadAndDelete(laneModelKey(event.Lane, event.ModelID)); held {
+		scheduler.queueForLane(event.Lane).Readmit()
 		scheduler.record(offloaddecisions.Record{
 			Kind:         offloaddecisions.KindDispatch,
 			Trigger:      event.Trigger,
@@ -106,6 +107,7 @@ func (scheduler *scheduler) acceptOffloadLease(lease offloadLease, trigger strin
 
 func (scheduler *scheduler) refuseOffloadLease(lease offloadLease, trigger string) {
 	scheduler.offloadLeases.Delete(laneModelKey(lease.Lane, lease.OwnerModelID))
+	scheduler.queueForLane(lease.Lane).Readmit()
 	scheduler.record(offloaddecisions.Record{
 		Kind:          offloaddecisions.KindDispatch,
 		Trigger:       trigger,

@@ -140,7 +140,7 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 			analyticsEvent := service.analytics.newEvent(started, r, body, target.publicImageID, routeranalytics.SectionImage, target.backendMode)
 			response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, target.publicImageID, target.configFilename, true, readinessImage, target.backendMode)
 			if err != nil {
-				service.analytics.recordFailure(analyticsEvent, http.StatusBadGateway, workFinalizer)
+				service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
 				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
 				return
 			}
@@ -206,8 +206,7 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 	analyticsEvent := service.analytics.newEvent(started, r, body, model.ImageID, routeranalytics.SectionImage, modelBackendMode)
 	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, model.ImageID, model.Filename, hasModel, readinessImage, modelBackendMode)
 	if err != nil {
-		status, _, _ := backendFailureResponse(err)
-		service.analytics.recordFailure(analyticsEvent, status, workFinalizer)
+		service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
 		writeBackendFailure(w, err)
 		return
 	}

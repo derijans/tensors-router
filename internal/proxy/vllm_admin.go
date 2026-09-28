@@ -96,8 +96,5 @@ func acquireLoadedRuntimeLease(service *Service, runtime *backendRuntime) (func(
 	if state.switching || strings.TrimSpace(state.filename) == "" {
 		return nil, false
 	}
-	state.users++
-	leaseTag := service.nextRuntimeLease.Add(1)
-	state.leases[leaseTag] = state.modelID
-	return releaseActiveConfigLeaseOnce(state, leaseTag), true
+	return service.addRuntimeLeaseLocked(state, state.modelID, false), true
 }

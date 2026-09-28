@@ -100,7 +100,10 @@ paid once and amortises over every job that then flows through the slot, which i
 why a deep backlog justifies a switch that a shallow one does not.
 
 A model has its own cost fit once it has `cluster.scheduling_min_samples` measured
-requests of varied size inside `cluster.scheduling_sample_window`. A helper with
+requests inside `cluster.scheduling_sample_window`. When the requests vary in size,
+the fit scales with the work. When every request did the same work (for example
+image jobs that all use one size and step count), the model is priced at its mean
+duration for that work only, and a request of a different size stays unpriced. A helper with
 no fit of its own is priced with the owner's fit for the same work, and switches
 to its own as soon as it has one. Every successful load counts as load-cost data,
 including loads that were never followed by a generation, so a helper that was
@@ -113,9 +116,25 @@ it has been idle for `cluster.offload_probe_idle` (default `5s`), as long as it 
 accepting borrowed work, its link allows it to take the work, and, for text, its
 context window holds the work. Probes happen even when the owner is faster or
 neither side is priced yet, so every linked pair gradually gathers the samples its
-own fit needs. When a probe is held back only because the helper has not idled
+own fit needs. Idle here means idle from the helper's own work: its own requests
+and any model load it does for itself (including a restore after borrowing) count
+as busy, while borrowed work does not, so a helper that just finished a lent job is
+probed again without waiting out the idle time a second time. When a probe is held back only because the helper has not idled
 long enough yet, the master decides again the moment it has, without waiting for
 the owner's next event.
+
+### Holding a request for a faster helper
+
+With `cluster.offload_hold_for_faster_helper` on (the default), an owner that is
+already generating does not always fill the second backend slot with its next
+waiting request. If a lease is live, every lent slot is busy, and the helper is
+predicted to finish that request sooner than the owner would (the owner's current
+job plus this one, against the helper's remaining lent jobs plus this one), the
+request keeps waiting in the router and goes to the helper on the master's next
+answer. This only applies to the second slot: the owner never stops generating
+because of it. The request goes to the owner as soon as the owner would otherwise
+be idle, the master clears the lease, or the setting is switched off. Probe
+leases and leases without measured speeds on both sides never hold.
 
 ### A helper's own work
 
@@ -143,7 +162,9 @@ database, stamped with the router version that wrote it, and pruned after
   `context_too_small`), and the slots granted.
 - `dispatch` rows on the owner: `lease_updated`, `lease_cleared`,
   `lease_refused`, `lent`, and `returned`, with the slots and how many requests
-  were out at that moment.
+  were out at that moment, and `held_for_helper` with the owner's predicted
+  finish, the owner's and helper's per-job times, and how long the request had
+  waited.
 - `dispatch` rows on the master: `relay_refused`, with the reason.
 - `helper` rows on the helper: `native_waited_behind_borrowed`, with how many
   borrowed jobs were already in the backend and how long its own request waited

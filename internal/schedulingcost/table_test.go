@@ -122,6 +122,24 @@ func TestMergeRestoresPublishedCosts(t *testing.T) {
 	}
 }
 
+func TestMergeRestoresAUniformEstimate(t *testing.T) {
+	points, work, _ := identicalImagePoints()
+	table := Build([]Sample{sampleFor("node-a", "krea", points)}, nil, nil, 20)
+	key := ModelKey{NodeID: "node-a", ModelID: "krea", Section: "image"}
+	original, ok := table.Estimate(key)
+	if !ok {
+		t.Fatal("build dropped a uniform estimate")
+	}
+
+	restored, ok := Merge(map[string]NodeCosts{"node-a": table.NodeCosts()}).Estimate(key)
+	if !ok || restored != original {
+		t.Fatalf("restored %+v ok=%t, want %+v", restored, ok, original)
+	}
+	if _, priced := restored.PredictMS(ImageWork(2 * work)); priced {
+		t.Fatal("a merged uniform estimate priced work its history never did")
+	}
+}
+
 func TestMergeDropsCostsWithoutSlopes(t *testing.T) {
 	merged := Merge(map[string]NodeCosts{
 		"node-old": {Models: []ModelCost{{ModelID: "sdxl", Section: "image", BaseMS: 1000, Samples: 40}}},

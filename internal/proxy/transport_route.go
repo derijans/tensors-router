@@ -68,8 +68,7 @@ func (service *Service) handleStreamingRequest(w http.ResponseWriter, r *http.Re
 	if err != nil {
 		route.release()
 		if event.ModelID != "" {
-			status, _, _ := backendFailureResponse(err)
-			service.analytics.recordFailure(event, status, finalizer)
+			service.analytics.recordForwardFailure(request.Context(), event, err, finalizer)
 		}
 		writeTransportForwardError(w, err)
 		return

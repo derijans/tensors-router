@@ -7,18 +7,19 @@ import (
 )
 
 type Settings struct {
-	RefreshInterval   time.Duration
-	SampleWindow      time.Duration
-	MinSamples        int
-	BackendDepth      int
-	GrantTTL          time.Duration
-	ContextReserve    int
-	RestoreDelay      time.Duration
-	ProbeIdle         time.Duration
-	FasterHelperSlots int
-	SlowerHelperSlots int
-	ProbeHelperSlots  int
-	DecisionRetention time.Duration
+	RefreshInterval     time.Duration
+	SampleWindow        time.Duration
+	MinSamples          int
+	BackendDepth        int
+	GrantTTL            time.Duration
+	ContextReserve      int
+	RestoreDelay        time.Duration
+	ProbeIdle           time.Duration
+	FasterHelperSlots   int
+	SlowerHelperSlots   int
+	ProbeHelperSlots    int
+	HoldForFasterHelper bool
+	DecisionRetention   time.Duration
 }
 
 type Values map[string]string

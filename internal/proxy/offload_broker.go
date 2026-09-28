@@ -49,6 +49,9 @@ type offloadLease struct {
 	Probe              bool      `json:"probe,omitempty"`
 	ExpiresAt          time.Time `json:"expires_at"`
 	TTLMS              int64     `json:"ttl_ms,omitempty"`
+	OwnerJobMS         float64   `json:"owner_job_ms,omitempty"`
+	HelperSwitchMS     float64   `json:"helper_switch_ms,omitempty"`
+	HelperServiceMS    float64   `json:"helper_service_ms,omitempty"`
 }
 
 func (lease offloadLease) restartedOnOwnerClock(now time.Time) offloadLease {
@@ -140,7 +143,7 @@ func planOwner(lane string, candidate lendingOwner, costs *schedulingcost.Table,
 		return offloadLease{}, decisions, false
 	}
 	helper := evaluations[chosen].helper
-	return offloadLease{
+	lease := offloadLease{
 		Lane:               lane,
 		OwnerNodeID:        demand.owner.NodeID,
 		OwnerModelID:       demand.owner.ModelID,
@@ -152,7 +155,20 @@ func planOwner(lane string, candidate lendingOwner, costs *schedulingcost.Table,
 		Probe:              probe,
 		ExpiresAt:          now.Add(policy.ttl),
 		TTLMS:              policy.ttl.Milliseconds(),
-	}, decisions, true
+	}
+	return lease.withMeasuredSpeeds(demand, evaluations[chosen]), decisions, true
+}
+
+func (lease offloadLease) withMeasuredSpeeds(demand ownerDemand, helper helperEvaluation) offloadLease {
+	if !demand.priced || !helper.priced() || helper.serviceSource != offloaddecisions.ServiceSourceHelper {
+		return lease
+	}
+	lease.OwnerJobMS, lease.HelperSwitchMS, lease.HelperServiceMS = demand.jobMS, helper.switchMS, helper.serviceMS
+	return lease
+}
+
+func (lease offloadLease) knowsBothSpeeds() bool {
+	return lease.OwnerJobMS > 0 && lease.HelperServiceMS > 0
 }
 
 func ownersWithPendingWork(owners []lendingOwner) []lendingOwner {

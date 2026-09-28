@@ -135,9 +135,35 @@ func TestLeaseNamesBothModelsAndCarriesTheLinkFlags(t *testing.T) {
 		HelperSlots:        testPlanPolicy.slots.faster,
 		ExpiresAt:          now.Add(30 * time.Second),
 		TTLMS:              (30 * time.Second).Milliseconds(),
+		OwnerJobMS:         8000,
+		HelperSwitchMS:     19000,
+		HelperServiceMS:    8000,
 	}
-	if len(leases) != 1 || leases[0] != want {
+	if len(leases) != 1 || !leasesMatchWithinMillisecond(leases[0], want) {
 		t.Fatalf("leases = %+v, want %+v", leases, want)
+	}
+}
+
+func leasesMatchWithinMillisecond(got offloadLease, want offloadLease) bool {
+	speedsMatch := math.Abs(got.OwnerJobMS-want.OwnerJobMS) < 1 &&
+		math.Abs(got.HelperSwitchMS-want.HelperSwitchMS) < 1 &&
+		math.Abs(got.HelperServiceMS-want.HelperServiceMS) < 1
+	got.OwnerJobMS, got.HelperSwitchMS, got.HelperServiceMS = want.OwnerJobMS, want.HelperSwitchMS, want.HelperServiceMS
+	return speedsMatch && got == want
+}
+
+func TestProbeLeaseCarriesNoSpeeds(t *testing.T) {
+	now := time.Now()
+	owner := lendingTo(candidate("node-a", 16, true))
+	owner.helpers = []offloadHelperCandidate{{offloadCandidate: candidate("node-b", 0, true), LoadIfUnloaded: true}}
+	owner.helpers[0].IdleFor = time.Hour
+	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{owner}, costTableFor(t, nil, nil), now, testPlanPolicy).leases
+
+	if len(leases) != 1 || !leases[0].Probe {
+		t.Fatalf("leases = %+v, want one probe lease", leases)
+	}
+	if leases[0].knowsBothSpeeds() {
+		t.Fatalf("probe lease carries speeds %+v it never measured", leases[0])
 	}
 }
 
