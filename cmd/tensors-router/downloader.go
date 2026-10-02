@@ -111,7 +111,7 @@ func closeDownloader(service downloader.Service) error {
 func modelFileRoots(configured []string, capability downloader.Capability) []string {
 	roots := append([]string{}, configured...)
 	storageRoot := strings.TrimSpace(capability.StorageRoot)
-	if !capability.Working || storageRoot == "" {
+	if !capability.Working || storageRoot == "" || fileSystemRoot(storageRoot) {
 		return roots
 	}
 	for _, root := range roots {
@@ -120,6 +120,11 @@ func modelFileRoots(configured []string, capability downloader.Capability) []str
 		}
 	}
 	return append(roots, storageRoot)
+}
+
+func fileSystemRoot(path string) bool {
+	cleaned := filepath.Clean(path)
+	return filepath.Dir(cleaned) == cleaned
 }
 
 func sameOrParentDirectory(parent string, child string) bool {

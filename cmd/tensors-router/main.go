@@ -302,6 +302,8 @@ func runServe(args []string) error {
 		return err
 	}
 
+	fileRoots := modelFileRoots(cfg.Models.FileRoots, downloaderCapability)
+	startupLogger.Printf("model file roots=%q", fileRoots)
 	router := proxy.NewService(proxy.ServiceConfig{
 		BackendMode:              cfg.Backend.Mode,
 		BackendFamilies:          backendFamilies,
@@ -317,7 +319,7 @@ func runServe(args []string) error {
 		ConfigDir:                cfg.Models.ConfigDir,
 		MCPReconciler:            mcpReconciler,
 		MCPGateway:               mcpGateway,
-		FileRoots:                modelFileRoots(cfg.Models.FileRoots, downloaderCapability),
+		FileRoots:                fileRoots,
 		AssetIndex:               assetIndex,
 		ConcurrentAssetTransfers: cfg.Models.ConcurrentAssetTransfers,
 		BackendBinaryPaths: map[string]string{

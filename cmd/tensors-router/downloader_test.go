@@ -114,6 +114,10 @@ func TestModelFileRootsIncludeWorkingDownloaderStorage(t *testing.T) {
 	if roots := modelFileRoots(nil, downloader.Capability{StorageRoot: storage}); len(roots) != 0 {
 		t.Fatalf("storage of a non-working downloader was added: %v", roots)
 	}
+	fileSystemRootStorage := downloader.Capability{Working: true, StorageRoot: filepath.VolumeName(storage) + string(filepath.Separator)}
+	if roots := modelFileRoots(nil, fileSystemRootStorage); len(roots) != 0 {
+		t.Fatalf("a whole file system was offered as a model root and would be walked on every inventory: %v", roots)
+	}
 }
 
 func TestOptionalDownloaderReportsStorageAndDatabaseInitializationFailures(t *testing.T) {

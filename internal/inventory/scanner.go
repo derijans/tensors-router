@@ -1,6 +1,7 @@
 package inventory
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -83,7 +84,7 @@ func scanRoot(root string, references map[string][]pathReference, nodeID string)
 	files := make([]FileRecord, 0)
 	err = filepath.WalkDir(resolvedRoot, func(path string, entry fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
-			return walkErr
+			return skipUnreadableEntry(path, resolvedRoot, entry, walkErr)
 		}
 		if entry.Type()&os.ModeSymlink != 0 {
 			return scanSymlink(path, resolvedRoot, references, nodeID, &files)
@@ -96,7 +97,7 @@ func scanRoot(root string, references map[string][]pathReference, nodeID string)
 		}
 		info, err := entry.Info()
 		if err != nil {
-			return err
+			return skipUnreadableEntry(path, resolvedRoot, entry, err)
 		}
 		files = append(files, fileRecord(path, info, references, nodeID))
 		return nil
@@ -105,6 +106,16 @@ func scanRoot(root string, references map[string][]pathReference, nodeID string)
 		return nil, err
 	}
 	return files, nil
+}
+
+func skipUnreadableEntry(path string, root string, entry fs.DirEntry, err error) error {
+	if path == root || !errors.Is(err, fs.ErrPermission) && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if entry != nil && entry.IsDir() {
+		return fs.SkipDir
+	}
+	return nil
 }
 
 func scanSymlink(path string, root string, references map[string][]pathReference, nodeID string, files *[]FileRecord) error {

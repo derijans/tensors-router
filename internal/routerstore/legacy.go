@@ -55,7 +55,7 @@ func (handle *Handle) importLegacySource(ctx context.Context, module Module, pat
 		}
 		return err
 	}
-	if sameDatabasePath(path, handle.path) {
+	if sameDatabaseFile(path, handle.path) {
 		return nil
 	}
 	recorded, err := legacyImportRecorded(ctx, handle.writer, module.Name(), path)
@@ -119,16 +119,29 @@ func legacyImportRecorded(ctx context.Context, db *sql.DB, module string, path s
 	return count > 0, nil
 }
 
-func sameDatabasePath(first string, second string) bool {
+func sameDatabaseFile(first string, second string) bool {
 	firstPath, firstErr := canonicalDatabasePath(first)
 	secondPath, secondErr := canonicalDatabasePath(second)
 	if firstErr != nil || secondErr != nil {
-		return false
+		return true
 	}
+	return samePathText(firstPath, secondPath) || sameFileIdentity(firstPath, secondPath)
+}
+
+func samePathText(first string, second string) bool {
 	if runtime.GOOS == "windows" {
-		return strings.EqualFold(firstPath, secondPath)
+		return strings.EqualFold(first, second)
 	}
-	return firstPath == secondPath
+	return first == second
+}
+
+func sameFileIdentity(first string, second string) bool {
+	firstInfo, firstErr := os.Stat(first)
+	secondInfo, secondErr := os.Stat(second)
+	if firstErr != nil || secondErr != nil {
+		return true
+	}
+	return os.SameFile(firstInfo, secondInfo) && firstInfo.Size() == secondInfo.Size() && firstInfo.ModTime().Equal(secondInfo.ModTime())
 }
 
 func canonicalDatabasePath(path string) (string, error) {

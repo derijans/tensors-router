@@ -151,6 +151,28 @@ func TestImportFailureLeavesLegacyFileUntouchedAndContinues(t *testing.T) {
 	}
 }
 
+func TestImportSkipsTheMergedFileReachedThroughAnotherName(t *testing.T) {
+	directory := t.TempDir()
+	merged := filepath.Join(directory, "analytics.sqlite")
+	seeded := openWithLegacy(t, merged)
+	if err := seeded.Close(); err != nil {
+		t.Fatalf("close seeded store: %v", err)
+	}
+	alias := filepath.Join(directory, "legacy-alias.sqlite")
+	if err := os.Link(merged, alias); err != nil {
+		t.Skipf("hard links are unavailable here: %v", err)
+	}
+
+	handle := openWithLegacy(t, merged, routerstore.LegacySource{Module: "notes", Path: alias})
+	defer func() { _ = handle.Close() }()
+	if got := scalarInt(t, handle.DB(), `SELECT COUNT(*) FROM routerstore_legacy_imports`); got != 0 {
+		t.Fatalf("the live database was imported into itself through a second name")
+	}
+	if _, err := os.Stat(alias); err != nil {
+		t.Fatalf("the live database was archived away through its alias: %v", err)
+	}
+}
+
 func TestImportSkipsTheMergedFileItself(t *testing.T) {
 	directory := t.TempDir()
 	merged := filepath.Join(directory, "analytics.sqlite")
