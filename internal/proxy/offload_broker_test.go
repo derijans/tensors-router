@@ -540,22 +540,36 @@ func TestLeaseBookExpiresRatherThanRevokes(t *testing.T) {
 	now := time.Now()
 	book.Replace([]offloadLease{imageLeaseFor("node-a", "img-node-a", now.Add(30*time.Second))})
 
-	if _, ok := book.Lease(cluster.RouteLaneImage, "node-a", "img-node-a", now); !ok {
+	if _, ok := book.IssuedLease(cluster.RouteLaneImage, "node-a", "img-node-a", now); !ok {
 		t.Fatal("live lease was not found")
 	}
-	if _, ok := book.Lease(cluster.RouteLaneImage, "node-a", "img-node-a", now.Add(31*time.Second)); ok {
+	if _, ok := book.IssuedLease(cluster.RouteLaneImage, "node-a", "img-node-a", now.Add(31*time.Second)); ok {
 		t.Fatal("expired lease was still honoured")
 	}
 }
 
-func TestLeaseBookDropsWhatIsNoLongerPlanned(t *testing.T) {
+func TestLeaseBookStopsListingWhatIsNoLongerPlanned(t *testing.T) {
 	book := newOffloadLeaseBook()
 	now := time.Now()
 	book.Replace([]offloadLease{imageLeaseFor("node-a", "img-node-a", now.Add(30*time.Second))})
 	book.Replace(nil)
 
-	if _, ok := book.Lease(cluster.RouteLaneImage, "node-a", "img-node-a", now); ok {
-		t.Fatal("lease survived a cycle that no longer planned it")
+	if live := book.Live(now); len(live) != 0 {
+		t.Fatalf("live leases = %+v, want none after a cycle that no longer planned it", live)
+	}
+}
+
+func TestLeaseBookHonoursAnIssuedLeaseUntilItExpiresAfterReplanning(t *testing.T) {
+	book := newOffloadLeaseBook()
+	now := time.Now()
+	book.Replace([]offloadLease{imageLeaseFor("node-a", "img-node-a", now.Add(30*time.Second))})
+	book.Replace(nil)
+
+	if _, ok := book.IssuedLease(cluster.RouteLaneImage, "node-a", "img-node-a", now); !ok {
+		t.Fatal("a request lent under an unexpired lease was refused after a replan, recalling lent work")
+	}
+	if _, ok := book.IssuedLease(cluster.RouteLaneImage, "node-a", "img-node-a", now.Add(31*time.Second)); ok {
+		t.Fatal("an expired lease was still honoured")
 	}
 }
 
@@ -572,11 +586,11 @@ func TestOffloadLeaseBookReplaceAndLeaseAreSafeConcurrently(t *testing.T) {
 		}
 	}()
 	for range rounds {
-		book.Lease(cluster.RouteLaneImage, "node-a", "img-node-a", now)
+		book.IssuedLease(cluster.RouteLaneImage, "node-a", "img-node-a", now)
 	}
 	<-replaced
 
-	if _, ok := book.Lease(cluster.RouteLaneImage, "node-a", "img-node-a", now); !ok {
+	if _, ok := book.IssuedLease(cluster.RouteLaneImage, "node-a", "img-node-a", now); !ok {
 		t.Fatal("lease installed by the last replace was not found")
 	}
 }
@@ -586,13 +600,13 @@ func TestOffloadLeasesAreKeyedByLaneAndOwnerModel(t *testing.T) {
 	now := time.Now()
 	book.Replace([]offloadLease{imageLeaseFor("node-a", "shared-id", now.Add(30*time.Second))})
 
-	if _, ok := book.Lease(cluster.RouteLaneImage, "node-a", "shared-id", now); !ok {
+	if _, ok := book.IssuedLease(cluster.RouteLaneImage, "node-a", "shared-id", now); !ok {
 		t.Fatal("image lease not found under its own lane")
 	}
-	if _, ok := book.Lease(cluster.RouteLaneText, "node-a", "shared-id", now); ok {
+	if _, ok := book.IssuedLease(cluster.RouteLaneText, "node-a", "shared-id", now); ok {
 		t.Fatal("text lookup found the image lane's lease")
 	}
-	if _, ok := book.Lease(cluster.RouteLaneImage, "node-a", "other-model", now); ok {
+	if _, ok := book.IssuedLease(cluster.RouteLaneImage, "node-a", "other-model", now); ok {
 		t.Fatal("a lease for one owner model was honoured for another")
 	}
 }
