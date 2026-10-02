@@ -11,7 +11,7 @@ import (
 )
 
 func TestFileURLEncodesSpecialFilenameOnce(t *testing.T) {
-	client := NewHubClient(0)
+	client := NewHubClient("", 0)
 	client.baseURL = "https://huggingface.co/api"
 	fileURL := client.FileURL("owner/model", "commit", "weights/model #1%+雪.gguf")
 	parsed, err := url.Parse(fileURL)
@@ -39,7 +39,7 @@ func TestRepositoryUsesJSONAPIForNFAAAndBooleanGatedStatus(t *testing.T) {
 		_, _ = w.Write([]byte(`{"sha":"0123456789abcdef0123456789abcdef01234567","gated":false,"tags":["not-for-all-audiences"],"securityStatus":"safe","siblings":[{"rfilename":"model.gguf","lfs":{"oid":"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef","size":4}}]}`))
 	}))
 	defer server.Close()
-	client := NewHubClient(0)
+	client := NewHubClient("", 0)
 	client.baseURL = server.URL
 	details, err := client.Repository(context.Background(), "owner/model", "main", "operation-token")
 	if err != nil {
@@ -56,7 +56,7 @@ func TestHubClientRejectsHTMLResponses(t *testing.T) {
 		_, _ = w.Write([]byte("<html>interstitial</html>"))
 	}))
 	defer server.Close()
-	client := NewHubClient(0)
+	client := NewHubClient("", 0)
 	client.baseURL = server.URL
 	if _, err := client.Search(context.Background(), SearchRequest{}, ""); err == nil {
 		t.Fatal("expected HTML protocol rejection")
@@ -78,7 +78,7 @@ func TestSearchSerializesDocumentedFilterParameters(t *testing.T) {
 		_, _ = w.Write([]byte(`[]`))
 	}))
 	defer server.Close()
-	client := NewHubClient(0)
+	client := NewHubClient("", 0)
 	client.baseURL = server.URL
 	_, err := client.Search(context.Background(), SearchRequest{Query: "llama", Author: "owner", Filters: []string{"gguf", "transformers"}, PipelineTag: "text-generation", NumParameters: "min:7B,max:70B", Apps: []string{"llama.cpp"}, Gated: "false", Inference: "true", InferenceProviders: []string{"hf-inference"}, TrainedDatasets: []string{"allenai/c4"}, Sort: "likes", Direction: "-1"}, "")
 	if err != nil {
@@ -95,7 +95,7 @@ func TestSearchPageCachesAndReturnsNextCursor(t *testing.T) {
 		_, _ = w.Write([]byte(`[{"id":"owner/model","tags":["gguf"]}]`))
 	}))
 	defer server.Close()
-	client := NewHubClient(0)
+	client := NewHubClient("", 0)
 	client.baseURL = server.URL
 	request := SearchRequest{Query: "model", Limit: 20}
 	first, err := client.SearchPage(context.Background(), request, "token")
@@ -118,7 +118,7 @@ func TestSearchRateLimitAndInputBounds(t *testing.T) {
 		w.WriteHeader(http.StatusTooManyRequests)
 	}))
 	defer server.Close()
-	client := NewHubClient(0)
+	client := NewHubClient("", 0)
 	client.baseURL = server.URL
 	if _, err := client.Search(context.Background(), SearchRequest{}, ""); err == nil || !strings.Contains(err.Error(), "12") {
 		t.Fatalf("unexpected rate-limit error %v", err)

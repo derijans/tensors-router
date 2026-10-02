@@ -140,6 +140,7 @@ type UpdatesConfig struct {
 type DownloaderConfig struct {
 	Enabled        bool
 	BinaryLocation string
+	ConfigPath     string
 }
 
 type VLLMConfig struct {
@@ -1355,6 +1356,9 @@ func setScalarValue(cfg *Config, section string, key string, value string) error
 			return nil
 		case "binary_location":
 			cfg.Downloader.BinaryLocation = value
+			return nil
+		case "config_path":
+			cfg.Downloader.ConfigPath = value
 			return nil
 		}
 	case "cluster":

@@ -73,8 +73,8 @@ func (assets *assetManager) downloadHFAsset(reference modelassets.Reference, ori
 		select {
 		case <-ctx.Done():
 			return "", false
-		case event := <-events:
-			if event.State == downloader.JobFailed || event.State == downloader.JobCancelled {
+		case event, open := <-events:
+			if !open || event.State == downloader.JobFailed || event.State == downloader.JobCancelled {
 				return "", false
 			}
 			if event.State != downloader.JobCompleted {

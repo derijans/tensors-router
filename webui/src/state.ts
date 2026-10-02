@@ -129,7 +129,8 @@ export const state: AppState = {
     candidates: [],
     finderMessage: "",
     modelHandoff: null,
-    error: ""
+    error: "",
+    pollError: ""
   },
   activeTab: "overview",
   activeCookMode: "quick",

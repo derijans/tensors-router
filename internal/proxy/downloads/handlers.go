@@ -3,6 +3,7 @@ package downloads
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -429,5 +430,25 @@ func writeDownloadUnavailable(w http.ResponseWriter, capability downloader.Capab
 	openai.WriteError(w, http.StatusServiceUnavailable, "download_unavailable", unavailableError(capability).Error())
 }
 func writeDownloadError(w http.ResponseWriter, err error) {
-	openai.WriteError(w, http.StatusBadRequest, "download_error", err.Error())
+	openai.WriteError(w, downloadErrorStatus(err), "download_error", err.Error())
+}
+
+func downloadErrorStatus(err error) int {
+	var remote *cluster.RemoteError
+	if errors.As(err, &remote) && remote.StatusCode >= 400 {
+		return remote.StatusCode
+	}
+	switch downloader.ErrorCodeOf(err) {
+	case downloader.ErrorRateLimited:
+		return http.StatusTooManyRequests
+	case downloader.ErrorUpstreamUnavailable:
+		return http.StatusBadGateway
+	case downloader.ErrorServiceUnavailable:
+		return http.StatusServiceUnavailable
+	case downloader.ErrorDenied:
+		return http.StatusForbidden
+	case downloader.ErrorNotFound:
+		return http.StatusNotFound
+	}
+	return http.StatusBadRequest
 }

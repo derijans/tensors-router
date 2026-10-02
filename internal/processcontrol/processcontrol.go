@@ -9,6 +9,7 @@ import (
 type Options struct {
 	HideWindow             bool
 	ParentDeathGracePeriod time.Duration
+	TerminateWithParent    bool
 }
 
 func Start(cmd *exec.Cmd, options Options) error {

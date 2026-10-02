@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
 )
+
+const storePragmas = "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)"
 
 type Store struct {
 	db *sql.DB
@@ -18,7 +21,10 @@ func OpenStore(databasePath string) (*Store, error) {
 	if err := ensureDirectory(filepath.Dir(databasePath)); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", databasePath)
+	if strings.Contains(databasePath, "?") {
+		return nil, fmt.Errorf("downloader database path must not contain '?'")
+	}
+	db, err := sql.Open("sqlite", databasePath+"?"+storePragmas)
 	if err != nil {
 		return nil, err
 	}
@@ -39,8 +45,6 @@ func (store *Store) Close() error {
 
 func (store *Store) initialize() error {
 	statements := []string{
-		"PRAGMA journal_mode=WAL",
-		"PRAGMA foreign_keys=ON",
 		`CREATE TABLE IF NOT EXISTS artifacts (path TEXT PRIMARY KEY, sha256 TEXT NOT NULL, size INTEGER NOT NULL, modified_unix_nano INTEGER NOT NULL, repository TEXT NOT NULL, repository_path TEXT NOT NULL, revision TEXT NOT NULL, verification_source TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS repositories (repository TEXT PRIMARY KEY, revision TEXT NOT NULL, local_root TEXT NOT NULL, updated_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS jobs (id TEXT PRIMARY KEY, repository TEXT NOT NULL, revision TEXT NOT NULL, resolved_commit TEXT NOT NULL, state TEXT NOT NULL, total_bytes INTEGER NOT NULL, completed_bytes INTEGER NOT NULL, error TEXT NOT NULL, snapshot INTEGER NOT NULL DEFAULT 0, tree_sha256 TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`,
@@ -55,14 +59,17 @@ func (store *Store) initialize() error {
 	if err := store.migrateJobCommitColumn(); err != nil {
 		return err
 	}
-	if err := store.ensureJobColumn("snapshot", "INTEGER NOT NULL DEFAULT 0"); err != nil {
+	if err := store.ensureColumn("jobs", "snapshot", "INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
-	return store.ensureJobColumn("tree_sha256", "TEXT NOT NULL DEFAULT ''")
+	if err := store.ensureColumn("jobs", "tree_sha256", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return err
+	}
+	return store.ensureColumn("job_files", "expected_git_oid", "TEXT NOT NULL DEFAULT ''")
 }
 
-func (store *Store) ensureJobColumn(name string, definition string) error {
-	rows, err := store.db.Query(`PRAGMA table_info(jobs)`)
+func (store *Store) ensureColumn(table string, name string, definition string) error {
+	rows, err := store.db.Query(`PRAGMA table_info(` + table + `)`)
 	if err != nil {
 		return err
 	}
@@ -84,7 +91,7 @@ func (store *Store) ensureJobColumn(name string, definition string) error {
 	if found {
 		return nil
 	}
-	_, err = store.db.Exec(`ALTER TABLE jobs ADD COLUMN ` + name + ` ` + definition)
+	_, err = store.db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + name + ` ` + definition)
 	return err
 }
 
@@ -169,124 +176,6 @@ func (store *Store) ListArtifacts() ([]ArtifactRecord, error) {
 func (store *Store) DeleteArtifact(path string) error {
 	_, err := store.db.Exec(`DELETE FROM artifacts WHERE path = ?`, path)
 	return err
-}
-
-func (store *Store) SaveJob(job DownloadJob) error {
-	if job.ID == "" || job.Repository == "" || job.Commit == "" || !validJobState(job.State) || job.TotalBytes < 0 || job.CompletedBytes < 0 || job.TreeSHA256 != "" && !validSHA256(job.TreeSHA256) {
-		return fmt.Errorf("download job is invalid")
-	}
-	now := time.Now().UTC()
-	if job.CreatedAt.IsZero() {
-		job.CreatedAt = now
-	}
-	job.UpdatedAt = now
-	transaction, err := store.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer transaction.Rollback()
-	if _, err := transaction.Exec(`INSERT INTO jobs(id, repository, revision, resolved_commit, state, total_bytes, completed_bytes, error, snapshot, tree_sha256, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET state=excluded.state, total_bytes=excluded.total_bytes, completed_bytes=excluded.completed_bytes, error=excluded.error, snapshot=excluded.snapshot, tree_sha256=excluded.tree_sha256, updated_at=excluded.updated_at`, job.ID, job.Repository, job.Revision, job.Commit, job.State, job.TotalBytes, job.CompletedBytes, job.Error, job.Snapshot, job.TreeSHA256, job.CreatedAt.Format(time.RFC3339Nano), job.UpdatedAt.Format(time.RFC3339Nano)); err != nil {
-		return err
-	}
-	if _, err := transaction.Exec(`DELETE FROM job_files WHERE job_id = ?`, job.ID); err != nil {
-		return err
-	}
-	for _, file := range job.Files {
-		if _, err := transaction.Exec(`INSERT INTO job_files(job_id, path, reason, expected_sha256, size, completed_bytes, state, error) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, job.ID, file.Path, file.Reason, file.ExpectedSHA256, file.Size, file.CompletedBytes, file.State, file.Error); err != nil {
-			return err
-		}
-	}
-	return transaction.Commit()
-}
-
-func (store *Store) Job(id string) (DownloadJob, bool, error) {
-	row := store.db.QueryRow(`SELECT id, repository, revision, resolved_commit, state, total_bytes, completed_bytes, error, snapshot, tree_sha256, created_at, updated_at FROM jobs WHERE id = ?`, id)
-	var job DownloadJob
-	var created, updated string
-	err := row.Scan(&job.ID, &job.Repository, &job.Revision, &job.Commit, &job.State, &job.TotalBytes, &job.CompletedBytes, &job.Error, &job.Snapshot, &job.TreeSHA256, &created, &updated)
-	if err == sql.ErrNoRows {
-		return DownloadJob{}, false, nil
-	}
-	if err != nil {
-		return DownloadJob{}, false, err
-	}
-	job.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
-	job.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
-	files, err := store.jobFiles(id)
-	if err != nil {
-		return DownloadJob{}, false, err
-	}
-	job.Files = files
-	return job, true, nil
-}
-
-func (store *Store) Jobs() ([]DownloadJob, error) {
-	rows, err := store.db.Query(`SELECT id FROM jobs ORDER BY updated_at DESC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	jobs := []DownloadJob{}
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			return nil, err
-		}
-		job, found, err := store.Job(id)
-		if err != nil {
-			return nil, err
-		}
-		if found {
-			jobs = append(jobs, job)
-		}
-	}
-	return jobs, rows.Err()
-}
-
-func (store *Store) RecoverInterrupted(reason string) (int64, error) {
-	transaction, err := store.db.Begin()
-	if err != nil {
-		return 0, err
-	}
-	defer transaction.Rollback()
-	result, err := transaction.Exec(`UPDATE jobs SET state = ?, error = ?, updated_at = ? WHERE state IN (?, ?)`, JobFailed, reason, time.Now().UTC().Format(time.RFC3339Nano), JobQueued, JobRunning)
-	if err != nil {
-		return 0, err
-	}
-	if _, err := transaction.Exec(`UPDATE job_files SET state = ?, error = ? WHERE state IN (?, ?)`, JobFailed, reason, JobQueued, JobRunning); err != nil {
-		return 0, err
-	}
-	affected, err := result.RowsAffected()
-	if err != nil {
-		return 0, err
-	}
-	return affected, transaction.Commit()
-}
-
-func (store *Store) jobFiles(jobID string) ([]JobFile, error) {
-	rows, err := store.db.Query(`SELECT path, reason, expected_sha256, size, completed_bytes, state, error FROM job_files WHERE job_id = ? ORDER BY path`, jobID)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	files := []JobFile{}
-	for rows.Next() {
-		var file JobFile
-		if err := rows.Scan(&file.Path, &file.Reason, &file.ExpectedSHA256, &file.Size, &file.CompletedBytes, &file.State, &file.Error); err != nil {
-			return nil, err
-		}
-		files = append(files, file)
-	}
-	return files, rows.Err()
-}
-
-func validJobState(state JobState) bool {
-	switch state {
-	case JobQueued, JobRunning, JobPaused, JobCancelled, JobFailed, JobCompleted:
-		return true
-	default:
-		return false
-	}
 }
 
 func artifactFromFile(path string, hash string, repository string, repositoryPath string, revision string, verificationSource string) (ArtifactRecord, error) {

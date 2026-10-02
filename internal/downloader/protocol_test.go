@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -32,7 +33,7 @@ func TestWorkerHandshakeAndCapabilityProtocol(t *testing.T) {
 	if err := json.Unmarshal(response.Result, &handshake); err != nil {
 		t.Fatal(err)
 	}
-	if handshake.Protocol != ProtocolVersion || !containsCapability(handshake.Capabilities, "native_http") || !handshake.Runtime.Available {
+	if handshake.Protocol != ProtocolVersion || !slices.Contains(handshake.Capabilities, "native_http") || !handshake.Runtime.Available {
 		t.Fatalf("unexpected handshake %#v", handshake)
 	}
 }

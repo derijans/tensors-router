@@ -54,7 +54,7 @@ func TestDownloadDestinationPathStillCreatesDirectories(t *testing.T) {
 	}
 }
 
-func TestRecoverInterruptedFailsUnfinishedJobs(t *testing.T) {
+func TestRequeueInterruptedReturnsUnfinishedJobsToQueue(t *testing.T) {
 	store, err := OpenStore(filepath.Join(t.TempDir(), "downloads.sqlite"))
 	if err != nil {
 		t.Fatal(err)
@@ -69,23 +69,20 @@ func TestRecoverInterruptedFailsUnfinishedJobs(t *testing.T) {
 		}
 	}
 
-	affected, err := store.RecoverInterrupted("router stopped")
+	requeued, err := store.RequeueInterrupted()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if affected != 1 {
-		t.Fatalf("expected exactly one interrupted job, got %d", affected)
+	if len(requeued) != 1 || requeued[0] != "running" {
+		t.Fatalf("expected only the interrupted job to be requeued, got %v", requeued)
 	}
 
 	recovered, _, err := store.Job("running")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if recovered.State != JobFailed || recovered.Error != "router stopped" {
-		t.Fatalf("interrupted job was not marked failed: %#v", recovered)
-	}
-	if recovered.Files[0].State != string(JobFailed) {
-		t.Fatalf("interrupted job file was not marked failed: %#v", recovered.Files[0])
+	if recovered.State != JobQueued || recovered.Files[0].State != string(JobQueued) {
+		t.Fatalf("interrupted job was not returned to the queue: %#v", recovered)
 	}
 
 	untouched, _, err := store.Job("done")
@@ -93,6 +90,6 @@ func TestRecoverInterruptedFailsUnfinishedJobs(t *testing.T) {
 		t.Fatal(err)
 	}
 	if untouched.State != JobCompleted {
-		t.Fatalf("a completed job must not be recovered: %#v", untouched)
+		t.Fatalf("a completed job must not be requeued: %#v", untouched)
 	}
 }

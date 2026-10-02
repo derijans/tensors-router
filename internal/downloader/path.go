@@ -126,7 +126,10 @@ func safeRepositoryPart(value string) bool {
 }
 
 func safeRepositoryPath(repositoryPath string) ([]string, error) {
-	repositoryPath = strings.TrimSpace(repositoryPath)
+	return repositoryPathParts(repositoryPath, hostFileSystem)
+}
+
+func repositoryPathParts(repositoryPath string, rules fileSystemRules) ([]string, error) {
 	if repositoryPath == "" || strings.Contains(repositoryPath, "\\") || path.IsAbs(repositoryPath) || filepath.IsAbs(repositoryPath) {
 		return nil, fmt.Errorf("repository path is invalid")
 	}
@@ -138,6 +141,9 @@ func safeRepositoryPath(repositoryPath string) ([]string, error) {
 	for _, part := range parts {
 		if part == "" || part == "." || part == ".." || strings.ContainsRune(part, 0) {
 			return nil, fmt.Errorf("repository path is invalid")
+		}
+		if problem := rules.nameProblem(part); problem != "" {
+			return nil, fmt.Errorf("repository path %q cannot be stored safely: %q %s", repositoryPath, part, problem)
 		}
 	}
 	return parts, nil
@@ -204,4 +210,47 @@ func ensureDirectory(directory string) error {
 		return fmt.Errorf("%s is not a safe directory", directory)
 	}
 	return nil
+}
+
+func resolveStorageLocations(storage StorageConfig) (StorageConfig, error) {
+	root, err := prepareStorageDirectory(storage.Root)
+	if err != nil {
+		return StorageConfig{}, fmt.Errorf("initialize downloader storage root: %w", err)
+	}
+	stateDir, err := prepareStorageDirectory(storage.StateDir)
+	if err != nil {
+		return StorageConfig{}, fmt.Errorf("initialize downloader state storage: %w", err)
+	}
+	databaseRelative, err := filepath.Rel(storage.StateDir, storage.DatabasePath)
+	if err != nil {
+		return StorageConfig{}, err
+	}
+	storage.Root, storage.StateDir, storage.DatabasePath = root, stateDir, filepath.Join(stateDir, databaseRelative)
+	return storage, nil
+}
+
+func prepareStorageDirectory(directory string) (string, error) {
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		return "", err
+	}
+	resolved, err := filepath.EvalSymlinks(directory)
+	if err != nil {
+		return "", err
+	}
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", err
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("%s is not a directory", directory)
+	}
+	return resolved, nil
+}
+
+func secureStagingPath(staging string, repositoryPath string) (string, error) {
+	parts, err := safeRepositoryPath(repositoryPath)
+	if err != nil {
+		return "", err
+	}
+	return secureJoin(staging, parts...)
 }

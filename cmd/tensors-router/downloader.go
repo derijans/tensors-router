@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"tensors-router/internal/companion"
 	"tensors-router/internal/config"
@@ -34,7 +35,10 @@ func optionalDownloader(routerConfigPath string, downloaderConfig config.Downloa
 	}
 	capability.Present = true
 	capability.Available = true
-	configPath := filepath.Join(filepath.Dir(routerConfigPath), "downloader.yaml")
+	configPath, err := downloaderConfigPath(routerConfigPath, downloaderConfig.ConfigPath)
+	if err != nil {
+		return nil, failedDownloaderCapability(capability, fmt.Sprintf("resolve downloader configuration path: %v", err))
+	}
 	_, warnings, err := downloader.LoadConfig(configPath)
 	if err != nil {
 		return nil, failedDownloaderCapability(capability, fmt.Sprintf("load downloader configuration %q: %v", configPath, err))
@@ -42,7 +46,7 @@ func optionalDownloader(routerConfigPath string, downloaderConfig config.Downloa
 	for _, warning := range warnings {
 		logger.Printf("configuration warning: %s", warning)
 	}
-	client, err = downloader.StartClient(context.Background(), binaryPath, configPath)
+	client, err = downloader.StartSupervisedClient(context.Background(), binaryPath, configPath)
 	if err != nil {
 		return nil, failedDownloaderCapability(capability, err.Error())
 	}
@@ -70,12 +74,22 @@ func logDownloaderStatus(logger *log.Logger, capability downloader.Capability) {
 	logger.Printf("downloader status enabled=%t present=%t working=%t reason=%q", capability.Enabled, capability.Present, capability.Working, capability.Reason)
 }
 
+func downloaderConfigPath(routerConfigPath string, configured string) (string, error) {
+	if configured == "" {
+		configured = "downloader.yaml"
+	}
+	if !filepath.IsAbs(configured) {
+		configured = filepath.Join(filepath.Dir(routerConfigPath), configured)
+	}
+	return filepath.Abs(configured)
+}
+
 func downloaderBinaryPath(routerConfigPath string, binaryLocation string) (string, error) {
 	if binaryLocation != "" {
 		if filepath.IsAbs(binaryLocation) {
 			return binaryLocation, nil
 		}
-		return filepath.Join(filepath.Dir(routerConfigPath), binaryLocation), nil
+		return filepath.Abs(filepath.Join(filepath.Dir(routerConfigPath), binaryLocation))
 	}
 	executablePath, err := os.Executable()
 	if err != nil {
@@ -92,4 +106,28 @@ func closeDownloader(service downloader.Service) error {
 		return nil
 	}
 	return service.Close()
+}
+
+func modelFileRoots(configured []string, capability downloader.Capability) []string {
+	roots := append([]string{}, configured...)
+	storageRoot := strings.TrimSpace(capability.StorageRoot)
+	if !capability.Working || storageRoot == "" {
+		return roots
+	}
+	for _, root := range roots {
+		if sameOrParentDirectory(root, storageRoot) {
+			return roots
+		}
+	}
+	return append(roots, storageRoot)
+}
+
+func sameOrParentDirectory(parent string, child string) bool {
+	parentPath, parentErr := filepath.Abs(parent)
+	childPath, childErr := filepath.Abs(child)
+	if parentErr != nil || childErr != nil {
+		return false
+	}
+	relative, err := filepath.Rel(parentPath, childPath)
+	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) && !filepath.IsAbs(relative)
 }

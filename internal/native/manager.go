@@ -260,7 +260,7 @@ func (manager *Manager) spawnLocked(ctx context.Context, filename string, args [
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 
-	if err := processcontrol.Start(cmd, processcontrol.Options{HideWindow: manager.config.HideWindow, ParentDeathGracePeriod: 10 * time.Second}); err != nil {
+	if err := processcontrol.Start(cmd, processcontrol.Options{HideWindow: manager.config.HideWindow, ParentDeathGracePeriod: 10 * time.Second, TerminateWithParent: true}); err != nil {
 		_ = closeLogFile(logFile)
 		return err
 	}

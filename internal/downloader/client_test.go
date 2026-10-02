@@ -12,20 +12,7 @@ import (
 )
 
 func TestClientPerformsHandshakeAndReportsCompanionCrash(t *testing.T) {
-	directory := t.TempDir()
-	binaryName := "tensor-router-downloader"
-	if runtime.GOOS == "windows" {
-		binaryName += ".exe"
-	}
-	binaryPath := filepath.Join(directory, binaryName)
-	build := exec.Command("go", "build", "-o", binaryPath, "../../cmd/tensor-router-downloader")
-	if output, err := build.CombinedOutput(); err != nil {
-		t.Fatalf("build companion: %v\n%s", err, output)
-	}
-	configPath := filepath.Join(directory, "downloader.yaml")
-	if err := os.WriteFile(configPath, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	binaryPath, configPath := buildCompanion(t)
 	client, err := StartClient(context.Background(), binaryPath, configPath)
 	if err != nil {
 		t.Fatal(err)
@@ -49,6 +36,25 @@ func TestClientPerformsHandshakeAndReportsCompanionCrash(t *testing.T) {
 	}
 }
 
+func buildCompanion(t *testing.T) (string, string) {
+	t.Helper()
+	directory := t.TempDir()
+	binaryName := "tensor-router-downloader"
+	if runtime.GOOS == "windows" {
+		binaryName += ".exe"
+	}
+	binaryPath := filepath.Join(directory, binaryName)
+	build := exec.Command("go", "build", "-o", binaryPath, "../../cmd/tensor-router-downloader")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build companion: %v\n%s", err, output)
+	}
+	configPath := filepath.Join(directory, "downloader.yaml")
+	if err := os.WriteFile(configPath, []byte("logging:\n  mode: off\nstorage:\n  free_space_reserve_gb: 0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return binaryPath, configPath
+}
+
 func TestClientCloseKillsUnresponsiveCompanion(t *testing.T) {
 	if os.Getenv("TENSORS_ROUTER_UNRESPONSIVE_COMPANION") == "1" {
 		for {
@@ -70,7 +76,7 @@ func TestClientCloseKillsUnresponsiveCompanion(t *testing.T) {
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}
-	client := &Client{command: command, input: input, pending: map[uint64]chan protocolResponse{}, done: make(chan struct{}), stderr: stderr}
+	client := newClient(command, input, stderr)
 	go client.readResponses(output)
 	started := time.Now()
 	closeError := client.Close()

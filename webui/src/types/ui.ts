@@ -217,6 +217,7 @@ export interface AppState {
     finderMessage: string;
     modelHandoff: {nodeID: string; publicID: string; configID: string; configFilename: string; field: string; position?: number; filename: string; hash: string} | null;
     error: string;
+    pollError: string;
   };
   activeTab: string;
   activeCookMode: CookMode;

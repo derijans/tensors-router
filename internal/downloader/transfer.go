@@ -10,54 +10,62 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 )
 
-func (manager *Manager) downloadFile(ctx context.Context, repository string, commit string, repositoryPath string, stagingPath string, expectedSize int64, token string) error {
-	if err := ensureDirectory(filepath.Dir(stagingPath)); err != nil {
-		return err
-	}
-	retries := manager.config.Downloads.RetryLimit
-	if retries < 0 {
-		retries = 0
-	}
-	var lastError error
-	for attempt := 0; attempt <= retries; attempt++ {
-		if attempt > 0 {
-			delay := time.Duration(attempt) * 250 * time.Millisecond
-			timer := time.NewTimer(delay)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return ctx.Err()
-			case <-timer.C:
-			}
-		}
-		if err := manager.downloadFileAttempt(ctx, repository, commit, repositoryPath, stagingPath, expectedSize, token); err == nil {
-			return nil
-		} else {
-			lastError = err
-			if !retryableDownloadError(err) {
-				break
-			}
-		}
-	}
-	return fmt.Errorf("download %q failed: %w", repositoryPath, lastError)
+type fileDownload struct {
+	repository     string
+	commit         string
+	repositoryPath string
+	stagingPath    string
+	expectedSize   int64
+	token          string
+	onProgress     func(completed int64)
 }
 
-func (manager *Manager) downloadFileAttempt(ctx context.Context, repository string, commit string, repositoryPath string, stagingPath string, expectedSize int64, token string) error {
-	file, offset, err := openDownloadStaging(stagingPath, expectedSize)
+func (manager *Manager) downloadFile(ctx context.Context, download fileDownload) (stagedDigests, error) {
+	if err := ensureDirectory(filepath.Dir(download.stagingPath)); err != nil {
+		return stagedDigests{}, err
+	}
+	retryBudget := max(manager.config.Downloads.RetryLimit, 0)
+	failuresWithoutProgress := 0
+	for {
+		digests, written, err := manager.downloadFileAttempt(ctx, download)
+		if err == nil {
+			return digests, nil
+		}
+		if !retryableDownloadError(err) {
+			return stagedDigests{}, fmt.Errorf("download %q failed: %w", download.repositoryPath, err)
+		}
+		if written > 0 {
+			failuresWithoutProgress = 0
+		}
+		failuresWithoutProgress++
+		if failuresWithoutProgress > retryBudget {
+			return stagedDigests{}, fmt.Errorf("download %q failed after %d attempts without progress: %w", download.repositoryPath, failuresWithoutProgress, err)
+		}
+		manager.logRuntime("download retry path=%q attempt=%d error=%q", download.repositoryPath, failuresWithoutProgress, redactSensitive(err.Error()))
+		if waitErr := manager.retryWait(ctx, backoffDelay(failuresWithoutProgress, err)); waitErr != nil {
+			return stagedDigests{}, waitErr
+		}
+	}
+}
+
+func (manager *Manager) downloadFileAttempt(ctx context.Context, download fileDownload) (stagedDigests, int64, error) {
+	file, offset, err := openDownloadStaging(download.stagingPath, download.expectedSize)
 	if err != nil {
-		return err
+		return stagedDigests{}, 0, err
 	}
 	defer file.Close()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, manager.hub.FileURL(repository, commit, repositoryPath), nil)
+	attemptContext, guard, release := guardAgainstStall(ctx, manager.config.Downloads.StallTimeout)
+	defer release()
+	request, err := http.NewRequestWithContext(attemptContext, http.MethodGet, manager.hub.FileURL(download.repository, download.commit, download.repositoryPath), nil)
 	if err != nil {
-		return err
+		return stagedDigests{}, 0, err
 	}
 	request.Header.Set("Accept", "application/octet-stream")
 	request.Header.Set("Accept-Encoding", "identity")
-	if token = strings.TrimSpace(token); token != "" {
+	request.Header.Set("User-Agent", userAgent())
+	if token := strings.TrimSpace(download.token); token != "" {
 		request.Header.Set("Authorization", "Bearer "+token)
 	}
 	if offset > 0 {
@@ -65,48 +73,61 @@ func (manager *Manager) downloadFileAttempt(ctx context.Context, repository stri
 	}
 	response, err := manager.hub.downloadClient.Do(request)
 	if err != nil {
-		return err
+		return stagedDigests{}, 0, guard.explain(err)
 	}
 	defer response.Body.Close()
-	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
-		return permanentDownloadError{message: "Hugging Face denied access; approve the gated repository and provide an authorized token"}
-	}
-	if response.StatusCode == http.StatusRequestedRangeNotSatisfiable && expectedSize > 0 && offset == expectedSize {
-		return nil
-	}
-	if response.StatusCode != http.StatusOK && response.StatusCode != http.StatusPartialContent {
-		if response.StatusCode >= 400 && response.StatusCode < 500 && response.StatusCode != http.StatusRequestTimeout && response.StatusCode != http.StatusTooManyRequests {
-			return permanentDownloadError{message: fmt.Sprintf("Hugging Face download returned status %d", response.StatusCode)}
+	if err := classifyDownloadStatus(response, download.expectedSize, offset); err != nil {
+		if errors.Is(err, errAlreadyComplete) {
+			digests, hashErr := hashStagedFile(download.stagingPath, download.expectedSize)
+			return digests, 0, hashErr
 		}
-		return fmt.Errorf("Hugging Face download returned status %d", response.StatusCode)
+		return stagedDigests{}, 0, err
 	}
 	if offset > 0 && response.StatusCode == http.StatusOK {
 		if err := file.Truncate(0); err != nil {
-			return err
+			return stagedDigests{}, 0, err
 		}
 		if _, err := file.Seek(0, io.SeekStart); err != nil {
-			return err
+			return stagedDigests{}, 0, err
 		}
 		offset = 0
 	}
 	if response.StatusCode == http.StatusPartialContent && !strings.HasPrefix(response.Header.Get("Content-Range"), "bytes "+strconv.FormatInt(offset, 10)+"-") {
-		return permanentDownloadError{message: "Hugging Face returned an invalid resume range"}
+		return stagedDigests{}, 0, permanentDownloadError{message: "Hugging Face returned an invalid resume range"}
 	}
-	written, err := io.Copy(file, response.Body)
+	hasher, err := newStagedHasher(download.stagingPath, offset, download.expectedSize)
 	if err != nil {
-		return err
+		return stagedDigests{}, 0, err
+	}
+	progress := &progressCounter{completed: offset, report: download.onProgress}
+	written, err := io.Copy(io.MultiWriter(file, hasher, progress), guard.reader(response.Body))
+	if err != nil {
+		return stagedDigests{}, written, guard.explain(err)
 	}
 	if err := file.Sync(); err != nil {
-		return err
+		return stagedDigests{}, written, err
 	}
 	actualSize := offset + written
-	if expectedSize > 0 && actualSize != expectedSize {
-		return fmt.Errorf("downloaded size is %d bytes, expected %d", actualSize, expectedSize)
+	if download.expectedSize >= 0 && actualSize != download.expectedSize {
+		return stagedDigests{}, written, fmt.Errorf("downloaded size is %d bytes, expected %d", actualSize, download.expectedSize)
 	}
-	if expectedSize <= 0 && actualSize == 0 {
-		return fmt.Errorf("Hugging Face returned an empty body and no expected size for %q", repositoryPath)
+	return hasher.digests(actualSize), written, nil
+}
+
+var errAlreadyComplete = errors.New("staged file is already complete")
+
+func classifyDownloadStatus(response *http.Response, expectedSize int64, offset int64) error {
+	switch {
+	case response.StatusCode == http.StatusOK || response.StatusCode == http.StatusPartialContent:
+		return nil
+	case response.StatusCode == http.StatusRequestedRangeNotSatisfiable && expectedSize >= 0 && offset == expectedSize:
+		return errAlreadyComplete
+	case response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden:
+		return permanentDownloadError{message: "Hugging Face denied access; approve the gated repository and provide an authorized token", code: ErrorDenied}
+	case retryableStatus(response.StatusCode):
+		return newUpstreamStatusError(response, fmt.Sprintf("Hugging Face download returned status %d", response.StatusCode))
 	}
-	return nil
+	return permanentDownloadError{message: fmt.Sprintf("Hugging Face download returned status %d", response.StatusCode), code: errorCodeForStatus(response.StatusCode)}
 }
 
 func openDownloadStaging(path string, expectedSize int64) (*os.File, int64, error) {
@@ -115,7 +136,7 @@ func openDownloadStaging(path string, expectedSize int64) (*os.File, int64, erro
 		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
 			return nil, 0, fmt.Errorf("download staging path is not a regular file")
 		}
-		if expectedSize > 0 && info.Size() > expectedSize {
+		if expectedSize >= 0 && info.Size() > expectedSize {
 			if err := os.Remove(path); err != nil {
 				return nil, 0, err
 			}
@@ -136,9 +157,27 @@ func openDownloadStaging(path string, expectedSize int64) (*os.File, int64, erro
 	return file, 0, err
 }
 
-type permanentDownloadError struct{ message string }
+func stagedSize(path string) int64 {
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return 0
+	}
+	return info.Size()
+}
+
+type permanentDownloadError struct {
+	message string
+	code    ErrorCode
+}
 
 func (problem permanentDownloadError) Error() string { return problem.message }
+
+func (problem permanentDownloadError) Unwrap() error {
+	if problem.code == "" {
+		return nil
+	}
+	return &Error{Code: problem.code, Message: problem.message}
+}
 
 func retryableDownloadError(err error) bool {
 	var permanent permanentDownloadError

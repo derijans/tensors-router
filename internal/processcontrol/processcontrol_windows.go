@@ -20,6 +20,10 @@ func Prepare(cmd *exec.Cmd, options Options) {
 }
 
 func Guard(cmd *exec.Cmd, options Options) {
+	if !options.TerminateWithParent || cmd == nil || cmd.Process == nil {
+		return
+	}
+	_ = assignToParentLifetimeJob(cmd.Process.Pid)
 }
 
 func Interrupt(cmd *exec.Cmd) error {

@@ -73,7 +73,7 @@ func TestManagerCloseCancelsAndJoinsRunningJobs(t *testing.T) {
 	if err != nil || !found {
 		t.Fatalf("load shutdown job: found=%t error=%v", found, err)
 	}
-	if err := manager.startJob(stored); err != nil {
+	if err := manager.startJob(stored.ID); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -205,7 +205,7 @@ func TestStagingDirectoryUsesLocalStateStorage(t *testing.T) {
 	storageRoot := t.TempDir()
 	stateDir := t.TempDir()
 	manager := &Manager{config: Config{Storage: StorageConfig{Root: storageRoot, StateDir: stateDir}}}
-	staging, err := manager.stagingDirectory(DownloadJob{ID: "job", Repository: "owner/repository"})
+	staging, err := manager.stagingDirectory("job")
 	if err != nil {
 		t.Fatal(err)
 	}

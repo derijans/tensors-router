@@ -188,6 +188,7 @@ When updates are enabled, each selected backend needs either a direct binary URL
 | --- | --- | --- | --- |
 | `downloader.enabled` | Boolean | `true` | Enables router-owned downloader initialization and capability reporting. |
 | `downloader.binary_location` | Path string | Empty | Downloader executable. Empty searches beside the router executable. |
+| `downloader.config_path` | Path string | Empty | Downloader configuration. Empty uses `downloader.yaml` beside the router configuration; a missing file means defaults. |
 
 ### Cluster
 
@@ -325,16 +326,18 @@ See [Backend WebUI Interfaces](Backend-WebUI-Interfaces) for listener setup, ext
 | `storage.state_dir` | Required path string | `./downloader-state` | Stores downloader state and temporary download staging before verified promotion to `storage.root`. |
 | `storage.database_path` | Required path string inside `state_dir` | `./downloader-state/downloads.sqlite` | SQLite job and artifact database. |
 | `storage.free_space_reserve_gb` | Integer, at least `0`, GiB | `5` | Space that download planning must leave unused. |
-| `huggingface.token` | String | Empty | Optional token for private or gated Hugging Face repositories. |
+| `huggingface.token` | String | Empty | Optional token for private or gated Hugging Face repositories. Empty falls back to `HF_TOKEN` or `HUGGING_FACE_HUB_TOKEN`. |
+| `huggingface.endpoint` | https URL | Empty (`https://huggingface.co`) | Hub or mirror base URL. Empty falls back to `HF_ENDPOINT`. Plain http is accepted only for loopback mirrors. |
 
 ### Jobs and scanning
 
 | Field | Type or options | Example or default | Description |
 | --- | --- | --- | --- |
 | `downloads.concurrent_jobs` | Integer, at least `1` | `2` | Maximum download jobs executed together. |
-| `downloads.concurrent_files` | Integer, at least `1` | `4` | Maximum files downloaded together within the job manager. |
-| `downloads.retry_limit` | Integer, at least `0` | `5` | Maximum retry count after a failed file transfer. |
-| `downloads.timeout` | Positive duration string | `30s` | Timeout used for Hub requests and download operations. |
+| `downloads.concurrent_files` | Integer, at least `1` | `4` | Maximum files of one job downloaded together. |
+| `downloads.retry_limit` | Integer, at least `0` | `8` | Consecutive failed attempts without new bytes before a file transfer gives up. |
+| `downloads.timeout` | Positive duration string | `30s` | Limit for Hub API requests and for waiting on a file response to start. |
+| `downloads.stall_timeout` | Positive duration string | `60s` | A file transfer that receives no data for this long is abandoned and resumed. |
 | `scanning.hash_workers` | Integer, at least `1` | `1` | Maximum workers used while hashing local artifacts. |
 | `scanning.write_hash_sidecars` | Boolean | `true` | Writes hash sidecar files beside indexed artifacts. |
 

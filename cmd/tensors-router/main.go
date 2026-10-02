@@ -256,7 +256,7 @@ func runServe(args []string) error {
 		})
 		artifacts, artifactErr := downloaderManager.Artifacts()
 		if artifactErr != nil {
-			return artifactErr
+			startupLogger.Printf("download artifact listing failed; downloaded models are indexed as the downloader reports them error=%q", artifactErr)
 		}
 		for _, artifact := range artifacts {
 			if indexErr := indexDownloadedArtifact(assetIndex, artifact); indexErr != nil {
@@ -317,7 +317,7 @@ func runServe(args []string) error {
 		ConfigDir:                cfg.Models.ConfigDir,
 		MCPReconciler:            mcpReconciler,
 		MCPGateway:               mcpGateway,
-		FileRoots:                cfg.Models.FileRoots,
+		FileRoots:                modelFileRoots(cfg.Models.FileRoots, downloaderCapability),
 		AssetIndex:               assetIndex,
 		ConcurrentAssetTransfers: cfg.Models.ConcurrentAssetTransfers,
 		BackendBinaryPaths: map[string]string{

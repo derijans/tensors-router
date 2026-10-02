@@ -793,6 +793,8 @@ export interface DownloadPlan {
   total_bytes: number;
   destination: string;
   unsafe_warning: boolean;
+  gated?: boolean;
+  skipped?: {path: string; reason: string}[];
 }
 
 export interface JobFile {

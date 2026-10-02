@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
@@ -48,15 +49,13 @@ func (handle *Handle) importLegacySources(ctx context.Context, modules []Module,
 }
 
 func (handle *Handle) importLegacySource(ctx context.Context, module Module, path string) error {
-	legacyInfo, err := os.Stat(path)
-	if err != nil {
+	if _, err := os.Stat(path); err != nil {
 		if os.IsNotExist(err) {
 			return nil
 		}
 		return err
 	}
-	mergedInfo, err := os.Stat(handle.path)
-	if err == nil && os.SameFile(legacyInfo, mergedInfo) {
+	if sameDatabasePath(path, handle.path) {
 		return nil
 	}
 	recorded, err := legacyImportRecorded(ctx, handle.writer, module.Name(), path)
@@ -118,4 +117,24 @@ func legacyImportRecorded(ctx context.Context, db *sql.DB, module string, path s
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func sameDatabasePath(first string, second string) bool {
+	firstPath, firstErr := canonicalDatabasePath(first)
+	secondPath, secondErr := canonicalDatabasePath(second)
+	if firstErr != nil || secondErr != nil {
+		return false
+	}
+	if runtime.GOOS == "windows" {
+		return strings.EqualFold(firstPath, secondPath)
+	}
+	return firstPath == secondPath
+}
+
+func canonicalDatabasePath(path string) (string, error) {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return "", err
+	}
+	return filepath.EvalSymlinks(absolute)
 }

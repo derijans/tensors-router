@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -18,7 +19,7 @@ func DefaultConfig(configPath string) Config {
 			DatabasePath:       filepath.Join(base, "downloader-state", "downloads.sqlite"),
 			FreeSpaceReserveGB: 5,
 		},
-		Downloads: DownloadsConfig{ConcurrentJobs: 2, ConcurrentFiles: 4, RetryLimit: 5, Timeout: 30 * time.Second},
+		Downloads: DownloadsConfig{ConcurrentJobs: 2, ConcurrentFiles: 4, RetryLimit: 8, Timeout: 30 * time.Second, StallTimeout: time.Minute},
 		Scanning:  ScanningConfig{HashWorkers: 1, WriteHashSidecars: true},
 		Hardware:  HardwareConfig{DefaultContext: 8192, VRAMReserveMB: 1024, SafetyMarginPercent: 15},
 		Logging:   LoggingConfig{Mode: "normal", Path: filepath.Join(base, "data", "downloader.log")},
@@ -35,17 +36,25 @@ func LoadConfig(configPath string) (Config, []string, error) {
 		return Config{}, nil, err
 	}
 	cfg := DefaultConfig(absPath)
+	var warnings []string
 	content, err := os.ReadFile(absPath)
-	if err != nil {
+	switch {
+	case os.IsNotExist(err):
+		warnings = append(warnings, fmt.Sprintf("downloader configuration %q does not exist; using defaults next to it", absPath))
+	case err != nil:
 		return Config{}, nil, err
-	}
-	if err := parseConfig(content, &cfg); err != nil {
-		return Config{}, nil, err
+	default:
+		if err := parseConfig(content, &cfg); err != nil {
+			return Config{}, nil, err
+		}
 	}
 	if err := finalizeConfig(absPath, &cfg); err != nil {
 		return Config{}, nil, err
 	}
-	warnings := configWarnings(absPath, cfg)
+	warnings = append(warnings, configWarnings(absPath, cfg)...)
+	if strings.TrimSpace(cfg.HuggingFace.Token) == "" {
+		cfg.HuggingFace.Token = environmentHubToken()
+	}
 	return cfg, warnings, nil
 }
 
@@ -134,10 +143,14 @@ func setConfigValue(cfg *Config, section string, key string, value string) error
 			return fmt.Errorf("unknown key %s.%s", section, key)
 		}
 	case "huggingface":
-		if key != "token" {
+		switch key {
+		case "token":
+			cfg.HuggingFace.Token = value
+		case "endpoint":
+			cfg.HuggingFace.Endpoint = value
+		default:
 			return fmt.Errorf("unknown key %s.%s", section, key)
 		}
-		cfg.HuggingFace.Token = value
 	case "downloads":
 		switch key {
 		case "concurrent_jobs":
@@ -164,6 +177,12 @@ func setConfigValue(cfg *Config, section string, key string, value string) error
 				return err
 			}
 			cfg.Downloads.Timeout = parsed
+		case "stall_timeout":
+			parsed, err := time.ParseDuration(value)
+			if err != nil {
+				return err
+			}
+			cfg.Downloads.StallTimeout = parsed
 		default:
 			return fmt.Errorf("unknown key %s.%s", section, key)
 		}
@@ -245,8 +264,11 @@ func finalizeConfig(configPath string, cfg *Config) error {
 	if cfg.Storage.FreeSpaceReserveGB < 0 {
 		return fmt.Errorf("free_space_reserve_gb must not be negative")
 	}
-	if cfg.Downloads.ConcurrentJobs < 1 || cfg.Downloads.ConcurrentFiles < 1 || cfg.Downloads.RetryLimit < 0 || cfg.Downloads.Timeout <= 0 {
+	if cfg.Downloads.ConcurrentJobs < 1 || cfg.Downloads.ConcurrentFiles < 1 || cfg.Downloads.RetryLimit < 0 || cfg.Downloads.Timeout <= 0 || cfg.Downloads.StallTimeout <= 0 {
 		return fmt.Errorf("download limits are invalid")
+	}
+	if cfg.HuggingFace.Endpoint, err = resolveHubEndpoint(cfg.HuggingFace.Endpoint); err != nil {
+		return err
 	}
 	if cfg.Scanning.HashWorkers < 1 {
 		return fmt.Errorf("hash_workers must be positive")
@@ -269,7 +291,7 @@ func pathWithin(target string, root string) bool {
 }
 
 func configWarnings(configPath string, cfg Config) []string {
-	if strings.TrimSpace(cfg.HuggingFace.Token) == "" {
+	if strings.TrimSpace(cfg.HuggingFace.Token) == "" || !posixPermissionsMeaningful() {
 		return nil
 	}
 	info, err := os.Stat(configPath)
@@ -277,4 +299,8 @@ func configWarnings(configPath string, cfg Config) []string {
 		return nil
 	}
 	return []string{"downloader configuration contains a token and is broadly readable"}
+}
+
+func posixPermissionsMeaningful() bool {
+	return runtime.GOOS != "windows"
 }

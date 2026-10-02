@@ -154,6 +154,22 @@ button.download-entry:hover {
   gap: var(--gap);
 }
 
+.download-job-files {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 12px;
+}
+
+.download-job-files li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--gap);
+}
+
 .plan-files {
   display: grid;
   gap: 4px;

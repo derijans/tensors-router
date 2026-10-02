@@ -18,6 +18,9 @@ func BuildPlan(details RepositoryDetails, requested []string, mode string, stora
 		}
 		selected[file] = true
 	}
+	if mode == "snapshot" && len(details.Skipped) > 0 {
+		return DownloadPlan{}, fmt.Errorf("snapshot is incomplete because %q cannot be downloaded: %s", details.Skipped[0].Path, details.Skipped[0].Reason)
+	}
 	if mode == "snapshot" || len(selected) == 0 {
 		for _, file := range details.Files {
 			selected[file.Path] = true
@@ -27,7 +30,7 @@ func BuildPlan(details RepositoryDetails, requested []string, mode string, stora
 	add := func(file File, required bool, reason string) {
 		current, exists := files[file.Path]
 		if !exists || (required && !current.Required) {
-			files[file.Path] = PlannedFile{Path: file.Path, Size: file.Size, Required: required, Reason: reason, LFSHash: file.LFSHash}
+			files[file.Path] = PlannedFile{Path: file.Path, Size: file.Size, Required: required, Reason: reason, LFSHash: file.LFSHash, GitOID: file.GitOID}
 		}
 	}
 	for _, file := range details.Files {
@@ -63,6 +66,9 @@ func BuildPlan(details RepositoryDetails, requested []string, mode string, stora
 		planned = append(planned, plannedFile)
 	}
 	sort.Slice(planned, func(left int, right int) bool { return planned[left].Path < planned[right].Path })
+	if first, second, collides := hostFileSystem.collision(plannedPaths(planned)); collides {
+		return DownloadPlan{}, fmt.Errorf("files %q and %q differ only by letter case and would overwrite each other on case-insensitive file systems", first, second)
+	}
 	destination, err := repositoryDirectoryResolve(storageRoot, details.Repository)
 	if mode == "snapshot" {
 		destination, err = snapshotDirectoryResolve(storageRoot, details.Repository, details.Commit)
@@ -71,7 +77,15 @@ func BuildPlan(details RepositoryDetails, requested []string, mode string, stora
 		return DownloadPlan{}, err
 	}
 	gated := details.Gated != "" && details.Gated != "false"
-	return DownloadPlan{Repository: details.Repository, Revision: details.Revision, Commit: details.Commit, Files: planned, TotalBytes: total, Destination: destination, UnsafeWarning: gated || unsafe || (details.Security != "" && details.Security != "safe"), Snapshot: mode == "snapshot"}, nil
+	return DownloadPlan{Repository: details.Repository, Revision: details.Revision, Commit: details.Commit, Files: planned, TotalBytes: total, Destination: destination, UnsafeWarning: unsafe || (details.Security != "" && details.Security != "safe"), Gated: gated, Skipped: details.Skipped, Snapshot: mode == "snapshot"}, nil
+}
+
+func plannedPaths(files []PlannedFile) []string {
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, file.Path)
+	}
+	return paths
 }
 
 func addSmartDependencies(repositoryFiles []File, planned map[string]PlannedFile, selected map[string]bool) {
@@ -86,7 +100,7 @@ func addSmartDependencies(repositoryFiles []File, planned map[string]PlannedFile
 	}
 	add := func(file File, reason string) {
 		if _, exists := planned[file.Path]; !exists {
-			planned[file.Path] = PlannedFile{Path: file.Path, Size: file.Size, Required: true, Reason: reason, LFSHash: file.LFSHash}
+			planned[file.Path] = PlannedFile{Path: file.Path, Size: file.Size, Required: true, Reason: reason, LFSHash: file.LFSHash, GitOID: file.GitOID}
 		}
 	}
 	for _, file := range repositoryFiles {

@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"tensors-router/internal/downloader"
 	"tensors-router/internal/openai"
 	"tensors-router/internal/transportbody"
 )
+
+const downloadEventHeartbeat = 15 * time.Second
 
 func (handlers *Handlers) SiteEvents(w http.ResponseWriter, r *http.Request) {
 	if !handlers.deps.SiteControlAllowed() {
@@ -79,11 +82,19 @@ func (handlers *Handlers) writeDownloadEvents(w http.ResponseWriter, r *http.Req
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	events, unsubscribe := handlers.downloader.Subscribe(jobID)
 	defer unsubscribe()
+	heartbeat := time.NewTicker(downloadEventHeartbeat)
+	defer heartbeat.Stop()
 	for {
 		select {
 		case <-r.Context().Done():
 			return
-		case job := <-events:
+		case <-heartbeat.C:
+			_, _ = fmt.Fprint(w, ": keep-alive\n\n")
+			flusher.Flush()
+		case job, open := <-events:
+			if !open {
+				return
+			}
 			content, err := json.Marshal(job)
 			if err != nil {
 				return

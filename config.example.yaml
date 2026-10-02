@@ -156,6 +156,7 @@ updates:
 downloader:
   enabled: true
   binary_location: ""
+  config_path: ""
 
 cluster:
   role: "standalone"

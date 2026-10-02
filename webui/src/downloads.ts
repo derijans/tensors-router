@@ -18,10 +18,12 @@ import { elements } from "./elements";
 import { downloadNodeStatus, enabledDownloadNodes, preferredDownloadNodeID } from "./download-capability-data";
 import { normalizeModelHash, normalizeParameterRange, parseOfficialHFURL, splitSearchFilters } from "./download-finder-data";
 import { planSelectionForMode, selectedDownloadBytes, selectedDownloadFiles, toggleDownloadPath } from "./download-plan-data";
+import { trackDownloadProgress, type DownloadProgressTracking } from "./download-job-data";
+import { renderDownloadJob } from "./download-job-view";
 import { hfFilterCatalog, hfFilterCatalogVersion } from "./hf-filter-catalog";
 import { state } from "./state";
 import { formatBytes } from "./utils";
-import type { DownloadJob, DownloadPlan, Tone } from "./types";
+import type { DownloadLibraryResponse, DownloadPlan } from "./types";
 
 export async function loadDownloads(): Promise<void> {
   try {
@@ -34,7 +36,7 @@ export async function loadDownloads(): Promise<void> {
     state.downloads.error = "";
     if (selectedNode?.capability.working) {
       try {
-        state.downloads.library = await getDownloadLibrary(state.downloads.nodeID);
+        acceptDownloadLibrary(await getDownloadLibrary(state.downloads.nodeID));
       } catch (error) {
         state.downloads.library = null;
         state.downloads.error = error instanceof Error ? error.message : String(error);
@@ -62,9 +64,17 @@ export async function loadDownloadLibrary(): Promise<void> {
     renderDownloads();
     return;
   }
-  state.downloads.library = await getDownloadLibrary(state.downloads.nodeID);
+  acceptDownloadLibrary(await getDownloadLibrary(state.downloads.nodeID));
   renderDownloads();
   syncDownloadJobPolling();
+}
+
+let progressTracking: DownloadProgressTracking = {samples: new Map(), bytesPerSecond: new Map()};
+
+function acceptDownloadLibrary(library: DownloadLibraryResponse): void {
+  state.downloads.library = library;
+  state.downloads.pollError = "";
+  progressTracking = trackDownloadProgress(progressTracking, library.jobs, Date.now());
 }
 
 const jobProgressIntervalMilliseconds = 1500;
@@ -100,8 +110,11 @@ async function runDownloadJobPoll(): Promise<void> {
   if (state.activeTab !== "download" || state.downloads.nodeID !== jobPollNodeID || !hasActiveDownloadJob()) {
     return;
   }
-  const refreshed = await getDownloadLibrary(state.downloads.nodeID).catch(() => state.downloads.library);
-  state.downloads.library = refreshed;
+  try {
+    acceptDownloadLibrary(await getDownloadLibrary(state.downloads.nodeID));
+  } catch (error) {
+    state.downloads.pollError = error instanceof Error ? error.message : String(error);
+  }
   renderDownloads();
   syncDownloadJobPolling();
 }
@@ -391,7 +404,7 @@ export async function startPlannedDownload(confirmUnsafe: boolean, confirmReplac
   await createDownloadJob({
     node_id: state.downloads.nodeID,
     repository: plan.repository,
-    revision: plan.revision,
+    revision: plan.commit || plan.revision,
     files: files.map(file => file.path),
     mode: "explicit",
     ...(token ? {token} : {}),
@@ -466,7 +479,9 @@ export function renderDownloads(): void {
   setHTML(elements.downloadSearchResults, renderSearchResults());
   elements.downloadNextPageButton.hidden = !state.downloads.nextCursor || state.downloads.searchStatus === "searching";
   setHTML(elements.downloadPlanOutput, state.downloads.plan ? renderPlan(state.downloads.plan) : emptyHTML);
-  setHTML(elements.downloadJobs, listOrFallback((state.downloads.library?.jobs || []).map(renderJob), html`<p class="muted">No download jobs on this node.</p>`));
+  const staleNotice = state.downloads.pollError ? html`<p class="error-text">Progress may be stale: ${state.downloads.pollError}</p>` : emptyHTML;
+  const jobs = listOrFallback((state.downloads.library?.jobs || []).map(job => renderDownloadJob(job, progressTracking.bytesPerSecond.get(job.id))), html`<p class="muted">No download jobs on this node.</p>`);
+  setHTML(elements.downloadJobs, html`${staleNotice}${jobs}`);
   setHTML(elements.downloadLibrary, listOrFallback((state.downloads.library?.artifacts || []).map(artifact => html`
     <div class="download-entry"><strong>${artifact.path}</strong><span>${formatBytes(artifact.size)} · ${artifact.verification_source} · ${artifact.sha256}</span></div>
   `), html`<p class="muted">No indexed artifacts on this node.</p>`));
@@ -499,7 +514,7 @@ function renderSearchResults(): SafeHTML {
     if (result.updated_at) {
       meta.push(`updated ${formatSearchDate(result.updated_at)}`);
     }
-    if (result.gated) {
+    if (result.gated && result.gated !== "false") {
       meta.push("gated");
     }
     const tags = (result.tags || []).filter(tag => !tag.includes(":") || /^(license|pipeline_tag|library):/.test(tag)).slice(0, 6);
@@ -582,6 +597,8 @@ function renderPlan(plan: DownloadPlan): SafeHTML {
       <strong>${plan.commit}</strong>
       <span>${plan.destination} · ${formatBytes(selectedBytes)} selected of ${formatBytes(plan.total_bytes)}</span>
       ${plan.unsafe_warning ? html`<p class="error-text">Hugging Face reports unsafe or pending security status. Starting requires confirmation.</p>` : ""}
+      ${plan.gated ? html`<p class="action-status">Gated repository: approve access on Hugging Face and use an authorized token.</p>` : ""}
+      ${(plan.skipped || []).length > 0 ? html`<p class="muted">Not downloadable on this node: ${(plan.skipped || []).map(file => file.path).join(", ")}</p>` : ""}
       <div class="button-strip">
         <button type="button" data-download-plan-select="all">Select all</button>
         <button type="button" data-download-plan-select="none">Select none</button>
@@ -590,34 +607,6 @@ function renderPlan(plan: DownloadPlan): SafeHTML {
       <ul class="plan-files">${plan.files.map(file => html`<li><label class="toggle-row"><input type="checkbox" data-download-plan-file="${file.path}"${selected.has(file.path) ? " checked" : ""}><code>${file.path}</code><span class="muted">${formatBytes(file.size)} · ${file.reason}</span>${file.required ? badge("required", "accent") : ""}</label></li>`)}</ul>
     </div>
   `;
-}
-
-function renderJob(job: DownloadJob): SafeHTML {
-  const actions = job.state === "running" ? "pause cancel" : job.state === "paused" || job.state === "failed" ? "resume cancel" : "";
-  return html`
-    <div class="download-entry download-job">
-      <div class="download-job-head"><strong>${job.repository}</strong>${badge(job.state, downloadJobTone(job.state))}</div>
-      <progress value="${Math.min(job.completed_bytes, job.total_bytes)}" max="${Math.max(job.total_bytes, 1)}" aria-label="Download progress for ${job.repository}"></progress>
-      <span class="muted">${formatBytes(job.completed_bytes)} / ${formatBytes(job.total_bytes)}</span>
-      ${job.error ? html`<p class="error-text">${job.error}</p>` : ""}
-      <div class="button-strip">${actions.split(" ").filter(Boolean).map(action => html`<button type="button" data-download-job="${job.id}" data-download-action="${action}">${action}</button>`)}</div>
-    </div>
-  `;
-}
-
-function downloadJobTone(jobState: string): Tone {
-  switch (jobState) {
-    case "running":
-      return "info";
-    case "completed":
-      return "success";
-    case "failed":
-      return "danger";
-    case "paused":
-      return "warning";
-    default:
-      return "neutral";
-  }
 }
 
 function requestedFiles(): string[] {

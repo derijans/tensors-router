@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"tensors-router/internal/config"
+	"tensors-router/internal/downloader"
 )
 
 func TestDownloaderBinaryPathUsesConfiguredLocation(t *testing.T) {
@@ -22,8 +23,12 @@ func TestDownloaderBinaryPathUsesConfiguredLocation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if path != filepath.Join("configs", "tools", "tensor-router-downloader") {
-		t.Fatalf("unexpected relative binary path %q", path)
+	expected, err := filepath.Abs(filepath.Join("configs", "tools", "tensor-router-downloader"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if path != expected {
+		t.Fatalf("relative binary path %q was not resolved against the router configuration to %q", path, expected)
 	}
 
 	absolutePath := filepath.Join(t.TempDir(), "tensor-router-downloader")
@@ -61,7 +66,6 @@ func TestOptionalDownloaderReportsMissingAndInvalidConfiguration(t *testing.T) {
 		configuration *string
 		reason        string
 	}{
-		{name: "missing", reason: "load downloader configuration"},
 		{name: "invalid", configuration: stringPointer("invalid"), reason: "expected a section"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -77,6 +81,38 @@ func TestOptionalDownloaderReportsMissingAndInvalidConfiguration(t *testing.T) {
 				t.Fatalf("unexpected configuration failure status %#v", capability)
 			}
 		})
+	}
+}
+
+func TestOptionalDownloaderStartsWithDefaultsWhenConfigurationIsMissing(t *testing.T) {
+	directory := t.TempDir()
+	writeDownloaderCompanion(t, directory)
+	var output bytes.Buffer
+	manager, capability := optionalDownloader(filepath.Join(directory, "router.yaml"), config.DownloaderConfig{Enabled: true, BinaryLocation: downloaderCompanionTestName()}, log.New(&output, "", 0))
+	if manager == nil || !capability.Working {
+		t.Fatalf("a missing downloader.yaml disabled the downloader: %#v", capability)
+	}
+	defer manager.Close()
+	expectedRoot, err := filepath.EvalSymlinks(filepath.Join(directory, "models"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if capability.StorageRoot != expectedRoot || !strings.Contains(output.String(), "using defaults") {
+		t.Fatalf("unexpected default storage %q or missing warning in %q", capability.StorageRoot, output.String())
+	}
+}
+
+func TestModelFileRootsIncludeWorkingDownloaderStorage(t *testing.T) {
+	storage := filepath.Join(t.TempDir(), "models")
+	working := downloader.Capability{Working: true, StorageRoot: storage}
+	if roots := modelFileRoots([]string{"/srv/models"}, working); len(roots) != 2 || roots[1] != storage {
+		t.Fatalf("downloader storage was not offered to cook and inventory: %v", roots)
+	}
+	if roots := modelFileRoots([]string{filepath.Dir(storage)}, working); len(roots) != 1 {
+		t.Fatalf("storage already covered by a configured root was added twice: %v", roots)
+	}
+	if roots := modelFileRoots(nil, downloader.Capability{StorageRoot: storage}); len(roots) != 0 {
+		t.Fatalf("storage of a non-working downloader was added: %v", roots)
 	}
 }
 

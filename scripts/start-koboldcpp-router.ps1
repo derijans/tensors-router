@@ -116,7 +116,14 @@ if ([string]::IsNullOrWhiteSpace($KoboldPath)) {
     $KoboldPath = Join-Path $assetRoot 'bin\koboldcpp-nocuda.exe'
 }
 if ([string]::IsNullOrWhiteSpace($LlamaPath)) {
-    $LlamaPath = Join-Path $assetRoot 'bin\llama-b10295-bin-win-cpu-x64\llama-server.exe'
+    $newestLlamaBuild = Get-ChildItem -Path (Join-Path $assetRoot 'bin') -Directory -Filter 'llama-b*-bin-win-*' -ErrorAction SilentlyContinue |
+        Where-Object { Test-Path (Join-Path $_.FullName 'llama-server.exe') } |
+        Sort-Object { [int]($_.Name -replace '^llama-b(\d+)-.*$', '$1') } -Descending |
+        Select-Object -First 1
+    if ($null -eq $newestLlamaBuild) {
+        throw "No bin\llama-b*-bin-win-*\llama-server.exe build found; pass -LlamaPath."
+    }
+    $LlamaPath = Join-Path $newestLlamaBuild.FullName 'llama-server.exe'
 }
 if ($NoPublicURL) {
     if (-not [string]::IsNullOrWhiteSpace($PublicURL)) {

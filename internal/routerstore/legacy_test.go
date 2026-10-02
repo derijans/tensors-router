@@ -163,7 +163,8 @@ func TestImportSkipsTheMergedFileItself(t *testing.T) {
 		t.Fatalf("close seeded store: %v", err)
 	}
 
-	handle := openWithLegacy(t, merged, routerstore.LegacySource{Module: "notes", Path: merged})
+	differentlySpelled := filepath.Join(directory, "nested", "..", "analytics.sqlite")
+	handle := openWithLegacy(t, merged, routerstore.LegacySource{Module: "notes", Path: differentlySpelled})
 	defer func() { _ = handle.Close() }()
 	if got := scalarInt(t, handle.DB(), `SELECT total FROM note_counters WHERE name = 'hits'`); got != 2 {
 		t.Fatalf("counter total = %d, want 2", got)

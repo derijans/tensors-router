@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,12 +15,15 @@ import (
 	"time"
 )
 
-const hubAPIURL = "https://huggingface.co/api"
+const metadataAttempts = 3
+
+var searchExpandedFields = []string{"author", "downloads", "likes", "gated", "tags", "lastModified"}
 
 type HubClient struct {
 	baseURL        string
 	client         *http.Client
 	downloadClient *http.Client
+	wait           retryWaiter
 	mu             sync.Mutex
 	cache          map[string]cachedSearch
 }
@@ -29,11 +33,15 @@ type cachedSearch struct {
 	expires time.Time
 }
 
-func NewHubClient(timeout time.Duration) *HubClient {
+func NewHubClient(endpoint string, timeout time.Duration) *HubClient {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	downloadClient := &http.Client{Transport: &http.Transport{ResponseHeaderTimeout: timeout}}
+	if strings.TrimSpace(endpoint) == "" {
+		endpoint = defaultHubEndpoint
+	}
+	transport := newHubTransport(timeout)
+	downloadClient := &http.Client{Transport: transport}
 	downloadClient.CheckRedirect = func(request *http.Request, via []*http.Request) error {
 		if len(via) > 0 && !strings.EqualFold(request.URL.Host, via[0].URL.Host) {
 			request.Header.Del("Authorization")
@@ -43,7 +51,7 @@ func NewHubClient(timeout time.Duration) *HubClient {
 		}
 		return nil
 	}
-	return &HubClient{baseURL: hubAPIURL, client: &http.Client{Timeout: timeout}, downloadClient: downloadClient, cache: map[string]cachedSearch{}}
+	return &HubClient{baseURL: strings.TrimRight(endpoint, "/") + "/api", client: &http.Client{Transport: transport, Timeout: timeout}, downloadClient: downloadClient, wait: waitWithContext, cache: map[string]cachedSearch{}}
 }
 
 func (client *HubClient) FileURL(repository string, commit string, repositoryPath string) string {
@@ -103,6 +111,9 @@ func (client *HubClient) SearchPage(ctx context.Context, request SearchRequest, 
 		query.Set("inference", request.Inference)
 	}
 	query.Set("limit", fmt.Sprintf("%d", limit))
+	for _, field := range searchExpandedFields {
+		query.Add("expand", field)
+	}
 	for _, tag := range append(append([]string{}, request.Filters...), request.Tags...) {
 		if tag = strings.TrimSpace(tag); tag != "" {
 			query.Add("filter", tag)
@@ -205,9 +216,10 @@ func (client *HubClient) Repository(ctx context.Context, repository string, revi
 	details := RepositoryDetails{Repository: repository, Revision: revision, Commit: commit, License: response.CardData.License, Gated: string(response.Gated), Security: jsonStatus(response.SecurityStatus), Files: make([]File, 0, len(response.Siblings))}
 	for _, sibling := range response.Siblings {
 		if err := ValidateRepositoryPath(sibling.Path); err != nil {
-			return RepositoryDetails{}, fmt.Errorf("Hugging Face returned unsafe path %q", sibling.Path)
+			details.Skipped = append(details.Skipped, SkippedFile{Path: sibling.Path, Reason: err.Error()})
+			continue
 		}
-		details.Files = append(details.Files, File{Path: sibling.Path, Size: sibling.Size(), LFSHash: sibling.LFS.OID, GitOID: sibling.BlobID, XetHash: sibling.XetHash, Unsafe: jsonStatus(sibling.SecurityStatus)})
+		details.Files = append(details.Files, File{Path: sibling.Path, Size: sibling.Size(), LFSHash: sibling.contentSHA256(), GitOID: sibling.gitBlobOfContent(), XetHash: sibling.XetHash, Unsafe: jsonStatus(sibling.SecurityStatus)})
 	}
 	return details, nil
 }
@@ -218,34 +230,66 @@ func (client *HubClient) getJSON(ctx context.Context, endpoint string, token str
 }
 
 func (client *HubClient) getJSONWithHeaders(ctx context.Context, endpoint string, token string, target any) (http.Header, error) {
+	var lastError error
+	for attempt := 1; attempt <= metadataAttempts; attempt++ {
+		if attempt > 1 {
+			if err := client.wait(ctx, backoffDelay(attempt-1, lastError)); err != nil {
+				return nil, err
+			}
+		}
+		header, err := client.getJSONOnce(ctx, endpoint, token, target)
+		if err == nil || !retryableMetadataError(ctx, err) {
+			return header, err
+		}
+		lastError = err
+	}
+	return nil, lastError
+}
+
+func retryableMetadataError(ctx context.Context, err error) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	var status upstreamStatusError
+	if errors.As(err, &status) {
+		return retryableStatus(status.status)
+	}
+	return ErrorCodeOf(err) == ErrorUpstreamUnavailable
+}
+
+func (client *HubClient) getJSONOnce(ctx context.Context, endpoint string, token string, target any) (http.Header, error) {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(client.baseURL, "/")+endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
 	request.Header.Set("Accept", "application/json")
+	request.Header.Set("User-Agent", userAgent())
 	if token = strings.TrimSpace(token); token != "" {
 		request.Header.Set("Authorization", "Bearer "+token)
 	}
 	response, err := client.client.Do(request)
 	if err != nil {
-		return nil, err
+		if ctx.Err() != nil {
+			return nil, err
+		}
+		return nil, &Error{Code: ErrorUpstreamUnavailable, Message: fmt.Sprintf("Hugging Face is unreachable: %v", err)}
 	}
 	defer response.Body.Close()
 	contentType := strings.ToLower(response.Header.Get("Content-Type"))
-	if strings.Contains(contentType, "text/html") {
-		return nil, fmt.Errorf("Hugging Face returned HTML instead of its JSON API")
-	}
-	if response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden {
-		return nil, fmt.Errorf("Hugging Face access was denied; approve the repository in the browser and provide an authorized token")
-	}
-	if response.StatusCode == http.StatusTooManyRequests {
-		return nil, fmt.Errorf("Hugging Face rate limit reached; retry after %s", sanitizedRetryAfter(response.Header.Get("Retry-After")))
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, fmt.Errorf("Hugging Face API returned status %d", response.StatusCode)
+	switch {
+	case response.StatusCode == http.StatusUnauthorized || response.StatusCode == http.StatusForbidden:
+		return nil, newUpstreamStatusError(response, "Hugging Face denied access; check the repository name, approve gated repositories in the browser, and provide an authorized token")
+	case response.StatusCode == http.StatusNotFound:
+		return nil, newUpstreamStatusError(response, "Hugging Face repository or revision was not found")
+	case response.StatusCode == http.StatusTooManyRequests:
+		return nil, newUpstreamStatusError(response, fmt.Sprintf("Hugging Face rate limit reached; retry after %s", sanitizedRetryAfter(response.Header.Get("Retry-After"))))
+	case response.StatusCode < 200 || response.StatusCode >= 300:
+		return nil, newUpstreamStatusError(response, fmt.Sprintf("Hugging Face API returned status %d", response.StatusCode))
+	case strings.Contains(contentType, "text/html"):
+		return nil, &Error{Code: ErrorUpstreamUnavailable, Message: "Hugging Face returned HTML instead of its JSON API; check huggingface.endpoint and any intercepting proxy"}
 	}
 	if err := json.NewDecoder(io.LimitReader(response.Body, 32<<20)).Decode(target); err != nil {
-		return nil, err
+		return nil, &Error{Code: ErrorUpstreamUnavailable, Message: fmt.Sprintf("decode Hugging Face response: %v", err)}
 	}
 	return response.Header.Clone(), nil
 }
@@ -306,17 +350,35 @@ type hubFile struct {
 	XetHash        string          `json:"xetHash"`
 	SecurityStatus json.RawMessage `json:"securityStatus"`
 	SizeValue      int64           `json:"size"`
-	LFS            struct {
-		OID  string `json:"oid"`
-		Size int64  `json:"size"`
+	LFS            *struct {
+		SHA256 string `json:"sha256"`
+		OID    string `json:"oid"`
+		Size   int64  `json:"size"`
 	} `json:"lfs"`
 }
 
 func (file hubFile) Size() int64 {
-	if file.LFS.Size == 0 {
+	if file.LFS == nil || file.LFS.Size == 0 {
 		return file.SizeValue
 	}
 	return file.LFS.Size
+}
+
+func (file hubFile) contentSHA256() string {
+	if file.LFS == nil {
+		return ""
+	}
+	if file.LFS.SHA256 != "" {
+		return file.LFS.SHA256
+	}
+	return strings.TrimPrefix(file.LFS.OID, "sha256:")
+}
+
+func (file hubFile) gitBlobOfContent() string {
+	if file.LFS != nil {
+		return ""
+	}
+	return file.BlobID
 }
 
 type flexibleString string

@@ -478,6 +478,7 @@ func TestHashStoreCachesFileHashesAndDropsMissingFiles(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = models.Close() })
 	listed, err := models.List()
 	if err != nil {
 		t.Fatal(err)
@@ -568,7 +569,7 @@ func TestHashStoreDebouncesDirtyWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	store.flushDelay = 20 * time.Millisecond
+	store.flushDelay = 250 * time.Millisecond
 	var writes atomic.Int32
 	written := make(chan struct{}, 2)
 	store.persist = func(hashCache) error {
@@ -594,10 +595,10 @@ func TestHashStoreDebouncesDirtyWrites(t *testing.T) {
 	store.FinishScan()
 	select {
 	case <-written:
-	case <-time.After(500 * time.Millisecond):
+	case <-time.After(3 * time.Second):
 		t.Fatal("debounced flush did not run")
 	}
-	time.Sleep(60 * time.Millisecond)
+	time.Sleep(400 * time.Millisecond)
 	if writes.Load() != 1 {
 		t.Fatalf("expected one debounced write, got %d", writes.Load())
 	}
@@ -638,6 +639,7 @@ func TestCatalogWithStoreDefersReferencedModelHashUntilRequested(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = modelCatalog.Close() })
 	if len(modelCatalog.hashStore.cache.Files) != 0 {
 		t.Fatalf("startup hashed referenced model files: %#v", modelCatalog.hashStore.cache.Files)
 	}

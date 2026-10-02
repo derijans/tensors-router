@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -49,6 +50,9 @@ func run(args []string) error {
 	securityProfile := flags.String("security-profile", "", "security profile")
 	if err := flags.Parse(args); err != nil {
 		return err
+	}
+	if flags.NArg() > 0 {
+		return fmt.Errorf("unexpected argument %q: tensor-router-webui accepts only flags such as -config", flags.Arg(0))
 	}
 
 	executablePath, err := os.Executable()
@@ -97,16 +101,23 @@ func run(args []string) error {
 	handler := webui.NewServer(cfg, routerProcess, webui.NewSessionManager(token.value))
 	adminServer := webui.WebHTTPServer(cfg.Server.Bind, handler.AdminHandler())
 	backendUIServer := webui.WebHTTPServer(cfg.Server.BackendUIBind, handler.BackendUIHandler())
+	adminListener, err := net.Listen("tcp", webui.NormalizeBind(cfg.Server.Bind))
+	if err != nil {
+		return fmt.Errorf("listen on admin address: %w", err)
+	}
+	backendUIListener, err := net.Listen("tcp", webui.NormalizeBind(cfg.Server.BackendUIBind))
+	if err != nil {
+		_ = adminListener.Close()
+		return fmt.Errorf("listen on backend UI address: %w", err)
+	}
 	errs := make(chan error, 2)
+	startupLogger.Printf("admin listener ready address=https://%s", adminListener.Addr())
 	go func() {
-		addr := webui.NormalizeBind(cfg.Server.Bind)
-		startupLogger.Printf("admin listener ready address=https://%s", addr)
-		errs <- adminServer.ListenAndServeTLS(certFile, keyFile)
+		errs <- adminServer.ServeTLS(adminListener, certFile, keyFile)
 	}()
+	startupLogger.Printf("backend UI listener ready address=https://%s", backendUIListener.Addr())
 	go func() {
-		addr := webui.NormalizeBind(cfg.Server.BackendUIBind)
-		startupLogger.Printf("backend UI listener ready address=https://%s", addr)
-		errs <- backendUIServer.ListenAndServeTLS(certFile, keyFile)
+		errs <- backendUIServer.ServeTLS(backendUIListener, certFile, keyFile)
 	}()
 
 	select {

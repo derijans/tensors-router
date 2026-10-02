@@ -10,38 +10,48 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"tensors-router/internal/processcontrol"
 )
 
 const (
-	startupHandshakeTimeout  = 5 * time.Second
+	startupHandshakeTimeout  = 20 * time.Second
 	companionShutdownTimeout = 2 * time.Second
 	companionKillWaitTimeout = 2 * time.Second
-	subscriptionPollInterval = 250 * time.Millisecond
+	defaultCallTimeout       = 30 * time.Second
+	rescanCallTimeout        = 10 * time.Minute
 )
 
+var requiredCompanionCapabilities = []string{"native_http", "sha256", "artifact_events"}
+
 type Client struct {
-	command         *exec.Cmd
-	input           io.WriteCloser
-	writeMu         sync.Mutex
-	stateMu         sync.Mutex
-	pending         map[uint64]chan protocolResponse
-	nextID          atomic.Uint64
-	done            chan struct{}
-	waitError       error
-	closeError      error
-	capability      Capability
-	artifactHandler ArtifactHandler
-	closeOnce       sync.Once
-	stderr          *boundedBuffer
+	command    *exec.Cmd
+	input      io.WriteCloser
+	writeMu    sync.Mutex
+	stateMu    sync.Mutex
+	pending    map[uint64]chan protocolResponse
+	nextID     atomic.Uint64
+	done       chan struct{}
+	waitError  error
+	closeError error
+	capability Capability
+	artifacts  *artifactQueue
+	closeOnce  sync.Once
+	stderr     *boundedBuffer
 }
 
-var _ Service = (*Client)(nil)
-
 func StartClient(ctx context.Context, binaryPath string, configPath string) (*Client, error) {
-	command := exec.Command(binaryPath, "worker", "--config", configPath)
+	absoluteConfigPath, err := filepath.Abs(configPath)
+	if err != nil {
+		return nil, err
+	}
+	command := exec.Command(binaryPath, "worker", "--config", absoluteConfigPath)
+	processcontrol.Prepare(command, processcontrol.Options{HideWindow: true})
 	input, err := command.StdinPipe()
 	if err != nil {
 		return nil, err
@@ -55,7 +65,7 @@ func StartClient(ctx context.Context, binaryPath string, configPath string) (*Cl
 	if err := command.Start(); err != nil {
 		return nil, err
 	}
-	client := &Client{command: command, input: input, pending: map[uint64]chan protocolResponse{}, done: make(chan struct{}), stderr: stderr}
+	client := newClient(command, input, stderr)
 	go client.readResponses(output)
 	handshakeContext, cancel := context.WithTimeout(ctx, startupHandshakeTimeout)
 	defer cancel()
@@ -66,21 +76,25 @@ func StartClient(ctx context.Context, binaryPath string, configPath string) (*Cl
 	}
 	if handshake.Protocol != ProtocolVersion {
 		_ = client.Close()
-		return nil, fmt.Errorf("downloader companion protocol %d is incompatible with required protocol %d", handshake.Protocol, ProtocolVersion)
+		return nil, fmt.Errorf("downloader companion protocol %d is incompatible with required protocol %d; install matching router and downloader builds", handshake.Protocol, ProtocolVersion)
 	}
-	if !containsCapability(handshake.Capabilities, "native_http") || !containsCapability(handshake.Capabilities, "sha256") {
-		_ = client.Close()
-		return nil, fmt.Errorf("downloader companion does not provide required native transfer capabilities")
+	for _, required := range requiredCompanionCapabilities {
+		if !slices.Contains(handshake.Capabilities, required) {
+			_ = client.Close()
+			return nil, fmt.Errorf("downloader companion does not provide required capability %q", required)
+		}
 	}
 	client.capability = handshake.Runtime
 	return client, nil
 }
 
+func newClient(command *exec.Cmd, input io.WriteCloser, stderr *boundedBuffer) *Client {
+	return &Client{command: command, input: input, pending: map[uint64]chan protocolResponse{}, done: make(chan struct{}), stderr: stderr, artifacts: newArtifactQueue()}
+}
+
 func (client *Client) Capability() Capability {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
 	var capability Capability
-	if err := client.call(ctx, "capability", nil, &capability); err != nil {
+	if err := client.callWithTimeout("capability", nil, &capability, 2*time.Second); err != nil {
 		client.stateMu.Lock()
 		capability = client.capability
 		client.stateMu.Unlock()
@@ -127,61 +141,52 @@ func (client *Client) CreateJob(ctx context.Context, request CreateJobRequest) (
 
 func (client *Client) Job(id string) (DownloadJob, bool, error) {
 	var result jobResult
-	err := client.call(context.Background(), "job", idCall{ID: id}, &result)
+	err := client.callWithTimeout("job", idCall{ID: id}, &result, defaultCallTimeout)
 	return result.Job, result.Found, err
 }
 
 func (client *Client) Jobs() ([]DownloadJob, error) {
 	var result []DownloadJob
-	err := client.call(context.Background(), "jobs", nil, &result)
+	err := client.callWithTimeout("jobs", nil, &result, defaultCallTimeout)
 	return result, err
 }
 
 func (client *Client) Artifacts() ([]ArtifactRecord, error) {
 	var result []ArtifactRecord
-	err := client.call(context.Background(), "artifacts", nil, &result)
+	err := client.callWithTimeout("artifacts", nil, &result, defaultCallTimeout)
 	return result, err
 }
 
 func (client *Client) Pause(id string) (DownloadJob, error) {
-	var result DownloadJob
-	err := client.call(context.Background(), "pause", idCall{ID: id}, &result)
-	return result, err
+	return client.jobAction("pause", id)
 }
 
 func (client *Client) Resume(id string) (DownloadJob, error) {
-	var result DownloadJob
-	err := client.call(context.Background(), "resume", idCall{ID: id}, &result)
-	return result, err
+	return client.jobAction("resume", id)
 }
 
 func (client *Client) Cancel(id string) (DownloadJob, error) {
-	var result DownloadJob
-	err := client.call(context.Background(), "cancel", idCall{ID: id}, &result)
-	return result, err
+	return client.jobAction("cancel", id)
 }
 
-func (client *Client) Subscribe(id string) (<-chan DownloadJob, func()) {
-	events := make(chan DownloadJob, 8)
-	stop := make(chan struct{})
-	var stopOnce sync.Once
-	go client.pollJob(id, events, stop)
-	return events, func() { stopOnce.Do(func() { close(stop) }) }
+func (client *Client) jobAction(method string, id string) (DownloadJob, error) {
+	var result DownloadJob
+	err := client.callWithTimeout(method, idCall{ID: id}, &result, defaultCallTimeout)
+	return result, err
 }
 
 func (client *Client) Rescan() ([]ArtifactRecord, error) {
 	var result []ArtifactRecord
-	if err := client.call(context.Background(), "rescan", nil, &result); err != nil {
-		return nil, err
-	}
-	client.notifyArtifacts(result)
-	return result, nil
+	err := client.callWithTimeout("rescan", nil, &result, rescanCallTimeout)
+	return result, err
 }
 
 func (client *Client) SetArtifactHandler(handler ArtifactHandler) {
-	client.stateMu.Lock()
-	client.artifactHandler = handler
-	client.stateMu.Unlock()
+	client.artifacts.setHandler(handler)
+}
+
+func (client *Client) Done() <-chan struct{} {
+	return client.done
 }
 
 func (client *Client) Close() error {
@@ -197,6 +202,7 @@ func (client *Client) Close() error {
 				shutdownError = errors.Join(shutdownError, fmt.Errorf("downloader companion did not terminate within %s after kill", companionKillWaitTimeout))
 			}
 		}
+		client.artifacts.close()
 		client.stateMu.Lock()
 		client.closeError = errors.Join(inputError, shutdownError)
 		client.stateMu.Unlock()
@@ -215,6 +221,12 @@ func waitForCompanion(done <-chan struct{}, timeout time.Duration) bool {
 	case <-timer.C:
 		return false
 	}
+}
+
+func (client *Client) callWithTimeout(method string, payload any, target any, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	return client.call(ctx, method, payload, target)
 }
 
 func (client *Client) call(ctx context.Context, method string, payload any, target any) error {
@@ -247,6 +259,9 @@ func (client *Client) call(ctx context.Context, method string, payload any, targ
 	select {
 	case response := <-responseChannel:
 		if response.Error != "" {
+			if response.Code != "" {
+				return &Error{Code: response.Code, Message: response.Error}
+			}
 			return errors.New(response.Error)
 		}
 		if target == nil {
@@ -272,6 +287,13 @@ func (client *Client) readResponses(output io.Reader) {
 		if err := readFrame(reader, &response); err != nil {
 			client.finish(err)
 			return
+		}
+		if response.Event == artifactEvent {
+			var record ArtifactRecord
+			if json.Unmarshal(response.Result, &record) == nil {
+				client.artifacts.push(record)
+			}
+			continue
 		}
 		client.stateMu.Lock()
 		channel := client.pending[response.ID]
@@ -312,75 +334,6 @@ func (client *Client) removePending(id uint64) {
 	client.stateMu.Lock()
 	delete(client.pending, id)
 	client.stateMu.Unlock()
-}
-
-func (client *Client) pollJob(id string, events chan<- DownloadJob, stop <-chan struct{}) {
-	defer close(events)
-	ticker := time.NewTicker(subscriptionPollInterval)
-	defer ticker.Stop()
-	var lastUpdate time.Time
-	for {
-		job, found, err := client.Job(id)
-		if err != nil || !found {
-			return
-		}
-		if !job.UpdatedAt.Equal(lastUpdate) {
-			select {
-			case events <- job:
-				lastUpdate = job.UpdatedAt
-			case <-stop:
-				return
-			}
-		}
-		if job.State == JobCompleted || job.State == JobFailed || job.State == JobCancelled {
-			if job.State == JobCompleted {
-				client.notifyCompletedJob(job)
-			}
-			return
-		}
-		select {
-		case <-ticker.C:
-		case <-stop:
-			return
-		case <-client.done:
-			return
-		}
-	}
-}
-
-func (client *Client) notifyCompletedJob(job DownloadJob) {
-	artifacts, err := client.Artifacts()
-	if err != nil {
-		return
-	}
-	matches := make([]ArtifactRecord, 0, len(job.Files))
-	for _, artifact := range artifacts {
-		if artifact.Repository == job.Repository && artifact.Revision == job.Commit {
-			matches = append(matches, artifact)
-		}
-	}
-	client.notifyArtifacts(matches)
-}
-
-func (client *Client) notifyArtifacts(artifacts []ArtifactRecord) {
-	client.stateMu.Lock()
-	handler := client.artifactHandler
-	client.stateMu.Unlock()
-	if handler == nil {
-		return
-	}
-	for _, artifact := range artifacts {
-		_ = handler(artifact)
-	}
-}
-
-func containsCapability(values []string, expected string) bool {
-	for _, value := range values {
-		if value == expected {
-			return true
-		}
-	}
-	return false
 }
 
 type boundedBuffer struct {

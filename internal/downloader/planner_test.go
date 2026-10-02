@@ -29,13 +29,16 @@ func TestSmartPlanKeepsRequiredDependencies(t *testing.T) {
 	}
 }
 
-func TestGatedRepositoryRequiresUnsafeConfirmation(t *testing.T) {
+func TestGatedRepositoryIsFlaggedWithoutSecurityWarning(t *testing.T) {
 	details := RepositoryDetails{Repository: "owner/model", Revision: "main", Commit: "0123456789abcdef0123456789abcdef01234567", Gated: "manual", Files: []File{{Path: "model.gguf", Size: 10}}}
 	plan, err := BuildPlan(details, []string{"model.gguf"}, "explicit", t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !plan.UnsafeWarning {
-		t.Fatal("gated repository did not require confirmation")
+	if !plan.Gated {
+		t.Fatal("gated repository was not flagged as gated")
+	}
+	if plan.UnsafeWarning {
+		t.Fatal("gated access is not a security finding and must not demand an unsafe-download confirmation")
 	}
 }

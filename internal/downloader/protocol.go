@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	ProtocolVersion = 1
+	ProtocolVersion = 2
 	maxFrameBytes   = 32 << 20
 )
 
@@ -22,10 +22,14 @@ type protocolRequest struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
+const artifactEvent = "artifact"
+
 type protocolResponse struct {
 	ID     uint64          `json:"id"`
+	Event  string          `json:"event,omitempty"`
 	Result json.RawMessage `json:"result,omitempty"`
 	Error  string          `json:"error,omitempty"`
+	Code   ErrorCode       `json:"code,omitempty"`
 }
 
 type Handshake struct {
@@ -46,6 +50,24 @@ func ServeWorker(config Config, input io.Reader, output io.Writer) error {
 	var workers sync.WaitGroup
 	workerContext, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	send := func(response protocolResponse) {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		if err := writeFrame(writer, response); err == nil {
+			_ = writer.Flush()
+		} else {
+			cancel()
+		}
+	}
+	manager.SetArtifactHandler(func(record ArtifactRecord) error {
+		content, err := json.Marshal(record)
+		if err != nil {
+			return err
+		}
+		send(protocolResponse{Event: artifactEvent, Result: content})
+		return nil
+	})
+	manager.RecoverInterrupted()
 	for {
 		var request protocolRequest
 		if err := readFrame(reader, &request); err != nil {
@@ -59,20 +81,14 @@ func ServeWorker(config Config, input io.Reader, output io.Writer) error {
 		go func(request protocolRequest) {
 			defer workers.Done()
 			result, callErr := dispatchWorkerRequest(workerContext, manager, request)
-			response := protocolResponse{ID: request.ID, Error: redactSensitive(errorText(callErr))}
+			response := protocolResponse{ID: request.ID, Error: redactSensitive(errorText(callErr)), Code: ErrorCodeOf(callErr)}
 			if callErr == nil {
 				response.Result, callErr = json.Marshal(result)
 				if callErr != nil {
 					response.Error = callErr.Error()
 				}
 			}
-			writeMu.Lock()
-			defer writeMu.Unlock()
-			if err := writeFrame(writer, response); err == nil {
-				_ = writer.Flush()
-			} else {
-				cancel()
-			}
+			send(response)
 		}(request)
 	}
 }
@@ -80,7 +96,7 @@ func ServeWorker(config Config, input io.Reader, output io.Writer) error {
 func dispatchWorkerRequest(ctx context.Context, manager *Manager, request protocolRequest) (any, error) {
 	switch request.Method {
 	case "handshake":
-		return Handshake{Protocol: ProtocolVersion, Capabilities: []string{"native_http", "range_resume", "sha256", "jobs", "artifacts"}, Runtime: manager.Capability()}, nil
+		return Handshake{Protocol: ProtocolVersion, Capabilities: []string{"native_http", "range_resume", "sha256", "jobs", "artifacts", "artifact_events"}, Runtime: manager.Capability()}, nil
 	case "capability":
 		return manager.Capability(), nil
 	case "search":

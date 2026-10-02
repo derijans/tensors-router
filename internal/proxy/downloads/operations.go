@@ -5,10 +5,16 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/downloader"
 	"tensors-router/internal/siteapi"
+)
+
+const (
+	remoteDownloadOperationTimeout = 2 * time.Minute
+	remoteRescanTimeout            = 10 * time.Minute
 )
 
 func (handlers *Handlers) downloadSearch(ctx context.Context, request siteapi.DownloadSearchRequest) ([]downloader.SearchResult, error) {
@@ -82,7 +88,9 @@ func (handlers *Handlers) downloadCreateJob(ctx context.Context, request siteapi
 	}
 	if remote {
 		var response downloader.DownloadJob
-		err := handlers.deps.ClusterClient().JSON(ctx, http.MethodPost, remoteURL, "/router/v1/node/site/download/jobs", request, &response)
+		operation, cancel := context.WithTimeout(ctx, remoteDownloadOperationTimeout)
+		defer cancel()
+		err := handlers.deps.ClusterClient().JSONOperation(operation, http.MethodPost, remoteURL, "/router/v1/node/site/download/jobs", request, &response)
 		return response, err
 	}
 	if handlers.downloader == nil {
@@ -169,7 +177,9 @@ func (handlers *Handlers) downloadRescan(ctx context.Context, nodeID string) (ma
 	}
 	if remote {
 		var response map[string]any
-		err := handlers.deps.ClusterClient().JSON(ctx, http.MethodPost, remoteURL, "/router/v1/node/site/download/rescan", nil, &response)
+		operation, cancel := context.WithTimeout(ctx, remoteRescanTimeout)
+		defer cancel()
+		err := handlers.deps.ClusterClient().JSONOperation(operation, http.MethodPost, remoteURL, "/router/v1/node/site/download/rescan", nil, &response)
 		return response, err
 	}
 	if handlers.downloader == nil {

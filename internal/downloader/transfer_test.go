@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestNativeDownloadResumesWithAuthorizedRangeRequest(t *testing.T) {
@@ -34,7 +35,7 @@ func TestNativeDownloadResumesWithAuthorizedRangeRequest(t *testing.T) {
 	if err := os.WriteFile(stagingPath, content[:4], 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := manager.downloadFile(context.Background(), "owner/model", "commit", "model.gguf", stagingPath, int64(len(content)), "gated-token"); err != nil {
+	if _, err := manager.downloadFile(context.Background(), fileDownload{repository: "owner/model", commit: "commit", repositoryPath: "model.gguf", stagingPath: stagingPath, expectedSize: int64(len(content)), token: "gated-token"}); err != nil {
 		t.Fatal(err)
 	}
 	downloaded, err := os.ReadFile(stagingPath)
@@ -59,7 +60,7 @@ func TestNativeDownloadRetriesTransientFailure(t *testing.T) {
 	manager := transferTestManager(t, server.URL+"/api")
 	manager.config.Downloads.RetryLimit = 1
 	stagingPath := filepath.Join(t.TempDir(), "model.gguf")
-	if err := manager.downloadFile(context.Background(), "owner/model", "commit", "model.gguf", stagingPath, 5, ""); err != nil {
+	if _, err := manager.downloadFile(context.Background(), fileDownload{repository: "owner/model", commit: "commit", repositoryPath: "model.gguf", stagingPath: stagingPath, expectedSize: 5}); err != nil {
 		t.Fatal(err)
 	}
 	if requests.Load() != 2 {
@@ -83,7 +84,7 @@ func TestNativeDownloadDoesNotForwardTokenAcrossRedirect(t *testing.T) {
 	}))
 	defer origin.Close()
 	manager := transferTestManager(t, origin.URL+"/api")
-	if err := manager.downloadFile(context.Background(), "owner/model", "commit", "model.gguf", filepath.Join(t.TempDir(), "model.gguf"), 5, "gated-token"); err != nil {
+	if _, err := manager.downloadFile(context.Background(), fileDownload{repository: "owner/model", commit: "commit", repositoryPath: "model.gguf", stagingPath: filepath.Join(t.TempDir(), "model.gguf"), expectedSize: 5, token: "gated-token"}); err != nil {
 		t.Fatal(err)
 	}
 	if leakedToken.Load() {
@@ -137,6 +138,7 @@ func transferTestManager(t *testing.T, baseURL string) *Manager {
 		t.Fatal(err)
 	}
 	manager.hub.baseURL = baseURL
+	manager.retryWait = func(context.Context, time.Duration) error { return nil }
 	t.Cleanup(func() { _ = manager.Close() })
 	return manager
 }

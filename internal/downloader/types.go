@@ -19,7 +19,8 @@ type StorageConfig struct {
 }
 
 type HuggingFaceConfig struct {
-	Token string
+	Token    string
+	Endpoint string
 }
 
 type DownloadsConfig struct {
@@ -27,6 +28,7 @@ type DownloadsConfig struct {
 	ConcurrentFiles int
 	RetryLimit      int
 	Timeout         time.Duration
+	StallTimeout    time.Duration
 }
 
 type ScanningConfig struct {
@@ -94,13 +96,19 @@ type File struct {
 }
 
 type RepositoryDetails struct {
-	Repository string `json:"repository"`
-	Revision   string `json:"revision"`
-	Commit     string `json:"commit"`
-	License    string `json:"license,omitempty"`
-	Gated      string `json:"gated,omitempty"`
-	Security   string `json:"security_status,omitempty"`
-	Files      []File `json:"files"`
+	Repository string        `json:"repository"`
+	Revision   string        `json:"revision"`
+	Commit     string        `json:"commit"`
+	License    string        `json:"license,omitempty"`
+	Gated      string        `json:"gated,omitempty"`
+	Security   string        `json:"security_status,omitempty"`
+	Files      []File        `json:"files"`
+	Skipped    []SkippedFile `json:"skipped,omitempty"`
+}
+
+type SkippedFile struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
 }
 
 type PlannedFile struct {
@@ -109,6 +117,7 @@ type PlannedFile struct {
 	Required bool   `json:"required"`
 	Reason   string `json:"reason"`
 	LFSHash  string `json:"lfs_sha256,omitempty"`
+	GitOID   string `json:"git_oid,omitempty"`
 }
 
 type DownloadPlan struct {
@@ -119,6 +128,8 @@ type DownloadPlan struct {
 	TotalBytes    int64         `json:"total_bytes"`
 	Destination   string        `json:"destination"`
 	UnsafeWarning bool          `json:"unsafe_warning"`
+	Gated         bool          `json:"gated,omitempty"`
+	Skipped       []SkippedFile `json:"skipped,omitempty"`
 	Snapshot      bool          `json:"snapshot,omitempty"`
 }
 
@@ -158,6 +169,7 @@ type JobFile struct {
 	Path           string `json:"path"`
 	Reason         string `json:"reason"`
 	ExpectedSHA256 string `json:"expected_sha256,omitempty"`
+	ExpectedGitOID string `json:"expected_git_oid,omitempty"`
 	Size           int64  `json:"size"`
 	CompletedBytes int64  `json:"completed_bytes"`
 	State          string `json:"state"`
