@@ -1,3 +1,5 @@
+<p align="center"><img src="webui/public/logo.svg" alt="tensors-router logo" width="128"></p>
+
 # tensors-router
 
 `tensors-router` presents local AI software through one base URL and API surface, similar to the operating model of a cloud AI provider. Clients select a `.kcpps` model configuration, and the router starts, loads, switches, drains, and unloads the required text, image, embedding, voice, or music backend on the local machine or a cluster node. Users do not have to manage each backend process or switch model software by hand.

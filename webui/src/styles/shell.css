@@ -1,11 +1,8 @@
-.sun {
+.brand-mark {
   display: block;
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   flex: none;
-  border-radius: 50%;
-  background: var(--sunset-vertical);
-  mask: linear-gradient(180deg, #000 0 52%, transparent 52% 58%, #000 58% 68%, transparent 68% 73%, #000 73% 82%, transparent 82% 86%, #000 86%);
 }
 
 .wordmark {
@@ -35,7 +32,7 @@
   background: rgb(29 18 54 / .9);
 }
 
-.login-panel .sun {
+.login-panel .brand-mark {
   width: 56px;
   height: 56px;
 }
@@ -338,7 +335,7 @@
     overflow-x: auto;
   }
 
-  .rail .sun {
+  .rail .brand-mark {
     width: 32px;
     height: 32px;
   }

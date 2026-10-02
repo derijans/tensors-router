@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="tensors-router">
+  <defs>
+    <linearGradient id="sunset" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ff3e9a"/>
+      <stop offset=".55" stop-color="#ff8a4c"/>
+      <stop offset="1" stop-color="#ffd36b"/>
+    </linearGradient>
+  </defs>
+  <path d="M52.7 16.5Q64 10 75.3 16.5L99.5 30.5Q110.8 37 110.8 50L110.8 78Q110.8 91 99.5 97.5L75.3 111.5Q64 118 52.7 111.5L28.5 97.5Q17.2 91 17.2 78L17.2 50Q17.2 37 28.5 30.5Z" fill="none" stroke="url(#sunset)" stroke-width="8.5" stroke-linejoin="round"/>
+  <path d="M39 40H77a12 12 0 0 1 0 24H59M59 40V88M71 64l14 24" fill="none" stroke="url(#sunset)" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

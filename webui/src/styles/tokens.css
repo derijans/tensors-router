@@ -22,7 +22,6 @@
   --red: #ff5470;
 
   --sunset: linear-gradient(90deg, #ff3e9a, #ff8a4c 55%, #ffd36b);
-  --sunset-vertical: linear-gradient(180deg, #ffd36b, #ff8a4c 50%, #ff3e9a);
   --on-sunset: #1a0b2e;
 
   --radius-sm: 8px;
