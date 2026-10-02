@@ -1,0 +1,143 @@
+.benchmark-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr));
+  gap: var(--gap-md);
+}
+
+.benchmark-card {
+  display: grid;
+  align-content: start;
+  gap: var(--gap-sm);
+}
+
+.benchmark-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+}
+
+.benchmark-history {
+  display: grid;
+}
+
+.benchmark-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto minmax(0, 2fr);
+  align-items: center;
+  gap: var(--gap);
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+}
+
+.benchmark-row:first-child {
+  border-top: 0;
+}
+
+.benchmark-row .muted {
+  font-size: 12px;
+}
+
+.analytics-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--gap);
+}
+
+.analytics-summary:empty,
+.analytics-graph:empty,
+#analyticsNodeErrors:empty,
+#analyticsStatus:empty,
+#loadCaptureStatus:empty,
+#loadErrorStatus:empty,
+#lendingStatus:empty {
+  display: none;
+}
+
+.metric {
+  display: grid;
+  gap: 2px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: rgb(29 18 54 / .82);
+}
+
+.metric-label {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.metric-value {
+  font: italic 800 24px/1.2 var(--display);
+  font-variant-numeric: tabular-nums;
+}
+
+.metric small {
+  font-size: 12px;
+}
+
+.analytics-graphs {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr);
+  gap: var(--gap-md);
+}
+
+.analytics-tables {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(680px, 100%), 1fr));
+  align-items: start;
+  gap: var(--gap-md);
+}
+
+.inspector {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: var(--gap-md);
+}
+
+.inspector-detail {
+  display: grid;
+  align-content: start;
+  gap: var(--gap);
+}
+
+.inspector-detail:empty {
+  display: none;
+}
+
+.inspector-detail h3 {
+  overflow-wrap: anywhere;
+}
+
+#loadErrorRows tr,
+#lendingDecisionRows tr {
+  cursor: pointer;
+}
+
+@media (max-width: 1180px) {
+  .analytics-graphs,
+  .inspector {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .benchmark-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .benchmark-row .badge-row {
+    grid-column: 1 / -1;
+  }
+}
+
+#loadErrorRows td:first-child,
+#loadCaptureRows td:first-child,
+#lendingDecisionRows td:first-child,
+#analyticsRecentTable td:first-child {
+  white-space: nowrap;
+}
+
+.analytics-tables td {
+  white-space: nowrap;
+}

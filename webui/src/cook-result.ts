@@ -1,4 +1,5 @@
 import { SafeHTML, emptyHTML, html } from "./safe-html";
+import { fact } from "./markup-primitives";
 import type { ConfigFileResponse, CookResponse, ErrorResponse } from "./types";
 
 export function cookResultHTML(value: CookResponse | ConfigFileResponse | ErrorResponse): SafeHTML {
@@ -48,9 +49,9 @@ function resultShell(title: string, facts: Array<[string, string]>, items: SafeH
   return html`
     <section class="cook-result-grid">
       <h3>${title}</h3>
-      <div class="status-grid">
-        ${facts.map(([label, value]) => html`<div class="status-item"><div class="status-label">${label}</div><div class="status-value">${value}</div></div>`)}
-      </div>
+      <dl class="fact-grid">
+        ${facts.map(([label, value]) => fact(label, value))}
+      </dl>
       ${items.isEmpty() ? "" : html`<ul>${items}</ul>`}
       ${validation.isEmpty() ? "" : html`<div><strong>Validation</strong><ul>${validation}</ul></div>`}
       <details><summary>Raw diagnostic</summary><pre>${JSON.stringify(raw, null, 2)}</pre></details>

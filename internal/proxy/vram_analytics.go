@@ -58,28 +58,6 @@ func (analytics *requestAnalytics) recordLoad(modelID string, configFilename str
 	analytics.store.Record(event)
 }
 
-func applyVRAMLoadStateLocked(state *activeConfigState, measurement *routeranalytics.VRAMLoadMeasurement) {
-	state.vramBaselineValid = false
-	state.vramBaselineMB = 0
-	state.vramTotalMB = 0
-	if measurement == nil {
-		return
-	}
-	baseline, measured := measurement.Baseline()
-	if !measured {
-		return
-	}
-	state.vramBaselineValid = true
-	state.vramBaselineMB = baseline.UsedMB
-	state.vramTotalMB = baseline.TotalMB
-}
-
-func clearVRAMLoadStateLocked(state *activeConfigState) {
-	state.vramBaselineValid = false
-	state.vramBaselineMB = 0
-	state.vramTotalMB = 0
-}
-
 func (analytics *requestAnalytics) beginWork(runtime *backendRuntime) routeranalytics.EventFinalizer {
 	if !analytics.vramActive() || runtime == nil {
 		return nil

@@ -117,6 +117,15 @@ export interface AnalyticsTimeline {
   vram_peak_percent: number;
   vram_total_mb: number;
   model_vram_estimate_mb: number;
+  failure_count?: number;
+  average_tokens_per_second?: number;
+  tokens_per_second_samples?: number;
+  sections?: AnalyticsTimelineSection[];
+}
+
+export interface AnalyticsTimelineSection {
+  section: string;
+  request_count: number;
 }
 
 export interface AnalyticsSectionUsage {
@@ -453,6 +462,17 @@ export interface NodeStateModelRow {
   lane: string;
   runtime_id: string;
   generation: number;
+  memory_estimate_mb?: number;
+  borrowed?: boolean;
+}
+
+export type NodeMemoryKind = "vram" | "ram";
+
+export interface NodeMemory {
+  kind: NodeMemoryKind;
+  total_mb: number;
+  used_mb: number;
+  sampled_at_ms: number;
 }
 
 export type BackendLifecycleState = "companion_missing" | "unsupported" | "needs_init" | "initializing" | "ready" | "failed";
@@ -508,6 +528,7 @@ export interface NodeState {
   // a cluster can contain part-way through a rolling upgrade.
   ffmpeg_available?: boolean;
   ffmpeg_path?: string;
+  memory?: NodeMemory;
 }
 
 export interface NodeUnloadRequest {

@@ -319,7 +319,7 @@ describe("node state polling", () => {
 
 describe("rendered node panel", () => {
   it("renders a slave snapshot whose request lists arrive as null", async () => {
-    const panel = {outerHTML: ""};
+    const panel = {outerHTML: "", querySelector: () => null};
     vi.stubGlobal("document", {getElementById: vi.fn(() => panel)});
     apiMocks.getNodeState.mockResolvedValue({...snapshot("from-slave"), active_requests: null, held_requests: null});
 

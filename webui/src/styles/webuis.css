@@ -1,0 +1,46 @@
+.webui-grid {
+  display: grid;
+  gap: var(--gap-lg);
+}
+
+.webui-node-group {
+  display: grid;
+  gap: var(--gap-sm);
+}
+
+.webui-node-group .section-head h3 {
+  font: italic 800 18px var(--display);
+}
+
+.webui-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr));
+  gap: var(--gap-md);
+}
+
+.webui-card {
+  display: grid;
+  align-content: start;
+  gap: var(--gap);
+}
+
+.webui-card-head {
+  display: grid;
+  grid-template-columns: 40px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--gap);
+}
+
+.webui-card-title {
+  min-width: 0;
+}
+
+.webui-card-title h3 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.webui-model-summary {
+  font-size: 13px;
+}

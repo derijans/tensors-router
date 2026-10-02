@@ -1,10 +1,11 @@
 import { SafeHTML, html, setHTML, setOuterHTML } from "./safe-html";
 import { applyNodeBackendLaunchOptions, cancelNodeBackendInitialization, getNodeState, initializeNodeBackend, unloadNodeRuntime } from "./api";
-import { closestElement } from "./dom";
+import { closestElement, holdsOpenPopover } from "./dom";
 import { elements } from "./elements";
 import { state } from "./state";
 import type { BackendInitializationJob, BackendInitializationRequest, BackendLaunchOptions, NodeInventory, NodeRuntimeSlice, NodeStateBackend } from "./types";
-import { clusterBuildVersion, nodeStatePanelID, renderNodeCard, renderNodeStateSnapshot } from "./node-state-view";
+import { renderNodeStateSnapshot } from "./node-state-view";
+import { clusterBuildVersion, nodeCardID, nodeStatePanelID, renderNodeCard } from "./node-card-view";
 import { reportErrorToConsole } from "./console-report";
 
 const pollIntervalMilliseconds = 1000;
@@ -16,7 +17,7 @@ export function renderNodesPanel(): void {
   elements.nodeCount.textContent = `${nodes.length} node${nodes.length === 1 ? "" : "s"}`;
   setHTML(elements.nodesScanNotices, scanNotices(nodes));
   const buildVersion = clusterBuildVersion(nodes);
-  setHTML(elements.nodesGrid, html`${nodes.map(node => renderNodeCard(node, state.nodes.expanded.includes(node.node_id), buildVersion))}`);
+  setHTML(elements.nodesGrid, html`${nodes.map(node => nodesTabCard(node, buildVersion))}`);
   setHTML(elements.nodesDetail, html`${nodes
     .filter(node => state.nodes.expanded.includes(node.node_id))
     .map(node => nodeStatePanel(node.node_id))}`);
@@ -139,6 +140,16 @@ export function setNodesTabActive(active: boolean): void {
   }
 }
 
+export async function pollNodeOnce(nodeID: string): Promise<void> {
+  const snapshot = await getNodeState(nodeID);
+  state.nodeSnapshots[nodeID] = snapshot;
+  const current = slice(nodeID);
+  if (current) {
+    current.snapshot = snapshot;
+  }
+  renderNodesPanel();
+}
+
 export function stopNodeStatePolling(): void {
   invalidateAllPolling();
 }
@@ -166,11 +177,13 @@ export async function pollNode(nodeID: string, generation: number, clearErrorOnS
     }
     const changed = JSON.stringify(current.snapshot) !== JSON.stringify(snapshot) || current.loading || (clearErrorOnSuccess && current.error !== "");
     current.snapshot = snapshot;
+    state.nodeSnapshots[nodeID] = snapshot;
     current.loading = false;
     if (clearErrorOnSuccess) {
       current.error = "";
     }
     if (changed) {
+      renderNodeCardInPlace(nodeID);
       renderNodePanel(nodeID);
     }
   } catch (error) {
@@ -416,6 +429,25 @@ function pollingCurrent(nodeID: string, generation: number): boolean {
     nodeID !== "" &&
     state.nodes.expanded.includes(nodeID) &&
     state.activeTab === "nodes";
+}
+
+function nodesTabCard(node: NodeInventory, buildVersion: string): SafeHTML {
+  return renderNodeCard(node, {
+    placement: "nodes",
+    expanded: state.nodes.expanded.includes(node.node_id),
+    clusterBuildVersion: buildVersion,
+    snapshot: state.nodes.byNode[node.node_id]?.snapshot ?? state.nodeSnapshots[node.node_id] ?? null,
+    webuis: state.webuis.data?.data ?? []
+  });
+}
+
+function renderNodeCardInPlace(nodeID: string): void {
+  const nodes = state.inventory?.nodes ?? [];
+  const node = nodes.find(candidate => candidate.node_id === nodeID);
+  const card = document.getElementById(nodeCardID("nodes", nodeID));
+  if (node && card && !holdsOpenPopover(card)) {
+    setOuterHTML(card, nodesTabCard(node, clusterBuildVersion(nodes)));
+  }
 }
 
 function renderNodePanel(nodeID: string): void {

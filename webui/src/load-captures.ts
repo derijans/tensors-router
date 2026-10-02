@@ -2,7 +2,8 @@ import { SafeHTML, emptyHTML, html, setHTML } from "./safe-html";
 import { getLoadCaptureDetail, getLoadCaptureOutput, getLoadCaptures } from "./api";
 import { elements } from "./elements";
 import { state } from "./state";
-import type { LoadCaptureAttempt, LoadCaptureQuery } from "./types";
+import type { LoadCaptureAttempt, LoadCaptureQuery, Tone } from "./types";
+import { badge } from "./markup-primitives";
 import { safeTerminalText } from "./terminal-output";
 
 export async function loadLoadCaptures(reset = true): Promise<void> {
@@ -81,11 +82,12 @@ function renderNodeChoices(): void {
 
 function captureRow(attempt: LoadCaptureAttempt): SafeHTML {
   const duration = attempt.duration_ms > 0 ? `${attempt.duration_ms} ms` : "N/A";
-  return html`<tr>
+  const selected = state.loadCaptures.detail?.attempt.id === attempt.id ? html` class="selected"` : emptyHTML;
+  return html`<tr${selected}>
     <td>${new Date(attempt.started_at).toLocaleString()}</td>
     <td>${attempt.node_id}</td>
-    <td>${attempt.kind}</td>
-    <td>${attempt.status}</td>
+    <td>${badge(attempt.kind, "neutral")}</td>
+    <td>${badge(attempt.status, captureStatusTone(attempt.status))}</td>
     <td>${attempt.backend_mode}</td>
     <td>${attempt.runtime} / ${attempt.lane}</td>
     <td>${duration}</td>
@@ -93,6 +95,21 @@ function captureRow(attempt: LoadCaptureAttempt): SafeHTML {
     <td>${attempt.truncated ? "Yes" : "No"}</td>
     <td><button type="button" data-load-capture-node="${attempt.node_id}" data-load-capture-id="${attempt.id}">Inspect</button></td>
   </tr>`;
+}
+
+function captureStatusTone(status: LoadCaptureAttempt["status"]): Tone {
+  switch (status) {
+    case "succeeded":
+      return "success";
+    case "failed":
+      return "danger";
+    case "loading":
+      return "info";
+    case "interrupted":
+      return "warning";
+    default:
+      return "neutral";
+  }
 }
 
 function renderLoadCaptureDetail(): void {
@@ -104,7 +121,11 @@ function renderLoadCaptureDetail(): void {
     return;
   }
   const assets = detail.assets.map(asset => `${asset.role}[${asset.position}] sha256:${asset.sha256}`).join("\n");
-  setHTML(elements.loadCaptureDetail, html`<h3>Sanitized KCPPS</h3><pre>${JSON.stringify(detail.kcpps, null, 2)}</pre><h3>Model hashes</h3><pre>${assets || "None"}</pre>${detail.attempt.failure_message ? html`<h3>Failure</h3><pre>${detail.attempt.failure_class + ": " + detail.attempt.failure_message}</pre>` : ""}`);
+  setHTML(elements.loadCaptureDetail, html`
+    ${detail.attempt.failure_message ? html`<h3>Failure</h3><pre class="console error-text">${detail.attempt.failure_class + ": " + detail.attempt.failure_message}</pre>` : ""}
+    <h3>Sanitized KCPPS</h3><pre class="console">${JSON.stringify(detail.kcpps, null, 2)}</pre>
+    <h3>Model hashes</h3><pre class="console">${assets || "None"}</pre>
+  `);
   elements.loadCaptureOutput.textContent = combinedOutput();
   elements.loadCaptureOutputMoreButton.hidden = !state.loadCaptures.outputMore;
 }
@@ -124,4 +145,4 @@ function dateTimeMillis(value: string): number | undefined {
   if (!value) return undefined;
   const parsed = new Date(value).getTime();
   return Number.isFinite(parsed) ? parsed : undefined;
-}
+}

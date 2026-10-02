@@ -10,7 +10,7 @@ const { updateAnalyticsPeriod } = await import("../analytics");
 const { normalizedAnalyticsQuery } = await import("../analytics-data");
 
 const page = readFileSync(new URL("../../index.html", import.meta.url), "utf8");
-const main = readFileSync(new URL("../main.ts", import.meta.url), "utf8");
+const analyticsBindings = readFileSync(new URL("../bindings/insight-bindings.ts", import.meta.url), "utf8");
 
 describe("analytics filter controls", () => {
   beforeEach(() => {
@@ -40,7 +40,7 @@ describe("analytics filter controls", () => {
       const pattern = new RegExp(
         `elements\\.${handler}\\.addEventListener\\("change", \\(\\) => \\{\\s*update[A-Za-z]+\\(elements\\.${handler}\\.value\\);\\s*runTask\\(`
       );
-      expect(main).toMatch(pattern);
+      expect(analyticsBindings).toMatch(pattern);
     }
   });
 

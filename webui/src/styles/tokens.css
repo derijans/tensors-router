@@ -1,0 +1,63 @@
+:root {
+  color-scheme: dark;
+
+  --bg: #150c29;
+  --bg-deep: #0e0720;
+  --surface: #1d1236;
+  --surface-raised: #251845;
+  --surface-sunken: #120a25;
+  --border: #2f2152;
+  --border-strong: #46327a;
+  --text: #f7f0ff;
+  --text-muted: #a99bcc;
+  --text-faint: #6e5f96;
+
+  --pink: #ff4fa3;
+  --orange: #ff8a4c;
+  --yellow: #ffd36b;
+  --cyan: #4ce2ff;
+  --violet: #a46bff;
+  --mint: #5cf2b0;
+  --amber: #ffb35c;
+  --red: #ff5470;
+
+  --sunset: linear-gradient(90deg, #ff3e9a, #ff8a4c 55%, #ffd36b);
+  --sunset-vertical: linear-gradient(180deg, #ffd36b, #ff8a4c 50%, #ff3e9a);
+  --on-sunset: #1a0b2e;
+
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 18px;
+  --radius-pill: 999px;
+
+  --gap-xs: 4px;
+  --gap-sm: 8px;
+  --gap: 12px;
+  --gap-md: 16px;
+  --gap-lg: 24px;
+  --gap-xl: 32px;
+
+  --sans: "Segoe UI Variable Text", "Segoe UI", "Inter", system-ui, sans-serif;
+  --display: "Segoe UI Variable Display", "Segoe UI", "Inter", system-ui, sans-serif;
+  --mono: "Cascadia Code", "JetBrains Mono", ui-monospace, monospace;
+
+  --rail-width: 88px;
+  --control-height: 36px;
+  --popover-shadow: 0 18px 48px rgb(5 2 14 / .6);
+}
+
+.tone-accent { --tone: var(--pink); }
+.tone-info { --tone: var(--cyan); }
+.tone-success { --tone: var(--mint); }
+.tone-warning { --tone: var(--amber); }
+.tone-danger { --tone: var(--red); }
+.tone-neutral { --tone: var(--text-muted); }
+
+.lane-text { --lane: var(--cyan); }
+.lane-image { --lane: var(--pink); }
+.lane-voice { --lane: var(--violet); }
+.lane-embed { --lane: var(--mint); }
+.lane-music { --lane: var(--amber); }
+.lane-other { --lane: var(--text-faint); }
+.lane-loading { --lane: var(--yellow); }
+.lane-lent { --lane: var(--border-strong); }

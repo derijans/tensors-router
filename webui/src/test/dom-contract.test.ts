@@ -21,8 +21,8 @@ describe("models dashboard DOM contract", () => {
     expect(page).not.toMatch(/\sstyle=/i);
   });
 
-  it("carries a Separate column and its dialog scaffold", () => {
-    expect(page).toMatch(/<th>Routing<\/th>\s*<th>Separate<\/th>/);
+  it("carries the separate runtime dialog scaffold and a header the column renderer fills", () => {
+    expect(tagNameForID("modelsTableHead")).toBe("thead");
     expect(tagNameForID("separateRuntimeDialog")).toBe("dialog");
     expect(tagNameForID("separateRuntimeDialogBody")).toBe("div");
     expect(tagNameForID("separateRuntimeDialogStatus")).toBe("p");

@@ -15,9 +15,8 @@ import {
 } from "./data";
 import { localValidation } from "./constructor-data";
 import { clearConstructorConversions, clearConversionScope, discardConversion, invalidateAcceptedConversions, recordConversion } from "./conversions";
+import { badge, laneAccent } from "./markup-primitives";
 import {
-  chip,
-  kindColor,
   optionInputValue,
   optionValueLabel,
   parseOptionInput,
@@ -181,10 +180,10 @@ function renderPalette(): void {
       <article class="palette-item" draggable="true" data-drag-payload="${payloadID}">
         <div class="palette-title">
           <strong>${entry.title}</strong>
-          ${chip(entry.badge, entry.color)}
+          ${badge(entry.badge, entry.accent)}
         </div>
         <div class="muted">${entry.subtitle}</div>
-        <div class="palette-meta">${entry.meta.map(item => chip(item, ""))}</div>
+        <div class="palette-meta">${entry.meta.map(item => badge(item, "neutral"))}</div>
         ${addButton}
       </article>
     `;
@@ -208,7 +207,7 @@ function renderLanes(): void {
       <article class="selected-card">
         <strong>${selected.label}</strong>
         <div class="muted">${selected.subtitle}</div>
-        <div class="palette-meta">${selected.meta.map(item => chip(item, ""))}</div>
+        <div class="palette-meta">${selected.meta.map(item => badge(item, "neutral"))}</div>
         ${selected.component.option_key ? html`<div class="muted">Assigned to ${selected.component.option_key}</div>` : ""}
         <label>
           Target node
@@ -216,7 +215,7 @@ function renderLanes(): void {
         </label>
         <div class="lane-card-actions">
           <button type="button" data-edit-lane-fields="${lane}">Edit fields</button>
-          ${overrideCount ? chip(`${overrideCount} overrides`, laneMetadata[lane].accent) : ""}
+          ${overrideCount ? badge(`${overrideCount} overrides`, laneAccent(lane)) : ""}
         </div>
       </article>
     `);
@@ -257,7 +256,7 @@ function usedModelRows(): SafeHTML[] {
     }
     rows.push(html`
       <div class="used-row">
-        ${chip(laneMetadata[lane].shortLabel, kindColor(lane))}
+        ${badge(laneMetadata[lane].shortLabel, laneAccent(lane))}
         <span>${selected.label}</span>
       </div>
     `);
@@ -278,15 +277,15 @@ function selectedOptionRows(): SafeHTML[] {
       const lane = laneOverrideForKey(key);
       rows.push(html`
         <div class="option-row">
-          ${chip(key, "")}
-          ${lane ? chip(`${laneMetadata[lane].shortLabel} override`, laneMetadata[lane].accent) : ""}
+          ${badge(key, "neutral")}
+          ${lane ? badge(`${laneMetadata[lane].shortLabel} override`, laneAccent(lane)) : ""}
           <span class="muted">${optionValueLabel(value)}</span>
         </div>
       `);
     } else {
       rows.push(html`
         <div class="option-row">
-          ${chip(key, "")}
+          ${badge(key, "neutral")}
           <span class="muted">${optionValueLabel(value)}</span>
         </div>
       `);
@@ -298,7 +297,7 @@ function selectedOptionRows(): SafeHTML[] {
 function laneShell(lane: LaneKind): SafeHTML {
   const metadata = laneMetadata[lane];
   return html`
-    <section class="lane ${metadata.accent}" data-lane="${lane}">
+    <section class="lane ${laneAccent(lane)}" data-lane="${lane}">
       <div class="lane-head">
         <div>
           <h3>${metadata.label}</h3>

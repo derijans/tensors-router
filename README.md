@@ -4,7 +4,7 @@
 
 <table>
   <tr>
-    <td><a href="docs/images/webui-live/router.png"><img src="docs/images/webui-live/router.png" alt="Router tab" width="320"></a></td>
+    <td><a href="docs/images/webui-live/overview.png"><img src="docs/images/webui-live/overview.png" alt="Overview tab" width="320"></a></td>
     <td><a href="docs/images/webui-live/nodes.png"><img src="docs/images/webui-live/nodes.png" alt="Nodes tab" width="320"></a></td>
     <td><a href="docs/images/webui-live/webuis.png"><img src="docs/images/webui-live/webuis.png" alt="WebUIs tab" width="320"></a></td>
   </tr>

@@ -3,6 +3,7 @@ import {
   filteredWebUIEntries,
   groupWebUIs,
   webUIDialogData,
+  webUIForRuntime,
   webUIOpenStatus
 } from "../webui-data";
 import type { WebUICompatibleModel, WebUIEntry } from "../types";
@@ -19,6 +20,18 @@ describe("WebUI data helpers", () => {
     expect(groupWebUIs(entries)[0]?.entries.map(entry => entry.name)).toEqual(["KoboldCpp Lite", "llama-server UI"]);
     expect(filteredWebUIEntries(entries, "dream").map(entry => entry.id)).toEqual(["b:sd"]);
     expect(filteredWebUIEntries(entries, "llama.cpp").map(entry => entry.id)).toEqual(["a:llama"]);
+  });
+
+  it("finds the WebUI serving a loaded runtime, preferring the one that already has it active", () => {
+    const entries = [
+      webUIEntry({id: "a:compatible", node_id: "a", compatible_models: [compatibleModel("chat")]}),
+      webUIEntry({id: "a:active", node_id: "a", active_model_id: "chat"}),
+      webUIEntry({id: "b:active", node_id: "b", active_model_id: "chat"})
+    ];
+
+    expect(webUIForRuntime(entries, "a", "chat")?.id).toBe("a:active");
+    expect(webUIForRuntime(entries.slice(0, 1), "a", "chat")?.id).toBe("a:compatible");
+    expect(webUIForRuntime(entries, "c", "chat")).toBeUndefined();
   });
 
   it("reports blocked and openable states from server-owned flags", () => {

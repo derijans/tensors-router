@@ -1,0 +1,69 @@
+#lendingSummary {
+  display: grid;
+  gap: var(--gap);
+}
+
+.lending-leases {
+  display: grid;
+  gap: 6px;
+}
+
+.lending-leases li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  font-size: 13px;
+}
+
+.lending-settings-table td {
+  vertical-align: top;
+}
+
+.lending-setting-description {
+  max-width: 420px;
+  margin-top: 2px;
+  font-size: 12px;
+  white-space: normal;
+}
+
+.lending-setting-input {
+  min-width: 120px;
+}
+
+.lending-setting-effective {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.lending-nowrap {
+  white-space: nowrap;
+}
+
+.lending-endpoint {
+  font-size: 12px;
+}
+
+.lending-endpoint-node {
+  display: block;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.lending-detail {
+  display: grid;
+  gap: var(--gap);
+  margin-top: var(--gap-md);
+  padding-top: var(--gap-md);
+  border-top: 1px solid var(--border);
+}
+
+.lending-detail:empty {
+  display: none;
+}

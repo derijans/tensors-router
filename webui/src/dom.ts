@@ -22,6 +22,10 @@ export function closestElement<T extends Element>(target: EventTarget | null, se
   return element instanceof constructor ? element : null;
 }
 
+export function holdsOpenPopover(element: Element): boolean {
+  return element.querySelector(":popover-open") !== null;
+}
+
 export function queryElements<T extends Element>(selector: string, constructor: ElementConstructor<T>): T[] {
   return Array.from(document.querySelectorAll(selector)).filter((element): element is T => element instanceof constructor);
 }

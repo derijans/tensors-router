@@ -35,6 +35,16 @@ export const state: AppState = {
   inventory: null,
   routingLinks: {image: null, text: null},
   router: null,
+  nodeSnapshots: {},
+  overview: {
+    period: "24h",
+    analytics: null,
+    error: ""
+  },
+  search: {
+    query: "",
+    activeIndex: 0
+  },
   nodes: {
     expanded: [],
     byNode: {}
@@ -51,7 +61,9 @@ export const state: AppState = {
     fileRoleFilter: "",
     fileExtensionFilter: "",
     fileHashFilter: "all",
-    initialized: false
+    initialized: false,
+    columnChoices: {},
+    roomForEveryColumn: false
   },
   benchmark: {
     modelKey: "",
@@ -119,7 +131,7 @@ export const state: AppState = {
     modelHandoff: null,
     error: ""
   },
-  activeTab: "router",
+  activeTab: "overview",
   activeCookMode: "quick",
   activePalette: "configs",
   simpleCook: {

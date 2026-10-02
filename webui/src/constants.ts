@@ -4,7 +4,6 @@ export interface LaneMetadata {
   label: string;
   shortLabel: string;
   section: string;
-  accent: string;
   dropLabel: string;
 }
 
@@ -65,35 +64,30 @@ export const laneMetadata: Record<LaneKind, LaneMetadata> = {
     label: "LLM",
     shortLabel: "Text",
     section: "llm",
-    accent: "cyan",
     dropLabel: "Drop a text config or model file"
   },
   image: {
     label: "Image",
     shortLabel: "Image",
     section: "image",
-    accent: "magenta",
     dropLabel: "Drop an image config or model file"
   },
   embeddings: {
     label: "Embed",
     shortLabel: "Embed",
     section: "embed",
-    accent: "lime",
     dropLabel: "Drop an embedding config or model file"
   },
   voice: {
     label: "Voice",
     shortLabel: "Voice",
     section: "voice",
-    accent: "amber",
     dropLabel: "Drop Whisper, TTS, tokenizer, or voice dir"
   },
   music: {
     label: "Music",
     shortLabel: "Music",
     section: "music",
-    accent: "violet",
     dropLabel: "Drop Music LLM, embeddings, diffusion, or VAE"
   }
 };

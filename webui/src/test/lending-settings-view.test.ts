@@ -19,7 +19,7 @@ describe("lending settings view", () => {
     expect(markup).toContain('value="" placeholder="20"');
     expect(markup.match(/data-lending-setting-reset=/g)).toHaveLength(1);
     expect(markup).toContain('data-lending-setting-reset="offload_probe_idle"');
-    expect(markup).toContain('class="chip amber">2s</span><span class="muted">database</span>');
+    expect(markup).toContain('class="badge tone-warning">2s</span><span class="muted">database</span>');
   });
 
   it("offers a boolean setting as true, false, or falling back to the lower layer", () => {

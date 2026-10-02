@@ -48,7 +48,7 @@ export function routingDialogMarkup(view: RoutingDialogView): SafeHTML {
     ${pendingMismatch.length > 0 ? acknowledgementMarkup(pendingMismatch, view.acknowledged) : ""}
     <div class="dialog-actions">
       <button type="button" data-routing-action="cancel">Cancel</button>
-      <button type="button" data-routing-action="save"${saveBlocked ? " disabled" : ""}>Save links</button>
+      <button class="primary" type="button" data-routing-action="save"${saveBlocked ? " disabled" : ""}>Save links</button>
     </div>
   `;
 }

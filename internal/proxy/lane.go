@@ -45,6 +45,7 @@ type activeConfigState struct {
 	vramBaselineMB       int64
 	vramTotalMB          int64
 	vramBaselineValid    bool
+	memoryLoadedMB       int64
 	modelID              string
 	generation           uint64
 	leases               map[uint64]string
@@ -281,9 +282,9 @@ func (service *Service) reloadHeldModelConfig(runtime *backendRuntime, ctx conte
 		state.pendingProfile = profile
 		state.mu.Unlock()
 
-		vramLoad := service.analytics.beginLoad(ctx)
+		loadMeasurement := service.beginModelLoad(ctx)
 		err := service.loadModelConfig(runtime, ctx, modelID, configFilename, readiness)
-		service.analytics.finishLoad(ctx, vramLoad)
+		service.finishModelLoad(ctx, loadMeasurement)
 
 		state.mu.Lock()
 		endRuntimeSwitchLocked(state)
@@ -294,7 +295,7 @@ func (service *Service) reloadHeldModelConfig(runtime *backendRuntime, ctx conte
 			state.modelID = ""
 			state.physicalAttemptID = ""
 			clearPhysicalLoadProfileLocked(state)
-			clearVRAMLoadStateLocked(state)
+			clearLoadMeasurementLocked(state)
 			notifyActiveConfigLocked(state)
 			state.mu.Unlock()
 			service.onRuntimeChanged()
@@ -304,10 +305,10 @@ func (service *Service) reloadHeldModelConfig(runtime *backendRuntime, ctx conte
 		state.modelID = modelID
 		state.generation++
 		applyPhysicalLoadProfileLocked(state, configFilename, profile, readiness)
-		applyVRAMLoadStateLocked(state, vramLoad)
+		applyLoadMeasurementLocked(state, loadMeasurement)
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
-		service.analytics.recordLoad(modelID, configFilename, readiness, runtime.mode, vramLoad)
+		service.analytics.recordLoad(modelID, configFilename, readiness, runtime.mode, loadMeasurement.analytics)
 		service.onRuntimeChanged()
 		return nil
 	}
@@ -384,15 +385,15 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 			state.modelID = ""
 			state.physicalAttemptID = ""
 			clearPhysicalLoadProfileLocked(state)
-			clearVRAMLoadStateLocked(state)
+			clearLoadMeasurementLocked(state)
 			notifyActiveConfigLocked(state)
 			state.mu.Unlock()
 			service.onRuntimeChanged()
 			return nil, false, err
 		}
-		vramLoad := service.analytics.beginLoad(ctx)
+		loadMeasurement := service.beginModelLoad(ctx)
 		err = service.loadModelConfig(runtime, ctx, modelID, configFilename, readiness)
-		service.analytics.finishLoad(ctx, vramLoad)
+		service.finishModelLoad(ctx, loadMeasurement)
 		service.finishPhysicalLoadCapture(capture, err)
 
 		state.mu.Lock()
@@ -404,7 +405,7 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 			state.modelID = ""
 			state.physicalAttemptID = ""
 			clearPhysicalLoadProfileLocked(state)
-			clearVRAMLoadStateLocked(state)
+			clearLoadMeasurementLocked(state)
 			notifyActiveConfigLocked(state)
 			state.mu.Unlock()
 			service.onRuntimeChanged()
@@ -419,11 +420,11 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 			state.physicalAttemptID = ""
 		}
 		applyPhysicalLoadProfileLocked(state, configFilename, profile, readiness)
-		applyVRAMLoadStateLocked(state, vramLoad)
+		applyLoadMeasurementLocked(state, loadMeasurement)
 		release := service.addRuntimeLeaseLocked(state, modelID, borrowed)
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
-		service.analytics.recordLoad(modelID, configFilename, readiness, runtime.mode, vramLoad)
+		service.analytics.recordLoad(modelID, configFilename, readiness, runtime.mode, loadMeasurement.analytics)
 		service.onRuntimeChanged()
 		return release, true, nil
 	}
@@ -541,7 +542,7 @@ func claimIdleRuntime(ctx context.Context, state *activeConfigState, stillUnload
 		beginRuntimeSwitchLocked(state, false)
 		state.filename = ""
 		clearPhysicalLoadProfileLocked(state)
-		clearVRAMLoadStateLocked(state)
+		clearLoadMeasurementLocked(state)
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
 		return nil

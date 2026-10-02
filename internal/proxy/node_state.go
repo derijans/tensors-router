@@ -78,8 +78,8 @@ func (service *Service) handleSiteNodeState(w http.ResponseWriter, r *http.Reque
 	openai.WriteJSON(w, http.StatusOK, state)
 }
 
-func (service *Service) handleNodeState(w http.ResponseWriter, _ *http.Request) {
-	openai.WriteJSON(w, http.StatusOK, service.localNodeState())
+func (service *Service) handleNodeState(w http.ResponseWriter, r *http.Request) {
+	openai.WriteJSON(w, http.StatusOK, service.localNodeState(r.Context()))
 }
 
 func (service *Service) handleSiteNodeUnload(w http.ResponseWriter, r *http.Request) {
@@ -312,7 +312,7 @@ func decodeNodeUnloadRequest(w http.ResponseWriter, r *http.Request) (siteapi.No
 
 func (service *Service) nodeState(ctx context.Context, nodeID string) (siteapi.NodeState, error) {
 	if nodeID == service.nodeID {
-		return service.localNodeState(), nil
+		return service.localNodeState(ctx), nil
 	}
 	nodeURL, ok := service.remoteNodeURL(nodeID)
 	if !ok {
@@ -360,7 +360,7 @@ func (service *Service) remoteNodeURL(nodeID string) (string, bool) {
 	return nodeURL, ok && strings.TrimSpace(nodeURL) != ""
 }
 
-func (service *Service) localNodeState() siteapi.NodeState {
+func (service *Service) localNodeState(ctx context.Context) siteapi.NodeState {
 	bindings := service.runtimeBindings()
 	rowsByBackend := make(map[string][]siteapi.NodeStateModelRow)
 	requests := make([]activeRequestSnapshot, 0)
@@ -374,6 +374,7 @@ func (service *Service) localNodeState() siteapi.NodeState {
 		if state.modelID != "" {
 			rowsByBackend[binding.backendID] = append(rowsByBackend[binding.backendID], siteapi.NodeStateModelRow{
 				ModelID: state.modelID, Lane: binding.lane, RuntimeID: binding.runtime.name, Generation: state.generation,
+				MemoryEstimateMB: state.memoryLoadedMB, Borrowed: state.borrowedUsers > 0,
 			})
 		}
 		if _, seen := seenRuntimes[binding.runtime]; !seen {
@@ -415,7 +416,19 @@ func (service *Service) localNodeState() siteapi.NodeState {
 		HeldRequests:    service.scheduler.heldRequests(time.Now()),
 		FFmpegAvailable: service.ffmpeg.Available(),
 		FFmpegPath:      service.ffmpeg.Path(),
+		Memory:          service.nodeMemoryReading(ctx),
 	}
+}
+
+func (service *Service) nodeMemoryReading(ctx context.Context) *siteapi.NodeMemory {
+	if service.nodeMemory == nil {
+		return nil
+	}
+	reading, ok := service.nodeMemory.Memory(ctx)
+	if !ok {
+		return nil
+	}
+	return &siteapi.NodeMemory{Kind: reading.Kind, TotalMB: reading.TotalMB, UsedMB: reading.UsedMB, SampledAtMS: reading.SampledAt.UnixMilli()}
 }
 
 func (service *Service) vllmNodeState(backend siteapi.NodeStateBackend) siteapi.NodeStateBackend {

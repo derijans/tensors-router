@@ -1,0 +1,246 @@
+.simple-cook {
+  display: grid;
+  grid-template-columns: minmax(240px, 280px) minmax(0, 1fr) minmax(260px, 320px);
+  align-items: start;
+  gap: var(--gap-md);
+}
+
+.simple-controls {
+  position: sticky;
+  top: 96px;
+  display: grid;
+  gap: var(--gap);
+}
+
+.simple-controls .button-strip button {
+  flex: 1 1 auto;
+}
+
+.config-workspace {
+  display: grid;
+  gap: var(--gap);
+  min-width: 0;
+}
+
+.comparison-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.comparison-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.legend-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--text-faint);
+}
+
+.legend-dot.compare-same {
+  background: var(--mint);
+}
+
+.legend-dot.compare-different {
+  background: var(--amber);
+}
+
+.config-editor {
+  display: grid;
+  gap: var(--gap-sm);
+}
+
+.config-section {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: rgb(29 18 54 / .82);
+  overflow: hidden;
+}
+
+.config-section > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap);
+  padding: 14px 18px;
+  font: italic 800 15px var(--display);
+  list-style: none;
+}
+
+.config-section > summary::-webkit-details-marker {
+  display: none;
+}
+
+.config-section > summary::after {
+  color: var(--text-faint);
+  font: 400 18px/1 var(--sans);
+  content: "+";
+}
+
+.config-section[open] > summary::after {
+  content: "−";
+}
+
+.config-section[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.section-count {
+  margin-left: auto;
+  color: var(--text-faint);
+  font: 400 12px var(--sans);
+}
+
+.config-fields {
+  display: grid;
+}
+
+.config-field {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) minmax(0, 1.4fr) auto;
+  align-items: center;
+  gap: var(--gap);
+  padding: 10px 18px;
+  border-top: 1px solid var(--border);
+  box-shadow: inset 3px 0 0 var(--text-faint);
+}
+
+.config-field:first-child {
+  border-top: 0;
+}
+
+.config-field.compare-same {
+  box-shadow: inset 3px 0 0 var(--mint);
+}
+
+.config-field.compare-different {
+  box-shadow: inset 3px 0 0 var(--amber);
+}
+
+.config-field.backend-virtual {
+  background: rgb(76 226 255 / .04);
+}
+
+.field-label {
+  display: grid;
+  min-width: 0;
+}
+
+.field-label span {
+  font-weight: 600;
+}
+
+.field-label code {
+  overflow: hidden;
+  color: var(--text-faint);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.field-control select[multiple] {
+  min-height: 96px;
+}
+
+.field-buttons {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.field-tool {
+  min-height: 26px;
+  padding: 0 10px;
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.virtual-runtime-select {
+  border-color: color-mix(in srgb, var(--cyan) 40%, transparent);
+}
+
+.field-sidebar {
+  position: sticky;
+  top: 96px;
+  display: grid;
+  gap: var(--gap);
+  max-height: calc(100vh - 120px);
+  overflow-y: auto;
+}
+
+.sidebar-value {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface-sunken);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.sidebar-value .muted {
+  font-size: 12px;
+}
+
+#cookOutput {
+  margin-top: var(--gap-sm);
+}
+
+.cook-result-grid {
+  display: grid;
+  gap: var(--gap);
+}
+
+.cook-result-grid ul {
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.cook-result-grid pre {
+  max-height: 360px;
+  margin: var(--gap-sm) 0 0;
+  overflow: auto;
+  font-size: 12px;
+}
+
+@media (max-width: 1280px) {
+  .simple-cook {
+    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  }
+
+  .field-sidebar {
+    position: static;
+    grid-column: 1 / -1;
+    max-height: none;
+  }
+}
+
+@media (max-width: 860px) {
+  .simple-cook {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .simple-controls {
+    position: static;
+  }
+
+  .config-field {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .field-control {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}

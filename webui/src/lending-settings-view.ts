@@ -1,8 +1,8 @@
 import { SafeHTML, emptyHTML, html } from "./safe-html";
-import type { LendingSettingEntry, LendingSettingSource } from "./types";
-import { chip } from "./utils";
+import type { LendingSettingEntry, LendingSettingSource, Tone } from "./types";
+import { badge } from "./markup-primitives";
 
-const sourceColors: Record<LendingSettingSource, string> = {default: "violet", config: "cyan", db: "amber"};
+const sourceTones: Record<LendingSettingSource, Tone> = {default: "neutral", config: "info", db: "warning"};
 const sourceLabels: Record<LendingSettingSource, string> = {default: "default", config: "config file", db: "database"};
 
 export interface LendingSettingInput {
@@ -30,7 +30,7 @@ function renderLendingSettingRow(entry: LendingSettingEntry, editable: boolean):
       <td><code>${entry.default}</code></td>
       <td>${entry.config ? html`<code>${entry.config}</code>` : html`<span class="muted">not set</span>`}</td>
       <td>${entry.kind === "boolean" ? renderBooleanInput(entry, valueWithoutOverride, editable) : renderTextInput(entry, valueWithoutOverride, editable)}</td>
-      <td><span class="lending-setting-effective">${chip(entry.effective, sourceColors[entry.source])}<span class="muted">${sourceLabels[entry.source]}</span></span></td>
+      <td><span class="lending-setting-effective">${badge(entry.effective, sourceTones[entry.source])}<span class="muted">${sourceLabels[entry.source]}</span></span></td>
       <td>${entry.override !== undefined && editable ? html`<button type="button" data-lending-setting-reset="${entry.key}">Default</button>` : emptyHTML}</td>
     </tr>
   `;

@@ -117,6 +117,7 @@ func NewService(config ServiceConfig) *Service {
 	if service.hardware == nil {
 		service.hardware = hardware.NewCache()
 	}
+	service.nodeMemory = config.MemorySource
 	service.analytics = &requestAnalytics{
 		store:        config.AnalyticsStore,
 		vramEnabled:  config.VRAMAnalyticsEnabled,

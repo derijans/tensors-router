@@ -1,6 +1,7 @@
 import { state } from "./state";
 import { compareOptionKeys } from "./constants";
-import { fileRoles, formatBytes, kindColor, numberOption } from "./utils";
+import { fileRoles, formatBytes, numberOption } from "./utils";
+import { laneAccent } from "./markup-primitives";
 import type {
   CookComponent,
   FileRecord,
@@ -40,6 +41,10 @@ export function optionDefinition(key: string): OptionDefinition | undefined {
 
 export function nodeByID(nodeID: string) {
   return (state.inventory?.nodes ?? []).find(node => node.node_id === nodeID);
+}
+
+export function nodeModelByID(nodeID: string, modelID: string): Model | undefined {
+  return (nodeByID(nodeID)?.models ?? []).find(model => model.local_id === modelID || model.public_id === modelID);
 }
 
 export function filteredModels(query: string, nodeIDs: string[] = []): Model[] {
@@ -180,7 +185,7 @@ export function optionPaletteEntries(): PaletteEntry[] {
     title: definition.name || definition.key,
     subtitle: definition.key,
     badge: definition.lane || "option",
-    color: definition.known ? "cyan" : "amber",
+    accent: definition.known ? "info" : "warning",
     meta: [
       definition.value_type || "json",
       ...(definition.backends ?? []),
@@ -205,7 +210,7 @@ function modelEntry(kind: LaneKind, model: Model): PaletteEntry {
     title: id,
     subtitle: model.filename || "",
     badge: kind,
-    color: kindColor(kind),
+    accent: laneAccent(kind),
     meta: [model.node_id || "", model.backend_mode || "", optionCount(model.options)].filter(nonEmptyString),
     payload: {
       type: "component",
@@ -224,7 +229,7 @@ function fileEntry(kind: LaneKind, file: FileRecord): PaletteEntry {
     title: file.basename,
     subtitle: file.path,
     badge: kind,
-    color: kindColor(kind),
+    accent: laneAccent(kind),
     meta: [file.node_id || "", formatBytes(file.size || 0)].filter(nonEmptyString),
     payload: {
       type: "component",

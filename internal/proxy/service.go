@@ -105,6 +105,7 @@ type ServiceConfig struct {
 	LoadErrorStore            *loaderrors.Store
 	VRAMAnalyticsEnabled      bool
 	VRAMSource                hardware.VRAMSource
+	MemorySource              hardware.MemorySource
 	VRAMSampleInterval        time.Duration
 	Hardware                  hardware.Source
 	Downloader                downloader.Service
@@ -159,6 +160,7 @@ type Service struct {
 	loadCaptureMaxOutputBytes int64
 	loadErrorStore            *loaderrors.Store
 	hardware                  hardware.Source
+	nodeMemory                hardware.MemorySource
 	downloads                 *downloads.Handlers
 	client                    *http.Client
 	logger                    *log.Logger
