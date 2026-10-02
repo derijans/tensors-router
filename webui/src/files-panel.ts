@@ -17,13 +17,13 @@ export function renderFilesPanel(files: FileRecord[], nodes: NodeInventory[]): v
   });
   elements.filesRowCount.textContent = `${filtered.length} of ${files.length} files`;
   setHTML(elements.filesScanNotices, scanNotices(nodes));
-  setHTML(elements.filesTable, filtered.length > 0 ? html`${filtered.map(fileRow)}` : html`<tr><td class="inventory-empty" colspan="6">No files match the current filters.</td></tr>`);
+  setHTML(elements.filesTable, filtered.length > 0 ? html`${filtered.map(fileRow)}` : html`<tr><td class="empty-state" colspan="6">No files match the current filters.</td></tr>`);
 }
 
 function fileRow(file: FileRecord): SafeHTML {
   return html`
     <tr>
-      <td title="${file.path}">${file.basename}</td>
+      <td><div class="model-cell"><strong>${file.basename}</strong><small>${file.path}</small></div></td>
       <td>${file.node_id || ""}</td>
       <td>${fileRoles(file).join(", ")}</td>
       <td>${normalizedExtension(file)}</td>

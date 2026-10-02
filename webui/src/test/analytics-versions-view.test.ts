@@ -10,7 +10,7 @@ describe("analytics router versions", () => {
     ]));
 
     expect(markup).toContain("slave &lt;1&gt;");
-    expect(markup).toContain('class="chip amber">unknown (recorded before version stamping)</span>');
+    expect(markup).toContain('class="badge tone-warning">unknown (recorded before version stamping)</span>');
     expect(markup).toContain("<td>v0.7.3</td>");
     expect(markup.match(/<tr>/g)).toHaveLength(2);
   });

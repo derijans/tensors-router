@@ -1,4 +1,5 @@
 import { SafeHTML, emptyHTML, html, listOrFallback, setHTML } from "./safe-html";
+import { badge } from "./markup-primitives";
 import {
   createDownloadJob,
   downloadJobAction,
@@ -20,7 +21,7 @@ import { planSelectionForMode, selectedDownloadBytes, selectedDownloadFiles, tog
 import { hfFilterCatalog, hfFilterCatalogVersion } from "./hf-filter-catalog";
 import { state } from "./state";
 import { formatBytes } from "./utils";
-import type { DownloadJob, DownloadPlan } from "./types";
+import type { DownloadJob, DownloadPlan, Tone } from "./types";
 
 export async function loadDownloads(): Promise<void> {
   try {
@@ -438,6 +439,7 @@ export function togglePlannedDownloadFile(path: string): void {
 
 export function renderDownloads(): void {
   const available = state.downloads.available;
+  elements.downloadFlag.hidden = !hasActiveDownloadJob();
   elements.downloadTab.hidden = false;
   elements.downloadPanel.hidden = false;
   if (!available) {
@@ -506,7 +508,7 @@ function renderSearchResults(): SafeHTML {
       <button class="download-entry${selected}" type="button" data-download-repository="${result.id}">
         <strong>${result.id}</strong>
         <span>${meta.join(" · ")}</span>
-        ${tags.length > 0 ? html`<span class="download-tags">${tags.map(tag => html`<span class="chip">${tag}</span>`)}</span>` : ""}
+        ${tags.length > 0 ? html`<span class="download-tags">${tags.map(tag => badge(tag, "neutral"))}</span>` : ""}
       </button>`;
   })}`;
   return html`${finder}${notice}${rows}${candidates}`;
@@ -538,7 +540,7 @@ function renderDownloadFilters(): void {
   setHTML(elements.downloadFilterOptions, listOrFallback(renderedGroups, html`<span class="muted">No filters match.</span>`));
   setHTML(elements.downloadFilterSummary, state.downloads.filters.length === 0
     ? html`<span class="muted">No metadata filters selected.</span>`
-    : html`${state.downloads.filters.map(filter => html`<button type="button" class="chip" data-download-filter-clear="${filter}">${filter} ×</button>`)}<button type="button" class="chip" data-download-filter-clear-all>Clear all</button>`);
+    : html`${state.downloads.filters.map(filter => html`<button type="button" class="badge tone-accent" data-download-filter-clear="${filter}">${filter} ×</button>`)}<button type="button" class="badge tone-neutral" data-download-filter-clear-all>Clear all</button>`);
 }
 
 function renderFilterGroup(activeTab: string, groupID: string, label: string, values: string[], query: string): SafeHTML {
@@ -585,7 +587,7 @@ function renderPlan(plan: DownloadPlan): SafeHTML {
         <button type="button" data-download-plan-select="none">Select none</button>
         <button type="button" data-download-plan-select="required">Required only</button>
       </div>
-      <ul>${plan.files.map(file => html`<li><label><input type="checkbox" data-download-plan-file="${file.path}"${selected.has(file.path) ? " checked" : ""}> ${file.path} · ${formatBytes(file.size)} · ${file.reason}${file.required ? " · required" : ""}</label></li>`)}</ul>
+      <ul class="plan-files">${plan.files.map(file => html`<li><label class="toggle-row"><input type="checkbox" data-download-plan-file="${file.path}"${selected.has(file.path) ? " checked" : ""}><code>${file.path}</code><span class="muted">${formatBytes(file.size)} · ${file.reason}</span>${file.required ? badge("required", "accent") : ""}</label></li>`)}</ul>
     </div>
   `;
 }
@@ -593,13 +595,29 @@ function renderPlan(plan: DownloadPlan): SafeHTML {
 function renderJob(job: DownloadJob): SafeHTML {
   const actions = job.state === "running" ? "pause cancel" : job.state === "paused" || job.state === "failed" ? "resume cancel" : "";
   return html`
-    <div class="download-entry">
-      <strong>${job.repository} · ${job.state}</strong>
-      <span>${formatBytes(job.completed_bytes)} / ${formatBytes(job.total_bytes)}</span>
+    <div class="download-entry download-job">
+      <div class="download-job-head"><strong>${job.repository}</strong>${badge(job.state, downloadJobTone(job.state))}</div>
+      <progress value="${Math.min(job.completed_bytes, job.total_bytes)}" max="${Math.max(job.total_bytes, 1)}" aria-label="Download progress for ${job.repository}"></progress>
+      <span class="muted">${formatBytes(job.completed_bytes)} / ${formatBytes(job.total_bytes)}</span>
       ${job.error ? html`<p class="error-text">${job.error}</p>` : ""}
       <div class="button-strip">${actions.split(" ").filter(Boolean).map(action => html`<button type="button" data-download-job="${job.id}" data-download-action="${action}">${action}</button>`)}</div>
     </div>
   `;
+}
+
+function downloadJobTone(jobState: string): Tone {
+  switch (jobState) {
+    case "running":
+      return "info";
+    case "completed":
+      return "success";
+    case "failed":
+      return "danger";
+    case "paused":
+      return "warning";
+    default:
+      return "neutral";
+  }
 }
 
 function requestedFiles(): string[] {

@@ -90,3 +90,9 @@ function dialogMessage(reason: WebUIOpenReason): string {
       return "Ready to open.";
   }
 }
+
+export function webUIForRuntime(entries: readonly WebUIEntry[], nodeID: string, modelID: string): WebUIEntry | undefined {
+  const onNode = entries.filter(entry => entry.node_id === nodeID);
+  return onNode.find(entry => entry.active_model_id === modelID || entry.active_image_id === modelID)
+    ?? onNode.find(entry => entry.compatible_models.some(model => model.local_id === modelID || model.model_id === modelID || model.local_image_id === modelID));
+}

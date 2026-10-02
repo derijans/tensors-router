@@ -1,7 +1,7 @@
 import { SafeHTML, emptyHTML, html } from "./safe-html";
 import { type LendingDecisionGroup, type LendingMeasureField, lendingMeasureFields } from "./lending-log-collapse";
-import type { LendingDecision } from "./types";
-import { chip } from "./utils";
+import type { LendingDecision, Tone } from "./types";
+import { badge, fact } from "./markup-primitives";
 
 const measureLabels: Record<LendingMeasureField, string> = {
   pending_count: "Pending (withdrawable)",
@@ -30,7 +30,7 @@ export function renderDecisionRows(groups: LendingDecisionGroup[], selectedID: s
       <td class="lending-nowrap">${decision.lane}</td>
       <td class="lending-endpoint">${endpointCell(decision.owner_node_id, decision.owner_model_id)}</td>
       <td class="lending-endpoint">${endpointCell(decision.helper_node_id, decision.helper_model_id)}</td>
-      <td>${chip(decision.outcome, outcomeColor(decision.outcome))}</td>
+      <td>${badge(decision.outcome, outcomeTone(decision.outcome))}</td>
       <td>${decision.reason ?? ""}</td>
     </tr>`;
   })}`;
@@ -53,8 +53,8 @@ export function renderDecisionDetail(group: LendingDecisionGroup | undefined): S
   ];
   return html`
     <h3>${decision.kind} ${decision.outcome}</h3>
-    <dl class="load-error-detail">
-      ${facts.filter(([, value]) => value !== "").map(([label, value]) => html`<div><dt>${label}</dt><dd>${value}</dd></div>`)}
+    <dl class="fact-grid">
+      ${facts.filter(([, value]) => value !== "").map(([label, value]) => fact(label, value))}
     </dl>
   `;
 }
@@ -100,23 +100,23 @@ function endpoint(nodeID: string | undefined, modelID: string | undefined): stri
   return nodeID || modelID ? `${nodeID ?? "?"}/${modelID ?? "?"}` : "";
 }
 
-function outcomeColor(outcome: string): string {
+function outcomeTone(outcome: string): Tone {
   switch (outcome) {
     case "granted":
     case "lent":
     case "lease_updated":
-      return "lime";
+      return "success";
     case "probe":
-      return "cyan";
+      return "info";
     case "skipped":
     case "relay_refused":
     case "lease_refused":
     case "borrowed_returned":
-      return "amber";
+      return "warning";
     case "returned":
     case "lease_cleared":
-      return "violet";
+      return "neutral";
     default:
-      return "magenta";
+      return "accent";
   }
 }

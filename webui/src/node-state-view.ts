@@ -1,54 +1,9 @@
 import { SafeHTML, emptyHTML, html } from "./safe-html";
-import type { BackendLaunchOptions, NodeHeldRequest, NodeInventory, NodeState, NodeStateBackend, NodeStateModelRow } from "./types";
-import { chip, formatBytes } from "./utils";
+import type { BackendLaunchOptions, NodeHeldRequest, NodeState, NodeStateBackend, NodeStateModelRow, Tone } from "./types";
+import { formatBytes } from "./utils";
+import { badge, laneAccent } from "./markup-primitives";
 
 const backendOrder = ["koboldcpp", "llama-server", "vllm", "sd-server", "whisper-server"];
-
-export function nodeStatePanelID(nodeID: string): string {
-  return `nodeStatePanel-${nodeID}`;
-}
-
-export function renderNodeCard(node: NodeInventory, expanded: boolean, clusterBuildVersion = ""): SafeHTML {
-  const hardware = node.hardware;
-  const nodeID = node.node_id || node.node_url || "unknown";
-  return html`
-    <button class="node-card${expanded ? " selected" : ""}" type="button" data-node-select="${node.node_id}" aria-expanded="${expanded}" aria-controls="${nodeStatePanelID(node.node_id)}">
-      <strong>${nodeID}</strong>
-      <span class="muted">${node.node_url || "local"}</span>
-      <span class="node-meta">
-        ${chip(node.role || "unknown", roleColor(node.role))}
-        ${chip(node.source || "unknown", "violet")}
-        ${chip(node.backend_mode || "unknown", "cyan")}
-        ${chip(node.available ? "available" : "down", node.available ? "lime" : "amber")}
-        ${chip(`${hardware.max_threads || "?"} threads`, "magenta")}
-        ${chip(`${hardware.gpu_backend || "unknown"} gpu`, "cyan")}
-        ${renderBuildVersion(node, clusterBuildVersion)}
-      </span>
-      ${node.error ? html`<span class="error-text">${node.error}</span>` : ""}
-    </button>
-  `;
-}
-
-function renderBuildVersion(node: NodeInventory, clusterBuildVersion: string): SafeHTML {
-  const version = node.build_version || "unknown build";
-  const mismatched = clusterBuildVersion !== "" && node.build_version !== clusterBuildVersion;
-  return mismatched ? chip(`${version} ≠ ${clusterBuildVersion}`, "amber") : chip(version, "violet");
-}
-
-export function clusterBuildVersion(nodes: NodeInventory[]): string {
-  const master = nodes.find(node => node.role === "master") ?? nodes[0];
-  return master?.build_version ?? "";
-}
-
-function roleColor(role: string): string {
-  if (role === "master") {
-    return "amber";
-  }
-  if (role === "slave") {
-    return "cyan";
-  }
-  return "magenta";
-}
 
 export function renderNodeStateSnapshot(nodeID: string, snapshot: NodeState, pendingUnload: string, pendingBackendAction = ""): SafeHTML {
   const backends = [...(snapshot.backends || [])].sort((left, right) => backendRank(left.id) - backendRank(right.id));
@@ -84,10 +39,10 @@ function renderHeldRequests(heldRequests: NodeHeldRequest[] | null | undefined):
 function renderHeldRequest(request: NodeHeldRequest): SafeHTML {
   return html`
     <li class="node-held-request">
-      ${chip(request.lane, request.lane === "image" ? "magenta" : "cyan")}
+      ${badge(request.lane, laneAccent(request.lane))}
       <span>${request.model_id}</span>
       <span class="muted">${formatWaiting(request.waiting_ms)}</span>
-      ${request.state === "lent" ? html`${chip("lent", "lime")}<span class="muted">→ ${request.helper_node_id || "?"}/${request.helper_model_id || "?"}</span>` : chip("held", "amber")}
+      ${request.state === "lent" ? html`${badge("lent", "success")}<span class="muted">→ ${request.helper_node_id || "?"}/${request.helper_model_id || "?"}</span>` : badge("held", "warning")}
     </li>
   `;
 }
@@ -126,8 +81,8 @@ function renderBackend(nodeID: string, backend: NodeStateBackend, pendingUnload:
       <div class="node-backend-heading">
         <h4>${backend.display_name}</h4>
         <div class="node-backend-chips">
-          ${chip(backend.mode, "cyan")}
-          ${chip(lifecycleState, lifecycleColor(lifecycleState))}
+          ${badge(backend.mode, "info")}
+          ${badge(lifecycleState, lifecycleTone(lifecycleState))}
         </div>
       </div>
       ${lifecycleState === "ready" ? renderReadyBackend(nodeID, backend, pendingUnload) : renderBackendLifecycle(nodeID, backend, lifecycleState, cancellationPending)}
@@ -151,7 +106,7 @@ function renderBackendLifecycle(nodeID: string, backend: NodeStateBackend, lifec
         <strong>${backend.initialization_phase || "Initializing"}</strong>
         ${renderInitializationProgress(backend)}
         <div class="node-backend-actions">
-          <button class="chip amber node-backend-init-action" type="button" disabled>backend needs init</button>
+          <button class="badge tone-warning node-backend-init-action" type="button" disabled>backend needs init</button>
           <button type="button" data-node-backend-init-cancel data-node-id="${nodeID}" data-backend-id="${backend.id}"${cancellationPending ? " disabled" : ""}>${cancellationPending ? "Cancelling..." : "Cancel"}</button>
         </div>
       </div>
@@ -163,7 +118,7 @@ function renderBackendLifecycle(nodeID: string, backend: NodeStateBackend, lifec
     ${renderRuntimeIdentity(backend)}
     <div class="node-backend-lifecycle">
       ${reason ? html`<p class="${lifecycleState === "failed" ? "error-text" : "muted"} node-state-message">${reason}</p>` : ""}
-      ${initializationAction ? html`<button class="chip amber node-backend-init-action" type="button" data-node-backend-init data-node-id="${nodeID}" data-backend-id="${backend.id}"${backend.selected_profile ? html` data-profile="${backend.selected_profile}"` : ""}>backend needs init</button>` : ""}
+      ${initializationAction ? html`<button class="badge tone-warning node-backend-init-action" type="button" data-node-backend-init data-node-id="${nodeID}" data-backend-id="${backend.id}"${backend.selected_profile ? html` data-profile="${backend.selected_profile}"` : ""}>backend needs init</button>` : ""}
     </div>
     ${renderLaunchOptions(nodeID, backend)}
   `;
@@ -191,7 +146,7 @@ function renderLaunchOptions(nodeID: string, backend: NodeStateBackend): SafeHTM
     <div class="node-backend-launch-options">
       <p class="muted">Launch environment</p>
       ${checkboxes}
-      <button type="button" class="chip" data-node-backend-launch-apply data-node-id="${nodeID}" data-backend-id="${backend.id}">Apply and reload</button>
+      <button type="button" class="badge tone-accent" data-node-backend-launch-apply data-node-id="${nodeID}" data-backend-id="${backend.id}">Apply and reload</button>
     </div>
   `;
 }
@@ -238,14 +193,14 @@ function lifecycleReason(lifecycleState: string): string {
   return "";
 }
 
-function lifecycleColor(lifecycleState: string): string {
+function lifecycleTone(lifecycleState: string): Tone {
   if (lifecycleState === "ready") {
-    return "lime";
+    return "success";
   }
   if (lifecycleState === "failed" || lifecycleState === "unsupported" || lifecycleState === "companion_missing") {
-    return "amber";
+    return "danger";
   }
-  return "violet";
+  return lifecycleState === "initializing" ? "info" : "warning";
 }
 
 function backendActionKey(action: string, backendID: string): string {

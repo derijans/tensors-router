@@ -85,6 +85,11 @@ func TestStoreFlushesAndQueriesAnalytics(t *testing.T) {
 	if len(response.Timeline) != 1 || response.Timeline[0].RequestCount != 3 {
 		t.Fatalf("unexpected timeline %#v", response.Timeline)
 	}
+	bucket := response.Timeline[0]
+	wantSections := []TimelineSection{{Section: SectionImage, RequestCount: 1}, {Section: SectionLLM, RequestCount: 2}}
+	if bucket.FailureCount != 1 || bucket.AverageTokensPS != 2.5 || bucket.TokensPSSamples != 1 || !slices.Equal(bucket.Sections, wantSections) {
+		t.Fatalf("unexpected timeline lane breakdown %#v", bucket)
+	}
 	if len(response.Recent) != 3 || response.Recent[0].ModelID != "image-a" {
 		t.Fatalf("unexpected recent rows %#v", response.Recent)
 	}
@@ -351,6 +356,40 @@ func TestMergeCombinesVRAMAnalytics(t *testing.T) {
 	}
 	if !slices.Equal(response.Filters.NodeIDs, []string{"node-a", "node-b"}) || !slices.Equal(response.Filters.ModelIDs, []string{"image", "llm"}) {
 		t.Fatalf("unexpected merged filter choices %#v", response.Filters)
+	}
+}
+
+func TestMergeCombinesTimelineLanesWithNodesThatPredateThem(t *testing.T) {
+	response := Merge(
+		Response{Timeline: []Timeline{{
+			BucketStart:     100,
+			RequestCount:    3,
+			FailureCount:    1,
+			AverageTokensPS: 10,
+			TokensPSSamples: 1,
+			Sections:        []TimelineSection{{Section: SectionLLM, RequestCount: 2}, {Section: SectionVoice, RequestCount: 1}},
+		}}},
+		Response{Timeline: []Timeline{{
+			BucketStart:     100,
+			RequestCount:    4,
+			FailureCount:    2,
+			AverageTokensPS: 40,
+			TokensPSSamples: 3,
+			Sections:        []TimelineSection{{Section: SectionImage, RequestCount: 1}, {Section: SectionLLM, RequestCount: 3}},
+		}}},
+		Response{Timeline: []Timeline{{BucketStart: 100, RequestCount: 5}}},
+	)
+
+	if len(response.Timeline) != 1 {
+		t.Fatalf("expected one merged bucket, got %#v", response.Timeline)
+	}
+	bucket := response.Timeline[0]
+	wantSections := []TimelineSection{{Section: SectionImage, RequestCount: 1}, {Section: SectionLLM, RequestCount: 5}, {Section: SectionVoice, RequestCount: 1}}
+	if bucket.RequestCount != 12 || bucket.FailureCount != 3 || !slices.Equal(bucket.Sections, wantSections) {
+		t.Fatalf("unexpected merged lanes %#v", bucket)
+	}
+	if bucket.TokensPSSamples != 4 || bucket.AverageTokensPS != 32.5 {
+		t.Fatalf("expected tokens per second weighted by samples, got %#v", bucket)
 	}
 }
 

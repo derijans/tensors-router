@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { renderNodeCard as renderNodeCardMarkup, renderNodeStateSnapshot as renderNodeStateSnapshotMarkup } from "../node-state-view";
+import { renderNodeStateSnapshot as renderNodeStateSnapshotMarkup } from "../node-state-view";
 import { SafeHTML } from "../safe-html";
-import type { BackendLifecycleState, NodeInventory, NodeState, NodeStateBackend } from "../types";
+import type { BackendLifecycleState, NodeState, NodeStateBackend } from "../types";
 
 function snapshot(): NodeState {
   return {
@@ -29,7 +29,6 @@ function snapshot(): NodeState {
   };
 }
 
-const renderNodeCard = (...args: Parameters<typeof renderNodeCardMarkup>): string => SafeHTML.render(renderNodeCardMarkup(...args));
 const renderNodeStateSnapshot = (...args: Parameters<typeof renderNodeStateSnapshotMarkup>): string => SafeHTML.render(renderNodeStateSnapshotMarkup(...args));
 
 describe("node state view", () => {
@@ -192,62 +191,6 @@ describe("node state view", () => {
     expect(unverified).not.toContain("Manifest trust:");
     expect(unverified).toContain("error-text");
     expect(unverified).toContain("Unverified install");
-  });
-
-  it("renders node selection as a keyboard-clickable button with role and source chips", () => {
-    const node: NodeInventory = {
-      node_id: "node <one>",
-      source: "slave",
-      role: "slave",
-      backend_mode: "kobold",
-      available: true,
-      hardware: {max_threads: 8, gpu_backend: "cpu", gpu_count: 0},
-      models: [],
-      files: []
-    };
-    const html = renderNodeCard(node, true);
-
-    expect(html).toMatch(/<button\b/);
-    expect(html).toContain('type="button"');
-    expect(html).toContain('aria-expanded="true"');
-    expect(html).toContain('aria-controls="nodeStatePanel-node &lt;one&gt;"');
-    expect(html).toContain("node &lt;one&gt;");
-    expect(html).toContain(">slave</span>");
-  });
-
-  it("flags a node whose build differs from the master's", () => {
-    const node: NodeInventory = {
-      node_id: "slave-1",
-      source: "slave",
-      role: "slave",
-      backend_mode: "kobold",
-      available: true,
-      hardware: {max_threads: 8, gpu_backend: "cpu", gpu_count: 0},
-      models: [],
-      files: []
-    };
-
-    expect(renderNodeCard({...node, build_version: "v0.7.2"}, false, "v0.7.2")).toContain('class="chip violet">v0.7.2</span>');
-    expect(renderNodeCard({...node, build_version: "v0.7.1"}, false, "v0.7.2")).toContain('class="chip amber">v0.7.1 ≠ v0.7.2</span>');
-    expect(renderNodeCard(node, false, "v0.7.2")).toContain('class="chip amber">unknown build ≠ v0.7.2</span>');
-  });
-
-  it("shows a node as down when unavailable", () => {
-    const node: NodeInventory = {
-      node_id: "node-b",
-      source: "local",
-      role: "standalone",
-      backend_mode: "kobold",
-      available: false,
-      hardware: {max_threads: 8, gpu_backend: "cpu", gpu_count: 0},
-      models: [],
-      files: []
-    };
-    const html = renderNodeCard(node, false);
-
-    expect(html).toContain(">down</span>");
-    expect(html).not.toContain(">available</span>");
-    expect(html).toContain('aria-expanded="false"');
   });
 
   it("shows the resolved ffmpeg path when the node reports one", () => {

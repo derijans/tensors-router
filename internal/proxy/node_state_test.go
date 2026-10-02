@@ -43,7 +43,7 @@ func TestLocalNodeStateDetectsRegularBinariesAndRedactsPaths(t *testing.T) {
 	state.leases = map[uint64]string{11: "shared-model", 12: "shared-model"}
 	state.mu.Unlock()
 
-	snapshot := service.localNodeState()
+	snapshot := service.localNodeState(context.Background())
 	if len(snapshot.Backends) != 2 || snapshot.Backends[0].ID != backendIDKoboldCPP || snapshot.Backends[1].LifecycleState != vllm.LifecycleCompanionMissing {
 		t.Fatalf("unexpected detected backends %#v", snapshot.Backends)
 	}

@@ -1,0 +1,122 @@
+.area-chart {
+  display: block;
+  width: 100%;
+  height: 240px;
+}
+
+.chart-gridline {
+  stroke: var(--border);
+  stroke-dasharray: 3 5;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-area {
+  fill: var(--lane);
+  fill-opacity: .2;
+}
+
+.chart-edge {
+  fill: none;
+  stroke: var(--lane);
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--gap-sm);
+  color: var(--text-faint);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.lane-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.lane-legend li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lane-legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  background: var(--lane);
+}
+
+.sparkline {
+  display: block;
+  width: 100%;
+  height: 40px;
+}
+
+.sparkline-line {
+  fill: none;
+  stroke: var(--spark, var(--pink));
+  stroke-width: 2;
+  vector-effect: non-scaling-stroke;
+}
+
+.sparkline-fill {
+  fill: color-mix(in srgb, var(--spark, var(--pink)) 14%, transparent);
+}
+
+.memory-bar {
+  display: block;
+  width: 100%;
+  height: 10px;
+  border-radius: var(--radius-pill);
+}
+
+.memory-free {
+  fill: var(--surface-sunken);
+}
+
+.memory-segment {
+  fill: var(--lane, var(--text-faint));
+}
+
+.memory-segment.lane-lent {
+  fill: var(--border-strong);
+}
+
+.section-bars {
+  display: grid;
+  gap: var(--gap);
+}
+
+.section-bar {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) 70px;
+  align-items: center;
+  gap: var(--gap);
+  font-size: 13px;
+}
+
+.section-bar svg {
+  width: 100%;
+  height: 8px;
+  border-radius: var(--radius-pill);
+}
+
+.section-bar strong {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.section-bar-track {
+  fill: var(--surface-sunken);
+}
+
+.section-bar-fill {
+  fill: var(--lane, var(--pink));
+}

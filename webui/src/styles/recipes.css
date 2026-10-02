@@ -1,0 +1,43 @@
+.recipe-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(380px, 100%), 1fr));
+  gap: var(--gap-md);
+}
+
+.recipe-item {
+  display: grid;
+  align-content: start;
+  gap: var(--gap);
+}
+
+.recipe-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gap);
+}
+
+.recipe-head h3 {
+  font: italic 800 18px var(--display);
+  overflow-wrap: anywhere;
+}
+
+.recipe-components {
+  display: grid;
+}
+
+.recipe-components li {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--gap);
+  min-height: 40px;
+  border-top: 1px solid var(--border);
+  font-size: 13px;
+}
+
+.recipe-components code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

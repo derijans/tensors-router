@@ -1,23 +1,6 @@
-import { SafeHTML, displayText, emptyHTML, html } from "./safe-html";
+import { SafeHTML, html } from "./safe-html";
 import { isJsonValue } from "./json";
 import type { CookComponent, FileRecord, JsonValue, Model, OptionDefinition, ParseResult, ValidationIssue } from "./types";
-
-export function statusItem(label: string, value: string): SafeHTML {
-  return html`
-    <div class="status-item">
-      <div class="status-label">${label}</div>
-      <div class="status-value">${value}</div>
-    </div>
-  `;
-}
-
-export function chip(label: unknown, color: string): SafeHTML {
-  const value = displayText(label).trim();
-  if (!value) {
-    return emptyHTML;
-  }
-  return html`<span class="chip ${color}">${value}</span>`;
-}
 
 export function renderIssue(item: ValidationIssue): SafeHTML {
   return html`
@@ -32,22 +15,7 @@ export function issue(severity: "warning" | "error", code: string, message: stri
   return {severity, code, message, field};
 }
 
-export function kindColor(kind: string): string {
-  switch (kind) {
-    case "image":
-      return "magenta";
-    case "embeddings":
-      return "lime";
-    case "voice":
-      return "amber";
-    case "music":
-      return "violet";
-    default:
-      return "cyan";
-  }
-}
-
-export function capabilities(model: Model): string {
+export function capabilities(model: Model): string[] {
   const values: string[] = [];
   if (model.has_llm) values.push("llm");
   if (model.has_image) values.push("image");
@@ -55,7 +23,7 @@ export function capabilities(model: Model): string {
   if (model.has_multimodal) values.push("multimodal");
   if (model.has_voice) values.push("voice");
   if (model.has_music) values.push("music");
-  return values.join(", ") || "none";
+  return values;
 }
 
 export function optionSummary(options: Record<string, JsonValue> | undefined): string {

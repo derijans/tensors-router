@@ -126,19 +126,28 @@ type Summary struct {
 }
 
 type Timeline struct {
-	BucketStart    int64   `json:"bucket_start"`
-	RequestCount   int64   `json:"request_count"`
-	InputTokens    int64   `json:"input_tokens"`
-	OutputTokens   int64   `json:"output_tokens"`
-	TotalTokens    int64   `json:"total_tokens"`
-	ImageCount     int64   `json:"image_count"`
-	EmbeddingCount int64   `json:"embedding_count"`
-	AudioSeconds   float64 `json:"audio_seconds"`
-	LoadCount      int64   `json:"load_count"`
-	VRAMPeakMB     int64   `json:"vram_peak_mb"`
-	VRAMPeakPct    float64 `json:"vram_peak_percent"`
-	VRAMTotalMB    int64   `json:"vram_total_mb"`
-	ModelVRAMMB    int64   `json:"model_vram_estimate_mb"`
+	BucketStart     int64             `json:"bucket_start"`
+	RequestCount    int64             `json:"request_count"`
+	FailureCount    int64             `json:"failure_count"`
+	InputTokens     int64             `json:"input_tokens"`
+	OutputTokens    int64             `json:"output_tokens"`
+	TotalTokens     int64             `json:"total_tokens"`
+	ImageCount      int64             `json:"image_count"`
+	EmbeddingCount  int64             `json:"embedding_count"`
+	AudioSeconds    float64           `json:"audio_seconds"`
+	LoadCount       int64             `json:"load_count"`
+	AverageTokensPS float64           `json:"average_tokens_per_second"`
+	TokensPSSamples int64             `json:"tokens_per_second_samples"`
+	VRAMPeakMB      int64             `json:"vram_peak_mb"`
+	VRAMPeakPct     float64           `json:"vram_peak_percent"`
+	VRAMTotalMB     int64             `json:"vram_total_mb"`
+	ModelVRAMMB     int64             `json:"model_vram_estimate_mb"`
+	Sections        []TimelineSection `json:"sections"`
+}
+
+type TimelineSection struct {
+	Section      string `json:"section"`
+	RequestCount int64  `json:"request_count"`
 }
 
 type SectionUsage struct {

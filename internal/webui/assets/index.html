@@ -3,23 +3,47 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>tensor-router-webui</title>
-  <script type="module" crossorigin src="/assets/index-CVkM80BQ.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-DxOAadvs.css">
+  <title>Tensors Router</title>
+  <script type="module" crossorigin src="/assets/index-BVXAuReq.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-BmtBUqvf.css">
 </head>
 <body>
-  <main class="shell">
+  <svg class="icon-sprite" aria-hidden="true">
+    <symbol id="icon-overview" viewBox="0 0 24 24"><rect x="3" y="3" width="7.5" height="9" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="5" rx="1.5"/><rect x="13.5" y="11" width="7.5" height="10" rx="1.5"/><rect x="3" y="15" width="7.5" height="6" rx="1.5"/></symbol>
+    <symbol id="icon-nodes" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="1.5"/><rect x="3" y="13" width="18" height="7" rx="1.5"/><path d="M7 7.5h.01M7 16.5h.01M11 7.5h6M11 16.5h6"/></symbol>
+    <symbol id="icon-models" viewBox="0 0 24 24"><path d="M12 2.8 20.5 7.5v9L12 21.2 3.5 16.5v-9z"/><path d="M3.5 7.5 12 12l8.5-4.5M12 12v9.2"/></symbol>
+    <symbol id="icon-webuis" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><ellipse cx="12" cy="12" rx="3.8" ry="9"/><path d="M3 12h18"/></symbol>
+    <symbol id="icon-cook" viewBox="0 0 24 24"><path d="M9 3h6M10 3v6.2L4.6 18.4A1.8 1.8 0 0 0 6.2 21h11.6a1.8 1.8 0 0 0 1.6-2.6L14 9.2V3M7.2 15h9.6"/></symbol>
+    <symbol id="icon-recipes" viewBox="0 0 24 24"><path d="M5 4.5A1.5 1.5 0 0 1 6.5 3H19v15H6.5A1.5 1.5 0 0 0 5 19.5zM5 19.5A1.5 1.5 0 0 0 6.5 21H19v-3M9 7h6"/></symbol>
+    <symbol id="icon-download" viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></symbol>
+    <symbol id="icon-benchmarks" viewBox="0 0 24 24"><path d="M3.5 17a8.5 8.5 0 1 1 17 0M12 17l4.2-5.2M12 17h.01"/></symbol>
+    <symbol id="icon-analytics" viewBox="0 0 24 24"><path d="M4 20h16M6.5 20v-7M12 20V5M17.5 20v-10"/></symbol>
+    <symbol id="icon-lending" viewBox="0 0 24 24"><path d="M4 8h14M14.5 4.5 18 8l-3.5 3.5M20 16H6M9.5 12.5 6 16l3.5 3.5"/></symbol>
+    <symbol id="icon-captures" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2"/><path d="m7 10 3 2.2L7 14.4M12.5 15H17"/></symbol>
+    <symbol id="icon-errors" viewBox="0 0 24 24"><path d="M10.3 4 2.6 17.5A2 2 0 0 0 4.3 20.5h15.4a2 2 0 0 0 1.7-3L13.7 4a2 2 0 0 0-3.4 0zM12 9.5v4.5M12 17h.01"/></symbol>
+    <symbol id="icon-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.4-4.4"/></symbol>
+    <symbol id="icon-refresh" viewBox="0 0 24 24"><path d="M20 11.5A8 8 0 1 1 17.6 6M20 4v5h-5"/></symbol>
+    <symbol id="icon-power" viewBox="0 0 24 24"><path d="M12 3v8.5M6.6 6.6a8 8 0 1 0 10.8 0"/></symbol>
+    <symbol id="icon-logout" viewBox="0 0 24 24"><path d="M14 4h4.5A1.5 1.5 0 0 1 20 5.5v13a1.5 1.5 0 0 1-1.5 1.5H14M10 8l-4 4 4 4M6 12h10"/></symbol>
+    <symbol id="icon-more" viewBox="0 0 24 24"><path d="M6 12h.01M12 12h.01M18 12h.01"/></symbol>
+    <symbol id="icon-chip" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9.5 9.5h5v5h-5zM9 3v3M15 3v3M9 18v3M15 18v3M3 9h3M3 15h3M18 9h3M18 15h3"/></symbol>
+    <symbol id="icon-play" viewBox="0 0 24 24"><path d="M7 4.5v15l12-7.5z"/></symbol>
+    <symbol id="icon-bolt" viewBox="0 0 24 24"><path d="M13 2.5 4.5 13.5H12l-1 8 8.5-11H12z"/></symbol>
+  </svg>
+
+  <main>
     <section id="loginView" class="login-view">
       <div class="login-panel">
-        <div>
-          <h1>tensor-router</h1>
-          <p>control surface</p>
+        <span class="sun" aria-hidden="true"></span>
+        <div class="login-title">
+          <h1 class="wordmark">Tensors Router</h1>
+          <p class="muted">Sign in with the admin token to manage the cluster.</p>
         </div>
         <form id="loginForm" class="login-form">
           <label for="tokenInput">Admin token</label>
           <div class="inline-row">
             <input id="tokenInput" name="token" type="password" autocomplete="current-password" required>
-            <button type="submit">Login</button>
+            <button type="submit" class="primary">Sign in</button>
           </div>
         </form>
         <p id="loginError" class="error-text"></p>
@@ -27,587 +51,597 @@
     </section>
 
     <section id="appView" class="app-view hidden">
-      <header class="topbar">
-        <div class="brand-lockup">
-          <span class="brand-mark">TR</span>
-          <div>
-            <h1>tensor-router</h1>
-            <p id="routerSummary"></p>
-          </div>
-        </div>
-        <div class="top-actions">
-          <div id="operationStatus" class="operation-status"></div>
-          <button id="refreshButton" type="button" data-operation-group="refresh">Refresh</button>
-          <button id="logoutButton" type="button" data-operation-group="session">Logout</button>
-        </div>
-      </header>
+      <aside class="rail">
+        <span class="sun" aria-hidden="true"></span>
+        <nav class="rail-nav" aria-label="Sections">
+          <button class="rail-item active" type="button" data-tab="overview"><svg class="icon"><use href="#icon-overview"/></svg><span>Overview</span></button>
+          <button class="rail-item" type="button" data-tab="nodes"><svg class="icon"><use href="#icon-nodes"/></svg><span>Nodes</span></button>
+          <button class="rail-item" type="button" data-tab="models"><svg class="icon"><use href="#icon-models"/></svg><span>Models</span></button>
+          <button class="rail-item" type="button" data-tab="webuis"><svg class="icon"><use href="#icon-webuis"/></svg><span>WebUIs</span></button>
+          <button class="rail-item" type="button" data-tab="lending"><svg class="icon"><use href="#icon-lending"/></svg><span>Lending</span></button>
+          <span class="rail-divider"></span>
+          <button class="rail-item" type="button" data-tab="cook"><svg class="icon"><use href="#icon-cook"/></svg><span>Cook</span></button>
+          <button class="rail-item" type="button" data-tab="recipes"><svg class="icon"><use href="#icon-recipes"/></svg><span>Recipes</span></button>
+          <button id="downloadTab" class="rail-item" type="button" data-tab="download" hidden><svg class="icon"><use href="#icon-download"/></svg><span>Download</span><i id="downloadFlag" class="rail-flag tone-info" hidden></i></button>
+          <span class="rail-divider"></span>
+          <button class="rail-item" type="button" data-tab="analytics"><svg class="icon"><use href="#icon-analytics"/></svg><span>Analytics</span></button>
+          <button class="rail-item" type="button" data-tab="benchmarks"><svg class="icon"><use href="#icon-benchmarks"/></svg><span>Bench</span></button>
+          <button id="loadCapturesTab" class="rail-item" type="button" data-tab="load-captures" hidden><svg class="icon"><use href="#icon-captures"/></svg><span>Captures</span></button>
+          <button id="loadErrorsTab" class="rail-item" type="button" data-tab="load-errors" hidden><svg class="icon"><use href="#icon-errors"/></svg><span>Errors</span><i id="errorsFlag" class="rail-flag tone-danger" hidden></i></button>
+        </nav>
+        <button id="logoutButton" class="icon-button rail-logout" type="button" data-operation-group="session" aria-label="Log out" title="Log out"><svg class="icon"><use href="#icon-logout"/></svg></button>
+      </aside>
 
-      <nav class="tabs" aria-label="WebUI sections">
-        <button class="tab-button active" type="button" data-tab="router">Router</button>
-        <button class="tab-button" type="button" data-tab="nodes">Nodes</button>
-        <button class="tab-button" type="button" data-tab="webuis">WebUIs</button>
-        <button id="downloadTab" class="tab-button" type="button" data-tab="download" hidden>Download</button>
-        <button class="tab-button" type="button" data-tab="models">Models</button>
-        <button class="tab-button" type="button" data-tab="benchmarks">Benchmarks</button>
-        <button class="tab-button" type="button" data-tab="analytics">Analytics</button>
-        <button id="loadCapturesTab" class="tab-button" type="button" data-tab="load-captures" hidden>Load captures</button>
-        <button id="loadErrorsTab" class="tab-button" type="button" data-tab="load-errors" hidden>Errors</button>
-        <button class="tab-button" type="button" data-tab="lending">Lending</button>
-        <button class="tab-button" type="button" data-tab="cook">Cook</button>
-        <button class="tab-button" type="button" data-tab="recipes">Recipes</button>
-      </nav>
+      <div class="workspace">
+        <header class="topbar">
+          <div class="topbar-title">
+            <h1 class="wordmark">Tensors Router</h1>
+            <p id="shellSection" class="muted">Overview</p>
+          </div>
+          <button id="routerSummary" class="router-chip" type="button" popovertarget="routerPopover"></button>
+          <div id="routerPopover" class="router-popover" popover>
+            <h3>Router process</h3>
+            <dl id="routerStatus" class="fact-grid"></dl>
+          </div>
+          <div class="search" role="search">
+            <svg class="icon"><use href="#icon-search"/></svg>
+            <input id="globalSearchInput" type="search" placeholder="Search models, nodes, recipes, WebUIs" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="globalSearchResults" aria-autocomplete="list">
+            <kbd>Ctrl K</kbd>
+            <ul id="globalSearchResults" class="search-results" role="listbox" aria-label="Search results" hidden></ul>
+          </div>
+          <div class="topbar-actions">
+            <div id="operationStatus" class="operation-status"></div>
+            <button id="refreshButton" class="icon-button" type="button" data-operation-group="refresh" aria-label="Refresh data" title="Refresh data"><svg class="icon"><use href="#icon-refresh"/></svg></button>
+            <button id="restartButton" type="button" data-operation-group="router"><svg class="icon"><use href="#icon-refresh"/></svg>Restart</button>
+            <button id="shutdownButton" class="danger" type="button" data-operation-group="router"><svg class="icon"><use href="#icon-power"/></svg>Stop</button>
+            <button class="icon-button" type="button" popovertarget="routerMenu" aria-label="More router actions" title="More router actions"><svg class="icon"><use href="#icon-more"/></svg></button>
+            <div id="routerMenu" class="menu" popover>
+              <button id="launchButton" type="button" data-operation-group="router"><svg class="icon"><use href="#icon-play"/></svg>Launch router</button>
+              <button id="forceKillButton" class="danger" type="button" data-operation-group="router"><svg class="icon"><use href="#icon-bolt"/></svg>Force kill</button>
+            </div>
+          </div>
+        </header>
 
-      <section class="tab-panel active" data-panel="router">
-        <div class="panel-head">
-          <div>
-            <h2>Router</h2>
-            <p class="muted">runtime and process control</p>
+        <section class="tab-panel active" data-panel="overview">
+          <section id="overviewKpis" class="overview-kpis card" aria-label="Key figures"></section>
+          <div class="overview-row">
+            <article class="card overview-chart">
+              <header class="card-head">
+                <div>
+                  <h2>Requests by lane</h2>
+                  <ul id="overviewLegend" class="lane-legend"></ul>
+                </div>
+                <div class="segmented" role="group" aria-label="Period">
+                  <button class="active" type="button" data-overview-period="24h">24h</button>
+                  <button type="button" data-overview-period="7d">7d</button>
+                  <button type="button" data-overview-period="30d">30d</button>
+                </div>
+              </header>
+              <div id="overviewChart" class="overview-chart-body"></div>
+            </article>
+            <article class="card">
+              <header class="card-head">
+                <h2>Needs attention</h2>
+                <span id="overviewAttentionCount" class="badge tone-danger" hidden></span>
+              </header>
+              <ul id="overviewAttention" class="attention-list"></ul>
+            </article>
           </div>
-          <div class="button-strip">
-            <button id="launchButton" type="button" data-operation-group="router">Launch</button>
-            <button id="restartButton" type="button" data-operation-group="router">Restart</button>
-            <button id="shutdownButton" type="button" data-operation-group="router">Shutdown</button>
-            <button id="forceKillButton" type="button" data-operation-group="router">Force kill</button>
-          </div>
-        </div>
-        <div id="routerStatus" class="status-grid"></div>
-      </section>
-
-      <section class="tab-panel" data-panel="nodes">
-        <div class="panel-head">
-          <div>
-            <h2>Nodes</h2>
-            <p class="muted">cluster inventory</p>
-          </div>
-          <span id="nodeCount" class="pill"></span>
-          <button id="nodesRefreshButton" type="button" data-operation-group="nodes">Refresh</button>
-        </div>
-        <div id="nodesScanNotices" class="inventory-notices"></div>
-        <div id="nodesGrid" class="cards-grid"></div>
-        <div id="nodesDetail" class="node-detail-stack"></div>
-      </section>
-
-      <section class="tab-panel" data-panel="webuis">
-        <div class="panel-head">
-          <div>
-            <h2>WebUIs</h2>
-            <p class="muted">backend entrypoints</p>
-          </div>
-          <div class="webui-toolbar">
-            <input id="webuiFilterInput" type="search" placeholder="Filter WebUIs">
-            <p id="webuiStatus" class="action-status"></p>
-          </div>
-        </div>
-        <div id="webuiGrid" class="webui-grid"></div>
-      </section>
-
-      <section id="downloadPanel" class="tab-panel" data-panel="download" hidden>
-        <div class="panel-head">
-          <div>
-            <h2>Download</h2>
-            <p class="muted">download directly to the selected node</p>
-          </div>
-          <button id="downloadRescanButton" type="button" data-operation-group="download">Rescan library</button>
-        </div>
-        <div class="download-controls">
-          <label>Node<select id="downloadNodeSelect" data-operation-group="download"></select></label>
-          <label>HF token<input id="downloadTokenInput" type="password" autocomplete="off" placeholder="Temporary override"></label>
-          <label>Search mode<select id="downloadSearchMode"><option value="text">Text</option><option value="url">Direct URL</option><option value="hash">Hash</option><option value="filename">Contextual filename</option></select></label>
-          <label>Search<input id="downloadSearchInput" type="search" placeholder="Repository or author"></label>
-          <label>Author<input id="downloadAuthorInput" type="search" placeholder="Exact owner"></label>
-          <label>Pipeline task<input id="downloadPipelineInput" type="search" placeholder="Optional pipeline_tag"></label>
-          <label>Expected SHA-256<input id="downloadExpectedHashInput" type="text" inputmode="text" maxlength="64" placeholder="Required for contextual filename"></label>
-          <button id="downloadSearchButton" type="button" data-operation-group="download">Search</button>
-          <label>Sort<select id="downloadSortSelect"><option value="downloads">Downloads</option><option value="likes">Likes</option><option value="lastModified">Last modified</option><option value="createdAt">Created</option><option value="trendingScore">Trending</option></select></label>
-          <label>Direction<select id="downloadDirectionSelect"><option value="-1">Descending</option><option value="1">Ascending</option></select></label>
-          <label>Gated<select id="downloadGatedSelect"><option value="">Any access</option><option value="false">Open</option><option value="true">Gated</option></select></label>
-          <label>Parameters<input id="downloadParameterMin" type="number" min="0" placeholder="Min billions"></label>
-          <label>to<input id="downloadParameterMax" type="number" min="0" placeholder="Max billions"></label>
-          <label>Raw tag<input id="downloadRawTagInput" type="text" placeholder="Additional HF tag"></label>
-          <label>Repository<input id="downloadRepositoryInput" type="text" placeholder="owner/repository"></label>
-          <label>Revision<input id="downloadRevisionInput" type="text" placeholder="main"></label>
-          <label class="download-files">Files<textarea id="downloadFilesInput" rows="5" placeholder="One repository-relative file per line"></textarea></label>
-          <div class="button-strip"><button id="downloadPlanButton" type="button" data-operation-group="download">Preview plan</button><button id="downloadStartButton" type="button" data-operation-group="download" disabled>Start download</button></div>
-        </div>
-        <section class="download-filters" aria-label="Hugging Face filters">
-          <div id="downloadFilterTabs" class="filter-tabs"><button type="button" data-download-filter-tab="main">Main</button><button type="button" data-download-filter-tab="tasks">Tasks</button><button type="button" data-download-filter-tab="libraries">Libraries</button><button type="button" data-download-filter-tab="languages">Languages</button><button type="button" data-download-filter-tab="licenses">Licenses</button><button type="button" data-download-filter-tab="other">Other</button></div>
-          <input id="downloadFilterSearch" type="search" placeholder="Search filters in this tab">
-          <div id="downloadFilterOptions" class="filter-options"></div>
-          <div id="downloadFilterSummary" class="filter-summary"></div>
-        </section>
-        <p id="downloadStatus" class="action-status"></p>
-        <div id="downloadSearchResults" class="download-results"></div>
-        <button id="downloadNextPageButton" type="button" data-operation-group="download" hidden>Next page</button>
-        <div id="downloadPlanOutput" class="output"></div>
-        <div><h3>Jobs</h3><div id="downloadJobs" class="download-jobs"></div></div>
-        <div><h3>Local library</h3><div id="downloadLibrary" class="download-library"></div></div>
-      </section>
-
-      <section class="tab-panel" data-panel="models">
-        <div class="panel-head">
-          <div>
-            <h2>Model Inventory</h2>
-            <p class="muted">configs, model files, and capabilities across every node</p>
-          </div>
-        </div>
-        <div id="modelInventorySubtabs" class="inventory-subtabs" role="tablist" aria-label="Model inventory views">
-          <button type="button" class="active" role="tab" aria-selected="true" data-model-inventory-subtab="models">Models</button>
-          <button type="button" role="tab" aria-selected="false" data-model-inventory-subtab="files">Files</button>
-        </div>
-        <section class="inventory-subpanel active" role="tabpanel" data-model-inventory-panel="models">
-          <div class="inventory-filters">
-            <label>Search<input id="modelSearchInput" type="search" placeholder="Model, config, or node"></label>
-            <label>Nodes<select id="modelsNodeFilter" multiple size="4"><option value="*" selected>All Nodes</option></select></label>
-            <label>Enabled<select id="modelEnabledFilter"><option value="all">All states</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></label>
-            <label>Backend<select id="modelBackendFilter"><option value="">All backends</option></select></label>
-            <label>Capability<select id="modelCapabilityFilter"><option value="">All capabilities</option></select></label>
-            <button id="resolveFilteredModelsButton" type="button" data-operation-group="models">Resolve filtered</button>
-          </div>
-          <div id="modelsActionStatus" class="action-status"></div>
-          <div id="modelsScanNotices" class="inventory-notices"></div>
-          <div id="modelsRowCount" class="inventory-row-count"></div>
-          <div class="table-wrap inventory-table-wrap">
-            <table class="inventory-table models-inventory-table">
-              <thead><tr><th>ID</th><th>Node</th><th>Enabled</th><th>Backend</th><th>Capabilities</th><th>Options</th><th>Benchmark</th><th>Available</th><th>Routing</th><th>Separate</th><th>Actions</th></tr></thead>
-              <tbody id="modelsTable"></tbody>
-            </table>
-          </div>
-        </section>
-        <section class="inventory-subpanel" role="tabpanel" data-model-inventory-panel="files">
-          <div class="inventory-filters">
-            <label>Search<input id="fileSearchInput" type="search" placeholder="Filename or path"></label>
-            <label>Nodes<select id="filesNodeFilter" multiple size="4"><option value="*" selected>All Nodes</option></select></label>
-            <label>Role<select id="fileRoleFilter"><option value="">All roles</option></select></label>
-            <label>Extension<select id="fileExtensionFilter"><option value="">All extensions</option></select></label>
-            <label>Hash<select id="fileHashFilter"><option value="all">All hash states</option><option value="hashed">Has hash</option><option value="unhashed">No hash</option></select></label>
-          </div>
-          <div id="filesScanNotices" class="inventory-notices"></div>
-          <div id="filesRowCount" class="inventory-row-count"></div>
-          <div class="table-wrap inventory-table-wrap">
-            <table class="inventory-table files-inventory-table">
-              <thead><tr><th>Name</th><th>Node</th><th>Role</th><th>Extension</th><th>Size</th><th>SHA-256</th></tr></thead>
-              <tbody id="filesTable"></tbody>
-            </table>
-          </div>
-        </section>
-      </section>
-
-      <section class="tab-panel" data-panel="benchmarks">
-        <div class="panel-head">
-          <div>
-            <h2>Benchmarks</h2>
-            <p class="muted">run and compare config performance</p>
-          </div>
-          <button id="runBenchmarkButton" type="button" data-operation-group="benchmark">Run</button>
-        </div>
-        <div class="benchmark-controls">
-          <label>
-            Config
-            <select id="benchmarkModelSelect" data-operation-group="benchmark"></select>
-          </label>
-          <label>
-            Type
-            <select id="benchmarkTypeSelect" data-operation-group="benchmark">
-              <option value="general">General</option>
-              <option value="section">Section</option>
-            </select>
-          </label>
-          <label class="toggle-row">
-            <input id="benchmarkAllSections" type="checkbox" checked data-operation-group="benchmark">
-            <span>All sections</span>
-          </label>
-          <div id="benchmarkSections" class="section-checks"></div>
-        </div>
-        <div id="benchmarkLatest" class="benchmark-grid"></div>
-        <div>
-          <h3>History</h3>
-          <div id="benchmarkHistory" class="benchmark-history"></div>
-        </div>
-      </section>
-
-      <section class="tab-panel" data-panel="analytics">
-        <div class="panel-head">
-          <div>
-            <h2>Analytics</h2>
-            <p class="muted">usage, throughput, and media volume</p>
-          </div>
-          <div class="panel-head-actions">
-            <button id="analyticsFlushButton" type="button" data-operation-group="analytics">Flush to disk</button>
-            <button id="analyticsRefreshButton" type="button" data-operation-group="analytics">Refresh</button>
-          </div>
-        </div>
-        <div class="analytics-controls">
-          <label>
-            Period
-            <select id="analyticsPeriodSelect" data-operation-group="analytics"></select>
-          </label>
-          <label>
-            Node
-            <select id="analyticsNodeSelect" data-operation-group="analytics"></select>
-          </label>
-          <label>
-            Model
-            <select id="analyticsModelSelect" data-operation-group="analytics"></select>
-          </label>
-          <label>
-            Section
-            <select id="analyticsSectionSelect" data-operation-group="analytics"></select>
-          </label>
-        </div>
-        <div id="analyticsStatus"></div>
-        <div id="analyticsSummary" class="analytics-summary"></div>
-        <div class="analytics-graphs">
-          <section id="analyticsTimeline" class="analytics-graph"></section>
-          <section id="analyticsSections" class="analytics-graph"></section>
-        </div>
-        <div id="analyticsNodeErrors"></div>
-        <div class="tables analytics-tables">
-          <div>
-            <h3>Models</h3>
+          <section aria-label="Nodes">
+            <header class="section-head">
+              <h2>Nodes</h2>
+              <button class="link-button" type="button" data-navigate="nodes">Manage nodes</button>
+            </header>
+            <div id="overviewNodes" class="node-card-grid"></div>
+          </section>
+          <article class="card">
+            <header class="card-head">
+              <h2>Recent requests</h2>
+              <button class="link-button" type="button" data-navigate="analytics">Open analytics</button>
+            </header>
             <div class="table-wrap">
-              <table>
+              <table class="data-table">
+                <thead><tr><th>Time</th><th>Model</th><th>Node</th><th>Route</th><th>Status</th><th class="numeric">Tokens</th><th class="numeric">Duration</th></tr></thead>
+                <tbody id="overviewRecent"></tbody>
+              </table>
+            </div>
+          </article>
+        </section>
+
+        <section class="tab-panel" data-panel="nodes">
+          <header class="panel-head">
+            <div class="panel-title">
+              <h2>Nodes</h2>
+              <p class="muted">Every node in the cluster, its backends and what each one holds.</p>
+            </div>
+            <div class="panel-actions">
+              <span id="nodeCount" class="badge tone-neutral"></span>
+              <button id="nodesRefreshButton" type="button" data-operation-group="nodes"><svg class="icon"><use href="#icon-refresh"/></svg>Refresh</button>
+            </div>
+          </header>
+          <div id="nodesScanNotices" class="inventory-notices"></div>
+          <div id="nodesGrid" class="node-card-grid"></div>
+          <div id="nodesDetail" class="node-detail-stack"></div>
+        </section>
+
+        <section class="tab-panel" data-panel="webuis">
+          <header class="panel-head">
+            <div class="panel-title">
+              <h2>WebUIs</h2>
+              <p class="muted">Backend web interfaces reachable through the router.</p>
+            </div>
+            <div class="panel-actions">
+              <input id="webuiFilterInput" type="search" placeholder="Filter WebUIs">
+            </div>
+          </header>
+          <p id="webuiStatus" class="action-status"></p>
+          <div id="webuiGrid" class="webui-grid"></div>
+        </section>
+
+        <section id="downloadPanel" class="tab-panel" data-panel="download" hidden>
+          <header class="panel-head">
+            <div class="panel-title">
+              <h2>Download</h2>
+              <p class="muted">Search Hugging Face and download straight to the selected node.</p>
+            </div>
+            <div class="panel-actions">
+              <button id="downloadRescanButton" type="button" data-operation-group="download"><svg class="icon"><use href="#icon-refresh"/></svg>Rescan library</button>
+            </div>
+          </header>
+          <div class="download-layout">
+            <section class="card download-search" aria-label="Search">
+              <div class="download-controls">
+                <label>Node<select id="downloadNodeSelect" data-operation-group="download"></select></label>
+                <label>HF token<input id="downloadTokenInput" type="password" autocomplete="off" placeholder="Temporary override"></label>
+                <label>Search mode<select id="downloadSearchMode"><option value="text">Text</option><option value="url">Direct URL</option><option value="hash">Hash</option><option value="filename">Contextual filename</option></select></label>
+                <label class="download-query">Search<input id="downloadSearchInput" type="search" placeholder="Repository or author"></label>
+                <label>Author<input id="downloadAuthorInput" type="search" placeholder="Exact owner"></label>
+                <label>Pipeline task<input id="downloadPipelineInput" type="search" placeholder="Optional pipeline_tag"></label>
+                <label>Expected SHA-256<input id="downloadExpectedHashInput" type="text" inputmode="text" maxlength="64" placeholder="Required for contextual filename"></label>
+                <label>Sort<select id="downloadSortSelect"><option value="downloads">Downloads</option><option value="likes">Likes</option><option value="lastModified">Last modified</option><option value="createdAt">Created</option><option value="trendingScore">Trending</option></select></label>
+                <label>Direction<select id="downloadDirectionSelect"><option value="-1">Descending</option><option value="1">Ascending</option></select></label>
+                <label>Gated<select id="downloadGatedSelect"><option value="">Any access</option><option value="false">Open</option><option value="true">Gated</option></select></label>
+                <label>Parameters from<input id="downloadParameterMin" type="number" min="0" placeholder="Min billions"></label>
+                <label>Parameters to<input id="downloadParameterMax" type="number" min="0" placeholder="Max billions"></label>
+                <label>Raw tag<input id="downloadRawTagInput" type="text" placeholder="Additional HF tag"></label>
+                <div class="download-search-actions"><button id="downloadSearchButton" class="primary" type="button" data-operation-group="download"><svg class="icon"><use href="#icon-search"/></svg>Search</button></div>
+              </div>
+              <section class="download-filters" aria-label="Hugging Face filters">
+                <div id="downloadFilterTabs" class="segmented filter-tabs"><button type="button" data-download-filter-tab="main">Main</button><button type="button" data-download-filter-tab="tasks">Tasks</button><button type="button" data-download-filter-tab="libraries">Libraries</button><button type="button" data-download-filter-tab="languages">Languages</button><button type="button" data-download-filter-tab="licenses">Licenses</button><button type="button" data-download-filter-tab="other">Other</button></div>
+                <input id="downloadFilterSearch" type="search" placeholder="Search filters in this tab">
+                <div id="downloadFilterOptions" class="filter-options"></div>
+                <div id="downloadFilterSummary" class="filter-summary"></div>
+              </section>
+              <p id="downloadStatus" class="action-status"></p>
+              <div id="downloadSearchResults" class="download-results"></div>
+              <button id="downloadNextPageButton" type="button" data-operation-group="download" hidden>Next page</button>
+            </section>
+            <section class="card download-plan" aria-label="Download plan">
+              <header class="card-head"><h3>Plan</h3></header>
+              <div class="download-plan-fields">
+                <label>Repository<input id="downloadRepositoryInput" type="text" placeholder="owner/repository"></label>
+                <label>Revision<input id="downloadRevisionInput" type="text" placeholder="main"></label>
+                <label class="download-files">Files<textarea id="downloadFilesInput" rows="5" placeholder="One repository-relative file per line"></textarea></label>
+              </div>
+              <div class="button-strip"><button id="downloadPlanButton" type="button" data-operation-group="download">Preview plan</button><button id="downloadStartButton" class="primary" type="button" data-operation-group="download" disabled><svg class="icon"><use href="#icon-download"/></svg>Start download</button></div>
+              <div id="downloadPlanOutput" class="output"></div>
+            </section>
+          </div>
+          <div class="download-columns">
+            <section class="card"><header class="card-head"><h3>Jobs</h3></header><div id="downloadJobs" class="download-jobs"></div></section>
+            <section class="card"><header class="card-head"><h3>Local library</h3></header><div id="downloadLibrary" class="download-library"></div></section>
+          </div>
+        </section>
+
+        <section class="tab-panel" data-panel="models">
+          <header class="panel-head">
+            <div class="panel-title">
+              <h2>Models</h2>
+              <p class="muted">Configs, model files and capabilities across every node.</p>
+            </div>
+            <div id="modelInventorySubtabs" class="segmented" role="tablist" aria-label="Model inventory views">
+              <button type="button" class="active" role="tab" aria-selected="true" data-model-inventory-subtab="models">Configs</button>
+              <button type="button" role="tab" aria-selected="false" data-model-inventory-subtab="files">Files</button>
+            </div>
+          </header>
+          <section class="inventory-subpanel active" role="tabpanel" data-model-inventory-panel="models">
+            <div class="filter-bar">
+              <label class="filter-search">Search<input id="modelSearchInput" type="search" placeholder="Model, config, or node"></label>
+              <label>Nodes<select id="modelsNodeFilter" multiple size="4"><option value="*" selected>All Nodes</option></select></label>
+              <label>Enabled<select id="modelEnabledFilter"><option value="all">All states</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option></select></label>
+              <label>Backend<select id="modelBackendFilter"><option value="">All backends</option></select></label>
+              <label>Capability<select id="modelCapabilityFilter"><option value="">All capabilities</option></select></label>
+              <button id="resolveFilteredModelsButton" type="button" data-operation-group="models">Resolve filtered</button>
+              <button type="button" popovertarget="modelColumnsMenu">Columns</button>
+              <div id="modelColumnsMenu" class="menu column-menu" popover>
+                <div id="modelColumnsList" class="column-choices"></div>
+                <button id="modelColumnsResetButton" type="button">Fit columns to width</button>
+              </div>
+            </div>
+            <div id="modelsActionStatus" class="action-status"></div>
+            <div id="modelsScanNotices" class="inventory-notices"></div>
+            <div id="modelsRowCount" class="row-count"></div>
+            <div id="modelsTableCard" class="card table-card">
+              <div class="table-wrap">
+                <table class="data-table models-inventory-table">
+                  <thead id="modelsTableHead"></thead>
+                  <tbody id="modelsTable"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+          <section class="inventory-subpanel" role="tabpanel" data-model-inventory-panel="files">
+            <div class="filter-bar">
+              <label class="filter-search">Search<input id="fileSearchInput" type="search" placeholder="Filename or path"></label>
+              <label>Nodes<select id="filesNodeFilter" multiple size="4"><option value="*" selected>All Nodes</option></select></label>
+              <label>Role<select id="fileRoleFilter"><option value="">All roles</option></select></label>
+              <label>Extension<select id="fileExtensionFilter"><option value="">All extensions</option></select></label>
+              <label>Hash<select id="fileHashFilter"><option value="all">All hash states</option><option value="hashed">Has hash</option><option value="unhashed">No hash</option></select></label>
+            </div>
+            <div id="filesScanNotices" class="inventory-notices"></div>
+            <div id="filesRowCount" class="row-count"></div>
+            <div class="card table-card">
+              <div class="table-wrap">
+                <table class="data-table files-inventory-table">
+                  <thead><tr><th>Name</th><th>Node</th><th>Role</th><th>Extension</th><th>Size</th><th>SHA-256</th></tr></thead>
+                  <tbody id="filesTable"></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <section class="tab-panel" data-panel="benchmarks">
+          <header class="panel-head">
+            <div class="panel-title">
+              <h2>Benchmarks</h2>
+              <p class="muted">Run a config through its sections and compare against earlier runs.</p>
+            </div>
+            <div class="panel-actions">
+              <button id="runBenchmarkButton" class="primary" type="button" data-operation-group="benchmark"><svg class="icon"><use href="#icon-play"/></svg>Run</button>
+            </div>
+          </header>
+          <div class="card filter-bar">
+            <label>Config<select id="benchmarkModelSelect" data-operation-group="benchmark"></select></label>
+            <label>Type<select id="benchmarkTypeSelect" data-operation-group="benchmark"><option value="general">General</option><option value="section">Section</option></select></label>
+            <label class="toggle-row"><input id="benchmarkAllSections" type="checkbox" checked data-operation-group="benchmark"><span>All sections</span></label>
+            <div id="benchmarkSections" class="check-group"></div>
+          </div>
+          <div id="benchmarkLatest" class="benchmark-grid"></div>
+          <section class="card">
+            <header class="card-head"><h3>History</h3></header>
+            <div id="benchmarkHistory" class="benchmark-history"></div>
+          </section>
+        </section>
+
+        <section class="tab-panel" data-panel="analytics">
+          <header class="panel-head">
+            <div class="panel-title">
+              <h2>Analytics</h2>
+              <p class="muted">Usage, throughput and media volume.</p>
+            </div>
+            <div class="panel-actions">
+              <button id="analyticsFlushButton" type="button" data-operation-group="analytics">Flush to disk</button>
+              <button id="analyticsRefreshButton" type="button" data-operation-group="analytics"><svg class="icon"><use href="#icon-refresh"/></svg>Refresh</button>
+            </div>
+          </header>
+          <div class="card filter-bar">
+            <label>Period<select id="analyticsPeriodSelect" data-operation-group="analytics"></select></label>
+            <label>Node<select id="analyticsNodeSelect" data-operation-group="analytics"></select></label>
+            <label>Model<select id="analyticsModelSelect" data-operation-group="analytics"></select></label>
+            <label>Section<select id="analyticsSectionSelect" data-operation-group="analytics"></select></label>
+          </div>
+          <div id="analyticsStatus"></div>
+          <div id="analyticsSummary" class="analytics-summary"></div>
+          <div class="analytics-graphs">
+            <section id="analyticsTimeline" class="card analytics-graph"></section>
+            <section id="analyticsSections" class="card analytics-graph"></section>
+          </div>
+          <div id="analyticsNodeErrors"></div>
+          <div class="analytics-tables">
+            <section class="card">
+              <header class="card-head"><h3>Models</h3></header>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead><tr><th>Node</th><th>Model</th><th>Requests</th><th>Loads</th><th>VRAM</th><th>Tokens</th><th>Images</th><th>Vectors</th><th>Audio</th></tr></thead>
+                  <tbody id="analyticsModelsTable"></tbody>
+                </table>
+              </div>
+            </section>
+            <section class="card">
+              <header class="card-head"><h3>Nodes</h3></header>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead><tr><th>Node</th><th>Requests</th><th>Loads</th><th>VRAM</th><th>Tokens</th><th>Images</th><th>Vectors</th><th>Audio</th></tr></thead>
+                  <tbody id="analyticsNodesTable"></tbody>
+                </table>
+              </div>
+              <header class="card-head"><h3>Router versions</h3></header>
+              <div class="table-wrap">
+                <table class="data-table">
+                  <thead><tr><th>Node</th><th>Version</th><th>First seen</th><th>Last seen</th><th>Events</th></tr></thead>
+                  <tbody id="analyticsVersionsTable"></tbody>
+                </table>
+              </div>
+            </section>
+          </div>
+          <section class="card">
+            <header class="card-head">
+              <h3>Recent</h3>
+              <label class="toggle-row">
+                <input id="analyticsDetailToggle" type="checkbox">
+                <span>Show details</span>
+              </label>
+            </header>
+            <div class="table-wrap">
+              <table class="data-table">
                 <thead>
                   <tr>
+                    <th>Time</th>
                     <th>Node</th>
                     <th>Model</th>
-                    <th>Requests</th>
-                    <th>Loads</th>
-                    <th>VRAM</th>
-                    <th>Tokens</th>
-                    <th>Images</th>
-                    <th>Vectors</th>
-                    <th>Audio</th>
+                    <th>Section</th>
+                    <th>Backend</th>
+                    <th>Status</th>
+                    <th id="analyticsRecentDetailHeader">Metadata</th>
                   </tr>
                 </thead>
-                <tbody id="analyticsModelsTable"></tbody>
+                <tbody id="analyticsRecentTable"></tbody>
               </table>
             </div>
-          </div>
-          <div>
-            <h3>Nodes</h3>
-            <div class="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Node</th>
-                    <th>Requests</th>
-                    <th>Loads</th>
-                    <th>VRAM</th>
-                    <th>Tokens</th>
-                    <th>Images</th>
-                    <th>Vectors</th>
-                    <th>Audio</th>
-                  </tr>
-                </thead>
-                <tbody id="analyticsNodesTable"></tbody>
-              </table>
-            </div>
-            <h3>Router versions</h3>
-            <div class="table-wrap">
-              <table>
-                <thead><tr><th>Node</th><th>Version</th><th>First seen</th><th>Last seen</th><th>Events</th></tr></thead>
-                <tbody id="analyticsVersionsTable"></tbody>
-              </table>
-            </div>
-          </div>
-        </div>
-        <div>
-          <div class="analytics-recent-head">
-            <h3>Recent</h3>
-            <label class="toggle-row">
-              <input id="analyticsDetailToggle" type="checkbox">
-              <span>Show details</span>
-            </label>
-          </div>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Time</th>
-                  <th>Node</th>
-                  <th>Model</th>
-                  <th>Section</th>
-                  <th>Backend</th>
-                  <th>Status</th>
-                  <th id="analyticsRecentDetailHeader">Metadata</th>
-                </tr>
-              </thead>
-              <tbody id="analyticsRecentTable"></tbody>
-            </table>
-          </div>
-        </div>
-      </section>
-
-      <section id="loadCapturesPanel" class="tab-panel" data-panel="load-captures" hidden>
-        <div class="panel-head">
-          <div>
-            <h2>Load captures</h2>
-            <p class="muted">sanitized backend load attempts and reuse metadata</p>
-          </div>
-          <button id="loadCaptureRefreshButton" type="button" data-operation-group="load-captures">Refresh</button>
-        </div>
-        <div class="load-capture-controls">
-          <label>Nodes<select id="loadCaptureNodeSelect" multiple size="4"></select></label>
-          <label>Status<select id="loadCaptureStatusSelect"><option value="">All</option><option value="loading">Loading</option><option value="succeeded">Succeeded</option><option value="failed">Failed</option><option value="interrupted">Interrupted</option><option value="reused">Reused</option></select></label>
-          <label>Kind<select id="loadCaptureKindSelect"><option value="">All</option><option value="physical">Physical</option><option value="reuse">Reuse</option></select></label>
-          <label>Backend<input id="loadCaptureBackendInput" type="search" placeholder="kobold, llama_sdcpp, or vllm"></label>
-          <label>From<input id="loadCaptureFromInput" type="datetime-local"></label>
-          <label>To<input id="loadCaptureToInput" type="datetime-local"></label>
-        </div>
-        <div id="loadCaptureStatus"></div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Started</th><th>Node</th><th>Kind</th><th>Status</th><th>Backend</th><th>Runtime / lane</th><th>Duration</th><th>Snapshot</th><th>Truncated</th><th></th></tr></thead>
-            <tbody id="loadCaptureRows"></tbody>
-          </table>
-        </div>
-        <button id="loadCaptureMoreButton" type="button" data-operation-group="load-captures" hidden>Load more</button>
-        <div class="load-capture-inspector">
-          <section id="loadCaptureDetail"></section>
-          <section>
-            <div class="panel-head"><h3>Console output</h3><button id="loadCaptureOutputMoreButton" type="button" data-operation-group="load-captures" hidden>Load more output</button></div>
-            <pre id="loadCaptureOutput" class="load-capture-console"></pre>
           </section>
-        </div>
-      </section>
+        </section>
 
-      <section id="loadErrorsPanel" class="tab-panel" data-panel="load-errors" hidden>
-        <div class="panel-head">
-          <div>
-            <h2>Errors</h2>
-            <p class="muted">failures seen before a backend load, usually only logged</p>
+        <section id="loadCapturesPanel" class="tab-panel" data-panel="load-captures" hidden>
+          <header class="panel-head">
+            <div class="panel-title">
+              <h2>Load captures</h2>
+              <p class="muted">Sanitized backend load attempts and reuse metadata.</p>
+            </div>
+            <div class="panel-actions">
+              <button id="loadCaptureRefreshButton" type="button" data-operation-group="load-captures"><svg class="icon"><use href="#icon-refresh"/></svg>Refresh</button>
+            </div>
+          </header>
+          <div class="card filter-bar">
+            <label>Nodes<select id="loadCaptureNodeSelect" multiple size="4"></select></label>
+            <label>Status<select id="loadCaptureStatusSelect"><option value="">All</option><option value="loading">Loading</option><option value="succeeded">Succeeded</option><option value="failed">Failed</option><option value="interrupted">Interrupted</option><option value="reused">Reused</option></select></label>
+            <label>Kind<select id="loadCaptureKindSelect"><option value="">All</option><option value="physical">Physical</option><option value="reuse">Reuse</option></select></label>
+            <label>Backend<input id="loadCaptureBackendInput" type="search" placeholder="kobold, llama_sdcpp, or vllm"></label>
+            <label>From<input id="loadCaptureFromInput" type="datetime-local"></label>
+            <label>To<input id="loadCaptureToInput" type="datetime-local"></label>
           </div>
-          <button id="loadErrorsRefreshButton" type="button" data-operation-group="load-errors">Refresh</button>
-        </div>
-        <div class="load-capture-controls">
-          <label>Phase<select id="loadErrorPhaseSelect"><option value="">All</option></select></label>
-          <label>Severity<select id="loadErrorSeveritySelect"><option value="">All</option><option value="error">Error</option><option value="warning">Warning</option></select></label>
-        </div>
-        <div id="loadErrorStatus"></div>
-        <div class="table-wrap">
-          <table>
-            <thead><tr><th>Last seen</th><th>Node</th><th>Phase</th><th>Severity</th><th>Source</th><th>Count</th><th>Message</th></tr></thead>
-            <tbody id="loadErrorRows"></tbody>
-          </table>
-        </div>
-        <div class="load-capture-inspector">
-          <section id="loadErrorDetail"></section>
-          <section>
-            <div class="panel-head"><h3>Captured output</h3></div>
-            <pre id="loadErrorOutput" class="load-capture-console"></pre>
+          <div id="loadCaptureStatus"></div>
+          <div class="card table-card">
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead><tr><th>Started</th><th>Node</th><th>Kind</th><th>Status</th><th>Backend</th><th>Runtime / lane</th><th>Duration</th><th>Snapshot</th><th>Truncated</th><th></th></tr></thead>
+                <tbody id="loadCaptureRows"></tbody>
+              </table>
+            </div>
+          </div>
+          <button id="loadCaptureMoreButton" type="button" data-operation-group="load-captures" hidden>Load more</button>
+          <div class="inspector">
+            <section id="loadCaptureDetail" class="card inspector-detail"></section>
+            <section class="card">
+              <header class="card-head"><h3>Console output</h3><button id="loadCaptureOutputMoreButton" type="button" data-operation-group="load-captures" hidden>Load more output</button></header>
+              <pre id="loadCaptureOutput" class="console"></pre>
+            </section>
+          </div>
+        </section>
+
+        <section id="loadErrorsPanel" class="tab-panel" data-panel="load-errors" hidden>
+          <header class="panel-head">
+            <div class="panel-title">
+              <h2>Errors</h2>
+              <p class="muted">Failures seen before a backend load, usually only logged.</p>
+            </div>
+            <div class="panel-actions">
+              <button id="loadErrorsRefreshButton" type="button" data-operation-group="load-errors"><svg class="icon"><use href="#icon-refresh"/></svg>Refresh</button>
+            </div>
+          </header>
+          <div class="card filter-bar">
+            <label>Phase<select id="loadErrorPhaseSelect"><option value="">All</option></select></label>
+            <label>Severity<select id="loadErrorSeveritySelect"><option value="">All</option><option value="error">Error</option><option value="warning">Warning</option></select></label>
+          </div>
+          <div id="loadErrorStatus"></div>
+          <div class="card table-card">
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead><tr><th>Last seen</th><th>Node</th><th>Phase</th><th>Severity</th><th>Source</th><th>Count</th><th>Message</th></tr></thead>
+                <tbody id="loadErrorRows"></tbody>
+              </table>
+            </div>
+          </div>
+          <div class="inspector">
+            <section id="loadErrorDetail" class="card inspector-detail"></section>
+            <section class="card">
+              <header class="card-head"><h3>Captured output</h3></header>
+              <pre id="loadErrorOutput" class="console"></pre>
+            </section>
+          </div>
+        </section>
+
+        <section class="tab-panel" data-panel="lending">
+          <header class="panel-head">
+            <div class="panel-title">
+              <h2>Lending</h2>
+              <p class="muted">How owners lend queued work to linked helpers.</p>
+            </div>
+            <div class="panel-actions">
+              <button id="lendingRefreshButton" type="button" data-operation-group="lending"><svg class="icon"><use href="#icon-refresh"/></svg>Refresh</button>
+            </div>
+          </header>
+          <div id="lendingStatus"></div>
+          <section class="card" aria-label="Lending nodes">
+            <header class="card-head"><h3>Nodes</h3></header>
+            <div id="lendingSummary"></div>
           </section>
-        </div>
-      </section>
-
-      <section class="tab-panel" data-panel="lending">
-        <div class="panel-head">
-          <div>
-            <h2>Lending</h2>
-            <p class="muted">how owners lend queued work to linked helpers</p>
-          </div>
-          <button id="lendingRefreshButton" type="button" data-operation-group="lending">Refresh</button>
-        </div>
-        <div id="lendingStatus"></div>
-        <section class="lending-section" aria-label="Lending nodes">
-          <h3>Nodes</h3>
-          <div id="lendingSummary"></div>
-        </section>
-        <section class="lending-section" aria-label="Lending settings">
-          <div class="panel-head">
-            <div>
-              <h3>Settings</h3>
-              <p class="muted">priority from lowest: default, config file, database. An empty database value falls back.</p>
-            </div>
-            <div class="panel-head-actions">
-              <button id="lendingSettingsSaveButton" type="button" data-operation-group="lending">Save</button>
-              <button id="lendingSettingsResetAllButton" type="button" data-operation-group="lending">Clear all database values</button>
-            </div>
-          </div>
-          <div class="table-wrap">
-            <table class="lending-settings-table">
-              <thead><tr><th>Setting</th><th>Default</th><th>Config file</th><th>Database</th><th>Effective</th><th></th></tr></thead>
-              <tbody id="lendingSettingsRows"></tbody>
-            </table>
-          </div>
-        </section>
-        <section class="lending-section" aria-label="Lending decisions">
-          <h3>Decision log</h3>
-          <div class="load-capture-controls">
-            <label>Window<select id="lendingWindowSelect"><option value="900000">15 minutes</option><option value="3600000" selected>1 hour</option><option value="86400000">24 hours</option><option value="">All</option></select></label>
-            <label>Lane<select id="lendingLaneSelect"><option value="">All</option><option value="image">Image</option><option value="text">Text</option></select></label>
-            <label>Outcome<select id="lendingOutcomeSelect"><option value="">All</option><option value="probe">probe</option><option value="granted">granted</option><option value="skipped">skipped</option><option value="lease_updated">lease updated</option><option value="lease_cleared">lease cleared</option><option value="lease_refused">lease refused</option><option value="lent">lent</option><option value="returned">returned</option><option value="relay_refused">relay refused</option><option value="borrowed_returned">borrowed returned</option><option value="native_waited_behind_borrowed">native waited behind borrowed</option></select></label>
-            <label>Search<input id="lendingSearchInput" type="search" placeholder="node or model"></label>
-          </div>
-          <div class="table-wrap">
-            <table class="lending-decision-table">
-              <thead><tr><th>When</th><th>Repeats</th><th>Node</th><th>Kind</th><th>Trigger</th><th>Lane</th><th>Owner</th><th>Helper</th><th>Outcome</th><th>Reason</th></tr></thead>
-              <tbody id="lendingDecisionRows"></tbody>
-            </table>
-          </div>
-          <section id="lendingDecisionDetail" class="lending-detail"></section>
-        </section>
-      </section>
-
-      <section class="tab-panel" data-panel="cook">
-        <div class="panel-head">
-          <div>
-            <h2>Cook</h2>
-            <p class="muted">compose configs and split recipes</p>
-          </div>
-          <label class="toggle-row">
-            <input id="overwriteInput" type="checkbox">
-            <span>Overwrite</span>
-          </label>
-        </div>
-
-        <div class="mode-tabs" aria-label="Cook mode">
-          <button class="mode-button active" type="button" data-cook-mode="quick">Quick Cook</button>
-          <button class="mode-button" type="button" data-cook-mode="constructor">Advanced Cook</button>
-        </div>
-
-        <section class="cook-mode active" data-cook-panel="quick">
-          <form id="cookForm" class="simple-cook">
-            <aside class="simple-controls">
-              <label>
-                Node
-                <select id="simpleNodeSelect" data-operation-group="cook-selection"></select>
-              </label>
-              <label>
-                Config
-                <select id="simpleConfigSelect" data-operation-group="cook-selection"></select>
-              </label>
-              <label>
-                Config id
-                <input id="cookIdInput" type="text" required placeholder="my-model">
-              </label>
-              <label>
-                Filter
-                <input id="simpleFieldFilter" type="search" placeholder="Field or value">
-              </label>
-              <label>
-                Add field
-                <select id="simpleAddFieldSelect"></select>
-              </label>
-              <div class="button-strip">
-                <button id="simpleAddFieldButton" type="button" data-operation-group="cook-selection">Add</button>
-                <button id="simpleNewButton" type="button" data-operation-group="cook-selection">New</button>
-                <button id="simpleCopyButton" type="button" data-operation-group="cook-selection">Copy</button>
-                <button id="simpleDeleteButton" type="button" data-operation-group="cook">Delete</button>
+          <section class="card" aria-label="Lending settings">
+            <header class="card-head">
+              <div>
+                <h3>Settings</h3>
+                <p class="muted">Priority from lowest: default, config file, database. An empty database value falls back.</p>
               </div>
-              <div class="cook-actions">
-                <button id="previewButton" type="button" data-operation-group="cook">Preview</button>
-                <button id="simpleImportButton" type="button" data-operation-group="cook-selection">Import KCPPS</button>
-                <input id="simpleImportInput" type="file" accept=".kcpps,.json" hidden>
-                <button id="simpleExportButton" type="button" data-operation-group="cook">Export KCPPS</button>
-                <button type="submit" data-operation-group="cook">Save</button>
+              <div class="panel-actions">
+                <button id="lendingSettingsResetAllButton" type="button" data-operation-group="lending">Clear all database values</button>
+                <button id="lendingSettingsSaveButton" class="primary" type="button" data-operation-group="lending">Save</button>
               </div>
-            </aside>
-
-            <div class="config-workspace">
-              <div class="comparison-legend">
-                <span><i class="legend-dot compare-none"></i>No comparable values</span>
-                <span><i class="legend-dot compare-same"></i>Same for model cohort</span>
-                <span><i class="legend-dot compare-different"></i>Different values exist</span>
-              </div>
-              <div id="simpleConfigEditor" class="config-editor"></div>
+            </header>
+            <div class="table-wrap">
+              <table class="data-table lending-settings-table">
+                <thead><tr><th>Setting</th><th>Default</th><th>Config file</th><th>Database</th><th>Effective</th><th></th></tr></thead>
+                <tbody id="lendingSettingsRows"></tbody>
+              </table>
             </div>
-
-            <aside id="simpleFieldSidebar" class="field-sidebar"></aside>
-          </form>
+          </section>
+          <section class="card" aria-label="Lending decisions">
+            <header class="card-head"><h3>Decision log</h3></header>
+            <div class="filter-bar">
+              <label>Window<select id="lendingWindowSelect"><option value="900000">15 minutes</option><option value="3600000" selected>1 hour</option><option value="86400000">24 hours</option><option value="">All</option></select></label>
+              <label>Lane<select id="lendingLaneSelect"><option value="">All</option><option value="image">Image</option><option value="text">Text</option></select></label>
+              <label>Outcome<select id="lendingOutcomeSelect"><option value="">All</option><option value="probe">probe</option><option value="granted">granted</option><option value="skipped">skipped</option><option value="lease_updated">lease updated</option><option value="lease_cleared">lease cleared</option><option value="lease_refused">lease refused</option><option value="lent">lent</option><option value="returned">returned</option><option value="relay_refused">relay refused</option><option value="borrowed_returned">borrowed returned</option><option value="native_waited_behind_borrowed">native waited behind borrowed</option></select></label>
+              <label class="filter-search">Search<input id="lendingSearchInput" type="search" placeholder="node or model"></label>
+            </div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead><tr><th>When</th><th>Repeats</th><th>Node</th><th>Kind</th><th>Trigger</th><th>Lane</th><th>Owner</th><th>Helper</th><th>Outcome</th><th>Reason</th></tr></thead>
+                <tbody id="lendingDecisionRows"></tbody>
+              </table>
+            </div>
+            <section id="lendingDecisionDetail" class="lending-detail"></section>
+          </section>
         </section>
 
-        <section class="cook-mode" data-cook-panel="constructor">
-          <div class="constructor-toolbar">
-            <label class="virtual-backend-label">
-              Backend
-              <select id="advancedBackendSelect">
-                <option value="kobold">Kobold</option>
-                <option value="llama_sdcpp">llama/sd.cpp</option>
-                <option value="vllm">vLLM</option>
-              </select>
-            </label>
-            <label>
-              Config id
-              <input id="advancedCookIdInput" type="text" placeholder="neon-mix">
-            </label>
-            <label>
-              Filter
-              <input id="constructorFilterInput" type="search" placeholder="Model, option, node">
-            </label>
-            <div class="cook-actions">
-              <button id="clearConstructorButton" type="button" data-operation-group="cook-selection">Clear</button>
-              <button id="advancedPreviewButton" type="button" data-operation-group="cook">Preview</button>
-              <button id="advancedApplyButton" type="button" data-operation-group="cook">Apply</button>
+        <section class="tab-panel" data-panel="cook">
+          <header class="panel-head">
+            <div class="panel-title">
+              <h2>Cook</h2>
+              <p class="muted">Compose configs and split recipes.</p>
             </div>
-          </div>
-
-          <div class="constructor-console">
-            <div class="constructor-board">
-              <div class="lanes" id="constructorLanes"></div>
+            <div class="panel-actions">
+              <div class="segmented" role="group" aria-label="Cook mode">
+                <button class="active" type="button" data-cook-mode="quick">Quick cook</button>
+                <button type="button" data-cook-mode="constructor">Advanced cook</button>
+              </div>
+              <label class="toggle-row"><input id="overwriteInput" type="checkbox"><span>Overwrite</span></label>
             </div>
+          </header>
 
-            <div class="constructor-workpanels">
-              <details class="work-panel palette" open>
-                <summary>Palette</summary>
-                <div class="palette-tabs">
-                  <button class="palette-tab active" type="button" data-palette="configs">Configs</button>
-                  <button class="palette-tab" type="button" data-palette="files">Files</button>
-                  <button class="palette-tab" type="button" data-palette="options">Options</button>
+          <section class="cook-mode active" data-cook-panel="quick">
+            <form id="cookForm" class="simple-cook">
+              <aside class="card simple-controls">
+                <label>Node<select id="simpleNodeSelect" data-operation-group="cook-selection"></select></label>
+                <label>Config<select id="simpleConfigSelect" data-operation-group="cook-selection"></select></label>
+                <label>Config id<input id="cookIdInput" type="text" required placeholder="my-model"></label>
+                <label>Filter<input id="simpleFieldFilter" type="search" placeholder="Field or value"></label>
+                <label>Add field<select id="simpleAddFieldSelect"></select></label>
+                <div class="button-strip">
+                  <button id="simpleAddFieldButton" type="button" data-operation-group="cook-selection">Add</button>
+                  <button id="simpleNewButton" type="button" data-operation-group="cook-selection">New</button>
+                  <button id="simpleCopyButton" type="button" data-operation-group="cook-selection">Copy</button>
+                  <button id="simpleDeleteButton" class="danger" type="button" data-operation-group="cook">Delete</button>
                 </div>
-                <div id="paletteList" class="palette-list"></div>
-              </details>
+                <div class="button-strip">
+                  <button id="previewButton" type="button" data-operation-group="cook">Preview</button>
+                  <button id="simpleImportButton" type="button" data-operation-group="cook-selection">Import KCPPS</button>
+                  <input id="simpleImportInput" type="file" accept=".kcpps,.json" hidden>
+                  <button id="simpleExportButton" type="button" data-operation-group="cook">Export KCPPS</button>
+                  <button class="primary" type="submit" data-operation-group="cook">Save</button>
+                </div>
+              </aside>
 
-              <details class="work-panel" open>
-                <summary>Validation</summary>
-                <div id="validationList" class="issue-list"></div>
-              </details>
+              <div class="config-workspace">
+                <div class="comparison-legend">
+                  <span><i class="legend-dot compare-none"></i>No comparable values</span>
+                  <span><i class="legend-dot compare-same"></i>Same for model cohort</span>
+                  <span><i class="legend-dot compare-different"></i>Different values exist</span>
+                </div>
+                <div id="simpleConfigEditor" class="config-editor"></div>
+              </div>
 
-              <details class="work-panel">
-                <summary>Used Models</summary>
-                <div id="usedModelsList" class="detail-list"></div>
-              </details>
+              <aside id="simpleFieldSidebar" class="card field-sidebar"></aside>
+            </form>
+          </section>
 
-              <details class="work-panel">
-                <summary>Selected Options</summary>
-                <div id="selectedOptionsList" class="detail-list"></div>
-              </details>
+          <section class="cook-mode" data-cook-panel="constructor">
+            <div class="card constructor-toolbar">
+              <label>Backend<select id="advancedBackendSelect"><option value="kobold">Kobold</option><option value="llama_sdcpp">llama/sd.cpp</option><option value="vllm">vLLM</option></select></label>
+              <label>Config id<input id="advancedCookIdInput" type="text" placeholder="neon-mix"></label>
+              <label class="filter-search">Filter<input id="constructorFilterInput" type="search" placeholder="Model, option, node"></label>
+              <div class="button-strip">
+                <button id="clearConstructorButton" class="danger" type="button" data-operation-group="cook-selection">Clear</button>
+                <button id="advancedPreviewButton" type="button" data-operation-group="cook">Preview</button>
+                <button id="advancedApplyButton" class="primary" type="button" data-operation-group="cook">Apply</button>
+              </div>
             </div>
-          </div>
+
+            <div class="constructor-console">
+              <div id="constructorLanes" class="lanes"></div>
+
+              <div class="constructor-workpanels">
+                <details class="card work-panel" open>
+                  <summary>Palette</summary>
+                  <div class="segmented palette-tabs">
+                    <button class="active" type="button" data-palette="configs">Configs</button>
+                    <button type="button" data-palette="files">Files</button>
+                    <button type="button" data-palette="options">Options</button>
+                  </div>
+                  <div id="paletteList" class="palette-list"></div>
+                </details>
+                <details class="card work-panel" open>
+                  <summary>Validation</summary>
+                  <div id="validationList" class="issue-list"></div>
+                </details>
+                <details class="card work-panel">
+                  <summary>Used models</summary>
+                  <div id="usedModelsList" class="detail-list"></div>
+                </details>
+                <details class="card work-panel">
+                  <summary>Selected options</summary>
+                  <div id="selectedOptionsList" class="detail-list"></div>
+                </details>
+              </div>
+            </div>
+          </section>
+
+          <div id="cookOutput" class="output"></div>
         </section>
 
-        <div id="cookOutput" class="output"></div>
-      </section>
-
-      <section class="tab-panel" data-panel="recipes">
-        <div class="panel-head">
-          <div>
-            <h2>Master Recipes</h2>
-            <p class="muted">split model routes</p>
-          </div>
-          <span id="recipeCount" class="pill"></span>
-        </div>
-        <div id="recipesList" class="recipe-list"></div>
-      </section>
+        <section class="tab-panel" data-panel="recipes">
+          <header class="panel-head">
+            <div class="panel-title">
+              <h2>Recipes</h2>
+              <p class="muted">Master split routes that combine models from several nodes.</p>
+            </div>
+            <div class="panel-actions">
+              <span id="recipeCount" class="badge tone-neutral"></span>
+            </div>
+          </header>
+          <div id="recipesList" class="recipe-list"></div>
+        </section>
+      </div>
     </section>
   </main>
 
-  <dialog id="constructorFieldDialog" class="field-dialog">
+  <dialog id="constructorFieldDialog" class="dialog field-dialog">
     <div id="constructorFieldDialogBody" class="field-dialog-body"></div>
   </dialog>
 
-  <dialog id="webuiDialog" class="field-dialog">
+  <dialog id="webuiDialog" class="dialog field-dialog">
     <div id="webuiDialogBody" class="field-dialog-body"></div>
   </dialog>
 
-  <dialog id="routingDialog" class="routing-dialog">
-      <div id="routingDialogBody"></div>
-      <p id="routingDialogStatus" class="dialog-status"></p>
-    </dialog>
-  <dialog id="separateRuntimeDialog" class="routing-dialog">
-      <div id="separateRuntimeDialogBody"></div>
-      <p id="separateRuntimeDialogStatus" class="dialog-status"></p>
-    </dialog>
-    <dialog id="safetyDialog" class="field-dialog safety-dialog">
+  <dialog id="routingDialog" class="dialog">
+    <div id="routingDialogBody"></div>
+    <p id="routingDialogStatus" class="dialog-status"></p>
+  </dialog>
+
+  <dialog id="separateRuntimeDialog" class="dialog">
+    <div id="separateRuntimeDialogBody"></div>
+    <p id="separateRuntimeDialogStatus" class="dialog-status"></p>
+  </dialog>
+
+  <dialog id="safetyDialog" class="dialog safety-dialog">
     <div id="safetyDialogBody" class="field-dialog-body"></div>
   </dialog>
 

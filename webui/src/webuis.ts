@@ -2,7 +2,7 @@ import { SafeHTML, html, setHTML } from "./safe-html";
 import { getWebUIs, loadWebUI, setWebUISession } from "./api";
 import { elements } from "./elements";
 import { state } from "./state";
-import { chip, kindColor } from "./utils";
+import { badge, laneAccent } from "./markup-primitives";
 import {
   filteredWebUIEntries,
   groupWebUIs,
@@ -107,16 +107,16 @@ export function renderWebUIs(): void {
   const entries = filteredWebUIEntries(state.webuis.data?.data ?? [], state.webuis.filter);
   elements.webuiStatus.textContent = webUIStatusText(entries.length);
   elements.webuiStatus.classList.toggle("error-text", state.webuis.error !== "");
-  setHTML(elements.webuiGrid, entries.length ? html`${groupWebUIs(entries).map(renderWebUIGroup)}` : html`<div class="detail-empty">No WebUIs</div>`);
+  setHTML(elements.webuiGrid, entries.length ? html`${groupWebUIs(entries).map(renderWebUIGroup)}` : html`<div class="card empty-state">No WebUIs match.</div>`);
 }
 
 function renderWebUIGroup(group: WebUIGroup): SafeHTML {
   return html`
     <section class="webui-node-group">
-      <div class="webui-node-head">
+      <header class="section-head">
         <h3>${group.nodeID}</h3>
-        <span class="pill">${group.entries.length} WebUIs</span>
-      </div>
+        ${badge(`${group.entries.length} WebUI${group.entries.length === 1 ? "" : "s"}`, "neutral")}
+      </header>
       <div class="webui-cards">
         ${group.entries.map(renderWebUICard)}
       </div>
@@ -127,26 +127,27 @@ function renderWebUIGroup(group: WebUIGroup): SafeHTML {
 function renderWebUICard(entry: WebUIEntry): SafeHTML {
   const status = webUIOpenStatus(entry);
   return html`
-    <article class="webui-card">
-      <div class="webui-card-head">
-        <div>
-          <strong>${entry.name}</strong>
-          <div class="webui-url">${entry.url}</div>
+    <article class="card webui-card">
+      <header class="webui-card-head">
+        <span class="node-icon ${laneAccent(entry.lane)}"><svg class="icon"><use href="#icon-webuis"/></svg></span>
+        <div class="webui-card-title">
+          <h3>${entry.name}</h3>
+          <p class="webui-url">${entry.url}</p>
         </div>
         <label class="toggle-row">
           <input type="checkbox" data-operation-group="webui" data-webui-toggle="${entry.id}" ${entry.enabled ? "checked" : ""}>
-          <span>Enable</span>
+          <span>Enabled</span>
         </label>
+      </header>
+      <div class="badge-row">
+        ${badge(entry.lane, laneAccent(entry.lane))}
+        ${badge(entry.backend, "info")}
+        ${badge(entry.backend_mode, "neutral")}
+        <span class="status-dot ${entry.active ? "tone-success" : "tone-neutral"}">${entry.active ? "Active" : "Idle"}</span>
       </div>
-      <div class="node-meta">
-        ${chip(entry.backend, "cyan")}
-        ${chip(entry.backend_mode, "violet")}
-        ${chip(entry.lane, kindColor(entry.lane))}
-        ${chip(entry.active ? "active" : "idle", entry.active ? "lime" : "amber")}
-      </div>
-      <div class="webui-model-summary">${webUIModelSummary(entry)}</div>
-      <div class="webui-actions">
-        <button type="button" data-webui-open="${entry.id}">Open</button>
+      <p class="muted webui-model-summary">${webUIModelSummary(entry)}</p>
+      <div class="button-strip">
+        <button class="primary" type="button" data-webui-open="${entry.id}">Open</button>
         <button type="button" data-webui-details="${entry.id}">${status.openable ? "Models" : "Resolve"}</button>
       </div>
     </article>
@@ -156,19 +157,17 @@ function renderWebUICard(entry: WebUIEntry): SafeHTML {
 function showWebUIDialog(entry: WebUIEntry): void {
   const data = webUIDialogData(entry);
   setHTML(elements.webuiDialogBody, html`
-    <div class="field-dialog-head">
+    <header class="dialog-head">
       <div>
         <h2>${data.title}</h2>
         <p class="muted">${data.message}</p>
       </div>
-      <button type="button" data-webui-dialog-close>Close</button>
-    </div>
-    <div class="webui-url">${entry.url}</div>
-    <div class="webui-dialog-actions">
-      ${data.canEnable ? html`<button type="button" data-operation-group="webui" data-webui-enable="${entry.id}">Enable</button>` : ""}
-    </div>
+      <button class="icon-button" type="button" data-webui-dialog-close aria-label="Close">×</button>
+    </header>
+    <p class="webui-url">${entry.url}</p>
+    ${data.canEnable ? html`<div class="button-strip"><button class="primary" type="button" data-operation-group="webui" data-webui-enable="${entry.id}">Enable</button></div>` : ""}
     <div class="webui-model-list">
-      ${data.canLoad ? html`${data.models.map(model => renderWebUIModelRow(entry, model))}` : html`<div class="detail-empty">No compatible models</div>`}
+      ${data.canLoad ? html`${data.models.map(model => renderWebUIModelRow(entry, model))}` : html`<div class="empty-state">No compatible models</div>`}
     </div>
   `);
   elements.webuiDialog.showModal();
@@ -181,9 +180,9 @@ function renderWebUIModelRow(entry: WebUIEntry, model: WebUICompatibleModel): Sa
         <strong>${model.id}</strong>
         <div class="muted">${model.filename}</div>
       </div>
-      <div class="node-meta">
-        ${chip(model.node_id, "cyan")}
-        ${chip(model.active ? "active" : "available", model.active ? "lime" : "amber")}
+      <div class="badge-row">
+        ${badge(model.node_id, "info")}
+        ${badge(model.active ? "active" : "available", model.active ? "success" : "neutral")}
       </div>
       <button type="button" data-operation-group="webui" data-webui-load="${entry.id}" data-webui-load-model="${model.model_id}" data-webui-load-image="${model.image_id || ""}">Load</button>
     </div>

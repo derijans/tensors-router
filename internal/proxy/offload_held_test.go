@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"context"
 	"net/http"
 	"testing"
 	"time"
@@ -18,7 +19,7 @@ func TestNodeStateListsRequestsTheRouterHoldsBackFromTheBackend(t *testing.T) {
 	}
 	waitForBacklog(t, service, 3)
 
-	held := service.localNodeState().HeldRequests
+	held := service.localNodeState(context.Background()).HeldRequests
 
 	close(gate)
 	for range 3 {
@@ -40,7 +41,7 @@ func TestNodeStateDoesNotListRequestsThatGoStraightToTheBackend(t *testing.T) {
 	}
 	waitForActiveRequests(t, service, 3)
 
-	held := service.localNodeState().HeldRequests
+	held := service.localNodeState(context.Background()).HeldRequests
 
 	close(gate)
 	for range 3 {
@@ -73,10 +74,10 @@ func waitForActiveRequests(t *testing.T, service *Service, want int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if len(service.localNodeState().ActiveRequests) >= want {
+		if len(service.localNodeState(context.Background()).ActiveRequests) >= want {
 			return
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	t.Fatalf("never saw %d active requests: %+v", want, service.localNodeState().ActiveRequests)
+	t.Fatalf("never saw %d active requests: %+v", want, service.localNodeState(context.Background()).ActiveRequests)
 }

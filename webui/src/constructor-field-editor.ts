@@ -14,8 +14,8 @@ import { elements } from "./elements";
 import { state } from "./state";
 import { defaultFieldValue } from "./simple-cook-data";
 import { invalidateAcceptedConversions, recordConversion } from "./conversions";
+import { badge } from "./markup-primitives";
 import {
-  chip,
   optionInputValue,
   optionValueLabel,
   parseOptionInput
@@ -73,7 +73,7 @@ export function renderFieldEditor(): void {
         <h3>${metadata.label} Fields</h3>
         <p class="muted">${metadata.section} staged overrides</p>
       </div>
-      <button class="icon-button" type="button" title="Close" data-field-modal-action="cancel">x</button>
+      <button class="icon-button" type="button" title="Close" aria-label="Close" data-field-modal-action="cancel">×</button>
     </div>
     ${editor.pendingPayload ? assignmentBlock(lane, editor.pendingPayload) : ""}
     <div class="preset-row">
@@ -102,7 +102,7 @@ export function renderFieldEditor(): void {
       <button type="button" data-field-modal-action="reset-section">Reset Section</button>
       <span></span>
       <button type="button" data-field-modal-action="cancel">Cancel</button>
-      <button type="button" data-field-modal-action="apply">Apply</button>
+      <button class="primary" type="button" data-field-modal-action="apply">Apply</button>
     </div>
   `);
 }
@@ -272,8 +272,8 @@ function fieldDiffRow(key: string, sourceValue: JsonValue | undefined, draft: Op
         ${input}
       </label>
       <div class="field-state">
-        ${hasOverride ? chip(changed ? "changed" : "same", changed ? "amber" : "violet") : chip("source", "")}
-        <button class="icon-button" type="button" title="Reset field" data-field-modal-action="reset-field" data-field-key="${key}">x</button>
+        ${hasOverride ? badge(changed ? "changed" : "same", changed ? "warning" : "neutral") : badge("source", "neutral")}
+        <button class="icon-button" type="button" title="Reset field" aria-label="Reset ${key}" data-field-modal-action="reset-field" data-field-key="${key}">×</button>
       </div>
     </div>
   `;

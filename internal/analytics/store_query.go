@@ -153,55 +153,6 @@ func (store *Store) querySummary(ctx context.Context, query Query) (Summary, err
 	return summary, nil
 }
 
-func (store *Store) queryTimeline(ctx context.Context, query Query, granularity string) ([]Timeline, error) {
-	query.StartMS = bucketStart(time.UnixMilli(query.StartMS), granularity)
-	where, args := rollupWhere(query, granularity)
-	rows, err := store.reader.QueryContext(ctx, `SELECT
-		bucket_start,
-		COALESCE(SUM(request_count), 0),
-		COALESCE(SUM(input_tokens), 0),
-		COALESCE(SUM(output_tokens), 0),
-		COALESCE(SUM(total_tokens), 0),
-		COALESCE(SUM(image_count), 0),
-		COALESCE(SUM(embedding_count), 0),
-		COALESCE(SUM(audio_seconds), 0),
-		COALESCE(SUM(load_count), 0),
-		COALESCE(MAX(vram_peak_mb), 0),
-		COALESCE(MAX(vram_peak_percent), 0),
-		COALESCE(MAX(vram_total_mb), 0),
-		COALESCE(MAX(model_vram_estimate_mb), 0)
-		FROM analytics_rollups `+where+`
-		GROUP BY bucket_start
-		ORDER BY bucket_start`, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var result []Timeline
-	for rows.Next() {
-		var item Timeline
-		if err := rows.Scan(
-			&item.BucketStart,
-			&item.RequestCount,
-			&item.InputTokens,
-			&item.OutputTokens,
-			&item.TotalTokens,
-			&item.ImageCount,
-			&item.EmbeddingCount,
-			&item.AudioSeconds,
-			&item.LoadCount,
-			&item.VRAMPeakMB,
-			&item.VRAMPeakPct,
-			&item.VRAMTotalMB,
-			&item.ModelVRAMMB,
-		); err != nil {
-			return nil, err
-		}
-		result = append(result, item)
-	}
-	return result, rows.Err()
-}
-
 func (store *Store) querySections(ctx context.Context, query Query) ([]SectionUsage, error) {
 	if store.queryUsesRollups(query) {
 		return store.queryRollupSections(ctx, query)

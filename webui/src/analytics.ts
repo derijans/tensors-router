@@ -5,7 +5,6 @@ import {
   analyticsNodeChoices,
   analyticsPeriods,
   analyticsSections,
-  chartPoints,
   formatCount,
   formatDecimal,
   formatDurationSeconds,
@@ -15,8 +14,12 @@ import {
 } from "./analytics-data";
 import { elements } from "./elements";
 import { renderVersionRows } from "./analytics-versions-view";
+import { laneLegend } from "./chart-markup";
+import { laneSeries } from "./lane-series";
+import { badge, laneAccent } from "./markup-primitives";
+import { renderLaneChart } from "./overview/overview-view";
 import { state } from "./state";
-import type { AnalyticsModelUsage, AnalyticsNodeUsage, AnalyticsQuery, AnalyticsRecentEvent, AnalyticsSectionUsage, AnalyticsTimeline, SelectChoice } from "./types";
+import type { AnalyticsModelUsage, AnalyticsNodeUsage, AnalyticsQuery, AnalyticsRecentEvent, AnalyticsSectionUsage, SelectChoice } from "./types";
 
 export async function loadAnalytics(): Promise<void> {
   state.analytics.loading = true;
@@ -123,41 +126,21 @@ function renderAnalyticsSummary(): void {
 }
 
 function renderAnalyticsTimeline(): void {
-  const timeline = state.analytics.data?.timeline ?? [];
-  if (!state.analytics.data?.enabled || timeline.length === 0) {
+  const data = state.analytics.data;
+  if (!data?.enabled || data.timeline.length === 0) {
     setHTML(elements.analyticsTimeline, emptyHTML);
     return;
   }
-  const width = 720;
-  const plotHeight = 170;
-  const height = 220;
-  const series = chartPoints(timeline, width, plotHeight);
+  const series = laneSeries(data.timeline, {from: data.from, to: data.to, granularity: data.granularity});
   setHTML(elements.analyticsTimeline, html`
-    <div class="analytics-chart-head">
-      <strong>Timeline</strong>
-      <span class="muted">${state.analytics.data.granularity}</span>
-    </div>
-    <svg class="analytics-chart" viewBox="0 0 ${width} ${height}" role="img" aria-label="Analytics timeline">
-      <path class="analytics-line" d="${series.linePath}"></path>
-      ${series.points.map((chartPoint, index) => {
-        const point = timeline[index];
-        if (!point) {
-          return "";
-        }
-        return html`
-        <circle class="analytics-point" cx="${chartPoint.x.toFixed(2)}" cy="${chartPoint.y.toFixed(2)}" r="${chartPoint.radius.toFixed(2)}">
-          <title>${formatBucket(point)}: ${formatCount(point.request_count)} requests</title>
-        </circle>
-      `;
-      })}
-      <line class="analytics-axis" x1="4" y1="${plotHeight + 10}" x2="${width - 4}" y2="${plotHeight + 10}"></line>
-      ${series.ticks.map(tick => html`
-        <g class="analytics-tick">
-          <line class="analytics-axis" x1="${tick.x.toFixed(2)}" y1="${plotHeight + 5}" x2="${tick.x.toFixed(2)}" y2="${plotHeight + 15}"></line>
-          <text class="analytics-tick-label" x="${tick.x.toFixed(2)}" y="${plotHeight + 34}">${tick.label}</text>
-        </g>
-      `)}
-    </svg>
+    <header class="card-head">
+      <div>
+        <h3>Requests by lane</h3>
+        <ul class="lane-legend">${laneLegend(series)}</ul>
+      </div>
+      <span class="muted">per ${data.granularity}</span>
+    </header>
+    ${renderLaneChart(series, data.granularity)}
   `);
 }
 
@@ -169,11 +152,11 @@ function renderAnalyticsBreakdown(): void {
   }
   const max = Math.max(...sections.map(section => section.request_count), 1);
   setHTML(elements.analyticsSections, html`
-    <div class="analytics-chart-head">
-      <strong>Sections</strong>
-      <span class="muted">requests by lane</span>
-    </div>
-    <div class="analytics-section-bars">
+    <header class="card-head">
+      <h3>Lane totals</h3>
+      <span class="muted">requests</span>
+    </header>
+    <div class="section-bars">
       ${sections.map(section => sectionBar(section, max))}
     </div>
   `);
@@ -200,10 +183,10 @@ function renderAnalyticsTables(): void {
 
 function metricCard(label: string, value: string, detail: string): SafeHTML {
   return html`
-    <article class="analytics-metric">
-      <span>${label}</span>
-      <strong>${value}</strong>
-      <small>${detail}</small>
+    <article class="metric">
+      <span class="metric-label">${label}</span>
+      <strong class="metric-value">${value}</strong>
+      <small class="muted">${detail}</small>
     </article>
   `;
 }
@@ -211,11 +194,11 @@ function metricCard(label: string, value: string, detail: string): SafeHTML {
 function sectionBar(section: AnalyticsSectionUsage, max: number): SafeHTML {
   const width = Math.max(1, Math.round((section.request_count / max) * 100));
   return html`
-    <div class="analytics-section-row">
+    <div class="section-bar ${laneAccent(section.section)}">
       <span>${sectionLabel(section.section)}</span>
-      <svg viewBox="0 0 100 8" role="img" aria-label="${section.section} requests">
-        <rect class="analytics-bar-track" x="0" y="0" width="100" height="8"></rect>
-        <rect class="analytics-bar" x="0" y="0" width="${width}" height="8"></rect>
+      <svg viewBox="0 0 100 8" preserveAspectRatio="none" role="img" aria-label="${section.section} requests">
+        <rect class="section-bar-track" x="0" y="0" width="100" height="8"></rect>
+        <rect class="section-bar-fill" x="0" y="0" width="${width}" height="8"></rect>
       </svg>
       <strong>${formatCount(section.request_count)}</strong>
     </div>
@@ -272,7 +255,7 @@ function recentRow(event: AnalyticsRecentEvent): SafeHTML {
       <td>${event.model_id || "unknown"}</td>
       <td>${sectionLabel(event.section)}</td>
       <td>${event.backend_mode || ""}</td>
-      <td>${event.success ? "ok" : String(event.status_code)}</td>
+      <td>${event.success ? badge("ok", "success") : badge(String(event.status_code), event.status_code >= 500 || event.status_code === 0 ? "danger" : "warning")}</td>
       <td>${media}</td>
     </tr>
   `;
@@ -360,10 +343,6 @@ function isAnalyticsPeriod(value: string): value is AnalyticsQuery["period"] {
 
 function sectionLabel(section: string): string {
   return analyticsSections.find(option => option.value === section)?.label ?? section;
-}
-
-function formatBucket(point: AnalyticsTimeline): string {
-  return formatDate(point.bucket_start);
 }
 
 function formatDate(value: number): string {

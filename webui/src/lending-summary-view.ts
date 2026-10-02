@@ -1,12 +1,12 @@
 import { SafeHTML, html } from "./safe-html";
 import type { LendingLease, LendingNodeSummary, LendingSummaryResponse } from "./types";
-import { chip } from "./utils";
+import { badge, laneAccent } from "./markup-primitives";
 
 export function renderLendingSummary(summary: LendingSummaryResponse, masterFingerprint: string, now: Date): SafeHTML {
   const leases = summary.leases ?? [];
   return html`
     <div class="table-wrap">
-      <table>
+      <table class="data-table">
         <thead><tr><th>Node</th><th>Build</th><th>Settings</th><th>Held</th><th>Lent</th></tr></thead>
         <tbody>${summary.nodes.map(node => renderNodeRow(node, masterFingerprint))}</tbody>
       </table>
@@ -22,7 +22,7 @@ function renderNodeRow(node: LendingNodeSummary, masterFingerprint: string): Saf
   return html`<tr>
     <td>${node.node_id}</td>
     <td>${node.build_version}</td>
-    <td>${chip(inSync ? "in sync" : `differs (${node.settings_fingerprint})`, inSync ? "lime" : "amber")}</td>
+    <td>${badge(inSync ? "in sync" : `differs (${node.settings_fingerprint})`, inSync ? "success" : "warning")}</td>
     <td>${held.filter(request => request.state === "held").length}</td>
     <td>${held.filter(request => request.state === "lent").length}</td>
   </tr>`;
@@ -31,10 +31,10 @@ function renderNodeRow(node: LendingNodeSummary, masterFingerprint: string): Saf
 function renderLease(lease: LendingLease, now: Date): SafeHTML {
   const remainingSeconds = Math.max(0, (new Date(lease.expires_at).getTime() - now.getTime()) / 1000);
   return html`<li>
-    ${chip(lease.lane, lease.lane === "image" ? "magenta" : "cyan")}
+    ${badge(lease.lane, laneAccent(lease.lane))}
     <span>${lease.owner_node_id}/${lease.owner_model_id} → ${lease.helper_node_id}/${lease.helper_model_id}</span>
-    ${chip(`${lease.helper_slots} slot${lease.helper_slots === 1 ? "" : "s"}`, "violet")}
-    ${lease.probe ? chip("probe", "cyan") : ""}
+    ${badge(`${lease.helper_slots} slot${lease.helper_slots === 1 ? "" : "s"}`, "neutral")}
+    ${lease.probe ? badge("probe", "info") : ""}
     <span class="muted">expires in ${remainingSeconds.toFixed(0)}s</span>
   </li>`;
 }

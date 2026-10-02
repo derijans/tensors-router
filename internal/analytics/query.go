@@ -3,6 +3,7 @@ package analytics
 import (
 	"fmt"
 	"net/url"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -111,9 +112,8 @@ func Merge(responses ...Response) Response {
 		for _, item := range response.Timeline {
 			existing := timelineByBucket[item.BucketStart]
 			if existing == nil {
-				itemCopy := item
-				timelineByBucket[item.BucketStart] = &itemCopy
-				continue
+				timelineByBucket[item.BucketStart] = &Timeline{BucketStart: item.BucketStart, Sections: []TimelineSection{}}
+				existing = timelineByBucket[item.BucketStart]
 			}
 			addTimeline(existing, item)
 		}
@@ -224,7 +224,11 @@ func addSummary(left *Summary, right Summary) {
 }
 
 func addTimeline(left *Timeline, right Timeline) {
+	left.AverageTokensPS = weightedAverage(left.TokensPSSamples, left.AverageTokensPS, right.TokensPSSamples, right.AverageTokensPS)
+	left.TokensPSSamples += right.TokensPSSamples
 	left.RequestCount += right.RequestCount
+	left.FailureCount += right.FailureCount
+	left.Sections = mergeTimelineSections(left.Sections, right.Sections)
 	left.InputTokens += right.InputTokens
 	left.OutputTokens += right.OutputTokens
 	left.TotalTokens += right.TotalTokens
@@ -236,6 +240,23 @@ func addTimeline(left *Timeline, right Timeline) {
 	left.VRAMPeakPct = maxFloat64(left.VRAMPeakPct, right.VRAMPeakPct)
 	left.VRAMTotalMB = maxInt64(left.VRAMTotalMB, right.VRAMTotalMB)
 	left.ModelVRAMMB = maxInt64(left.ModelVRAMMB, right.ModelVRAMMB)
+}
+
+func mergeTimelineSections(left []TimelineSection, right []TimelineSection) []TimelineSection {
+	merged := make([]TimelineSection, 0, len(left)+len(right))
+	merged = append(merged, left...)
+	for _, section := range right {
+		index := slices.IndexFunc(merged, func(existing TimelineSection) bool { return existing.Section == section.Section })
+		if index < 0 {
+			merged = append(merged, section)
+			continue
+		}
+		merged[index].RequestCount += section.RequestCount
+	}
+	slices.SortFunc(merged, func(first TimelineSection, second TimelineSection) int {
+		return strings.Compare(first.Section, second.Section)
+	})
+	return merged
 }
 
 func addSection(left *SectionUsage, right SectionUsage) {

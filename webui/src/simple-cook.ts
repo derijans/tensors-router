@@ -350,7 +350,7 @@ function renderConfigEditor(): void {
 function renderFieldSidebar(): void {
   const sidebar = state.simpleCook.sidebar;
   if (!sidebar) {
-    setHTML(elements.simpleFieldSidebar, html`<div class="detail-empty">Field values</div>`);
+    setHTML(elements.simpleFieldSidebar, html`<div class="empty-state">Pick Values or Model on a field to compare it with other configs.</div>`);
     return;
   }
   const rows = sidebarValueRows(sidebar.key, sidebar.type, optionDefinition, fieldRenderContext());
@@ -360,7 +360,7 @@ function renderFieldSidebar(): void {
         <h3>${sidebar.key}</h3>
         <p class="muted">${sidebar.type === "model" ? "same model file" : "same field"}</p>
       </div>
-      <button type="button" data-close-field-sidebar>x</button>
+      <button class="icon-button" type="button" aria-label="Close field values" data-close-field-sidebar>×</button>
     </div>
     <div class="detail-list">
       ${rows.length ? html`${rows.map(sidebarValueRow)}` : html`<div class="detail-empty">No values</div>`}
@@ -375,7 +375,7 @@ function fieldRow(key: string, value: JsonValue | undefined, section: string, co
   const compareClass = comparisonClass(key, section, context);
   const input = simpleFieldInput(key, value, datalistID, choices, virtual);
   const modelButton = sectionModelKeys[section]
-    ? html`<button class="icon-button" type="button" title="Same model values" data-field-model-values="${key}">M</button>`
+    ? html`<button class="field-tool" type="button" title="Values used with the same model file" data-field-model-values="${key}">Model</button>`
     : "";
   return html`
     <div class="config-field ${compareClass}${virtual ? " backend-virtual" : ""}">
@@ -387,9 +387,9 @@ function fieldRow(key: string, value: JsonValue | undefined, section: string, co
         ${input}
       </div>
       <div class="field-buttons">
-        <button class="icon-button" type="button" title="Other config values" data-field-values="${key}">V</button>
+        <button class="field-tool" type="button" title="Values other configs use" data-field-values="${key}">Values</button>
         ${modelButton}
-        ${virtual ? "" : html`<button class="icon-button" type="button" title="Remove field" data-remove-simple-field="${key}">x</button>`}
+        ${virtual ? "" : html`<button class="icon-button" type="button" title="Remove field" aria-label="Remove ${key}" data-remove-simple-field="${key}">×</button>`}
       </div>
     </div>
   `;

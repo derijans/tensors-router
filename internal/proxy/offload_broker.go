@@ -212,12 +212,13 @@ func offloadModelKey(candidate offloadCandidate) schedulingcost.ModelKey {
 // that goes busy, or a master that stops polling, ends the arrangement without a
 // message having to arrive.
 type offloadLeaseBook struct {
-	mu     sync.RWMutex
-	leases map[string]offloadLease
+	mu      sync.RWMutex
+	planned map[string]offloadLease
+	issued  map[string]offloadLease
 }
 
 func newOffloadLeaseBook() *offloadLeaseBook {
-	return &offloadLeaseBook{leases: map[string]offloadLease{}}
+	return &offloadLeaseBook{planned: map[string]offloadLease{}, issued: map[string]offloadLease{}}
 }
 
 func offloadLeaseBookKey(lane string, ownerNodeID string, ownerModelID string) string {
@@ -232,16 +233,25 @@ func (book *offloadLeaseBook) Replace(planned []offloadLease) {
 	for _, lease := range planned {
 		live[offloadLeaseBookKey(lease.Lane, lease.OwnerNodeID, lease.OwnerModelID)] = lease
 	}
+	now := time.Now()
 	book.mu.Lock()
 	defer book.mu.Unlock()
-	book.leases = live
+	book.planned = live
+	for key, lease := range book.issued {
+		if !lease.ExpiresAt.After(now) {
+			delete(book.issued, key)
+		}
+	}
+	for key, lease := range live {
+		book.issued[key] = lease
+	}
 }
 
 func (book *offloadLeaseBook) Live(now time.Time) []offloadLease {
 	book.mu.RLock()
 	defer book.mu.RUnlock()
-	live := make([]offloadLease, 0, len(book.leases))
-	for _, lease := range book.leases {
+	live := make([]offloadLease, 0, len(book.planned))
+	for _, lease := range book.planned {
 		if lease.ExpiresAt.After(now) {
 			live = append(live, lease)
 		}
@@ -253,10 +263,10 @@ func (book *offloadLeaseBook) Live(now time.Time) []offloadLease {
 	return live
 }
 
-func (book *offloadLeaseBook) Lease(lane string, ownerNodeID string, ownerModelID string, now time.Time) (offloadLease, bool) {
+func (book *offloadLeaseBook) IssuedLease(lane string, ownerNodeID string, ownerModelID string, now time.Time) (offloadLease, bool) {
 	book.mu.RLock()
 	defer book.mu.RUnlock()
-	lease, ok := book.leases[offloadLeaseBookKey(lane, ownerNodeID, ownerModelID)]
+	lease, ok := book.issued[offloadLeaseBookKey(lane, ownerNodeID, ownerModelID)]
 	if !ok || !lease.ExpiresAt.After(now) {
 		return offloadLease{}, false
 	}

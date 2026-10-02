@@ -1,7 +1,16 @@
 import type { AnalyticsQuery, AnalyticsResponse, LoadCaptureAttempt, LoadCaptureDetailResponse, LoadCaptureListResponse, LoadCaptureOutputChunk, LoadCaptureQuery, LoadErrorRecord, BenchmarkRecord, BenchmarkSection, BenchmarkType, CookComponent, DownloadCapabilitiesResponse, DownloadLibraryResponse, DownloadPlan, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, NodeState, RouterProcessStatus, RoutingLane, RoutingLinksResponse, WebUICatalogResponse } from "./api";
 import type { JsonValue, Options } from "./json";
+import type { ModelColumnChoices } from "../model-columns";
 
 export type CookMode = "quick" | "constructor";
+
+export type OverviewPeriod = "24h" | "7d" | "30d";
+
+export type Tone = "accent" | "info" | "success" | "warning" | "danger" | "neutral";
+
+export type LaneAccent = "lane-text" | "lane-image" | "lane-voice" | "lane-embed" | "lane-music" | "lane-other";
+
+export type Accent = Tone | LaneAccent;
 
 export type PaletteName = "configs" | "files" | "options";
 
@@ -33,7 +42,7 @@ export interface PaletteEntry {
   title: string;
   subtitle: string;
   badge: string;
-  color: string;
+  accent: Accent;
   meta: string[];
   payload: PalettePayload;
 }
@@ -115,6 +124,16 @@ export interface AppState {
   inventory: InventoryResponse | null;
   routingLinks: Record<RoutingLane, RoutingLinksResponse | null>;
   router: RouterProcessStatus | null;
+  nodeSnapshots: Record<string, NodeState>;
+  overview: {
+    period: OverviewPeriod;
+    analytics: AnalyticsResponse | null;
+    error: string;
+  };
+  search: {
+    query: string;
+    activeIndex: number;
+  };
   nodes: {
     expanded: string[];
     byNode: Record<string, NodeRuntimeSlice>;
@@ -132,6 +151,8 @@ export interface AppState {
     fileExtensionFilter: string;
     fileHashFilter: string;
     initialized: boolean;
+    columnChoices: ModelColumnChoices;
+    roomForEveryColumn: boolean;
   };
   benchmark: {
     modelKey: string;

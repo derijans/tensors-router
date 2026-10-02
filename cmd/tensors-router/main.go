@@ -24,6 +24,7 @@ import (
 	"tensors-router/internal/config"
 	"tensors-router/internal/downloader"
 	"tensors-router/internal/ffmpeg"
+	"tensors-router/internal/hardware"
 	"tensors-router/internal/kobold"
 	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/loaderrors"
@@ -339,6 +340,7 @@ func runServe(args []string) error {
 		LoadCaptureMaxOutputBytes: cfg.Analytics.LoadCaptureMaxOutputMB * 1024 * 1024,
 		VRAMAnalyticsEnabled:      cfg.Analytics.Enabled && cfg.Analytics.VRAMEnabled,
 		VRAMSampleInterval:        cfg.Analytics.VRAMSampleInterval,
+		MemorySource:              hardware.NewNodeMemorySource(),
 		Downloader:                downloaderManager,
 		DownloaderCapability:      downloaderCapability,
 		VLLM:                      vllmManager,

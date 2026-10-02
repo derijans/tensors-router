@@ -4,8 +4,10 @@ import { elements } from "./elements";
 import { filterInventoryModels, modelBackends, modelCapabilities } from "./model-inventory-data";
 import { linkCountsForModel, routingButtonLabel } from "./routing-links-data";
 import { state } from "./state";
-import type { Model, NodeInventory, RoutingEndpoint, RoutingLane } from "./types";
+import type { Model, NodeInventory, RoutingEndpoint, RoutingLane, Tone } from "./types";
+import { badge, laneAccent } from "./markup-primitives";
 import { capabilities, optionSummary } from "./utils";
+import { modelColumns, visibleModelColumns, type ModelColumnKey } from "./model-columns";
 
 export function renderModelsPanel(models: Model[], nodes: NodeInventory[]): void {
   renderSelect(elements.modelBackendFilter, "All backends", modelBackends(models), state.models.backendFilter);
@@ -19,26 +21,55 @@ export function renderModelsPanel(models: Model[], nodes: NodeInventory[]): void
   });
   elements.modelsRowCount.textContent = `${filtered.length} of ${models.length} models`;
   setHTML(elements.modelsScanNotices, scanNotices(nodes));
-  setHTML(elements.modelsTable, filtered.length > 0 ? html`${filtered.map(modelRow)}` : html`<tr><td class="inventory-empty" colspan="11">No models match the current filters.</td></tr>`);
+  const columns = visibleModelColumns(state.models.columnChoices, state.models.roomForEveryColumn);
+  setHTML(elements.modelColumnsList, columnChoicesMarkup(columns));
+  setHTML(elements.modelsTableHead, html`<tr>${columns.map(column => html`<th class="column-${column}">${columnLabel(column)}</th>`)}</tr>`);
+  setHTML(elements.modelsTable, filtered.length > 0
+    ? html`${filtered.map(model => modelRow(model, columns))}`
+    : html`<tr><td class="empty-state" colspan="${columns.length}">No models match the current filters.</td></tr>`);
 }
 
-function modelRow(model: Model): SafeHTML {
+function columnLabel(column: ModelColumnKey): string {
+  return modelColumns.find(definition => definition.key === column)?.label ?? column;
+}
+
+function columnChoicesMarkup(visible: readonly ModelColumnKey[]): SafeHTML {
+  return html`${modelColumns.map(column => html`
+    <label class="toggle-row"><input type="checkbox" data-model-column="${column.key}"${visible.includes(column.key) ? " checked" : ""}><span>${column.label}</span></label>
+  `)}`;
+}
+
+function modelRow(model: Model, columns: readonly ModelColumnKey[]): SafeHTML {
+  return html`<tr class="${model.disabled ? "row-disabled" : ""}">${columns.map(column => html`<td class="column-${column}">${modelCell(model, column)}</td>`)}</tr>`;
+}
+
+function modelCell(model: Model, column: ModelColumnKey): SafeHTML | string {
   const enabled = !model.disabled;
   const operationGroup = `model-state-${model.node_id}-${model.local_id}`;
-  return html`
-    <tr class="${enabled ? "" : "inventory-row-disabled"}">
-      <td title="${model.filename}">${model.public_id || model.local_id}</td>
-      <td>${model.node_id || ""}</td>
-      <td><label class="model-enabled-switch" title="${enabled ? "Disable model" : "Enable model"}"><input type="checkbox" ${enabled ? "checked" : ""} data-operation-group="${operationGroup}" data-model-enabled-node="${model.node_id}" data-model-enabled-id="${model.local_id}"><span aria-hidden="true"></span><span class="sr-only">${enabled ? "Enabled" : "Disabled"}</span></label></td>
-      <td>${model.backend_mode || ""}</td>
-      <td>${capabilities(model)}</td>
-      <td>${optionSummary(model.options)}</td>
-      <td>${benchmarkCompactLabel(model)}</td>
-      <td>${modelAssetAvailability(model)}</td>
-      <td>${routingCell(model)}</td>
-      <td>${separateCell(model, operationGroup)}</td>
-      <td><button type="button" data-operation-group="${operationGroup}" data-load-config="${model.public_id || model.local_id}" ${enabled ? "" : "disabled"}>Load</button></td>
-    </tr>`;
+  switch (column) {
+    case "id":
+      return html`<div class="model-cell"><strong>${model.public_id || model.local_id}</strong><small>${model.filename}</small></div>`;
+    case "node":
+      return model.node_id || "";
+    case "enabled":
+      return html`<label class="model-enabled-switch" title="${enabled ? "Disable model" : "Enable model"}"><input type="checkbox" ${enabled ? "checked" : ""} data-operation-group="${operationGroup}" data-model-enabled-node="${model.node_id}" data-model-enabled-id="${model.local_id}"><span aria-hidden="true"></span><span class="sr-only">${enabled ? "Enabled" : "Disabled"}</span></label>`;
+    case "backend":
+      return model.backend_mode || "";
+    case "capabilities":
+      return html`<div class="badge-row">${capabilityBadges(model)}</div>`;
+    case "options":
+      return optionSummary(model.options);
+    case "benchmark":
+      return benchmarkCompactLabel(model);
+    case "available":
+      return modelAssetAvailability(model);
+    case "routing":
+      return routingCell(model);
+    case "separate":
+      return separateCell(model, operationGroup);
+    case "actions":
+      return html`<button type="button" data-operation-group="${operationGroup}" data-load-config="${model.public_id || model.local_id}" ${enabled ? "" : "disabled"}>Load</button>`;
+  }
 }
 
 function routingCell(model: Model): SafeHTML {
@@ -52,7 +83,7 @@ function routingCell(model: Model): SafeHTML {
   if (model.has_llm) {
     buttons.push(routingButton("text", {node_id: model.node_id, model_id: model.local_id}));
   }
-  return html`${buttons.map(button => html`${button} `)}`;
+  return html`<div class="cell-stack">${buttons}</div>`;
 }
 
 function routingButton(lane: RoutingLane, endpoint: RoutingEndpoint): SafeHTML {
@@ -80,7 +111,28 @@ function modelAssetAvailability(model: Model): SafeHTML {
     label = model.asset_failure ? `${model.asset_state}: ${model.asset_failure}` : model.asset_state;
     assetState = model.asset_state;
   }
-  return html`<span class="asset-badge asset-${assetState}">${label}</span>`;
+  return badge(label, assetTone(assetState));
+}
+
+function assetTone(assetState: string): Tone {
+  switch (assetState) {
+    case "ready":
+      return "success";
+    case "unresolved":
+      return "warning";
+    case "resolving":
+      return "info";
+    default:
+      return "danger";
+  }
+}
+
+function capabilityBadges(model: Model): SafeHTML {
+  const values = capabilities(model);
+  if (values.length === 0) {
+    return html`<span class="muted">none</span>`;
+  }
+  return html`${values.map(value => badge(value, value === "multimodal" ? "neutral" : laneAccent(value)))}`;
 }
 
 function renderSelect(select: HTMLSelectElement, allLabel: string, values: string[], selected: string): void {

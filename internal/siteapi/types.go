@@ -91,6 +91,14 @@ type NodeState struct {
 	HeldRequests    []NodeHeldRequest  `json:"held_requests"`
 	FFmpegAvailable bool               `json:"ffmpeg_available"`
 	FFmpegPath      string             `json:"ffmpeg_path,omitempty"`
+	Memory          *NodeMemory        `json:"memory,omitempty"`
+}
+
+type NodeMemory struct {
+	Kind        string `json:"kind"`
+	TotalMB     int64  `json:"total_mb"`
+	UsedMB      int64  `json:"used_mb"`
+	SampledAtMS int64  `json:"sampled_at_ms"`
 }
 
 const (
@@ -126,10 +134,12 @@ type NodeStateBackend struct {
 }
 
 type NodeStateModelRow struct {
-	ModelID    string `json:"model_id"`
-	Lane       string `json:"lane"`
-	RuntimeID  string `json:"runtime_id"`
-	Generation uint64 `json:"generation"`
+	ModelID          string `json:"model_id"`
+	Lane             string `json:"lane"`
+	RuntimeID        string `json:"runtime_id"`
+	Generation       uint64 `json:"generation"`
+	MemoryEstimateMB int64  `json:"memory_estimate_mb,omitempty"`
+	Borrowed         bool   `json:"borrowed,omitempty"`
 }
 
 type NodeUnloadRequest struct {

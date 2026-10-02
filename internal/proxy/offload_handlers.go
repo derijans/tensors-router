@@ -80,7 +80,7 @@ func (service *Service) handleNodeOffloadRequest(w http.ResponseWriter, r *http.
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "offload owner model, owner, and path are required")
 		return
 	}
-	lease, ok := service.scheduler.leaseBook.Lease(lane, ownerNodeID, ownerModelID, time.Now())
+	lease, ok := service.scheduler.leaseBook.IssuedLease(lane, ownerNodeID, ownerModelID, time.Now())
 	if !ok {
 		lease = offloadLease{Lane: lane, OwnerNodeID: ownerNodeID, OwnerModelID: ownerModelID}
 		service.refuseOffloadRelay(w, lease, relayRefusedNoLiveLease, "no live offload lease for this owner")

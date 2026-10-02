@@ -1,0 +1,267 @@
+.constructor-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--gap);
+}
+
+.constructor-toolbar > label {
+  flex: 1 1 180px;
+  max-width: 280px;
+}
+
+.constructor-toolbar .button-strip {
+  margin-left: auto;
+}
+
+.constructor-console {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  align-items: start;
+  gap: var(--gap-md);
+}
+
+.lanes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+  gap: var(--gap);
+}
+
+.lane {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: var(--gap-sm);
+  min-height: 260px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: rgb(29 18 54 / .82);
+  box-shadow: inset 0 3px 0 var(--lane, var(--pink));
+}
+
+.lane-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--gap-sm);
+}
+
+.lane-head h3 {
+  color: var(--lane, var(--text));
+  font: italic 800 16px var(--display);
+}
+
+.lane-head span {
+  color: var(--text-faint);
+  font: 11px var(--mono);
+}
+
+.lane-head button {
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.lane-drop {
+  display: grid;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius);
+  transition: border-color .15s, background .15s;
+}
+
+.lane-drop.drag-over {
+  border-color: var(--lane, var(--pink));
+  background: color-mix(in srgb, var(--lane, var(--pink)) 10%, transparent);
+}
+
+.lane-empty {
+  display: grid;
+  place-items: center;
+  padding: var(--gap-md);
+  color: var(--text-faint);
+  font-size: 12px;
+  text-align: center;
+}
+
+.selected-card {
+  display: grid;
+  align-content: start;
+  gap: 6px;
+  padding: 12px;
+  overflow-wrap: anywhere;
+}
+
+.selected-card .muted {
+  font-size: 12px;
+}
+
+.lane-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.constructor-workpanels {
+  display: grid;
+  gap: var(--gap-sm);
+}
+
+.work-panel {
+  padding: 0;
+}
+
+.work-panel > summary {
+  padding: 14px 18px;
+  font: italic 800 15px var(--display);
+}
+
+.work-panel[open] > summary {
+  border-bottom: 1px solid var(--border);
+}
+
+.work-panel > :not(summary) {
+  margin: var(--gap) var(--gap-md);
+}
+
+.palette-tabs {
+  display: flex;
+}
+
+.palette-list {
+  display: grid;
+  gap: 6px;
+  max-height: 420px;
+  overflow-y: auto;
+}
+
+.palette-item {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface-sunken);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.palette-item[draggable="true"] {
+  cursor: grab;
+}
+
+.palette-item[draggable="true"]:active {
+  cursor: grabbing;
+}
+
+.palette-item > button {
+  justify-self: start;
+  min-height: 26px;
+  padding: 0 12px;
+  font-size: 12px;
+}
+
+.palette-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-sm);
+}
+
+.palette-item > .muted {
+  font-size: 12px;
+}
+
+.palette-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.used-row,
+.option-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.option-editor {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+}
+
+.option-editor > :first-child {
+  grid-column: 1 / -1;
+}
+
+.preset-row,
+.field-add-row,
+.assignment-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--gap);
+}
+
+.preset-row > label,
+.field-add-row > label,
+.assignment-panel > label {
+  flex: 1 1 200px;
+}
+
+.assignment-panel {
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.field-diff-grid {
+  display: grid;
+  gap: 6px;
+}
+
+.field-diff-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) minmax(120px, 1fr) minmax(0, 1.4fr) auto;
+  align-items: center;
+  gap: var(--gap);
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.field-diff-row.changed {
+  border-color: color-mix(in srgb, var(--amber) 55%, transparent);
+}
+
+.field-source {
+  display: grid;
+  min-width: 0;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.field-state {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (max-width: 1180px) {
+  .constructor-console {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .field-diff-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .field-source,
+  .field-override {
+    grid-column: 1 / -1;
+  }
+}

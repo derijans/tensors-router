@@ -1,10 +1,11 @@
 import { SafeHTML, html, setHTML } from "./safe-html";
+import { badge, fact } from "./markup-primitives";
 import { getBenchmarkRecord, runBenchmark } from "./api";
 import { benchmarkSections } from "./benchmark-data";
 import { allNodeModels } from "./data";
 import { elements } from "./elements";
 import { state } from "./state";
-import type { BenchmarkRecord, BenchmarkSection, BenchmarkSummary, Model } from "./types";
+import type { BenchmarkRecord, BenchmarkSection, BenchmarkSummary, Model, Tone } from "./types";
 
 export function renderBenchmarks(): void {
   ensureBenchmarkSelection();
@@ -63,6 +64,10 @@ export async function runSelectedBenchmark(): Promise<void> {
   }
 }
 
+export function selectBenchmarkConfig(model: Model): void {
+  selectBenchmarkModel(modelKey(model));
+}
+
 export function selectBenchmarkModel(value: string): void {
   state.benchmark.modelKey = value;
   state.benchmark.record = null;
@@ -96,7 +101,7 @@ function renderBenchmarkLatest(): void {
     return;
   }
   if (!latest) {
-    setHTML(elements.benchmarkLatest, html`<div class="detail-empty">No benchmark data</div>`);
+    setHTML(elements.benchmarkLatest, html`<div class="card empty-state">No benchmark data for this config yet.</div>`);
     return;
   }
   const sections = benchmarkSections
@@ -111,32 +116,46 @@ function renderBenchmarkLatest(): void {
 function renderBenchmarkHistory(): void {
   const history = currentBenchmarkRecord()?.history ?? [];
   if (history.length === 0) {
-    setHTML(elements.benchmarkHistory, html`<div class="detail-empty">No history yet</div>`);
+    setHTML(elements.benchmarkHistory, html`<div class="empty-state">No history yet</div>`);
     return;
   }
   setHTML(elements.benchmarkHistory, html`${history.slice().reverse().map(summary => html`
     <article class="benchmark-row">
       <div>
-        <strong>${summary.section} / ${summary.status}</strong>
-        <div class="muted">${formatDate(summary.finished_at)} / ${summary.duration_ms || 0}ms</div>
+        <strong>${summary.section}</strong>
+        <div class="muted">${formatDate(summary.finished_at)} · ${summary.duration_ms || 0} ms</div>
       </div>
-      <div class="change-list">${optionChanges(summary)}</div>
+      ${badge(summary.status, benchmarkStatusTone(summary.status))}
+      <div class="badge-row">${optionChanges(summary)}</div>
     </article>
   `)}`);
 }
 
 function summaryCard(title: string, summary: BenchmarkSummary): SafeHTML {
   return html`
-    <article class="benchmark-card">
-      <strong>${title}</strong>
-      <div class="benchmark-status ${summary.status}">${summary.status}</div>
-      <div class="muted">${summary.duration_ms || 0}ms / ${formatDate(summary.finished_at)}</div>
-      ${summary.error ? html`<div class="error-text">${summary.error}</div>` : ""}
-      <div class="metric-list">${(summary.metrics ?? []).map(metric => html`
-        <span>${metric.name}: ${formatMetricValue(metric)}</span>
-      `)}</div>
+    <article class="card benchmark-card">
+      <header class="benchmark-card-head">
+        <h3>${title}</h3>
+        ${badge(summary.status, benchmarkStatusTone(summary.status))}
+      </header>
+      <p class="muted">${summary.duration_ms || 0} ms · ${formatDate(summary.finished_at)}</p>
+      ${summary.error ? html`<p class="error-text">${summary.error}</p>` : ""}
+      <dl class="fact-grid">${(summary.metrics ?? []).map(metric => fact(metric.name, formatMetricValue(metric)))}</dl>
     </article>
   `;
+}
+
+function benchmarkStatusTone(status: string): Tone {
+  switch (status) {
+    case "success":
+      return "success";
+    case "failed":
+      return "danger";
+    case "partial":
+      return "warning";
+    default:
+      return "neutral";
+  }
 }
 
 function formatMetricValue(metric: NonNullable<BenchmarkSummary["metrics"]>[number]): string {
@@ -164,9 +183,7 @@ function optionChanges(summary: BenchmarkSummary): SafeHTML {
   if (changes.length === 0) {
     return html`<span class="muted">no option changes</span>`;
   }
-  return html`${changes.map(change => html`
-    <span class="chip amber">${change.key} ${change.kind}</span>
-  `)}`;
+  return html`${changes.map(change => badge(`${change.key} ${change.kind}`, "warning"))}`;
 }
 
 function currentBenchmarkRecord(): BenchmarkRecord | null {

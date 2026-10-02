@@ -5,6 +5,7 @@ import { state } from "./state";
 import { stripTerminalControls } from "./terminal-output";
 import { reportErrorToConsole } from "./console-report";
 import type { LoadErrorRecord } from "./types";
+import { badge, fact } from "./markup-primitives";
 
 const phaseOptions = [
   "config_parse", "asset_resolve", "port_bind", "process_spawn", "health_wait",
@@ -55,6 +56,7 @@ function ensurePhaseOptions(): void {
 }
 
 function renderLoadErrors(): void {
+  elements.errorsFlag.hidden = !state.loadErrors.records.some(record => record.severity === "error");
   const parts: SafeHTML[] = [];
   if (state.loadErrors.loading) {
     parts.push(html`<p class="action-status">Loading…</p>`);
@@ -77,7 +79,7 @@ function renderLoadErrors(): void {
       <td>${formatTimestamp(record.last_seen_at)}</td>
       <td>${record.node_id || ""}</td>
       <td>${record.phase}</td>
-      <td>${record.severity}</td>
+      <td>${badge(record.severity, record.severity === "error" ? "danger" : "warning")}</td>
       <td>${record.source || ""}</td>
       <td>${record.occurrences}</td>
       <td>${truncate(record.message, 140)}</td>
@@ -106,8 +108,8 @@ function renderDetail(record: LoadErrorRecord): SafeHTML {
   ];
   return html`
     <h3>${record.message}</h3>
-    <dl class="load-error-detail">
-      ${rows.filter(([, value]) => value !== "").map(([label, value]) => html`<div><dt>${label}</dt><dd>${value}</dd></div>`)}
+    <dl class="fact-grid">
+      ${rows.filter(([, value]) => value !== "").map(([label, value]) => fact(label, value))}
     </dl>
   `;
 }
