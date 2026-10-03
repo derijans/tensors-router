@@ -154,6 +154,10 @@ func TestModelAwareTextEndpointsRouteSelectedConfig(t *testing.T) {
 		t.Run(strings.Trim(endpoint, "/"), func(t *testing.T) {
 			var sawRequest bool
 			service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && r.URL.Path == koboldPerfPath {
+					_, _ = w.Write([]byte(`{"total_gens":0}`))
+					return
+				}
 				if r.URL.Path != endpoint {
 					t.Fatalf("unexpected path %s", r.URL.Path)
 				}

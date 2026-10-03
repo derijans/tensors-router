@@ -266,6 +266,9 @@ function streamDetail(event: AnalyticsRecentEvent): string {
     return loadDetail(event);
   }
   const parts: string[] = [];
+  if (event.section === "llm") {
+    parts.push(tokenCounts(event));
+  }
   if (event.ttft_ms) {
     parts.push(`TTFT ${formatDecimal(event.ttft_ms, 0)}ms`);
   }
@@ -293,7 +296,11 @@ function streamDetail(event: AnalyticsRecentEvent): string {
 
 function tokenDetail(event: AnalyticsRecentEvent): string {
   const speed = event.tokens_per_second ? ` / ${formatDecimal(event.tokens_per_second, 1)} tok/s` : "";
-  return `${formatCount(event.input_tokens)} in / ${formatCount(event.output_tokens)} out${speed}${workVRAMDetail(event)}`;
+  return `${tokenCounts(event)}${speed}${workVRAMDetail(event)}`;
+}
+
+function tokenCounts(event: AnalyticsRecentEvent): string {
+  return `${formatCount(event.input_tokens)} in / ${formatCount(event.output_tokens)} out`;
 }
 
 function embeddingDetail(event: AnalyticsRecentEvent): string {

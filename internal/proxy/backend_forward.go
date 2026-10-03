@@ -553,7 +553,13 @@ func (service *Service) forward(runtime *backendRuntime, ctx context.Context, or
 	request.Header.Del("X-Tensors-Whisper-Response-Format")
 	request.Host = target.Host
 
-	response, err := service.backendHTTPClient(runtime.backend).Do(request)
+	client := service.backendHTTPClient(runtime.backend)
+	if routerReportsKoboldStreamUsage(original.URL.Path, runtime.mode) {
+		return forwardReportingKoboldStreamUsage(ctx, koboldPerfReader{client: client, backendURL: runtime.backend.URL()}, func() (*http.Response, error) {
+			return client.Do(request)
+		})
+	}
+	response, err := client.Do(request)
 	if err != nil || responseFormat == "" {
 		return response, err
 	}

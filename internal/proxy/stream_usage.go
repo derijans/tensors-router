@@ -24,6 +24,9 @@ func requestStreamsOpenAIUsage(path string) bool {
 }
 
 func injectStreamUsageOption(body []byte, path string, backendMode string) ([]byte, bool) {
+	if routerReportsKoboldStreamUsage(path, backendMode) {
+		return body, true
+	}
 	if !requestStreamsOpenAIUsage(path) || backendReportsStreamUsage(backendMode) {
 		return body, false
 	}

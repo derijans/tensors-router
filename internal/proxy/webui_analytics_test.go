@@ -84,6 +84,28 @@ func TestWebUIProxyStreamRecordsUsageTheClientNeverSees(t *testing.T) {
 	}
 }
 
+func TestWebUIProxyKoboldNativeStreamRecordsCountsTheClientNeverSees(t *testing.T) {
+	service := newAnalyticsWebUIService(t)
+	loadWebUIForTest(t, service, "kobold-lite", "text", "")
+	service.webUI.session.set("kobold-lite", true)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/router/webuis/kobold-lite/api/extra/generate/stream", strings.NewReader(`{"prompt":"The sky is","max_length":20}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected proxy status %d body %s", recorder.Code, recorder.Body.String())
+	}
+
+	if recorder.Body.String() != koboldNativeStreamBody {
+		t.Fatalf("kobold lite stream was altered %q", recorder.Body.String())
+	}
+	response := queryProxyAnalytics(t, service.analytics.store)
+	if response.Summary.InputTokens != 5 || response.Summary.OutputTokens != 20 {
+		t.Fatalf("kobold lite native stream counts were not recorded %#v", response.Summary)
+	}
+}
+
 func TestWebUIProxySkipsStaticAssets(t *testing.T) {
 	service := newAnalyticsWebUIService(t)
 	loadWebUIForTest(t, service, "kobold-lite", "text", "")
@@ -115,6 +137,7 @@ func newAnalyticsWebUIService(t *testing.T) *Service {
 	if err := os.WriteFile(filepath.Join(dir, "combo.kcpps"), []byte(`{"nomodel":true,"sdmodel":"dream.safetensors"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	koboldNativeStream := koboldNativeStreamBackend(t, 1)
 	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
@@ -133,6 +156,8 @@ func newAnalyticsWebUIService(t *testing.T) *Service {
 		case r.URL.Path == "/api/v1/generate":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"results":[{"text":"hi","prompt_tokens":11,"completion_tokens":153}]}`))
+		case r.URL.Path == "/api/extra/perf" || r.URL.Path == "/api/extra/generate/stream":
+			koboldNativeStream(w, r)
 		default:
 			_, _ = w.Write([]byte("local:" + r.URL.Path))
 		}
