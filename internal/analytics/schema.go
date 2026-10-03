@@ -13,7 +13,7 @@ var _ routerstore.Module = SchemaModule{}
 
 func (SchemaModule) Name() string { return "analytics" }
 
-func (SchemaModule) Version() int { return 9 }
+func (SchemaModule) Version() int { return 10 }
 
 func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 	statements := []string{
@@ -38,6 +38,7 @@ func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 			output_tokens INTEGER NOT NULL DEFAULT 0,
 			total_tokens INTEGER NOT NULL DEFAULT 0,
 			tokens_per_second REAL NOT NULL DEFAULT 0,
+			prompt_tokens_per_second REAL NOT NULL DEFAULT 0,
 			image_count INTEGER NOT NULL DEFAULT 0,
 			embedding_count INTEGER NOT NULL DEFAULT 0,
 			image_width INTEGER NOT NULL DEFAULT 0,
@@ -84,6 +85,8 @@ func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 			total_tokens INTEGER NOT NULL DEFAULT 0,
 			tokens_per_second_sum REAL NOT NULL DEFAULT 0,
 			tokens_per_second_count INTEGER NOT NULL DEFAULT 0,
+			prompt_tokens_per_second_sum REAL NOT NULL DEFAULT 0,
+			prompt_tokens_per_second_count INTEGER NOT NULL DEFAULT 0,
 			image_count INTEGER NOT NULL DEFAULT 0,
 			embedding_count INTEGER NOT NULL DEFAULT 0,
 			audio_seconds REAL NOT NULL DEFAULT 0,
@@ -182,6 +185,7 @@ func migrationColumns() []migrationColumn {
 		{"analytics_events", "aborted", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_events", "embedding_count", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_events", "router_version", "TEXT NOT NULL DEFAULT ''"},
+		{"analytics_events", "prompt_tokens_per_second", "REAL NOT NULL DEFAULT 0"},
 		{"analytics_rollups", "load_count", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_rollups", "load_duration_ms_total", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_rollups", "vram_peak_mb", "INTEGER NOT NULL DEFAULT 0"},
@@ -189,5 +193,7 @@ func migrationColumns() []migrationColumn {
 		{"analytics_rollups", "vram_total_mb", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_rollups", "model_vram_estimate_mb", "INTEGER NOT NULL DEFAULT 0"},
 		{"analytics_rollups", "embedding_count", "INTEGER NOT NULL DEFAULT 0"},
+		{"analytics_rollups", "prompt_tokens_per_second_sum", "REAL NOT NULL DEFAULT 0"},
+		{"analytics_rollups", "prompt_tokens_per_second_count", "INTEGER NOT NULL DEFAULT 0"},
 	}
 }

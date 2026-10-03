@@ -39,6 +39,7 @@ type Event struct {
 	OutputTokens    int64     `json:"output_tokens,omitempty"`
 	TotalTokens     int64     `json:"total_tokens,omitempty"`
 	TokensPerSecond float64   `json:"tokens_per_second,omitempty"`
+	PromptTokensPS  float64   `json:"prompt_tokens_per_second,omitempty"`
 	ImageCount      int64     `json:"image_count,omitempty"`
 	EmbeddingCount  int64     `json:"embedding_count,omitempty"`
 	ImageWidth      int64     `json:"image_width,omitempty"`
@@ -59,6 +60,7 @@ type Event struct {
 	VRAMTotal       int64     `json:"vram_total_mb,omitempty"`
 	VRAMPeakPercent float64   `json:"vram_peak_percent,omitempty"`
 	TTFTMS          int64     `json:"ttft_ms,omitempty"`
+	WorkStartedAt   time.Time `json:"-"`
 	DecodeMS        int64     `json:"decode_ms,omitempty"`
 	MaxGapMS        int64     `json:"max_gap_ms,omitempty"`
 	FinishReason    string    `json:"finish_reason,omitempty"`
@@ -117,6 +119,7 @@ type Summary struct {
 	AudioTokens     int64   `json:"audio_tokens"`
 	AverageDuration float64 `json:"average_duration_ms"`
 	AverageTokensPS float64 `json:"average_tokens_per_second"`
+	AveragePromptPS float64 `json:"average_prompt_tokens_per_second"`
 	LoadCount       int64   `json:"load_count"`
 	AverageLoadMS   float64 `json:"average_load_duration_ms"`
 	VRAMPeakMB      int64   `json:"vram_peak_mb"`
@@ -138,6 +141,8 @@ type Timeline struct {
 	LoadCount       int64             `json:"load_count"`
 	AverageTokensPS float64           `json:"average_tokens_per_second"`
 	TokensPSSamples int64             `json:"tokens_per_second_samples"`
+	AveragePromptPS float64           `json:"average_prompt_tokens_per_second"`
+	PromptPSSamples int64             `json:"prompt_tokens_per_second_samples"`
 	VRAMPeakMB      int64             `json:"vram_peak_mb"`
 	VRAMPeakPct     float64           `json:"vram_peak_percent"`
 	VRAMTotalMB     int64             `json:"vram_total_mb"`
@@ -212,6 +217,7 @@ type RecentEvent struct {
 	OutputTokens    int64   `json:"output_tokens,omitempty"`
 	TotalTokens     int64   `json:"total_tokens,omitempty"`
 	TokensPerSecond float64 `json:"tokens_per_second,omitempty"`
+	PromptTokensPS  float64 `json:"prompt_tokens_per_second,omitempty"`
 	ImageCount      int64   `json:"image_count,omitempty"`
 	EmbeddingCount  int64   `json:"embedding_count,omitempty"`
 	ImageWidth      int64   `json:"image_width,omitempty"`

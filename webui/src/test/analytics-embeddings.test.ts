@@ -37,6 +37,7 @@ function embeddingAnalytics(): AnalyticsResponse {
       audio_tokens: 0,
       average_duration_ms: 900,
       average_tokens_per_second: 0,
+      average_prompt_tokens_per_second: 0,
       load_count: 0,
       average_load_duration_ms: 0,
       vram_peak_mb: 0,

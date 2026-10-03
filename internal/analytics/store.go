@@ -266,6 +266,7 @@ func (store *Store) normalizeEvent(event Event) Event {
 		event.LoadVRAMDelta = event.LoadVRAMAfter - event.LoadVRAMBefore
 	}
 	event.VRAMPeakPercent = nonNegativeFloat(event.VRAMPeakPercent)
+	event.PromptTokensPS = nonNegativeFloat(event.PromptTokensPS)
 	event.RequestBytes = nonNegativeInt64(event.RequestBytes)
 	event.PromptBytes = nonNegativeInt64(event.PromptBytes)
 	event.ResponseBytes = nonNegativeInt64(event.ResponseBytes)
@@ -295,12 +296,12 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 	insertEvent, err := tx.PrepareContext(ctx, `INSERT INTO analytics_events (
 		node_id, model_id, section, backend_mode, event_type, route, config_filename, status_code, success,
 		started_at, finished_at, duration_ms, request_bytes, prompt_bytes, response_bytes, input_tokens, output_tokens,
-		total_tokens, tokens_per_second, image_count, embedding_count, image_width, image_height, image_steps,
-		image_type, audio_seconds, audio_tokens, audio_language, audio_task, load_vram_before_mb, load_vram_after_mb,
-		load_vram_delta_mb, work_vram_start_mb, work_vram_max_mb, work_vram_end_mb,
+		total_tokens, tokens_per_second, prompt_tokens_per_second, image_count, embedding_count, image_width, image_height,
+		image_steps, image_type, audio_seconds, audio_tokens, audio_language, audio_task, load_vram_before_mb,
+		load_vram_after_mb, load_vram_delta_mb, work_vram_start_mb, work_vram_max_mb, work_vram_end_mb,
 		model_vram_estimate_mb, vram_total_mb, vram_peak_percent,
 		ttft_ms, decode_ms, max_gap_ms, finish_reason, aborted, router_version
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -334,6 +335,7 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 			event.OutputTokens,
 			event.TotalTokens,
 			event.TokensPerSecond,
+			event.PromptTokensPS,
 			event.ImageCount,
 			event.EmbeddingCount,
 			event.ImageWidth,
@@ -400,7 +402,9 @@ func (store *Store) writeRollups(ctx context.Context, statement *sql.Stmt, event
 			event.OutputTokens,
 			event.TotalTokens,
 			event.TokensPerSecond,
-			tokensPerSecondCount(event.TokensPerSecond),
+			sampleCount(event.TokensPerSecond),
+			event.PromptTokensPS,
+			sampleCount(event.PromptTokensPS),
 			event.ImageCount,
 			event.EmbeddingCount,
 			event.AudioSeconds,
@@ -434,7 +438,7 @@ func boolInt(value bool) int {
 	return 0
 }
 
-func tokensPerSecondCount(value float64) int {
+func sampleCount(value float64) int {
 	if value > 0 {
 		return 1
 	}

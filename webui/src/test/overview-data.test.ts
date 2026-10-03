@@ -21,6 +21,7 @@ function analytics(overrides: Partial<AnalyticsResponse> = {}): AnalyticsRespons
       audio_tokens: 0,
       average_duration_ms: 2500,
       average_tokens_per_second: 38.4,
+      average_prompt_tokens_per_second: 0,
       load_count: 0,
       average_load_duration_ms: 0,
       vram_peak_mb: 0,
@@ -80,9 +81,18 @@ describe("overview figures", () => {
     expect(requests?.detail).toBe("95% succeeded");
     expect(throughput?.value).toBe("38.4");
     expect(throughput?.unit).toBe("tok/s");
+    expect(throughput?.detail).toBe("2.5 s per request");
     expect(failures?.value).toBe("10");
     expect(failures?.detail).toBe("2 load errors");
     expect(failures?.detailTone).toBe("danger");
+  });
+
+  it("leads the throughput detail with prompt processing speed when nodes measure it", () => {
+    const measured = analytics();
+    measured.summary.average_prompt_tokens_per_second = 1531.8;
+    const [, throughput] = overviewKpis(measured, [], 0);
+
+    expect(throughput?.detail).toBe("1,532 tok/s prompt / 2.5 s per request");
   });
 
   it("names memory by what the nodes report and counts lent work", () => {

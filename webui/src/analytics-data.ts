@@ -62,6 +62,10 @@ export function formatDecimal(value: number | undefined, digits = 1): string {
   });
 }
 
+export function promptSpeedPrefix(promptTokensPerSecond: number | undefined): string {
+  return promptTokensPerSecond ? `${formatDecimal(promptTokensPerSecond, 0)} tok/s prompt / ` : "";
+}
+
 export function formatDurationSeconds(value: number | undefined): string {
   const seconds = Number.isFinite(value ?? 0) ? value ?? 0 : 0;
   if (seconds < 60) {

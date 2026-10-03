@@ -163,12 +163,12 @@ func (observer *ResponseObserver) finish() {
 			observer.applyBufferedResponse()
 		}
 		observer.applyStreamTimings()
-		deriveTokenTotals(&observer.event)
 		for _, finalizer := range observer.finalizers {
 			if finalizer != nil {
 				finalizer(&observer.event)
 			}
 		}
+		deriveTokenTotals(&observer.event)
 		observer.sink.Record(observer.event)
 	})
 }

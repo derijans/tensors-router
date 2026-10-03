@@ -19,6 +19,8 @@ type timelineSectionRow struct {
 	loadCount       int64
 	tokensPSSum     float64
 	tokensPSSamples int64
+	promptPSSum     float64
+	promptPSSamples int64
 	vramPeakMB      int64
 	vramPeakPct     float64
 	vramTotalMB     int64
@@ -42,6 +44,8 @@ func (store *Store) queryTimeline(ctx context.Context, query Query, granularity 
 		COALESCE(SUM(load_count), 0),
 		COALESCE(SUM(tokens_per_second_sum), 0),
 		COALESCE(SUM(tokens_per_second_count), 0),
+		COALESCE(SUM(prompt_tokens_per_second_sum), 0),
+		COALESCE(SUM(prompt_tokens_per_second_count), 0),
 		COALESCE(MAX(vram_peak_mb), 0),
 		COALESCE(MAX(vram_peak_percent), 0),
 		COALESCE(MAX(vram_total_mb), 0),
@@ -70,6 +74,8 @@ func (store *Store) queryTimeline(ctx context.Context, query Query, granularity 
 			&row.loadCount,
 			&row.tokensPSSum,
 			&row.tokensPSSamples,
+			&row.promptPSSum,
+			&row.promptPSSamples,
 			&row.vramPeakMB,
 			&row.vramPeakPct,
 			&row.vramTotalMB,
@@ -85,6 +91,7 @@ func (store *Store) queryTimeline(ctx context.Context, query Query, granularity 
 type timelineBuilder struct {
 	buckets          []Timeline
 	tokensPSSums     []float64
+	promptPSSums     []float64
 	indexByBucketKey map[int64]int
 }
 
@@ -102,6 +109,8 @@ func (builder *timelineBuilder) add(row timelineSectionRow) {
 	bucket.LoadCount += row.loadCount
 	bucket.TokensPSSamples += row.tokensPSSamples
 	builder.tokensPSSums[index] += row.tokensPSSum
+	bucket.PromptPSSamples += row.promptPSSamples
+	builder.promptPSSums[index] += row.promptPSSum
 	bucket.VRAMPeakMB = maxInt64(bucket.VRAMPeakMB, row.vramPeakMB)
 	bucket.VRAMPeakPct = maxFloat64(bucket.VRAMPeakPct, row.vramPeakPct)
 	bucket.VRAMTotalMB = maxInt64(bucket.VRAMTotalMB, row.vramTotalMB)
@@ -120,6 +129,7 @@ func (builder *timelineBuilder) bucketIndex(bucketStart int64) int {
 	}
 	builder.buckets = append(builder.buckets, Timeline{BucketStart: bucketStart, Sections: []TimelineSection{}})
 	builder.tokensPSSums = append(builder.tokensPSSums, 0)
+	builder.promptPSSums = append(builder.promptPSSums, 0)
 	index := len(builder.buckets) - 1
 	builder.indexByBucketKey[bucketStart] = index
 	return index
@@ -130,6 +140,9 @@ func (builder *timelineBuilder) timeline() []Timeline {
 		bucket := &builder.buckets[index]
 		if bucket.TokensPSSamples > 0 {
 			bucket.AverageTokensPS = builder.tokensPSSums[index] / float64(bucket.TokensPSSamples)
+		}
+		if bucket.PromptPSSamples > 0 {
+			bucket.AveragePromptPS = builder.promptPSSums[index] / float64(bucket.PromptPSSamples)
 		}
 	}
 	return builder.buckets

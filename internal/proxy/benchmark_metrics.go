@@ -8,7 +8,6 @@ import (
 
 	routeranalytics "tensors-router/internal/analytics"
 	routerbenchmark "tensors-router/internal/benchmark"
-	"tensors-router/internal/jsonpath"
 )
 
 type textBenchmarkStats struct {
@@ -71,18 +70,10 @@ func extractTextBenchmarkStats(body string, duration time.Duration) textBenchmar
 	event := routeranalytics.Event{DurationMS: duration.Milliseconds()}
 	routeranalytics.ApplyResponse(&event, "application/json", []byte(body))
 	routeranalytics.DeriveTotals(&event)
-	stats := textBenchmarkStats{
-		promptTokens:     float64(event.InputTokens),
-		completionTokens: float64(event.OutputTokens),
-		tokensPerSecond:  event.TokensPerSecond,
+	return textBenchmarkStats{
+		promptTokens:          float64(event.InputTokens),
+		completionTokens:      float64(event.OutputTokens),
+		tokensPerSecond:       event.TokensPerSecond,
+		promptTokensPerSecond: event.PromptTokensPS,
 	}
-	root, ok := jsonpath.DecodeObject([]byte(body))
-	if !ok {
-		return stats
-	}
-	stats.promptTokensPerSecond = jsonpath.FirstNumber(root,
-		[]string{"timings", "prompt_per_second"},
-		[]string{"prompt_per_second"},
-	)
-	return stats
 }

@@ -10,7 +10,8 @@ import {
   formatDurationSeconds,
   formatMegabytes,
   formatPercent,
-  normalizedAnalyticsQuery
+  normalizedAnalyticsQuery,
+  promptSpeedPrefix
 } from "./analytics-data";
 import { elements } from "./elements";
 import { renderVersionRows } from "./analytics-versions-view";
@@ -116,7 +117,7 @@ function renderAnalyticsSummary(): void {
   setHTML(elements.analyticsSummary, html`${[
     metricCard("Requests", formatCount(summary.request_count), `${formatCount(summary.success_count)} ok / ${formatCount(summary.failure_count)} failed`),
     metricCard("Tokens", formatCount(summary.total_tokens), `${formatCount(summary.input_tokens)} in / ${formatCount(summary.output_tokens)} out`),
-    metricCard("Speed", `${formatDecimal(summary.average_tokens_per_second, 1)} tok/s`, `${formatDecimal(summary.average_duration_ms, 0)}ms avg`),
+    metricCard("Speed", `${formatDecimal(summary.average_tokens_per_second, 1)} tok/s`, `${promptSpeedPrefix(summary.average_prompt_tokens_per_second)}${formatDecimal(summary.average_duration_ms, 0)}ms avg`),
     metricCard("Images", formatCount(summary.image_count), "generated or returned"),
     metricCard("Vectors", formatCount(summary.embedding_count), "embeddings returned"),
     metricCard("Audio", formatDurationSeconds(summary.audio_seconds), `${formatCount(summary.audio_tokens)} tokens`),
@@ -296,7 +297,8 @@ function streamDetail(event: AnalyticsRecentEvent): string {
 
 function tokenDetail(event: AnalyticsRecentEvent): string {
   const speed = event.tokens_per_second ? ` / ${formatDecimal(event.tokens_per_second, 1)} tok/s` : "";
-  return `${tokenCounts(event)}${speed}${workVRAMDetail(event)}`;
+  const promptSpeed = event.prompt_tokens_per_second ? ` / ${formatDecimal(event.prompt_tokens_per_second, 0)} tok/s prompt` : "";
+  return `${tokenCounts(event)}${speed}${promptSpeed}${workVRAMDetail(event)}`;
 }
 
 function tokenCounts(event: AnalyticsRecentEvent): string {

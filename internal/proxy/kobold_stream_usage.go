@@ -12,16 +12,29 @@ import (
 )
 
 const (
-	koboldNativeStreamPath    = "/api/extra/generate/stream"
-	koboldPerfPath            = "/api/extra/perf"
-	koboldPerfResponseLimit   = 64 * 1024
-	koboldPerfRequestDeadline = 5 * time.Second
+	koboldNativeStreamPath           = "/api/extra/generate/stream"
+	koboldPerfPath                   = "/api/extra/perf"
+	koboldPerfResponseLimit          = 64 * 1024
+	koboldPerfRequestDeadline        = 5 * time.Second
+	koboldShortestCrediblePromptTime = time.Millisecond
 )
 
 type koboldGenerationReport struct {
-	TotalGenerations int64 `json:"total_gens"`
-	InputTokens      int64 `json:"last_input_count"`
-	OutputTokens     int64 `json:"last_token_count"`
+	TotalGenerations   int64   `json:"total_gens"`
+	InputTokens        int64   `json:"last_input_count"`
+	OutputTokens       int64   `json:"last_token_count"`
+	PromptSeconds      float64 `json:"last_process_time"`
+	PromptTokensPerSec float64 `json:"last_process_speed"`
+}
+
+type koboldUsageTrailer struct {
+	Usage koboldUsage `json:"usage"`
+}
+
+type koboldUsage struct {
+	PromptTokens          int64   `json:"prompt_tokens"`
+	CompletionTokens      int64   `json:"completion_tokens"`
+	PromptTokensPerSecond float64 `json:"prompt_tokens_per_second,omitempty"`
 }
 
 type koboldPerfReader struct {
@@ -109,9 +122,10 @@ func (appender *koboldUsageAppender) usageEvent() []byte {
 	if err != nil || !after.provesSingleGenerationSince(appender.generationsBefore) {
 		return nil
 	}
-	payload, err := json.Marshal(map[string]map[string]int64{"usage": {
-		"prompt_tokens":     after.InputTokens,
-		"completion_tokens": after.OutputTokens,
+	payload, err := json.Marshal(koboldUsageTrailer{Usage: koboldUsage{
+		PromptTokens:          after.InputTokens,
+		CompletionTokens:      after.OutputTokens,
+		PromptTokensPerSecond: after.promptTokensPerSecond(),
 	}})
 	if err != nil {
 		return nil
@@ -123,6 +137,13 @@ func (appender *koboldUsageAppender) usageEvent() []byte {
 	event = append(event, "data: "...)
 	event = append(event, payload...)
 	return append(event, "\n\n"...)
+}
+
+func (report koboldGenerationReport) promptTokensPerSecond() float64 {
+	if time.Duration(report.PromptSeconds*float64(time.Second)) < koboldShortestCrediblePromptTime {
+		return 0
+	}
+	return report.PromptTokensPerSec
 }
 
 func (report koboldGenerationReport) provesSingleGenerationSince(generationsBefore int64) bool {

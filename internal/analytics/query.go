@@ -216,6 +216,7 @@ func addSummary(left *Summary, right Summary) {
 	left.LoadCount += right.LoadCount
 	left.AverageDuration = weightedAverage(previousRequests, left.AverageDuration, right.RequestCount, right.AverageDuration)
 	left.AverageTokensPS = weightedAverage(previousRequests, left.AverageTokensPS, right.RequestCount, right.AverageTokensPS)
+	left.AveragePromptPS = weightedAverage(previousRequests, left.AveragePromptPS, right.RequestCount, right.AveragePromptPS)
 	left.AverageLoadMS = weightedAverage(previousLoads, left.AverageLoadMS, right.LoadCount, right.AverageLoadMS)
 	left.VRAMPeakMB = maxInt64(left.VRAMPeakMB, right.VRAMPeakMB)
 	left.VRAMPeakPercent = maxFloat64(left.VRAMPeakPercent, right.VRAMPeakPercent)
@@ -226,6 +227,8 @@ func addSummary(left *Summary, right Summary) {
 func addTimeline(left *Timeline, right Timeline) {
 	left.AverageTokensPS = weightedAverage(left.TokensPSSamples, left.AverageTokensPS, right.TokensPSSamples, right.AverageTokensPS)
 	left.TokensPSSamples += right.TokensPSSamples
+	left.AveragePromptPS = weightedAverage(left.PromptPSSamples, left.AveragePromptPS, right.PromptPSSamples, right.AveragePromptPS)
+	left.PromptPSSamples += right.PromptPSSamples
 	left.RequestCount += right.RequestCount
 	left.FailureCount += right.FailureCount
 	left.Sections = mergeTimelineSections(left.Sections, right.Sections)

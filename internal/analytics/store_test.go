@@ -263,7 +263,7 @@ func TestStoreMigratesOldAnalyticsDatabase(t *testing.T) {
 		}
 	})
 	now := time.Date(2026, 6, 25, 12, 0, 0, 0, time.UTC)
-	store.Record(Event{ModelID: "llm-a", Section: SectionLLM, StatusCode: 200, Success: true, StartedAt: now, FinishedAt: now, WorkVRAMMax: 2048, VRAMTotal: 8192})
+	store.Record(Event{ModelID: "llm-a", Section: SectionLLM, StatusCode: 200, Success: true, StartedAt: now, FinishedAt: now, WorkVRAMMax: 2048, VRAMTotal: 8192, PromptTokensPS: 640})
 	if err := store.Flush(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -271,7 +271,7 @@ func TestStoreMigratesOldAnalyticsDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if response.Summary.RequestCount != 1 || response.Summary.VRAMPeakMB != 2048 {
+	if response.Summary.RequestCount != 1 || response.Summary.VRAMPeakMB != 2048 || response.Summary.AveragePromptPS != 640 {
 		t.Fatalf("unexpected migrated response %#v", response.Summary)
 	}
 }

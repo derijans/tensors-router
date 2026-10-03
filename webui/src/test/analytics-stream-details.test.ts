@@ -37,6 +37,7 @@ function streamedGenerationAnalytics(): AnalyticsResponse {
       audio_tokens: 0,
       average_duration_ms: 26376,
       average_tokens_per_second: 28.7,
+      average_prompt_tokens_per_second: 0,
       load_count: 0,
       average_load_duration_ms: 0,
       vram_peak_mb: 0,
@@ -89,5 +90,16 @@ describe("analytics stream metrics", () => {
     state.analytics.showDetails = false;
     renderAnalytics();
     expect(rendered.get("analyticsRecentTable")?.innerHTML).toContain("14,925 in / 476 out");
+  });
+
+  it("shows how fast the prompt was processed beside the generation speed", () => {
+    const data = streamedGenerationAnalytics();
+    data.summary.average_prompt_tokens_per_second = 1531.8;
+    data.recent = data.recent.map(event => ({...event, tokens_per_second: 28.7, prompt_tokens_per_second: 1531.8}));
+    state.analytics.data = data;
+    state.analytics.showDetails = false;
+    renderAnalytics();
+    expect(rendered.get("analyticsRecentTable")?.innerHTML).toContain("14,925 in / 476 out / 28.7 tok/s / 1,532 tok/s prompt");
+    expect(rendered.get("analyticsSummary")?.innerHTML).toContain("1,532 tok/s prompt");
   });
 });

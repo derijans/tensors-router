@@ -95,6 +95,7 @@ export interface AnalyticsSummary {
   audio_tokens: number;
   average_duration_ms: number;
   average_tokens_per_second: number;
+  average_prompt_tokens_per_second: number;
   load_count: number;
   average_load_duration_ms: number;
   vram_peak_mb: number;
@@ -120,6 +121,8 @@ export interface AnalyticsTimeline {
   failure_count?: number;
   average_tokens_per_second?: number;
   tokens_per_second_samples?: number;
+  average_prompt_tokens_per_second?: number;
+  prompt_tokens_per_second_samples?: number;
   sections?: AnalyticsTimelineSection[];
 }
 
@@ -187,6 +190,7 @@ export interface AnalyticsRecentEvent {
   output_tokens?: number;
   total_tokens?: number;
   tokens_per_second?: number;
+  prompt_tokens_per_second?: number;
   image_count?: number;
   embedding_count?: number;
   image_width?: number;

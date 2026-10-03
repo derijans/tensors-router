@@ -20,7 +20,7 @@ func koboldNativeStreamBackend(t *testing.T, generationsPerStream int64) http.Ha
 		switch r.URL.Path {
 		case "/api/extra/perf":
 			w.Header().Set("Content-Type", "application/json")
-			_, _ = fmt.Fprintf(w, `{"last_input_count": 5, "last_token_count": 20, "total_gens": %d}`, totalGenerations.Load())
+			_, _ = fmt.Fprintf(w, `{"last_input_count": 5, "last_token_count": 20, "last_process_time": 0.004, "last_process_speed": 1250.0, "total_gens": %d}`, totalGenerations.Load())
 		case "/api/extra/generate/stream":
 			totalGenerations.Add(generationsPerStream)
 			w.Header().Set("Content-Type", "text/event-stream")
@@ -60,6 +60,16 @@ func TestKoboldNativeStreamRecordsGenerationCountsTheClientNeverSees(t *testing.
 	event := recentEventOfType(t, response, routeranalytics.EventTypeRequest)
 	if event.FinishReason != "length" || event.Aborted {
 		t.Fatalf("stream completion was misread %#v", event)
+	}
+	if event.PromptTokensPS != 1250 {
+		t.Fatalf("kobold prompt processing speed was not recorded %#v", event)
+	}
+}
+
+func TestKoboldPromptSpeedNeedsMeasurablePromptProcessing(t *testing.T) {
+	fullyCachedPrompt := koboldGenerationReport{PromptSeconds: 0.0002, PromptTokensPerSec: 25000}
+	if speed := fullyCachedPrompt.promptTokensPerSecond(); speed != 0 {
+		t.Fatalf("a prompt processed in under a millisecond is no measurement, got %.2f", speed)
 	}
 }
 

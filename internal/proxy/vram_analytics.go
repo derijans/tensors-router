@@ -4,6 +4,7 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+	"time"
 
 	routeranalytics "tensors-router/internal/analytics"
 	"tensors-router/internal/catalog"
@@ -59,7 +60,24 @@ func (analytics *requestAnalytics) recordLoad(modelID string, configFilename str
 }
 
 func (analytics *requestAnalytics) beginWork(runtime *backendRuntime) routeranalytics.EventFinalizer {
-	if !analytics.vramActive() || runtime == nil {
+	if analytics.store == nil || runtime == nil {
+		return nil
+	}
+	workStartedAt := time.Now()
+	finishVRAMWork := analytics.startVRAMWork(runtime)
+	return func(event *routeranalytics.Event) {
+		if event == nil {
+			return
+		}
+		event.WorkStartedAt = workStartedAt
+		if finishVRAMWork != nil {
+			finishVRAMWork(event)
+		}
+	}
+}
+
+func (analytics *requestAnalytics) startVRAMWork(runtime *backendRuntime) routeranalytics.EventFinalizer {
+	if !analytics.vramActive() {
 		return nil
 	}
 	baselineMB, hasBaseline := runtimeVRAMBaseline(runtime)

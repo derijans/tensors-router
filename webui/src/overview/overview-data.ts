@@ -1,4 +1,4 @@
-import { formatCount, formatDecimal } from "../analytics-data";
+import { formatCount, formatDecimal, promptSpeedPrefix } from "../analytics-data";
 import { clusterBuildVersion } from "../node-card-view";
 import { formatGigabytes, gigabyteFigure } from "../node-memory-data";
 import { filledBucketStarts } from "../lane-series";
@@ -65,7 +65,7 @@ export function overviewKpis(analytics: AnalyticsResponse | null, snapshots: rea
       label: "Throughput",
       value: summary ? formatDecimal(summary.average_tokens_per_second, 1) : "—",
       unit: summary ? "tok/s" : "",
-      detail: summary ? `${formatDecimal(summary.average_duration_ms / 1000, 1)} s per request` : "Analytics is off",
+      detail: summary ? `${promptSpeedPrefix(summary.average_prompt_tokens_per_second)}${formatDecimal(summary.average_duration_ms / 1000, 1)} s per request` : "Analytics is off",
       detailTone: "neutral",
       trend: trend(bucket => bucket.average_tokens_per_second ?? 0)
     },

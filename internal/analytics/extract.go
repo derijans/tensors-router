@@ -245,6 +245,9 @@ func applyLatestTokenReport(event *Event, root map[string]any) {
 	if tokensPerSecond := reportedTokensPerSecond(root); tokensPerSecond > 0 {
 		event.TokensPerSecond = tokensPerSecond
 	}
+	if promptTokensPerSecond := reportedPromptTokensPerSecond(root); promptTokensPerSecond > 0 {
+		event.PromptTokensPS = promptTokensPerSecond
+	}
 }
 
 func reportedInputTokens(root map[string]any) int64 {
@@ -279,23 +282,58 @@ func reportedOutputTokens(root map[string]any) int64 {
 	))
 }
 
+type throughputReport struct {
+	reportedRate      [][]string
+	llamaTimingMS     []string
+	llamaTimingRate   []string
+	bareRate          []string
+	ollamaCount       []string
+	ollamaNanoseconds []string
+}
+
+var generationThroughput = throughputReport{
+	reportedRate:      [][]string{{"usage", "tokens_per_second"}, {"tokens_per_second"}},
+	llamaTimingMS:     []string{"timings", "predicted_ms"},
+	llamaTimingRate:   []string{"timings", "predicted_per_second"},
+	bareRate:          []string{"predicted_per_second"},
+	ollamaCount:       []string{"eval_count"},
+	ollamaNanoseconds: []string{"eval_duration"},
+}
+
+var promptThroughput = throughputReport{
+	reportedRate:      [][]string{{"usage", "prompt_tokens_per_second"}},
+	llamaTimingMS:     []string{"timings", "prompt_ms"},
+	llamaTimingRate:   []string{"timings", "prompt_per_second"},
+	bareRate:          []string{"prompt_per_second"},
+	ollamaCount:       []string{"prompt_eval_count"},
+	ollamaNanoseconds: []string{"prompt_eval_duration"},
+}
+
 func reportedTokensPerSecond(root map[string]any) float64 {
-	if reported := firstNumber(root, []string{"usage", "tokens_per_second"}, []string{"tokens_per_second"}); reported > 0 {
+	return generationThroughput.tokensPerSecond(root)
+}
+
+func reportedPromptTokensPerSecond(root map[string]any) float64 {
+	return promptThroughput.tokensPerSecond(root)
+}
+
+func (report throughputReport) tokensPerSecond(root map[string]any) float64 {
+	if reported := firstNumber(root, report.reportedRate...); reported > 0 {
 		return reported
 	}
-	predictedMS, predictedMSReported := numberAt(root, []string{"timings", "predicted_ms"})
-	if !predictedMSReported || time.Duration(predictedMS*float64(time.Millisecond)) >= shortestCredibleEvalDuration {
-		if reported := firstNumber(root, []string{"timings", "predicted_per_second"}); reported > 0 {
+	timingMS, timingMSReported := numberAt(root, report.llamaTimingMS)
+	if !timingMSReported || time.Duration(timingMS*float64(time.Millisecond)) >= shortestCredibleEvalDuration {
+		if reported := firstNumber(root, report.llamaTimingRate); reported > 0 {
 			return reported
 		}
 	}
-	if reported := firstNumber(root, []string{"predicted_per_second"}); reported > 0 {
+	if reported := firstNumber(root, report.bareRate); reported > 0 {
 		return reported
 	}
-	evalCount := firstNumber(root, []string{"eval_count"})
-	evalDuration := firstNumber(root, []string{"eval_duration"})
-	if evalCount > 0 && evalDuration >= float64(shortestCredibleEvalDuration) {
-		return evalCount / (evalDuration / float64(time.Second))
+	count := firstNumber(root, report.ollamaCount)
+	nanoseconds := firstNumber(root, report.ollamaNanoseconds)
+	if count > 0 && nanoseconds >= float64(shortestCredibleEvalDuration) {
+		return count / (nanoseconds / float64(time.Second))
 	}
 	return 0
 }
@@ -313,6 +351,9 @@ func deriveTokenTotals(event *Event) {
 	if event.TokensPerSecond == 0 && event.OutputTokens > 0 {
 		event.TokensPerSecond = derivedTokensPerSecond(event)
 	}
+	if event.PromptTokensPS == 0 && event.InputTokens > 0 {
+		event.PromptTokensPS = estimatedPromptTokensPerSecond(event)
+	}
 }
 
 func derivedTokensPerSecond(event *Event) float64 {
@@ -324,6 +365,18 @@ func derivedTokensPerSecond(event *Event) float64 {
 		return 0
 	}
 	return float64(event.OutputTokens) / (float64(generationMS) / 1000)
+}
+
+func estimatedPromptTokensPerSecond(event *Event) float64 {
+	if event.WorkStartedAt.IsZero() || event.TTFTMS <= 0 {
+		return 0
+	}
+	firstTokenAt := event.StartedAt.Add(time.Duration(event.TTFTMS) * time.Millisecond)
+	prefill := firstTokenAt.Sub(event.WorkStartedAt)
+	if prefill < shortestCredibleEvalDuration {
+		return 0
+	}
+	return float64(event.InputTokens) / prefill.Seconds()
 }
 
 func imageRequestCount(root map[string]any) int64 {
