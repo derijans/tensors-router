@@ -11,10 +11,10 @@ import (
 	routeranalytics "tensors-router/internal/analytics"
 )
 
-const koboldToolCallFakeStreamBody = `data: {"id": "chatcmpl-A1", "object": "chat.completion.chunk", "choices": [{"index": 0, "finish_reason": null, "delta": {"role": "assistant", "content": ""}}]}` + "\n\n" +
-	`data: {"id": "koboldcpp", "object": "chat.completion.chunk", "choices": [{"index": 0, "finish_reason": null, "delta": {"tool_calls": [{"index": 0, "id": "call_47013", "type": "function", "function": {"name": "get_weather", "arguments": ""}}]}}]}` + "\n\n" +
-	`data: {"id": "koboldcpp", "object": "chat.completion.chunk", "choices": [{"index": 0, "finish_reason": null, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": "{\"city\": \"Tallinn\"}"}}]}}]}` + "\n\n" +
-	`data: {"id": "koboldcpp", "object": "chat.completion.chunk", "choices": [{"index": 0, "finish_reason": "tool_calls", "delta": {}}]}` + "\n\n" +
+const koboldToolCallFakeStreamBody = `data: {"id": "chatcmpl-A1", "object": "chat.completion.chunk", "created": 1759590000, "model": "llm", "choices": [{"index": 0, "finish_reason": null, "delta": {"role": "assistant", "content": ""}}]}` + "\n\n" +
+	`data: {"id": "koboldcpp", "object": "chat.completion.chunk", "created": 1759590000, "model": "llm", "choices": [{"index": 0, "finish_reason": null, "delta": {"tool_calls": [{"index": 0, "id": "call_47013", "type": "function", "function": {"name": "get_weather", "arguments": ""}}]}}]}` + "\n\n" +
+	`data: {"id": "koboldcpp", "object": "chat.completion.chunk", "created": 1759590000, "model": "llm", "choices": [{"index": 0, "finish_reason": null, "delta": {"tool_calls": [{"index": 0, "function": {"arguments": "{\"city\": \"Tallinn\"}"}}]}}]}` + "\n\n" +
+	`data: {"id": "koboldcpp", "object": "chat.completion.chunk", "created": 1759590000, "model": "llm", "choices": [{"index": 0, "finish_reason": "tool_calls", "delta": {}}]}` + "\n\n" +
 	"data: [DONE]\n\n"
 
 const koboldStreamDoneEvent = "data: [DONE]\n\n"
@@ -78,13 +78,16 @@ func TestKoboldToolCallStreamGivesTheClientTheUsageItAskedFor(t *testing.T) {
 	recorder, response := serveKoboldOpenAIStream(t, &koboldOpenAIStreamBackend{streamBody: koboldToolCallFakeStreamBody, generationsPerStream: 1}, requestBody)
 
 	body := recorder.Body.String()
-	usageEvent := `data: {"choices":[],"usage":{"prompt_tokens":250,"completion_tokens":22,"prompt_tokens_per_second":37}}` + "\n\n"
+	usageEvent := `data: {"id":"koboldcpp","object":"chat.completion.chunk","created":1759590000,"model":"llm","choices":[],"usage":{"prompt_tokens":250,"completion_tokens":22,"total_tokens":272}}` + "\n\n"
 	expected := strings.TrimSuffix(koboldToolCallFakeStreamBody, koboldStreamDoneEvent) + usageEvent + koboldStreamDoneEvent
 	if body != expected {
-		t.Fatalf("client did not get one usage chunk before [DONE]\n got %q\nwant %q", body, expected)
+		t.Fatalf("client did not get one complete usage chunk before [DONE]\n got %q\nwant %q", body, expected)
 	}
 	if response.Summary.InputTokens != 250 || response.Summary.OutputTokens != 22 {
 		t.Fatalf("kobold tool call stream counts were not recorded %#v", response.Summary)
+	}
+	if event := recentEventOfType(t, response, routeranalytics.EventTypeRequest); event.PromptTokensPS != 37 {
+		t.Fatalf("prompt processing speed was not recorded %#v", event)
 	}
 }
 

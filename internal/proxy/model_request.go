@@ -177,7 +177,7 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 	if hasModel || isTextInferencePath(r.URL.Path) {
 		response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
 	}
-	response = responseWithoutInjectedUsage(response, usageInjected)
+	response = clientStreamUsage(response, usageInjected)
 
 	if err := service.writeModelProxyResponse(w, response, modelID, hasModel); err != nil {
 		return

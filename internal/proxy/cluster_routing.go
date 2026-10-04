@@ -135,7 +135,7 @@ func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter
 	if recordAnalytics {
 		response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
 	}
-	response = responseWithoutInjectedUsage(response, usageInjected)
+	response = clientStreamUsage(response, usageInjected)
 
 	if err := service.writeModelProxyResponse(w, response, publicID, true); err != nil {
 		return

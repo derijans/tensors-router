@@ -79,7 +79,7 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 	if recordAnalytics {
 		response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
 	}
-	response = responseWithoutInjectedUsage(response, usageInjected)
+	response = clientStreamUsage(response, usageInjected)
 	if err := service.writeModelProxyResponse(w, response, publicID, true); err != nil {
 		return true
 	}

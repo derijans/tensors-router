@@ -17,8 +17,14 @@ type openAIStreamUsageRequest struct {
 }
 
 type openAIUsageChunk struct {
+	streamChunkIdentity
 	Choices []json.RawMessage `json:"choices"`
-	Usage   koboldUsage       `json:"usage"`
+	Usage   openAIStreamUsage `json:"usage"`
+}
+
+type openAIStreamUsage struct {
+	koboldUsage
+	TotalTokens int64 `json:"total_tokens"`
 }
 
 func routerSuppliesKoboldOpenAIStreamUsage(path string, backendMode string, body []byte) bool {
@@ -35,6 +41,7 @@ type koboldOpenAIUsageSupplier struct {
 	source            io.ReadCloser
 	perf              koboldPerfReader
 	generationsBefore int64
+	lastIdentity      streamChunkIdentity
 	partialLine       []byte
 	ready             bytes.Buffer
 	lastByteWritten   byte
@@ -101,6 +108,10 @@ func (supplier *koboldOpenAIUsageSupplier) passLine(line []byte) {
 		supplier.usageSettled = true
 	case isStreamDoneEventLine(text):
 		supplier.supplyMissingUsage()
+	default:
+		if identity, ok := streamChunkIdentityOf(text); ok {
+			supplier.lastIdentity = identity
+		}
 	}
 	supplier.write(line)
 }
@@ -114,7 +125,11 @@ func (supplier *koboldOpenAIUsageSupplier) supplyMissingUsage() {
 	if !ok {
 		return
 	}
-	event := serverSentDataEvent(openAIUsageChunk{Choices: []json.RawMessage{}, Usage: usage})
+	event := serverSentDataEvent(openAIUsageChunk{
+		streamChunkIdentity: supplier.lastIdentity,
+		Choices:             []json.RawMessage{},
+		Usage:               openAIStreamUsage{koboldUsage: usage, TotalTokens: usage.PromptTokens + usage.CompletionTokens},
+	})
 	if event == nil {
 		return
 	}

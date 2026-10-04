@@ -178,7 +178,7 @@ func readFilteredStream(t *testing.T, stream string) string {
 		Header: http.Header{"Content-Type": []string{"text/event-stream"}},
 		Body:   io.NopCloser(strings.NewReader(stream)),
 	}
-	filtered := responseWithoutInjectedUsage(response, true)
+	filtered := clientStreamUsage(response, true)
 	content, err := io.ReadAll(filtered.Body)
 	if err != nil {
 		t.Fatal(err)

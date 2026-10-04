@@ -56,7 +56,7 @@ func (webUI *webUIProxy) handleSiteWebUIProxy(w http.ResponseWriter, r *http.Req
 		return
 	}
 	response = webUI.webUIProxyResponseWithAnalytics(response, started, r, body, definition, strippedPath, route)
-	response = responseWithoutInjectedUsage(response, usageInjected)
+	response = clientStreamUsage(response, usageInjected)
 	if err := writeWebUIProxyResponse(webUI.deps, w, response); err != nil {
 		return
 	}
@@ -90,7 +90,7 @@ func (webUI *webUIProxy) handleNodeWebUIProxy(w http.ResponseWriter, r *http.Req
 		return
 	}
 	response = webUI.webUIProxyResponseWithAnalytics(response, started, r, body, definition, strippedPath, route)
-	response = responseWithoutInjectedUsage(response, usageInjected)
+	response = clientStreamUsage(response, usageInjected)
 	if err := writeWebUIProxyResponse(webUI.deps, w, response); err != nil {
 		return
 	}
