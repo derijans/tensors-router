@@ -11,6 +11,10 @@ import (
 
 func TestPromptBytesRecordsTheRawBodyLength(t *testing.T) {
 	service, _ := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == koboldPerfPath {
+			http.NotFound(w, r)
+			return
+		}
 		if r.URL.Path != "/v1/chat/completions" {
 			t.Fatalf("unexpected path %s", r.URL.Path)
 		}

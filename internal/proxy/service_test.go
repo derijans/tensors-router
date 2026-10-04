@@ -2263,6 +2263,8 @@ func TestImageConfigSwitchWaitsForStreamingLLMRequest(t *testing.T) {
 		case "/v1/images/generations":
 			w.Header().Set("Content-Type", "application/json")
 			_, _ = w.Write([]byte(`{"model":"backend","data":[]}`))
+		case koboldPerfPath:
+			http.NotFound(w, r)
 		default:
 			t.Fatalf("unexpected path %s", r.URL.Path)
 		}
@@ -3145,6 +3147,8 @@ func TestRouterUnloadWaitsForStreamingRequest(t *testing.T) {
 			close(streamStarted)
 			<-releaseStream
 			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		case koboldPerfPath:
+			http.NotFound(w, r)
 		default:
 			t.Fatalf("unexpected path %s", r.URL.Path)
 		}

@@ -42,23 +42,40 @@ type koboldPerfReader struct {
 	backendURL *url.URL
 }
 
+type koboldStreamUsageReporter func(ctx context.Context, source io.ReadCloser, perf koboldPerfReader, generationsBefore int64) io.ReadCloser
+
 func routerReportsKoboldStreamUsage(path string, backendMode string) bool {
 	return backendMode == BackendModeKobold && path == koboldNativeStreamPath
 }
 
-func forwardReportingKoboldStreamUsage(ctx context.Context, perf koboldPerfReader, send func() (*http.Response, error)) (*http.Response, error) {
+func koboldStreamUsageReporterFor(path string, backendMode string, body []byte) (koboldStreamUsageReporter, bool) {
+	switch {
+	case routerReportsKoboldStreamUsage(path, backendMode):
+		return appendKoboldNativeStreamUsage, true
+	case routerSuppliesKoboldOpenAIStreamUsage(path, backendMode, body):
+		return supplyKoboldOpenAIStreamUsage, true
+	default:
+		return nil, false
+	}
+}
+
+func forwardReportingKoboldStreamUsage(ctx context.Context, perf koboldPerfReader, report koboldStreamUsageReporter, send func() (*http.Response, error)) (*http.Response, error) {
 	before, baselineErr := perf.read(ctx)
 	response, err := send()
 	if baselineErr != nil || err != nil || response == nil || response.StatusCode != http.StatusOK || !isEventStream(response.Header) {
 		return response, err
 	}
-	response.Body = &koboldUsageAppender{
-		ctx:               ctx,
-		source:            response.Body,
-		perf:              perf,
-		generationsBefore: before.TotalGenerations,
-	}
+	response.Body = report(ctx, response.Body, perf, before.TotalGenerations)
 	return response, nil
+}
+
+func appendKoboldNativeStreamUsage(ctx context.Context, source io.ReadCloser, perf koboldPerfReader, generationsBefore int64) io.ReadCloser {
+	return &koboldUsageAppender{
+		ctx:               ctx,
+		source:            source,
+		perf:              perf,
+		generationsBefore: generationsBefore,
+	}
 }
 
 func (perf koboldPerfReader) read(ctx context.Context) (koboldGenerationReport, error) {
@@ -84,6 +101,29 @@ func (perf koboldPerfReader) read(ctx context.Context) (koboldGenerationReport, 
 		return koboldGenerationReport{}, err
 	}
 	return report, nil
+}
+
+func (perf koboldPerfReader) usageOfSingleGenerationSince(ctx context.Context, generationsBefore int64) (koboldUsage, bool) {
+	after, err := perf.read(ctx)
+	if err != nil || !after.provesSingleGenerationSince(generationsBefore) {
+		return koboldUsage{}, false
+	}
+	return koboldUsage{
+		PromptTokens:          after.InputTokens,
+		CompletionTokens:      after.OutputTokens,
+		PromptTokensPerSecond: after.promptTokensPerSecond(),
+	}, true
+}
+
+func serverSentDataEvent(payload any) []byte {
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return nil
+	}
+	event := make([]byte, 0, len(encoded)+8)
+	event = append(event, "data: "...)
+	event = append(event, encoded...)
+	return append(event, "\n\n"...)
 }
 
 type koboldUsageAppender struct {
@@ -118,25 +158,15 @@ func (appender *koboldUsageAppender) Close() error {
 }
 
 func (appender *koboldUsageAppender) usageEvent() []byte {
-	after, err := appender.perf.read(appender.ctx)
-	if err != nil || !after.provesSingleGenerationSince(appender.generationsBefore) {
+	usage, ok := appender.perf.usageOfSingleGenerationSince(appender.ctx, appender.generationsBefore)
+	if !ok {
 		return nil
 	}
-	payload, err := json.Marshal(koboldUsageTrailer{Usage: koboldUsage{
-		PromptTokens:          after.InputTokens,
-		CompletionTokens:      after.OutputTokens,
-		PromptTokensPerSecond: after.promptTokensPerSecond(),
-	}})
-	if err != nil {
-		return nil
+	event := serverSentDataEvent(koboldUsageTrailer{Usage: usage})
+	if event == nil || appender.lastByte == 0 || appender.lastByte == '\n' {
+		return event
 	}
-	event := make([]byte, 0, len(payload)+10)
-	if appender.lastByte != 0 && appender.lastByte != '\n' {
-		event = append(event, '\n')
-	}
-	event = append(event, "data: "...)
-	event = append(event, payload...)
-	return append(event, "\n\n"...)
+	return append([]byte{'\n'}, event...)
 }
 
 func (report koboldGenerationReport) promptTokensPerSecond() float64 {

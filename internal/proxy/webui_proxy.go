@@ -207,8 +207,8 @@ func (webUI *webUIProxy) forwardLocalWebUIProxy(ctx context.Context, original *h
 		return webUI.forwardWebUIRequestBody(ctx, original, runtime.backend.URL(), backendPath, body)
 	}
 	var response *http.Response
-	if routerReportsKoboldStreamUsage(backendPath, runtime.mode) {
-		response, err = forwardReportingKoboldStreamUsage(ctx, koboldPerfReader{client: webUI.deps.httpClient(), backendURL: runtime.backend.URL()}, send)
+	if report, ok := koboldStreamUsageReporterFor(backendPath, runtime.mode, body); ok {
+		response, err = forwardReportingKoboldStreamUsage(ctx, koboldPerfReader{client: webUI.deps.httpClient(), backendURL: runtime.backend.URL()}, report, send)
 	} else {
 		response, err = send()
 	}

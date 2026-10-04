@@ -554,8 +554,8 @@ func (service *Service) forward(runtime *backendRuntime, ctx context.Context, or
 	request.Host = target.Host
 
 	client := service.backendHTTPClient(runtime.backend)
-	if routerReportsKoboldStreamUsage(original.URL.Path, runtime.mode) {
-		return forwardReportingKoboldStreamUsage(ctx, koboldPerfReader{client: client, backendURL: runtime.backend.URL()}, func() (*http.Response, error) {
+	if report, ok := koboldStreamUsageReporterFor(original.URL.Path, runtime.mode, body); ok {
+		return forwardReportingKoboldStreamUsage(ctx, koboldPerfReader{client: client, backendURL: runtime.backend.URL()}, report, func() (*http.Response, error) {
 			return client.Do(request)
 		})
 	}
