@@ -135,7 +135,7 @@ function renderWebUICard(entry: WebUIEntry): SafeHTML {
           <p class="webui-url">${entry.url}</p>
         </div>
         <label class="toggle-row">
-          <input type="checkbox" data-operation-group="webui" data-webui-toggle="${entry.id}" ${entry.enabled ? "checked" : ""}>
+          <input type="checkbox" aria-label="Enable ${entry.name}" data-operation-group="webui" data-webui-toggle="${entry.id}" ${entry.enabled ? "checked" : ""}>
           <span>Enabled</span>
         </label>
       </header>

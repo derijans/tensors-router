@@ -433,6 +433,9 @@ func markRemoteActiveWebUIEntry(entry *WebUIEntry, remote WebUIEntry) {
 				continue
 			}
 			model.Active = true
+			if entry.ActiveModelID != "" {
+				return
+			}
 			entry.ActiveModelID = model.ModelID
 			if entry.Lane == cluster.RouteLaneImage {
 				entry.ActiveImageID = model.ImageID
