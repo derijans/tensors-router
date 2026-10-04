@@ -193,6 +193,14 @@ func (supervisor *SupervisedClient) Artifacts() ([]ArtifactRecord, error) {
 	return client.Artifacts()
 }
 
+func (supervisor *SupervisedClient) Unhashed() ([]UnhashedFile, error) {
+	client, err := supervisor.active()
+	if err != nil {
+		return nil, err
+	}
+	return client.Unhashed()
+}
+
 func (supervisor *SupervisedClient) Pause(id string) (DownloadJob, error) {
 	client, err := supervisor.active()
 	if err != nil {

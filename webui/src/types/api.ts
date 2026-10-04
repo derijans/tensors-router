@@ -836,8 +836,14 @@ export interface ArtifactRecord {
   verification_source: string;
 }
 
+export interface UnhashedFile {
+  path: string;
+  size: number;
+}
+
 export interface DownloadLibraryResponse {
   artifacts: ArtifactRecord[];
+  unhashed?: UnhashedFile[];
   jobs: DownloadJob[];
 }
 

@@ -20,6 +20,7 @@ import { normalizeModelHash, normalizeParameterRange, parseOfficialHFURL, splitS
 import { planSelectionForMode, selectedDownloadBytes, selectedDownloadFiles, toggleDownloadPath } from "./download-plan-data";
 import { trackDownloadProgress, type DownloadProgressTracking } from "./download-job-data";
 import { renderDownloadJob } from "./download-job-view";
+import { renderDownloadLibrary } from "./download-library-view";
 import { hfFilterCatalog, hfFilterCatalogVersion } from "./hf-filter-catalog";
 import { state } from "./state";
 import { formatBytes } from "./utils";
@@ -483,9 +484,7 @@ export function renderDownloads(): void {
   const staleNotice = state.downloads.pollError ? html`<p class="error-text">Progress may be stale: ${state.downloads.pollError}</p>` : emptyHTML;
   const jobs = listOrFallback((state.downloads.library?.jobs || []).map(job => renderDownloadJob(job, progressTracking.bytesPerSecond.get(job.id))), html`<p class="muted">No download jobs on this node.</p>`);
   setHTML(elements.downloadJobs, html`${staleNotice}${jobs}`);
-  setHTML(elements.downloadLibrary, listOrFallback((state.downloads.library?.artifacts || []).map(artifact => html`
-    <div class="download-entry"><strong>${artifact.path}</strong><span>${formatBytes(artifact.size)} · ${artifact.verification_source} · ${artifact.sha256}</span></div>
-  `), html`<p class="muted">No indexed artifacts on this node.</p>`));
+  setHTML(elements.downloadLibrary, renderDownloadLibrary(state.downloads.library));
   setDownloadControlsWorking(working);
   setControlUnavailable(elements.downloadStartButton, !working || state.downloads.plan === null || state.downloads.selectedPlanFiles.length === 0);
   syncDownloadJobPolling();
@@ -599,7 +598,7 @@ function renderPlan(plan: DownloadPlan): SafeHTML {
       <span>${plan.destination} · ${formatBytes(selectedBytes)} selected of ${formatBytes(plan.total_bytes)}</span>
       ${plan.unsafe_warning ? html`<p class="error-text">Hugging Face reports unsafe or pending security status. Starting requires confirmation.</p>` : ""}
       ${plan.gated ? html`<p class="action-status">Gated repository: approve access on Hugging Face and use an authorized token.</p>` : ""}
-      ${(plan.skipped || []).length > 0 ? html`<p class="muted">Not downloadable on this node: ${(plan.skipped || []).map(file => file.path).join(", ")}</p>` : ""}
+      ${(plan.skipped || []).length > 0 ? html`<p class="muted">Skipped: ${(plan.skipped || []).map(file => `${file.path} (${file.reason})`).join(", ")}</p>` : ""}
       <div class="button-strip">
         <button type="button" data-download-plan-select="all">Select all</button>
         <button type="button" data-download-plan-select="none">Select none</button>

@@ -363,17 +363,12 @@ func (handlers *Handlers) NodeLibrary(w http.ResponseWriter, r *http.Request) {
 		writeDownloadUnavailable(w, handlers.capability)
 		return
 	}
-	artifacts, err := handlers.downloader.Artifacts()
+	response, err := handlers.localLibrary()
 	if err != nil {
 		writeDownloadError(w, err)
 		return
 	}
-	jobs, err := handlers.downloader.Jobs()
-	if err != nil {
-		writeDownloadError(w, err)
-		return
-	}
-	openai.WriteJSON(w, http.StatusOK, siteapi.DownloadLibraryResponse{Artifacts: artifacts, Jobs: jobs})
+	openai.WriteJSON(w, http.StatusOK, response)
 }
 
 func (handlers *Handlers) SiteRescan(w http.ResponseWriter, r *http.Request) {

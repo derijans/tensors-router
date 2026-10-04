@@ -68,6 +68,7 @@ func ServeWorker(config Config, input io.Reader, output io.Writer) error {
 		return nil
 	})
 	manager.RecoverInterrupted()
+	manager.startKnownArtifactScan()
 	for {
 		var request protocolRequest
 		if err := readFrame(reader, &request); err != nil {
@@ -140,6 +141,8 @@ func dispatchWorkerRequest(ctx context.Context, manager *Manager, request protoc
 		return manager.Jobs()
 	case "artifacts":
 		return manager.Artifacts()
+	case "unhashed":
+		return manager.Unhashed()
 	case "pause":
 		var value idCall
 		if err := decodePayload(request.Payload, &value); err != nil {

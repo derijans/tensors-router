@@ -9,34 +9,53 @@ import (
 )
 
 func (manager *Manager) Rescan() ([]ArtifactRecord, error) {
+	manager.scanMu.Lock()
+	defer manager.scanMu.Unlock()
+	artifacts, unknown, err := manager.scanLibrary(context.Background())
+	if err != nil {
+		return nil, err
+	}
+	manager.library.replace(unknown)
+	hashed, err := manager.hashArtifacts(unknown)
+	return append(artifacts, hashed...), err
+}
+
+func (manager *Manager) Unhashed() ([]UnhashedFile, error) {
+	return manager.library.list(), nil
+}
+
+func (manager *Manager) scanLibrary(ctx context.Context) ([]ArtifactRecord, []UnhashedFile, error) {
 	artifacts := []ArtifactRecord{}
-	unhashed := []string{}
+	unknown := []UnhashedFile{}
 	err := filepath.WalkDir(manager.config.Storage.Root, func(filePath string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || strings.HasSuffix(entry.Name(), ".hash") || isDownloaderLeftover(entry.Name()) {
 			return nil
 		}
-		record, known, err := manager.knownArtifact(filePath, entry)
+		info, err := entry.Info()
+		if err != nil {
+			return err
+		}
+		record, known, err := manager.knownArtifact(filePath, info)
 		if err != nil {
 			return err
 		}
 		if known {
 			artifacts = append(artifacts, record)
 		} else {
-			unhashed = append(unhashed, filePath)
+			unknown = append(unknown, UnhashedFile{Path: filePath, Size: info.Size()})
 		}
 		return nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	hashed, err := manager.hashArtifacts(unhashed)
-	return append(artifacts, hashed...), err
+	return artifacts, unknown, err
 }
 
-func (manager *Manager) knownArtifact(filePath string, entry os.DirEntry) (ArtifactRecord, bool, error) {
+func (manager *Manager) knownArtifact(filePath string, info os.FileInfo) (ArtifactRecord, bool, error) {
 	if hash, trusted, err := ReadTrustedHashSidecar(filePath); err != nil {
 		return ArtifactRecord{}, false, err
 	} else if trusted {
@@ -44,36 +63,38 @@ func (manager *Manager) knownArtifact(filePath string, entry os.DirEntry) (Artif
 		if err != nil {
 			return ArtifactRecord{}, false, err
 		}
-		return record, true, manager.recordArtifact(record)
-	}
-	info, err := entry.Info()
-	if err != nil {
-		return ArtifactRecord{}, false, err
+		saved, err := manager.recordArtifact(record)
+		return saved, true, err
 	}
 	record, found, err := manager.store.Artifact(filePath)
-	if err != nil || !found || record.Size != info.Size() || record.ModifiedUnixNano != info.ModTime().UnixNano() {
+	if err != nil || !found || !record.describes(info) {
 		return ArtifactRecord{}, false, err
 	}
 	return record, true, manager.notifyArtifact(record)
 }
 
-func (manager *Manager) hashArtifacts(paths []string) ([]ArtifactRecord, error) {
+func (record ArtifactRecord) describes(info os.FileInfo) bool {
+	return record.Size == info.Size() && record.ModifiedUnixNano == info.ModTime().UnixNano()
+}
+
+func (manager *Manager) hashArtifacts(files []UnhashedFile) ([]ArtifactRecord, error) {
 	var mu sync.Mutex
-	records := make([]ArtifactRecord, 0, len(paths))
-	err := forEachBounded(context.Background(), manager.config.Scanning.HashWorkers, paths, func(_ context.Context, filePath string) error {
-		hash, _, err := SHA256File(filePath)
+	records := make([]ArtifactRecord, 0, len(files))
+	err := forEachBounded(context.Background(), manager.config.Scanning.HashWorkers, files, func(_ context.Context, file UnhashedFile) error {
+		hash, _, err := SHA256File(file.Path)
 		if err != nil {
 			return err
 		}
-		record, err := artifactFromFile(filePath, hash, "", "", "", "scan")
+		record, err := artifactFromFile(file.Path, hash, "", "", "", "scan")
 		if err != nil {
 			return err
 		}
-		if err := manager.recordArtifact(record); err != nil {
+		saved, err := manager.recordArtifact(record)
+		if err != nil {
 			return err
 		}
 		mu.Lock()
-		records = append(records, record)
+		records = append(records, saved)
 		mu.Unlock()
 		return nil
 	})

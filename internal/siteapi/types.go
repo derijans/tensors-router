@@ -341,6 +341,7 @@ type DownloadJobRequest struct {
 
 type DownloadLibraryResponse struct {
 	Artifacts []downloader.ArtifactRecord `json:"artifacts"`
+	Unhashed  []downloader.UnhashedFile   `json:"unhashed"`
 	Jobs      []downloader.DownloadJob    `json:"jobs"`
 }
 

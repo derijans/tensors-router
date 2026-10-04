@@ -159,7 +159,15 @@ func (handlers *Handlers) downloadLibrary(ctx context.Context, nodeID string) (s
 	if handlers.downloader == nil {
 		return siteapi.DownloadLibraryResponse{}, unavailableError(handlers.capability)
 	}
+	return handlers.localLibrary()
+}
+
+func (handlers *Handlers) localLibrary() (siteapi.DownloadLibraryResponse, error) {
 	artifacts, err := handlers.downloader.Artifacts()
+	if err != nil {
+		return siteapi.DownloadLibraryResponse{}, err
+	}
+	unhashed, err := handlers.downloader.Unhashed()
 	if err != nil {
 		return siteapi.DownloadLibraryResponse{}, err
 	}
@@ -167,7 +175,7 @@ func (handlers *Handlers) downloadLibrary(ctx context.Context, nodeID string) (s
 	if err != nil {
 		return siteapi.DownloadLibraryResponse{}, err
 	}
-	return siteapi.DownloadLibraryResponse{Artifacts: artifacts, Jobs: jobs}, nil
+	return siteapi.DownloadLibraryResponse{Artifacts: artifacts, Unhashed: unhashed, Jobs: jobs}, nil
 }
 
 func (handlers *Handlers) downloadRescan(ctx context.Context, nodeID string) (map[string]any, error) {

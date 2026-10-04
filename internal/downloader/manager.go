@@ -29,6 +29,9 @@ type Manager struct {
 	reservedBytes   int64
 	semaphore       chan struct{}
 	artifactHandler ArtifactHandler
+	library         unhashedLibrary
+	scanMu          sync.Mutex
+	scans           sync.WaitGroup
 	logger          *log.Logger
 	logFile         *os.File
 	jobs            sync.WaitGroup
@@ -80,6 +83,7 @@ func (manager *Manager) Close() error {
 		manager.stopLifecycle()
 		manager.mu.Unlock()
 		manager.jobs.Wait()
+		manager.scans.Wait()
 		manager.closeError = errors.Join(manager.store.Close(), closeManagerLog(manager.logFile))
 	})
 	return manager.closeError
@@ -133,7 +137,11 @@ func (manager *Manager) Plan(ctx context.Context, request PlanRequest) (Download
 	if err != nil {
 		return DownloadPlan{}, err
 	}
-	return BuildPlan(details, request.Files, request.Mode, manager.config.Storage.Root)
+	plan, err := BuildPlan(details, request.Files, request.Mode, manager.config.Storage.Root)
+	if err != nil {
+		return DownloadPlan{}, err
+	}
+	return manager.withoutPresentFiles(plan)
 }
 
 func (manager *Manager) CreateJob(ctx context.Context, request CreateJobRequest) (DownloadJob, error) {
@@ -152,6 +160,9 @@ func (manager *Manager) CreateJob(ctx context.Context, request CreateJobRequest)
 }
 
 func (manager *Manager) CreatePlannedJob(plan DownloadPlan, operationToken string, confirmUnsafe bool, confirmReplace bool) (DownloadJob, error) {
+	if plan.AlreadyPresent() {
+		return DownloadJob{}, fmt.Errorf("every planned file is already present with the same hash")
+	}
 	if len(plan.Files) == 0 {
 		return DownloadJob{}, fmt.Errorf("download plan resolved to zero files; the repository, revision, or file selection matched nothing on Hugging Face")
 	}
@@ -276,11 +287,13 @@ func (manager *Manager) Subscribe(id string) (<-chan DownloadJob, func()) {
 	}
 }
 
-func (manager *Manager) recordArtifact(record ArtifactRecord) error {
-	if err := manager.store.SaveArtifact(record); err != nil {
-		return err
+func (manager *Manager) recordArtifact(record ArtifactRecord) (ArtifactRecord, error) {
+	saved, err := manager.store.SaveArtifact(record)
+	if err != nil {
+		return ArtifactRecord{}, err
 	}
-	return manager.notifyArtifact(record)
+	manager.library.forget(saved.Path)
+	return saved, manager.notifyArtifact(saved)
 }
 
 func (manager *Manager) notifyArtifact(record ArtifactRecord) error {

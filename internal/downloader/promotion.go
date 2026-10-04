@@ -62,7 +62,7 @@ func (manager *Manager) promote(job DownloadJob, file JobFile, stagedPath string
 	if err != nil {
 		return err
 	}
-	if err := manager.recordArtifact(record); err != nil {
+	if _, err := manager.recordArtifact(record); err != nil {
 		return err
 	}
 	if manager.config.Scanning.WriteHashSidecars && !job.Snapshot {

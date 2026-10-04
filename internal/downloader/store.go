@@ -140,17 +140,23 @@ func (store *Store) Artifact(path string) (ArtifactRecord, bool, error) {
 	return record, true, nil
 }
 
-func (store *Store) SaveArtifact(record ArtifactRecord) error {
+func (store *Store) SaveArtifact(record ArtifactRecord) (ArtifactRecord, error) {
 	if record.Path == "" || !validSHA256(record.SHA256) || record.Size < 0 {
-		return fmt.Errorf("artifact record is invalid")
+		return ArtifactRecord{}, fmt.Errorf("artifact record is invalid")
 	}
 	now := time.Now().UTC()
 	if record.CreatedAt.IsZero() {
 		record.CreatedAt = now
 	}
 	record.UpdatedAt = now
-	_, err := store.db.Exec(`INSERT INTO artifacts(path, sha256, size, modified_unix_nano, repository, repository_path, revision, verification_source, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET sha256=excluded.sha256, size=excluded.size, modified_unix_nano=excluded.modified_unix_nano, repository=excluded.repository, repository_path=excluded.repository_path, revision=excluded.revision, verification_source=excluded.verification_source, updated_at=excluded.updated_at`, record.Path, record.SHA256, record.Size, record.ModifiedUnixNano, record.Repository, record.RepositoryPath, record.Revision, record.VerificationSource, record.CreatedAt.Format(time.RFC3339Nano), record.UpdatedAt.Format(time.RFC3339Nano))
-	return err
+	var created, updated string
+	err := store.db.QueryRow(`INSERT INTO artifacts(path, sha256, size, modified_unix_nano, repository, repository_path, revision, verification_source, created_at, updated_at) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(path) DO UPDATE SET sha256=excluded.sha256, size=excluded.size, modified_unix_nano=excluded.modified_unix_nano, repository=excluded.repository, repository_path=excluded.repository_path, revision=excluded.revision, verification_source=excluded.verification_source, updated_at=excluded.updated_at RETURNING created_at, updated_at`, record.Path, record.SHA256, record.Size, record.ModifiedUnixNano, record.Repository, record.RepositoryPath, record.Revision, record.VerificationSource, record.CreatedAt.Format(time.RFC3339Nano), record.UpdatedAt.Format(time.RFC3339Nano)).Scan(&created, &updated)
+	if err != nil {
+		return ArtifactRecord{}, err
+	}
+	record.CreatedAt, _ = time.Parse(time.RFC3339Nano, created)
+	record.UpdatedAt, _ = time.Parse(time.RFC3339Nano, updated)
+	return record, nil
 }
 
 func (store *Store) ListArtifacts() ([]ArtifactRecord, error) {

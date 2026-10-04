@@ -157,6 +157,12 @@ func (client *Client) Artifacts() ([]ArtifactRecord, error) {
 	return result, err
 }
 
+func (client *Client) Unhashed() ([]UnhashedFile, error) {
+	var result []UnhashedFile
+	err := client.callWithTimeout("unhashed", nil, &result, defaultCallTimeout)
+	return result, err
+}
+
 func (client *Client) Pause(id string) (DownloadJob, error) {
 	return client.jobAction("pause", id)
 }

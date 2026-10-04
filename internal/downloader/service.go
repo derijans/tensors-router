@@ -12,6 +12,7 @@ type Service interface {
 	Job(string) (DownloadJob, bool, error)
 	Jobs() ([]DownloadJob, error)
 	Artifacts() ([]ArtifactRecord, error)
+	Unhashed() ([]UnhashedFile, error)
 	Pause(string) (DownloadJob, error)
 	Resume(string) (DownloadJob, error)
 	Cancel(string) (DownloadJob, error)

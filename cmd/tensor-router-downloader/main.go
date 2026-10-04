@@ -56,6 +56,10 @@ func run(args []string, input io.Reader, output io.Writer) error {
 	if err := printPlan(output, plan); err != nil {
 		return err
 	}
+	if plan.AlreadyPresent() {
+		_, _ = fmt.Fprintln(output, "every planned file is already present with the same hash")
+		return nil
+	}
 	if plan.UnsafeWarning {
 		_, _ = fmt.Fprintln(output, "warning: Hugging Face reports an unsafe or pending repository security status")
 	}
