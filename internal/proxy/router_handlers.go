@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -195,6 +196,11 @@ func (service *Service) handleRouterLoad(w http.ResponseWriter, r *http.Request)
 }
 
 func writeRouterLoadError(w http.ResponseWriter, err error) {
+	var notFound modelNotFoundError
+	if errors.As(err, &notFound) {
+		openai.WriteError(w, http.StatusNotFound, "invalid_request_error", notFound.Error())
+		return
+	}
 	diagnostic, ok := backenddiagnostic.FromError(err)
 	if !ok {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
@@ -250,7 +256,7 @@ func (service *Service) loadPublicModel(ctx context.Context, publicID string) er
 	if service.registry != nil && service.registry.HasModel(publicID) {
 		model, ok := service.registry.Model(publicID)
 		if !ok {
-			return fmt.Errorf("model %q was not found", publicID)
+			return modelNotFoundError{modelID: publicID}
 		}
 		modelBackendMode, err := service.clusterModelBackendMode(model)
 		if err != nil {
@@ -259,7 +265,7 @@ func (service *Service) loadPublicModel(ctx context.Context, publicID string) er
 		readiness := modelControlReadiness(modelBackendMode, model.HasEmbeddings, model.HasVoice, model.VLLMTask)
 		route, release, ok := service.acquireRegistryModelControlRoute(ctx, publicID, modelBackendMode, readiness)
 		if !ok {
-			return fmt.Errorf("model %q was not found", publicID)
+			return modelNotFoundError{modelID: publicID}
 		}
 		defer release()
 		if route.Remote {
@@ -275,7 +281,7 @@ func (service *Service) unloadPublicModel(ctx context.Context, publicID string, 
 	if publicID != "" && service.registry != nil && service.registry.HasModel(publicID) {
 		model, ok := service.registry.Model(publicID)
 		if !ok {
-			return fmt.Errorf("model %q was not found", publicID)
+			return modelNotFoundError{modelID: publicID}
 		}
 		modelBackendMode, err := service.clusterModelBackendMode(model)
 		if err != nil {
@@ -284,7 +290,7 @@ func (service *Service) unloadPublicModel(ctx context.Context, publicID string, 
 		readiness := modelControlReadiness(modelBackendMode, model.HasEmbeddings, model.HasVoice, model.VLLMTask)
 		route, release, ok := service.acquireRegistryModelControlRoute(ctx, publicID, modelBackendMode, readiness)
 		if !ok {
-			return fmt.Errorf("model %q was not found", publicID)
+			return modelNotFoundError{modelID: publicID}
 		}
 		defer release()
 		if route.Remote {
@@ -300,7 +306,7 @@ func (service *Service) loadLocalModel(ctx context.Context, publicID string, loc
 		return err
 	}
 	if !ok {
-		return fmt.Errorf("model %q was not found", publicID)
+		return modelNotFoundError{modelID: publicID}
 	}
 	enabled, err := service.localModelEnabled(ctx, model.ID)
 	if err != nil {
