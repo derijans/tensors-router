@@ -28,7 +28,7 @@ func (service *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
 		service.handleVLLMResponseOperation(w, r)
 		return
 	}
-	if rejectOllamaMethod(w, r) {
+	if rejectOllamaMethod(w, r) || rejectOpenAIMethod(w, r) {
 		return
 	}
 	workingSet, ok := service.reserveTransportWorkingSet(r)
