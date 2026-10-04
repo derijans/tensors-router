@@ -3,6 +3,9 @@ import { elements } from "./elements";
 import { state } from "./state";
 
 const modelMutationGroups = new Set(["router", "cook", "cook-selection", "webui", "benchmark"]);
+const unavailableAttribute = "data-unavailable";
+
+type OperationControl = HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement;
 
 export interface OperationRequest<T> {
   key: string;
@@ -59,6 +62,12 @@ export function registerOperationRetry(): void {
   });
 }
 
+export function setControlUnavailable(control: OperationControl, unavailable: boolean): void {
+  control.toggleAttribute(unavailableAttribute, unavailable);
+  const group = control.dataset.operationGroup;
+  control.disabled = unavailable || (group !== undefined && groupPending(group));
+}
+
 export function groupPending(group: string): boolean {
   return Object.values(state.operations).some(operation => operation.pending && operationGroupsConflict(group, operation.group));
 }
@@ -68,7 +77,7 @@ function renderOperations(): void {
   const pendingGroups = operations.filter(operation => operation.pending).map(operation => operation.group);
   document.querySelectorAll<HTMLElement>("[data-operation-group]").forEach(element => {
     if (element instanceof HTMLButtonElement || element instanceof HTMLInputElement || element instanceof HTMLSelectElement) {
-      element.disabled = pendingGroups.some(group => operationGroupsConflict(element.dataset.operationGroup || "", group));
+      element.disabled = element.hasAttribute(unavailableAttribute) || pendingGroups.some(group => operationGroupsConflict(element.dataset.operationGroup || "", group));
     }
   });
   const pending = operations.find(operation => operation.pending);

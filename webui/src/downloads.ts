@@ -24,6 +24,7 @@ import { hfFilterCatalog, hfFilterCatalogVersion } from "./hf-filter-catalog";
 import { state } from "./state";
 import { formatBytes } from "./utils";
 import type { DownloadLibraryResponse, DownloadPlan } from "./types";
+import { setControlUnavailable } from "./operations";
 
 export async function loadDownloads(): Promise<void> {
   try {
@@ -463,7 +464,7 @@ export function renderDownloads(): void {
     setHTML(elements.downloadJobs, emptyHTML);
     setHTML(elements.downloadLibrary, emptyHTML);
     setDownloadControlsWorking(false);
-    elements.downloadStartButton.disabled = true;
+    setControlUnavailable(elements.downloadStartButton, true);
     return;
   }
   const nodes = enabledDownloadNodes(state.downloads.capabilities?.nodes || []);
@@ -486,7 +487,7 @@ export function renderDownloads(): void {
     <div class="download-entry"><strong>${artifact.path}</strong><span>${formatBytes(artifact.size)} · ${artifact.verification_source} · ${artifact.sha256}</span></div>
   `), html`<p class="muted">No indexed artifacts on this node.</p>`));
   setDownloadControlsWorking(working);
-  elements.downloadStartButton.disabled = !working || state.downloads.plan === null || state.downloads.selectedPlanFiles.length === 0;
+  setControlUnavailable(elements.downloadStartButton, !working || state.downloads.plan === null || state.downloads.selectedPlanFiles.length === 0);
   syncDownloadJobPolling();
 }
 
@@ -537,7 +538,7 @@ function formatSearchDate(value: string): string {
 function setDownloadControlsWorking(working: boolean): void {
   elements.downloadPanel.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("button, input, select, textarea").forEach(control => {
     if (control !== elements.downloadNodeSelect) {
-      control.disabled = !working;
+      setControlUnavailable(control, !working);
     }
   });
 }

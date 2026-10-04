@@ -9,6 +9,7 @@ import { renderModelInventory } from "./model-inventory";
 import { renderNodesPanel } from "./nodes-state";
 import { renderOverview } from "./overview/overview";
 import { badge, fact, laneAccent } from "./markup-primitives";
+import { setControlUnavailable } from "./operations";
 import type { Recipe, RecipeComponent, RouterProcessStatus, Tone } from "./types";
 
 const recipeLanes = ["text", "image", "embeddings", "voice", "music"] as const;
@@ -38,10 +39,10 @@ export function renderRouterStatus(): void {
   const router = state.router;
   elements.routerSummary.textContent = routerSummaryText(router);
   elements.routerSummary.className = `router-chip tone-${routerTone(router)}`;
-  elements.launchButton.disabled = !router?.managed || Boolean(router?.running);
-  elements.restartButton.disabled = !router?.managed;
-  elements.shutdownButton.disabled = !router?.can_shutdown;
-  elements.forceKillButton.disabled = !router?.can_force_kill;
+  setControlUnavailable(elements.launchButton, !router?.managed || Boolean(router?.running));
+  setControlUnavailable(elements.restartButton, !router?.managed);
+  setControlUnavailable(elements.shutdownButton, !router?.can_shutdown);
+  setControlUnavailable(elements.forceKillButton, !router?.can_force_kill);
   setHTML(elements.routerStatus, html`${[
     fact("Running", router?.running ? "yes" : "no"),
     fact("Managed", router?.managed ? "yes" : "no"),

@@ -68,7 +68,7 @@ function modelCell(model: Model, column: ModelColumnKey): SafeHTML | string {
     case "separate":
       return separateCell(model, operationGroup);
     case "actions":
-      return html`<button type="button" data-operation-group="${operationGroup}" data-load-config="${model.public_id || model.local_id}" ${enabled ? "" : "disabled"}>Load</button>`;
+      return html`<button type="button" data-operation-group="${operationGroup}" data-load-config="${model.public_id || model.local_id}" ${enabled ? "" : "disabled data-unavailable"}>Load</button>`;
   }
 }
 

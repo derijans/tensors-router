@@ -6,6 +6,7 @@ import { allNodeModels } from "./data";
 import { elements } from "./elements";
 import { state } from "./state";
 import type { BenchmarkRecord, BenchmarkSection, BenchmarkSummary, Model, Tone } from "./types";
+import { setControlUnavailable } from "./operations";
 
 export function renderBenchmarks(): void {
   ensureBenchmarkSelection();
@@ -18,11 +19,11 @@ export function renderBenchmarks(): void {
   elements.benchmarkAllSections.checked = selectedAllSections();
   setHTML(elements.benchmarkSections, html`${benchmarkSections.map(section => html`
     <label class="toggle-row">
-      <input type="checkbox" value="${section}" data-operation-group="benchmark" data-benchmark-section="${section}" ${state.benchmark.sections.includes(section) ? "checked" : ""} ${state.benchmark.type === "general" || selectedAllSections() ? "disabled" : ""}>
+      <input type="checkbox" value="${section}" data-operation-group="benchmark" data-benchmark-section="${section}" ${state.benchmark.sections.includes(section) ? "checked" : ""} ${state.benchmark.type === "general" || selectedAllSections() ? "disabled data-unavailable" : ""}>
       <span>${section}</span>
     </label>
   `)}`);
-  elements.runBenchmarkButton.disabled = state.benchmark.running || !selectedModel();
+  setControlUnavailable(elements.runBenchmarkButton, state.benchmark.running || !selectedModel());
   renderBenchmarkLatest();
   renderBenchmarkHistory();
 }

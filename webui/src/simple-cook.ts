@@ -46,6 +46,7 @@ import {
   parseOptionInput
 } from "./utils";
 import type { ConfigFileRequest, ConfigFileResponse, JsonValue, Model, Options, RefreshInventory, SelectChoice } from "./types";
+import { setControlUnavailable } from "./operations";
 
 type ConfigSubmitter = (request: ConfigFileRequest) => Promise<ConfigFileResponse>;
 
@@ -294,10 +295,10 @@ function renderSimpleSelectors(): void {
   const configs = selectedNode()?.models ?? [];
   fillSelect(elements.simpleConfigSelect, configs.map(model => optionValue(model.local_id, configLabel(model))));
   elements.simpleConfigSelect.value = state.simpleCook.configID;
-  elements.simpleConfigSelect.disabled = configs.length === 0;
-  elements.simpleCopyButton.disabled = Object.keys(state.simpleCook.fields || {}).length === 0;
-	elements.simpleDeleteButton.disabled = !selectedConfig();
-	elements.simpleExportButton.disabled = !selectedConfig() || isSimpleCookDirty();
+  setControlUnavailable(elements.simpleConfigSelect, configs.length === 0);
+  setControlUnavailable(elements.simpleCopyButton, Object.keys(state.simpleCook.fields || {}).length === 0);
+  setControlUnavailable(elements.simpleDeleteButton, !selectedConfig());
+  setControlUnavailable(elements.simpleExportButton, !selectedConfig() || isSimpleCookDirty());
   elements.simpleFieldFilter.value = state.simpleCook.fieldFilter;
 }
 
