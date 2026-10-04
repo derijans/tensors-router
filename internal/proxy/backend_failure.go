@@ -11,11 +11,12 @@ func backendFailureResponse(err error) (int, string, string) {
 	if err != nil && strings.Contains(err.Error(), "backend_not_initialized") {
 		return http.StatusServiceUnavailable, "backend_not_initialized", "vLLM backend is not initialized"
 	}
-	return http.StatusBadGateway, "backend_error", err.Error()
+	return http.StatusBadGateway, "backend_error", clientErrorMessage(err)
 }
 
-func writeBackendFailure(w http.ResponseWriter, err error) int {
+func (service *Service) writeBackendFailure(w http.ResponseWriter, err error) int {
 	status, code, message := backendFailureResponse(err)
+	service.logHiddenErrorDetail(err, message)
 	openai.WriteError(w, status, code, message)
 	return status
 }

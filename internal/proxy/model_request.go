@@ -21,7 +21,7 @@ func (service *Service) handleModels(w http.ResponseWriter) {
 
 	models, err := service.catalog.List()
 	if err != nil {
-		openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+		service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
 		return
 	}
 	visible := make([]catalog.Model, 0, len(models))
@@ -96,7 +96,7 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 		model, ok, err := service.resolveCatalogModelForOpenAIPath(modelID, r.URL.Path)
 		if err != nil {
 			service.logger.Printf("model catalog check failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
-			openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+			service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
 			return
 		}
 		if !ok {
@@ -112,7 +112,7 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 		enabled, err := service.localModelEnabled(r.Context(), model.ID)
 		if err != nil {
 			service.logger.Printf("model state check failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
-			openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+			service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
 			return
 		}
 		if !enabled {
@@ -139,7 +139,7 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 
 	if hasModel && selectedBackendMode == BackendModeLlamaSDCPP && selectedModel.HasImage && !isEmbeddingsPath(r.URL.Path) {
 		if err := service.loadLocalRuntimeForRequest(r.Context(), selectedBackendMode, selectedModel.ImageID, selectedModel.Filename, readinessImage); err != nil {
-			openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+			service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 			return
 		}
 	}
@@ -164,7 +164,7 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 		if hasModel || isTextInferencePath(r.URL.Path) {
 			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
 		}
-		writeBackendFailure(w, err)
+		service.writeBackendFailure(w, err)
 		return
 	}
 	if selectedBackendMode == BackendModeVLLM && r.URL.Path == "/v1/responses" {

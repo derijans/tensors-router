@@ -61,7 +61,7 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 		model, ok, err := service.catalog.Resolve(modelID)
 		if err != nil {
 			service.logger.Printf("audio model catalog check failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
-			openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+			service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
 			return
 		}
 		if !ok {
@@ -124,7 +124,7 @@ func (service *Service) handleAudioRequest(w http.ResponseWriter, r *http.Reques
 		if analyticsModelID != "" {
 			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
 		}
-		writeBackendFailure(w, err)
+		service.writeBackendFailure(w, err)
 		return
 	}
 	if analyticsModelID != "" {

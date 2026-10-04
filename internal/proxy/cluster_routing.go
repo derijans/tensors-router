@@ -90,7 +90,7 @@ func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter
 		}
 		if routeBackendMode == BackendModeLlamaSDCPP && model.HasImage && !isEmbeddingsPath(r.URL.Path) {
 			if err := service.loadLocalRuntimeForRequest(r.Context(), routeBackendMode, route.PublicImageID, route.Filename, readinessImage); err != nil {
-				writeBackendFailure(w, err)
+				service.writeBackendFailure(w, err)
 				return
 			}
 		}
@@ -119,7 +119,7 @@ func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter
 		if recordAnalytics {
 			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
 		}
-		writeBackendFailure(w, err)
+		service.writeBackendFailure(w, err)
 		return
 	}
 	if modelBackendMode == BackendModeVLLM && r.URL.Path == "/v1/responses" {
@@ -149,7 +149,7 @@ func (service *Service) serveTextThroughLendingQueue(w http.ResponseWriter, r *h
 	}
 	admission, queueErr := service.scheduler.enterTextQueue(r.Context(), modelID, workHint.Work, int64(workHint.RequiredContext), requestIsStreaming(body), requestIsBorrowed(r))
 	if queueErr != nil {
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", queueErr.Error())
+		service.writeClientError(w, http.StatusBadGateway, "backend_error", queueErr)
 		return nil, true
 	}
 	switch admission.outcome {
@@ -264,7 +264,7 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 			admission, queueErr := service.scheduler.enterImageQueue(r.Context(), modelID, imageWorkHint(r, body).Work, requestIsBorrowed(r))
 			if queueErr != nil {
 				release()
-				openai.WriteError(w, http.StatusBadGateway, "backend_error", queueErr.Error())
+				service.writeClientError(w, http.StatusBadGateway, "backend_error", queueErr)
 				return true
 			}
 			switch admission.outcome {
@@ -292,7 +292,7 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 		if routeBackendMode == BackendModeLlamaSDCPP && clusterModelNeedsPrimaryTextRuntime(model) {
 			if err := service.loadLocalRuntimeForRequest(r.Context(), routeBackendMode, route.PublicID, route.Filename, readinessText); err != nil {
 				release()
-				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+				service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 				return true
 			}
 		}
@@ -306,7 +306,7 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 		if recordAnalytics {
 			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, forwardErr, workFinalizer)
 		}
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", forwardErr.Error())
+		service.writeClientError(w, http.StatusBadGateway, "backend_error", forwardErr)
 		return true
 	}
 	if isSdcppJobSubmissionPath(r.URL.Path) {
@@ -358,7 +358,7 @@ func (service *Service) handleRegistryImageOptions(w http.ResponseWriter, r *htt
 		response, err := service.forwardRemote(r.Context(), request, requestBody, route)
 		if err != nil {
 			release()
-			openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+			service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 			return true
 		}
 		response = responseWithRelease(response, release)
@@ -379,14 +379,14 @@ func (service *Service) handleRegistryImageOptions(w http.ResponseWriter, r *htt
 	if routeBackendMode == BackendModeLlamaSDCPP && clusterModelNeedsPrimaryTextRuntime(model) {
 		if err := service.loadLocalConfig(modelContext, routeBackendMode, route.PublicID, route.Filename, readinessText); err != nil {
 			release()
-			openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+			service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 			return true
 		}
 	}
 	_, releaseModel, _, err := service.acquireModelConfigForBackendMode(routeBackendMode, modelContext, route.PublicImageID, route.Filename, readinessImage, false)
 	if err != nil {
 		release()
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 		return true
 	}
 	releaseModel()
@@ -470,7 +470,7 @@ func (service *Service) handleRegistryAudioRequest(w http.ResponseWriter, r *htt
 		if recordAnalytics {
 			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
 		}
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 		return
 	}
 	response = responseWithRelease(response, release)
@@ -536,7 +536,11 @@ func (service *Service) forwardRemote(ctx context.Context, original *http.Reques
 	copyClusterRequestHeaders(request.Header, original.Header)
 	request.Header.Set("Authorization", "Bearer "+service.clusterToken)
 	request.Host = target.Host
-	return service.client.Do(request)
+	response, err := service.client.Do(request)
+	if err != nil {
+		return nil, service.nodeUnreachable(route.NodeID, route.NodeURL, err)
+	}
+	return response, nil
 }
 
 func rewriteRequestModel(body []byte, modelID string) []byte {

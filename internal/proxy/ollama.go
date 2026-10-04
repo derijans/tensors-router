@@ -124,7 +124,7 @@ func (service *Service) handleOllamaShow(w http.ResponseWriter, r *http.Request)
 
 	models, err := service.ollamaVisibleModels(r.Context())
 	if err != nil {
-		ollama.WriteError(w, http.StatusInternalServerError, err.Error())
+		ollama.WriteError(w, http.StatusInternalServerError, service.loggedClientErrorMessage(err))
 		return
 	}
 	for _, model := range models {
@@ -217,7 +217,7 @@ func ollamaContextLength(model cluster.Model) int64 {
 func (service *Service) handleOllamaTags(w http.ResponseWriter, r *http.Request) {
 	models, err := service.ollamaVisibleModels(r.Context())
 	if err != nil {
-		ollama.WriteError(w, http.StatusInternalServerError, err.Error())
+		ollama.WriteError(w, http.StatusInternalServerError, service.loggedClientErrorMessage(err))
 		return
 	}
 	writeOllamaJSON(w, http.StatusOK, map[string]any{"models": ollamaModels(models, false)})
@@ -226,7 +226,7 @@ func (service *Service) handleOllamaTags(w http.ResponseWriter, r *http.Request)
 func (service *Service) handleOllamaPS(w http.ResponseWriter, r *http.Request) {
 	models, err := service.ollamaVisibleModels(r.Context())
 	if err != nil {
-		ollama.WriteError(w, http.StatusInternalServerError, err.Error())
+		ollama.WriteError(w, http.StatusInternalServerError, service.loggedClientErrorMessage(err))
 		return
 	}
 	writeOllamaJSON(w, http.StatusOK, map[string]any{"models": ollamaModels(models, true)})

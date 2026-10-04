@@ -40,7 +40,7 @@ func (service *Service) handleVLLMRealtime(w http.ResponseWriter, r *http.Reques
 	backendModelID := vllmRequestModelID(modelID, route.LocalID, model.ServedNames)
 	response, runtimeRelease, err := service.openRealtimeBackend(r, route, backendModelID)
 	if err != nil {
-		writeBackendFailure(w, err)
+		service.writeBackendFailure(w, err)
 		return
 	}
 	defer runtimeRelease()

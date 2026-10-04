@@ -184,7 +184,7 @@ func (webUI *webUIProxy) handleSiteWebUIs(w http.ResponseWriter, r *http.Request
 	}
 	response, err := webUI.siteWebUIs(r.Context())
 	if err != nil {
-		openai.WriteError(w, http.StatusInternalServerError, "site_error", err.Error())
+		webUI.deps.writeClientError(w, http.StatusInternalServerError, "site_error", err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, response)
@@ -193,7 +193,7 @@ func (webUI *webUIProxy) handleSiteWebUIs(w http.ResponseWriter, r *http.Request
 func (webUI *webUIProxy) handleNodeSiteWebUIs(w http.ResponseWriter, r *http.Request) {
 	entries, err := webUI.localWebUIs()
 	if err != nil {
-		openai.WriteError(w, http.StatusInternalServerError, "site_error", err.Error())
+		webUI.deps.writeClientError(w, http.StatusInternalServerError, "site_error", err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, webUICatalogResponse(entries))
@@ -212,7 +212,7 @@ func (webUI *webUIProxy) handleSiteWebUISession(w http.ResponseWriter, r *http.R
 	request.ID = strings.TrimSpace(request.ID)
 	response, err := webUI.siteWebUIs(r.Context())
 	if err != nil {
-		openai.WriteError(w, http.StatusInternalServerError, "site_error", err.Error())
+		webUI.deps.writeClientError(w, http.StatusInternalServerError, "site_error", err)
 		return
 	}
 	if _, ok := webUIEntryByID(response.Data, request.ID); !ok {
@@ -222,7 +222,7 @@ func (webUI *webUIProxy) handleSiteWebUISession(w http.ResponseWriter, r *http.R
 	webUI.session.set(request.ID, request.Enabled)
 	response, err = webUI.siteWebUIs(r.Context())
 	if err != nil {
-		openai.WriteError(w, http.StatusInternalServerError, "site_error", err.Error())
+		webUI.deps.writeClientError(w, http.StatusInternalServerError, "site_error", err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, response)
@@ -245,7 +245,7 @@ func (webUI *webUIProxy) handleSiteWebUILoad(w http.ResponseWriter, r *http.Requ
 	defer cancel()
 	response, err := webUI.loadSiteWebUI(ctx, request)
 	if err != nil {
-		writeWebUILoadError(w, err)
+		webUI.writeWebUILoadError(w, err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, response)
@@ -264,7 +264,7 @@ func (webUI *webUIProxy) handleNodeSiteWebUILoad(w http.ResponseWriter, r *http.
 	defer cancel()
 	response, err := webUI.loadLocalWebUI(ctx, request)
 	if err != nil {
-		writeWebUILoadError(w, err)
+		webUI.writeWebUILoadError(w, err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, response)
@@ -478,8 +478,8 @@ func (webUI *webUIProxy) loadSiteWebUI(ctx context.Context, request webUILoadReq
 	return webUI.loadLocalWebUIEntry(ctx, entry, model)
 }
 
-func writeWebUILoadError(w http.ResponseWriter, err error) {
-	response := webUILoadErrorResponse{Error: openai.ErrorDetail{Message: err.Error(), Type: "backend_error"}}
+func (webUI *webUIProxy) writeWebUILoadError(w http.ResponseWriter, err error) {
+	response := webUILoadErrorResponse{Error: openai.ErrorDetail{Message: webUI.deps.loggedClientErrorMessage(err), Type: "backend_error"}}
 	if diagnostic, ok := backenddiagnostic.FromError(err); ok {
 		response.BackendDiagnostic = &diagnostic
 	}

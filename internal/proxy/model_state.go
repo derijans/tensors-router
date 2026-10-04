@@ -29,7 +29,7 @@ func (service *Service) handleSiteModelState(w http.ResponseWriter, r *http.Requ
 	}
 	snapshot, err := service.setModelEnabled(r.Context(), request)
 	if err != nil {
-		writeModelStateError(w, err)
+		service.writeModelStateError(w, err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, snapshot)
@@ -47,7 +47,7 @@ func (service *Service) handleNodeModelState(w http.ResponseWriter, r *http.Requ
 	}
 	snapshot, err := service.setLocalModelEnabled(r.Context(), request.LocalID, request.Enabled)
 	if err != nil {
-		writeModelStateError(w, err)
+		service.writeModelStateError(w, err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, snapshot)
@@ -127,7 +127,7 @@ func (service *Service) setLocalModelEnabled(ctx context.Context, localID string
 	}, nil
 }
 
-func writeModelStateError(w http.ResponseWriter, err error) {
+func (service *Service) writeModelStateError(w http.ResponseWriter, err error) {
 	if errors.Is(err, errModelStateNotFound) {
 		openai.WriteError(w, http.StatusNotFound, "not_found", err.Error())
 		return
@@ -137,7 +137,7 @@ func writeModelStateError(w http.ResponseWriter, err error) {
 		openai.WriteError(w, http.StatusNotFound, "not_found", remoteError.Error())
 		return
 	}
-	openai.WriteError(w, http.StatusBadGateway, "model_state_error", err.Error())
+	service.writeClientError(w, http.StatusBadGateway, "model_state_error", err)
 }
 
 func (service *Service) localModelEnabled(ctx context.Context, localID string) (bool, error) {

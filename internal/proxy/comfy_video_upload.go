@@ -116,13 +116,13 @@ func (service *Service) teeComfyUploadToBackend(w http.ResponseWriter, r *http.R
 	response, finalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, model.ImageID, model.Filename, true, readinessImage, backendMode)
 	finishVRAMWork(finalizer)
 	if err != nil {
-		writeBackendFailure(w, err)
+		service.writeBackendFailure(w, err)
 		return
 	}
 	defer response.Body.Close()
 	payload, err := readComfyJSONResponse(response)
 	if err != nil {
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 		return
 	}
 	backendName, _ := payload["name"].(string)

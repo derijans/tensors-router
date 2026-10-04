@@ -26,7 +26,7 @@ func (service *Service) handleSiteBackendLaunchOptions(w http.ResponseWriter, r 
 	}
 	options, err := service.backendLaunchOptions(r.Context(), request, r.Method == http.MethodPost)
 	if err != nil {
-		writeBackendInitializationError(w, err)
+		service.writeBackendInitializationError(w, err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, options)
@@ -43,7 +43,7 @@ func (service *Service) handleNodeBackendLaunchOptions(w http.ResponseWriter, r 
 	}
 	options, err := service.localBackendLaunchOptions(r.Context(), request, r.Method == http.MethodPost)
 	if err != nil {
-		writeBackendInitializationError(w, err)
+		service.writeBackendInitializationError(w, err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, options)

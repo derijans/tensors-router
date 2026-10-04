@@ -31,7 +31,7 @@ func (service *Service) handleImageModels(w http.ResponseWriter) {
 
 	models, err := service.catalog.List()
 	if err != nil {
-		openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+		service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, clusterImageModelObjects(cluster.LocalModelsWithBackendMode(models, service.nodeID, service.nodeURL, service.localSource(), service.backendMode), service.imageCatalogConfigSelector()))
@@ -48,7 +48,7 @@ func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Reques
 				})
 				return
 			}
-			openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+			service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
 			return
 		}
 		openai.WriteJSON(w, http.StatusOK, map[string]any{
@@ -88,7 +88,7 @@ func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Reques
 			}
 			if modelBackendMode == BackendModeLlamaSDCPP && modelNeedsPrimaryTextRuntime(model) {
 				if err := service.loadLocalRuntimeForRequest(r.Context(), modelBackendMode, model.ID, model.Filename, readinessText); err != nil {
-					openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+					service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 					return
 				}
 			}
@@ -96,7 +96,7 @@ func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Reques
 			defer cancelModelContext()
 			_, release, _, err := service.acquireModelConfigForBackendMode(modelBackendMode, modelContext, model.ImageID, model.Filename, readinessImage, false)
 			if err != nil {
-				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+				service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 				return
 			}
 			release()
@@ -128,7 +128,7 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 			if target.remote {
 				response, err := service.forwardRemote(r.Context(), r, body, cluster.Route{NodeURL: target.nodeURL, Remote: true})
 				if err != nil {
-					openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+					service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 					return
 				}
 				if err := service.writeProxyResponse(w, response, target.publicImageID, false); err != nil {
@@ -141,7 +141,7 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 			response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, target.publicImageID, target.configFilename, true, readinessImage, target.backendMode)
 			if err != nil {
 				service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
-				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+				service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 				return
 			}
 			response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
@@ -158,7 +158,7 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 			}
 			response, err := service.forwardWithFallback(r.Context(), r, body, "", "", false, readinessImage, selectedBackendMode)
 			if err != nil {
-				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+				service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 				return
 			}
 			if err := service.writeProxyResponse(w, response, "", false); err != nil {
@@ -197,7 +197,7 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 
 	if modelBackendMode == BackendModeLlamaSDCPP && modelNeedsPrimaryTextRuntime(model) {
 		if err := service.loadLocalRuntimeForRequest(r.Context(), modelBackendMode, model.ID, model.Filename, readinessText); err != nil {
-			openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+			service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 			return
 		}
 	}
@@ -207,7 +207,7 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, model.ImageID, model.Filename, hasModel, readinessImage, modelBackendMode)
 	if err != nil {
 		service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
-		writeBackendFailure(w, err)
+		service.writeBackendFailure(w, err)
 		return
 	}
 
@@ -336,5 +336,5 @@ func writeImageModelError(service *Service, w http.ResponseWriter, r *http.Reque
 		return
 	}
 	service.logger.Printf("image model lookup failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
-	openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+	service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
 }

@@ -215,7 +215,7 @@ func (service *Service) handleVLLMResponseOperation(w http.ResponseWriter, r *ht
 		response, _, err = service.forwardWithFallbackObserved(r.Context(), r, body, target.localID, target.configFilename, true, readinessText, BackendModeVLLM)
 	}
 	if err != nil {
-		writeBackendFailure(w, err)
+		service.writeBackendFailure(w, err)
 		return
 	}
 	if response.StatusCode >= 200 && response.StatusCode < 300 && (action == "cancel" || r.Method == http.MethodDelete) {

@@ -78,7 +78,7 @@ func (service *Service) handleRouterModels(w http.ResponseWriter, _ *http.Reques
 
 	models, err := service.catalog.List()
 	if err != nil {
-		openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+		service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, map[string]any{
@@ -97,7 +97,7 @@ func (service *Service) handleNodeModels(w http.ResponseWriter, r *http.Request)
 
 	models, err := service.catalog.List()
 	if err != nil {
-		openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+		service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, cluster.Snapshot{
@@ -138,7 +138,7 @@ func (service *Service) handleNodeRegister(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := service.clusterClient.AllowBaseURLs(snapshot.NodeURL); err != nil {
-		openai.WriteError(w, http.StatusInternalServerError, "cluster_error", err.Error())
+		service.writeClientError(w, http.StatusInternalServerError, "cluster_error", err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, map[string]any{
@@ -189,13 +189,13 @@ func (service *Service) handleRouterLoad(w http.ResponseWriter, r *http.Request)
 	defer cancel()
 
 	if err := service.loadPublicModel(ctx, control.Model); err != nil {
-		writeRouterLoadError(w, err)
+		service.writeRouterLoadError(w, err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
-func writeRouterLoadError(w http.ResponseWriter, err error) {
+func (service *Service) writeRouterLoadError(w http.ResponseWriter, err error) {
 	var notFound modelNotFoundError
 	if errors.As(err, &notFound) {
 		openai.WriteError(w, http.StatusNotFound, "invalid_request_error", notFound.Error())
@@ -203,14 +203,14 @@ func writeRouterLoadError(w http.ResponseWriter, err error) {
 	}
 	diagnostic, ok := backenddiagnostic.FromError(err)
 	if !ok {
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusBadGateway, struct {
 		Error             openai.ErrorDetail           `json:"error"`
 		BackendDiagnostic backenddiagnostic.Diagnostic `json:"backend_diagnostic"`
 	}{
-		Error:             openai.ErrorDetail{Message: err.Error(), Type: "backend_error"},
+		Error:             openai.ErrorDetail{Message: service.loggedClientErrorMessage(err), Type: "backend_error"},
 		BackendDiagnostic: diagnostic,
 	})
 }
@@ -230,7 +230,7 @@ func (service *Service) handleRouterUnload(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	if err := service.unloadPublicModel(ctx, control.Model, target); err != nil {
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, map[string]any{"ok": true})

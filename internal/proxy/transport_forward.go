@@ -10,7 +10,6 @@ import (
 	"time"
 
 	routeranalytics "tensors-router/internal/analytics"
-	"tensors-router/internal/openai"
 	"tensors-router/internal/transportbody"
 )
 
@@ -24,6 +23,10 @@ func (err nonReplayableTransportError) Error() string {
 
 func (err nonReplayableTransportError) Unwrap() error {
 	return err.cause
+}
+
+func (err nonReplayableTransportError) clientMessage() string {
+	return fmt.Sprintf("streaming request cannot be retried after outbound body consumption: %s; retry with the original client stream", clientErrorMessage(err.cause))
 }
 
 func (service *Service) forwardTransportRoute(r *http.Request, body transportbody.Body, route transportRoute) (*http.Response, routeranalytics.Event, routeranalytics.EventFinalizer, error) {
@@ -131,7 +134,11 @@ func (service *Service) forwardTransportRemote(ctx context.Context, original *ht
 	}
 	target.Path = joinPath(target.Path, nodeInferencePrefix+original.URL.Path)
 	target.RawQuery = original.URL.RawQuery
-	return service.doTransportAttempts(ctx, original, target, body, nil, true)
+	response, err := service.doTransportAttempts(ctx, original, target, body, nil, true)
+	if isConnectionFailure(err) {
+		return nil, service.nodeUnreachable("", nodeURL, err)
+	}
+	return response, err
 }
 
 func (service *Service) doTransportAttempts(ctx context.Context, original *http.Request, target *url.URL, body transportbody.Body, backend Backend, clusterRequest bool) (*http.Response, error) {
@@ -218,14 +225,14 @@ func closeTransportResponse(response *http.Response) {
 	}
 }
 
-func writeTransportForwardError(w http.ResponseWriter, err error) {
+func (service *Service) writeTransportForwardError(w http.ResponseWriter, err error) {
 	var nonReplayable nonReplayableTransportError
 	switch {
 	case errors.Is(err, transportbody.ErrRequestTooLarge):
 		writeTransportError(w, transportbody.ErrRequestTooLarge)
 	case errors.As(err, &nonReplayable):
-		openai.WriteError(w, http.StatusBadGateway, "non_replayable_transport_error", err.Error())
+		service.writeClientError(w, http.StatusBadGateway, "non_replayable_transport_error", err)
 	default:
-		writeBackendFailure(w, err)
+		service.writeBackendFailure(w, err)
 	}
 }

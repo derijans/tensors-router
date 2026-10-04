@@ -40,7 +40,7 @@ func (service *Service) handlePublicMCP(w http.ResponseWriter, r *http.Request) 
 	}
 	model, ok, err := service.catalog.Resolve(modelID)
 	if err != nil {
-		openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+		service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
 		return
 	}
 	if !ok || !model.MCPEnabled {
@@ -73,7 +73,7 @@ func (service *Service) handleClusterMCP(w http.ResponseWriter, r *http.Request,
 	}
 	localModel, ok, err := service.catalog.Resolve(route.LocalID)
 	if err != nil {
-		openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+		service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
 		return
 	}
 	if !ok || !localModel.MCPEnabled {
@@ -95,7 +95,7 @@ func (service *Service) handleNodeMCP(w http.ResponseWriter, r *http.Request) {
 	}
 	model, ok, err := service.catalog.Resolve(modelID)
 	if err != nil {
-		openai.WriteError(w, http.StatusInternalServerError, "catalog_error", err.Error())
+		service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
 		return
 	}
 	if !ok || !model.MCPEnabled {
@@ -108,7 +108,7 @@ func (service *Service) handleNodeMCP(w http.ResponseWriter, r *http.Request) {
 func (service *Service) handleLocalMCP(w http.ResponseWriter, r *http.Request, model catalog.Model) {
 	enabled, err := service.localModelEnabled(r.Context(), model.ID)
 	if err != nil {
-		openai.WriteError(w, http.StatusInternalServerError, "model_state_error", err.Error())
+		service.writeClientError(w, http.StatusInternalServerError, "model_state_error", err)
 		return
 	}
 	if !enabled {
@@ -124,12 +124,12 @@ func (service *Service) handleLocalMCP(w http.ResponseWriter, r *http.Request, m
 	defer cancel()
 	runtime, release, _, err := service.acquireExactModelConfigForBackendMode(backendMode, modelContext, model.ID, model.Filename, readinessText)
 	if err != nil {
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 		return
 	}
 	defer release()
 	if err := service.mcpGateway.ServeHTTP(w, r, mcp.Target{Backend: backendMode, URL: runtime.backend.URL()}); err != nil {
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 	}
 }
 
@@ -141,12 +141,12 @@ func (service *Service) forwardRemoteMCP(w http.ResponseWriter, r *http.Request,
 	}
 	baseURL, err := service.clusterClient.AuthorizedBaseURL(route.NodeURL)
 	if err != nil {
-		openai.WriteError(w, http.StatusBadGateway, "cluster_error", err.Error())
+		service.writeClientError(w, http.StatusBadGateway, "cluster_error", err)
 		return
 	}
 	target, err := url.Parse(baseURL)
 	if err != nil {
-		openai.WriteError(w, http.StatusBadGateway, "cluster_error", err.Error())
+		service.writeClientError(w, http.StatusBadGateway, "cluster_error", err)
 		return
 	}
 	target.Path = joinPath(target.Path, "/router/v1/node/mcp")
@@ -157,7 +157,7 @@ func (service *Service) forwardRemoteMCP(w http.ResponseWriter, r *http.Request,
 	defer cancel()
 	request, err := http.NewRequestWithContext(requestContext, http.MethodPost, target.String(), bytes.NewReader(content))
 	if err != nil {
-		openai.WriteError(w, http.StatusBadGateway, "cluster_error", err.Error())
+		service.writeClientError(w, http.StatusBadGateway, "cluster_error", err)
 		return
 	}
 	copyBackendHeaders(request.Header, r.Header)
@@ -172,7 +172,7 @@ func (service *Service) forwardRemoteMCP(w http.ResponseWriter, r *http.Request,
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		openai.WriteError(w, http.StatusBadGateway, "cluster_error", err.Error())
+		service.writeClientError(w, http.StatusBadGateway, "cluster_error", service.nodeUnreachable(route.NodeID, route.NodeURL, err))
 		return
 	}
 	defer response.Body.Close()
@@ -182,7 +182,7 @@ func (service *Service) forwardRemoteMCP(w http.ResponseWriter, r *http.Request,
 	}
 	responseBody, err := io.ReadAll(io.LimitReader(response.Body, service.maxControlBodyBytes+1))
 	if err != nil {
-		openai.WriteError(w, http.StatusBadGateway, "cluster_error", err.Error())
+		service.writeClientError(w, http.StatusBadGateway, "cluster_error", err)
 		return
 	}
 	if int64(len(responseBody)) > service.maxControlBodyBytes {

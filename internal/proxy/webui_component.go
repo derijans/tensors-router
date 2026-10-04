@@ -25,6 +25,8 @@ type webUIDeps interface {
 	clusterIdentity() clusterIdentity
 	nodeProxyToken() string
 	httpClient() *http.Client
+	writeClientError(w http.ResponseWriter, status int, errorType string, err error)
+	loggedClientErrorMessage(err error) string
 }
 
 type webUIProxy struct {

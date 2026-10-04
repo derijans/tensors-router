@@ -68,7 +68,7 @@ func (service *Service) handleVLLMAdmin(w http.ResponseWriter, r *http.Request) 
 	forwarded.URL.RawQuery = ""
 	response, err := service.forward(runtime, r.Context(), forwarded, body)
 	if err != nil {
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 		return
 	}
 	if err := service.writeProxyResponse(w, response, "", false); err != nil {

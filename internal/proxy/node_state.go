@@ -72,7 +72,7 @@ func (service *Service) handleSiteNodeState(w http.ResponseWriter, r *http.Reque
 	}
 	state, err := service.nodeState(r.Context(), nodeID)
 	if err != nil {
-		writeNodeStateError(w, err)
+		service.writeNodeStateError(w, err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, state)
@@ -94,7 +94,7 @@ func (service *Service) handleSiteNodeUnload(w http.ResponseWriter, r *http.Requ
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), modelOperationTimeout)
 	defer cancel()
 	if err := service.unloadNodeRuntime(ctx, request); err != nil {
-		writeNodeStateError(w, err)
+		service.writeNodeStateError(w, err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -112,7 +112,7 @@ func (service *Service) handleNodeStateUnload(w http.ResponseWriter, r *http.Req
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), modelOperationTimeout)
 	defer cancel()
 	if err := service.unloadLocalRuntime(ctx, request); err != nil {
-		writeNodeStateError(w, err)
+		service.writeNodeStateError(w, err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, map[string]bool{"ok": true})
@@ -129,7 +129,7 @@ func (service *Service) handleSiteBackendInitialization(w http.ResponseWriter, r
 	}
 	job, err := service.initializeNodeBackend(r.Context(), request)
 	if err != nil {
-		writeBackendInitializationError(w, err)
+		service.writeBackendInitializationError(w, err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusAccepted, job)
@@ -146,7 +146,7 @@ func (service *Service) handleSiteBackendInitializationCancel(w http.ResponseWri
 	}
 	job, err := service.cancelNodeBackendInitialization(r.Context(), request)
 	if err != nil {
-		writeBackendInitializationError(w, err)
+		service.writeBackendInitializationError(w, err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, job)
@@ -163,7 +163,7 @@ func (service *Service) handleNodeBackendInitialization(w http.ResponseWriter, r
 	}
 	job, err := service.initializeLocalBackend(r.Context(), request)
 	if err != nil {
-		writeBackendInitializationError(w, err)
+		service.writeBackendInitializationError(w, err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusAccepted, job)
@@ -180,7 +180,7 @@ func (service *Service) handleNodeBackendInitializationCancel(w http.ResponseWri
 	}
 	job, err := service.cancelLocalBackendInitialization(r.Context(), request)
 	if err != nil {
-		writeBackendInitializationError(w, err)
+		service.writeBackendInitializationError(w, err)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, job)
@@ -270,10 +270,10 @@ func (service *Service) cancelLocalBackendInitialization(ctx context.Context, _ 
 	return service.vllm.CancelInitialization(ctx)
 }
 
-func writeBackendInitializationError(w http.ResponseWriter, err error) {
+func (service *Service) writeBackendInitializationError(w http.ResponseWriter, err error) {
 	var remoteError *cluster.RemoteError
 	if errors.As(err, &remoteError) {
-		writeNodeStateError(w, err)
+		service.writeNodeStateError(w, err)
 		return
 	}
 	if strings.HasPrefix(err.Error(), "unknown node") {
@@ -281,10 +281,10 @@ func writeBackendInitializationError(w http.ResponseWriter, err error) {
 		return
 	}
 	if strings.Contains(err.Error(), "companion is unavailable") {
-		openai.WriteError(w, http.StatusServiceUnavailable, "backend_not_initialized", err.Error())
+		service.writeClientError(w, http.StatusServiceUnavailable, "backend_not_initialized", err)
 		return
 	}
-	openai.WriteError(w, http.StatusBadGateway, "backend_initialization_error", err.Error())
+	service.writeClientError(w, http.StatusBadGateway, "backend_initialization_error", err)
 }
 
 func decodeNodeUnloadRequest(w http.ResponseWriter, r *http.Request) (siteapi.NodeUnloadRequest, bool) {
@@ -526,7 +526,7 @@ func (service *Service) unloadLocalRuntime(ctx context.Context, request siteapi.
 	return service.unloadRuntimeIfGeneration(ctx, selected, request.ExpectedGeneration)
 }
 
-func writeNodeStateError(w http.ResponseWriter, err error) {
+func (service *Service) writeNodeStateError(w http.ResponseWriter, err error) {
 	if errors.Is(err, errRuntimeGenerationChanged) {
 		openai.WriteError(w, http.StatusConflict, "runtime_conflict", err.Error())
 		return
@@ -552,5 +552,5 @@ func writeNodeStateError(w http.ResponseWriter, err error) {
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
-	openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+	service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 }

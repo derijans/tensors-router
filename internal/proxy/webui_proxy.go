@@ -52,7 +52,7 @@ func (webUI *webUIProxy) handleSiteWebUIProxy(w http.ResponseWriter, r *http.Req
 	started := time.Now()
 	response, usageInjected, err := webUI.forwardWebUIProxy(r.Context(), r, body, definition, strippedPath, route, siteWebUIProxyPrefix)
 	if err != nil {
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		webUI.deps.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 		return
 	}
 	response = webUI.webUIProxyResponseWithAnalytics(response, started, r, body, definition, strippedPath, route)
@@ -86,7 +86,7 @@ func (webUI *webUIProxy) handleNodeWebUIProxy(w http.ResponseWriter, r *http.Req
 	started := time.Now()
 	response, usageInjected, err := webUI.forwardLocalWebUIProxy(r.Context(), r, body, definition, strippedPath, route, nodeWebUIProxyPrefix)
 	if err != nil {
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		webUI.deps.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 		return
 	}
 	response = webUI.webUIProxyResponseWithAnalytics(response, started, r, body, definition, strippedPath, route)

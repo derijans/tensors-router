@@ -70,7 +70,7 @@ func (service *Service) handleStreamingRequest(w http.ResponseWriter, r *http.Re
 		if event.ModelID != "" {
 			service.analytics.recordForwardFailure(request.Context(), event, err, finalizer)
 		}
-		writeTransportForwardError(w, err)
+		service.writeTransportForwardError(w, err)
 		return
 	}
 	if isSdcppJobSubmissionPath(request.URL.Path) {

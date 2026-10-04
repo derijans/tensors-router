@@ -61,7 +61,7 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 		if recordAnalytics {
 			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
 		}
-		writeBackendFailure(w, err)
+		service.writeBackendFailure(w, err)
 		return true
 	}
 	if r.URL.Path == "/v1/responses" {
@@ -120,7 +120,7 @@ func (service *Service) handleRecipeImageRequest(w http.ResponseWriter, r *http.
 		jobBackendMode = backendMode
 		if backendMode == BackendModeLlamaSDCPP && component.ModelID != "" {
 			if err := service.loadLocalRuntimeForRequest(r.Context(), backendMode, component.ModelID, component.ConfigFilename, readinessText); err != nil {
-				openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+				service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 				return true
 			}
 		}
@@ -133,7 +133,7 @@ func (service *Service) handleRecipeImageRequest(w http.ResponseWriter, r *http.
 		if recordAnalytics {
 			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
 		}
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 		return true
 	}
 	if isSdcppJobSubmissionPath(r.URL.Path) {
@@ -277,7 +277,7 @@ func (service *Service) handleRecipeAudioRequest(w http.ResponseWriter, r *http.
 		if backendMode == BackendModeLlamaSDCPP {
 			model, ok, modelErr := service.recipeComponentModel(component)
 			if modelErr != nil {
-				openai.WriteError(w, http.StatusInternalServerError, "catalog_error", modelErr.Error())
+				service.writeClientError(w, http.StatusInternalServerError, "catalog_error", modelErr)
 				return true
 			}
 			if !ok || lane == recipes.KindMusic || !modelSupportsLlamaAudioPath(model, r.URL.Path) {
@@ -295,7 +295,7 @@ func (service *Service) handleRecipeAudioRequest(w http.ResponseWriter, r *http.
 		if recordAnalytics {
 			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
 		}
-		openai.WriteError(w, http.StatusBadGateway, "backend_error", err.Error())
+		service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 		return true
 	}
 	if recordAnalytics {
