@@ -158,10 +158,13 @@ func formatBenchmarkMetric(metric routerbenchmark.Metric) string {
 	if metric.Unit == "ms" || metric.DurationMS > 0 {
 		return fmt.Sprintf("%s=%dms", metric.Name, metric.DurationMS)
 	}
-	if metric.Unit != "" {
-		return fmt.Sprintf("%s=%.2f %s", metric.Name, metric.Value, metric.Unit)
+	if metric.Value == nil {
+		return metric.Name + "=" + metric.Status
 	}
-	return fmt.Sprintf("%s=%.2f", metric.Name, metric.Value)
+	if metric.Unit != "" {
+		return fmt.Sprintf("%s=%.2f %s", metric.Name, *metric.Value, metric.Unit)
+	}
+	return fmt.Sprintf("%s=%.2f", metric.Name, *metric.Value)
 }
 
 func splitBenchmarkSections(value string) []string {

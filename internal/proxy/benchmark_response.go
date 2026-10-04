@@ -80,7 +80,7 @@ func successValueMetric(name string, value float64, unit string) routerbenchmark
 	return routerbenchmark.Metric{
 		Name:   name,
 		Status: routerbenchmark.StatusSuccess,
-		Value:  value,
+		Value:  &value,
 		Unit:   unit,
 	}
 }

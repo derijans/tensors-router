@@ -307,8 +307,8 @@ func sectionMetricValue(sections []Summary, section string, name string) (float6
 			continue
 		}
 		for _, metric := range summary.Metrics {
-			if metric.Name == name && metric.Status == StatusSuccess {
-				return metric.Value, true
+			if metric.Name == name && metric.Status == StatusSuccess && metric.Value != nil {
+				return *metric.Value, true
 			}
 		}
 	}
@@ -328,7 +328,7 @@ func countMetric(name string, value int) Metric {
 	return Metric{
 		Name:   name,
 		Status: StatusSuccess,
-		Value:  float64(value),
+		Value:  new(float64(value)),
 		Unit:   "count",
 	}
 }
@@ -337,7 +337,7 @@ func valueMetric(name string, value float64, unit string) Metric {
 	return Metric{
 		Name:   name,
 		Status: StatusSuccess,
-		Value:  value,
+		Value:  &value,
 		Unit:   unit,
 	}
 }

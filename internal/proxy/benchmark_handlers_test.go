@@ -88,7 +88,7 @@ func TestBenchmarkRecordsLoadTimeAndTokensPerSecond(t *testing.T) {
 		t.Fatalf("missing model load metric %#v", record.Sections[routerbenchmark.SectionRuntime].Metrics)
 	}
 	llmMetric, ok := benchmarkMetricForTest(record.Sections[routerbenchmark.SectionLLM], routerbenchmark.MetricTokensPerSecond)
-	if !ok || llmMetric.Value != 128.5 {
+	if !ok || llmMetric.Value == nil || *llmMetric.Value != 128.5 {
 		t.Fatalf("missing tokens/sec metric %#v", record.Sections[routerbenchmark.SectionLLM].Metrics)
 	}
 	startMetric, ok := benchmarkMetricForTest(*record.Latest, routerbenchmark.MetricTotalStartMS)

@@ -82,12 +82,12 @@ type Summary struct {
 }
 
 type Metric struct {
-	Name       string  `json:"name"`
-	Status     string  `json:"status"`
-	DurationMS int64   `json:"duration_ms,omitempty"`
-	Value      float64 `json:"value,omitempty"`
-	Unit       string  `json:"unit,omitempty"`
-	Error      string  `json:"error,omitempty"`
+	Name       string   `json:"name"`
+	Status     string   `json:"status"`
+	DurationMS int64    `json:"duration_ms,omitempty"`
+	Value      *float64 `json:"value,omitempty"`
+	Unit       string   `json:"unit,omitempty"`
+	Error      string   `json:"error,omitempty"`
 }
 
 type OptionChange struct {
