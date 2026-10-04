@@ -28,13 +28,17 @@ export function nodeCardID(placement: NodeCardPlacement, nodeID: string): string
   return `nodeCard-${placement}-${nodeID}`;
 }
 
+export function nodeDisplayName(node: NodeInventory): string {
+  return node.node_id || node.node_url || "unknown node";
+}
+
 export function clusterBuildVersion(nodes: readonly NodeInventory[]): string {
   const master = nodes.find(node => node.role === "master") ?? nodes[0];
   return master?.build_version ?? "";
 }
 
 export function renderNodeCard(node: NodeInventory, context: NodeCardContext): SafeHTML {
-  const nodeID = node.node_id || node.node_url || "unknown";
+  const nodeID = nodeDisplayName(node);
   return html`
     <article id="${nodeCardID(context.placement, node.node_id)}" class="card node-card${context.expanded ? " selected" : ""}">
       <header class="node-card-head">

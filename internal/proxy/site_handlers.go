@@ -153,6 +153,7 @@ func (service *Service) siteInventory(ctx context.Context, includeFiles bool) (s
 		}
 		results := clusterfan.NodesWithin(ctx, service.remoteInventoryURLs(), timeout, clusterfan.Limit, func(nodeContext context.Context, nodeURL string) (siteapi.NodeInventory, error) {
 			remoteNode := siteapi.NodeInventory{
+				NodeID:    service.nodeIDForURL(nodeURL),
 				NodeURL:   nodeURL,
 				Source:    cluster.SourceSlave,
 				Role:      cluster.RoleSlave,

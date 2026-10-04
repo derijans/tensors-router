@@ -1,5 +1,5 @@
 import { formatCount, formatDecimal, promptSpeedPrefix } from "../analytics-data";
-import { clusterBuildVersion } from "../node-card-view";
+import { clusterBuildVersion, nodeDisplayName } from "../node-card-view";
 import { formatGigabytes, gigabyteFigure } from "../node-memory-data";
 import { filledBucketStarts } from "../lane-series";
 import type {
@@ -172,22 +172,18 @@ function captureItems(captures: readonly LoadCaptureAttempt[]): AttentionItem[] 
 function nodeHealthItems(nodes: readonly NodeInventory[]): AttentionItem[] {
   const buildVersion = clusterBuildVersion(nodes);
   return nodes.flatMap((node): AttentionItem[] => {
-    const items: AttentionItem[] = [];
+    const name = nodeDisplayName(node);
+    const nodeItem = (key: string, tone: Tone, title: string, detail: string): AttentionItem =>
+      ({key: `${key}-${name}`, tone, title, detail, actionLabel: "Node", target: {kind: "node", nodeID: node.node_id}});
     if (!node.available) {
-      items.push({key: `down-${node.node_id}`, tone: "danger", title: `${node.node_id} is down`, detail: node.node_url || "No response from the node", actionLabel: "Node", target: {kind: "node", nodeID: node.node_id}});
+      return [nodeItem("down", "danger", `${name} is down`, node.error || node.node_url || "No response from the node")];
     }
+    const items: AttentionItem[] = [];
     if (node.error) {
-      items.push({key: `scan-${node.node_id}`, tone: "danger", title: `${node.node_id} scan failed`, detail: node.error, actionLabel: "Node", target: {kind: "node", nodeID: node.node_id}});
+      items.push(nodeItem("scan", "danger", `${name} scan failed`, node.error));
     }
     if (buildVersion !== "" && node.build_version !== buildVersion) {
-      items.push({
-        key: `build-${node.node_id}`,
-        tone: "warning",
-        title: `${node.node_id} runs ${node.build_version || "an unknown build"}`,
-        detail: `The master runs ${buildVersion}`,
-        actionLabel: "Node",
-        target: {kind: "node", nodeID: node.node_id}
-      });
+      items.push(nodeItem("build", "warning", `${name} runs ${node.build_version || "an unknown build"}`, `The master runs ${buildVersion}`));
     }
     return items;
   });

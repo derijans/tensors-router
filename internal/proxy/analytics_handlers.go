@@ -40,7 +40,7 @@ func (service *Service) handleSiteAnalyticsFlush(w http.ResponseWriter, r *http.
 		})
 		for _, result := range results {
 			if result.Err != nil {
-				response.NodeErrors = append(response.NodeErrors, routeranalytics.NodeError{NodeURL: result.Target, Error: result.Err.Error()})
+				response.NodeErrors = append(response.NodeErrors, routeranalytics.NodeError{NodeID: service.nodeIDForURL(result.Target), NodeURL: result.Target, Error: result.Err.Error()})
 				continue
 			}
 			response.FlushedNodes = append(response.FlushedNodes, result.Value.FlushedNodes...)
@@ -96,6 +96,7 @@ func (service *Service) analyticsResponse(r *http.Request, query routeranalytics
 					To:          query.EndMS,
 					Granularity: routeranalytics.Granularity(query),
 					NodeErrors: []routeranalytics.NodeError{{
+						NodeID:  service.nodeIDForURL(result.Target),
 						NodeURL: result.Target,
 						Error:   result.Err.Error(),
 					}},

@@ -152,6 +152,18 @@ describe("needs attention", () => {
     expect(items[0]?.detail).toBe("The master runs 0.6.14");
     expect(items.every(item => item.target.kind === "node")).toBe(true);
   });
+
+  it("reports an unreachable node once, by its URL when the id is unknown", () => {
+    const nodes = [
+      inventoryNode("atlas", {role: "master"}),
+      inventoryNode("", {available: false, node_url: "http://10.0.0.7:8080", build_version: "", error: "node is unreachable"})
+    ];
+    const items = attentionItems(sources({nodes}));
+
+    expect(items.map(item => [item.title, item.detail])).toEqual([
+      ["http://10.0.0.7:8080 is down", "node is unreachable"]
+    ]);
+  });
 });
 
 describe("recent requests", () => {
