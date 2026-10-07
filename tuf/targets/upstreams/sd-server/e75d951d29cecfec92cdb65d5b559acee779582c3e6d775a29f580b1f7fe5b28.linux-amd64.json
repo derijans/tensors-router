@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "405135271",
+      "tag": "master-945-a1ded76",
+      "published_at": "2026-10-06T20:56:44Z",
+      "payloads": [
+        {
+          "name": "sd-master-a1ded76-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-945-a1ded76/sd-master-a1ded76-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 26068516,
+          "sha256": "417afdd014478a1ffeb1acdfec16c71b5b46c5fb5de2a92810a5ca0714441fbd"
+        }
+      ]
+    }
+  ]
+}
