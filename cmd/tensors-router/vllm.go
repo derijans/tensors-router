@@ -15,7 +15,7 @@ import (
 	"tensors-router/internal/vllm"
 )
 
-func optionalVLLMCompanion(routerConfigPath string, configuration config.VLLMConfig, logger *log.Logger) (vllm.Service, string) {
+func optionalVLLMCompanion(ctx context.Context, routerConfigPath string, configuration config.VLLMConfig, logger *log.Logger) (vllm.Service, string) {
 	if !vllm.SupportedPlatform() {
 		return nil, vllm.UnsupportedReason()
 	}
@@ -48,7 +48,7 @@ func optionalVLLMCompanion(routerConfigPath string, configuration config.VLLMCon
 		// digest for a file it will not read.
 		manifestPath = ""
 	}
-	client, err := vllm.StartClient(context.Background(), binaryPath, vllm.ClientConfig{
+	client, err := vllm.StartClient(ctx, binaryPath, vllm.ClientConfig{
 		DataDir:                 resolveVLLMPath(configDirectory, configuration.DataDir),
 		DefaultProfile:          configuration.Profile,
 		ManifestPath:            manifestPath,

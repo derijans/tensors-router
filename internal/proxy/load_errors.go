@@ -44,6 +44,10 @@ func (service *Service) RecordConfigWarnings(warnings []string) {
 	}
 }
 
+func (service *Service) RecordLoadFailure(phase loaderrors.Phase, source string, err error) {
+	service.recordLoadErrorFromErr(phase, source, "", err)
+}
+
 func (service *Service) recordLoadErrorFromErr(phase loaderrors.Phase, source string, configName string, err error, secrets ...string) {
 	if err == nil || service.loadErrorStore == nil {
 		return

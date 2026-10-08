@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -149,12 +150,14 @@ func runServe(args []string) error {
 	var vllmUnavailableReason string
 	var routerService *proxy.Service
 	var shutdownBackends []func(context.Context) error
+	var backendStartup *backgroundStartup
 	runtimeCleaned := false
 	cleanupRuntime := func() error {
 		if runtimeCleaned {
 			return nil
 		}
 		runtimeCleaned = true
+		backendStartup.Stop()
 		runtimeErr := errors.Join(
 			closeRouterRuntime(routerService, modelCatalog, analyticsStore, shutdownBackends, serveLogger),
 			closeDownloader(downloaderManager),
@@ -247,7 +250,7 @@ func runServe(args []string) error {
 	clusterProbeClient := routercluster.NewClientWithTimeout(cfg.Cluster.Token, cfg.Cluster.ControlTimeout, clusterProbeTargets(cfg)...)
 	clusterClient := routercluster.NewClientWithTimeout(cfg.Cluster.Token, cfg.Cluster.ControlTimeout, clusterRoutingTargets(cfg)...)
 	downloaderManager, downloaderCapability := optionalDownloader(*configPath, cfg.Downloader, startupLogger)
-	vllmManager, vllmUnavailableReason = optionalVLLMCompanion(*configPath, cfg.VLLM, startupLogger)
+	vllmManager, vllmUnavailableReason = optionalVLLMCompanion(ctx, *configPath, cfg.VLLM, startupLogger)
 	if vllmUnavailableReason != "" {
 		startupLogger.Printf("vLLM companion unavailable reason=%q", vllmUnavailableReason)
 	}
@@ -283,7 +286,7 @@ func runServe(args []string) error {
 		serveLogger.Printf("ffmpeg located at %s", ffmpegTool.Path())
 	}
 
-	backendFamilies, backendShutdowns, err := createBackends(ctx, cfg, mcpReconciler, llamaVideoFFmpegDir(ffmpegTool))
+	backendFamilies, backendShutdowns, err := createBackends(cfg, mcpReconciler, llamaVideoFFmpegDir(ffmpegTool))
 	if err != nil {
 		return err
 	}
@@ -372,26 +375,23 @@ func runServe(args []string) error {
 	}
 	router.StartSchedulingRefresh(ctx)
 	syncErrors := routercluster.StartSync(ctx, syncConfig, registry, clusterProbeClient, serveLogger)
-	startupModel := strings.TrimSpace(cfg.Models.StartupModel)
-	if startupModel != "" {
-		serveLogger.Printf("startup model preload attempt model=%q", startupModel)
-		if err := router.PreloadModel(ctx, startupModel); err != nil {
-			return err
-		}
-		serveLogger.Printf("startup model preload succeeded model=%q", startupModel)
-	}
 
 	server := &http.Server{
 		Addr:              cfg.Server.Bind,
 		Handler:           authPolicy.Middleware(router),
 		ReadHeaderTimeout: 15 * time.Second,
 	}
-
+	listener, err := net.Listen("tcp", cfg.Server.Bind)
+	if err != nil {
+		router.BeginDrain()
+		return err
+	}
+	startupLogger.Printf("listener ready address=%s", listener.Addr())
 	errs := make(chan error, 1)
 	go func() {
-		startupLogger.Printf("listener ready address=%s", cfg.Server.Bind)
-		errs <- server.ListenAndServe()
+		errs <- server.Serve(listener)
 	}()
+	backendStartup = startInBackground(ctx, serveLogger, backendStartupSteps(cfg, backendFamilies, router), router.RecordLoadFailure)
 
 	var serveErr error
 	select {
@@ -545,7 +545,7 @@ func clusterRoutingTargets(cfg config.Config) []string {
 	return []string{cfg.Cluster.PublicURL, cfg.Cluster.MasterURL}
 }
 
-func createBackends(ctx context.Context, cfg config.Config, mcpReconciler *mcp.Reconciler, videoFFmpegDir string) (map[string]proxy.BackendFamilyConfig, []func(context.Context) error, error) {
+func createBackends(cfg config.Config, mcpReconciler *mcp.Reconciler, videoFFmpegDir string) (map[string]proxy.BackendFamilyConfig, []func(context.Context) error, error) {
 	koboldManager, err := kobold.NewManager(koboldProcessConfig(cfg, mcpReconciler))
 	if err != nil {
 		return nil, nil, err
@@ -564,12 +564,6 @@ func createBackends(ctx context.Context, cfg config.Config, mcpReconciler *mcp.R
 	whisperCPPManager, err := native.NewWhisperCPPManager(whisperCPPProcessConfig(cfg))
 	if err != nil {
 		return nil, nil, err
-	}
-
-	if cfg.Backend.Mode == proxy.BackendModeKobold {
-		if err := koboldManager.Start(ctx); err != nil {
-			return nil, nil, err
-		}
 	}
 
 	families := map[string]proxy.BackendFamilyConfig{
