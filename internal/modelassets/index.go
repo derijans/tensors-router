@@ -58,6 +58,8 @@ type hashFlight struct {
 	err  error
 }
 
+const indexConnectionPragmas = "_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)&_txlock=immediate"
+
 func NewIndex(storeDir string, sharedDir string) (*Index, error) {
 	if strings.TrimSpace(storeDir) == "" {
 		return nil, fmt.Errorf("asset store directory is required")
@@ -69,7 +71,10 @@ func NewIndex(storeDir string, sharedDir string) (*Index, error) {
 		return nil, err
 	}
 	databasePath := filepath.Join(storeDir, "model-assets.sqlite")
-	db, err := sql.Open("sqlite", databasePath)
+	if strings.Contains(databasePath, "?") {
+		return nil, fmt.Errorf("asset store directory %q must not contain '?'", storeDir)
+	}
+	db, err := sql.Open("sqlite", databasePath+"?"+indexConnectionPragmas)
 	if err != nil {
 		return nil, err
 	}
@@ -91,9 +96,6 @@ func NewIndex(storeDir string, sharedDir string) (*Index, error) {
 
 func (index *Index) initialize() error {
 	statements := []string{
-		`PRAGMA journal_mode=WAL`,
-		`PRAGMA busy_timeout=5000`,
-		`PRAGMA foreign_keys=ON`,
 		`CREATE TABLE IF NOT EXISTS assets(sha256 TEXT PRIMARY KEY, filename TEXT NOT NULL, size INTEGER NOT NULL, path TEXT NOT NULL, repository TEXT NOT NULL DEFAULT '', repository_path TEXT NOT NULL DEFAULT '', commit_hash TEXT NOT NULL DEFAULT '', verification_source TEXT NOT NULL DEFAULT '', verified_at TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS path_cache(path TEXT PRIMARY KEY, size INTEGER NOT NULL, mod_time_nano INTEGER NOT NULL, sha256 TEXT NOT NULL)`,
 		`CREATE TABLE IF NOT EXISTS hf_origins(sha256 TEXT PRIMARY KEY, repository TEXT NOT NULL, repository_path TEXT NOT NULL, commit_hash TEXT NOT NULL, verified_at TEXT NOT NULL)`,
