@@ -255,8 +255,7 @@ func (service *Service) reloadHeldModelConfig(runtime *backendRuntime, ctx conte
 	state.joinQueueLocked(ticket, neverSatisfied)
 	for {
 		// Our own lease is the one user we expect; anything more means another request is
-		// still on the backend and must finish first. Queue order does not apply here:
-		// older switch waiters are waiting for this very lease to end.
+		// still on the backend and must finish first.
 		if state.switching || state.users > 1 {
 			changed := state.changed
 			state.mu.Unlock()
