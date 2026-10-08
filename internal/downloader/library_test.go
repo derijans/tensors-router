@@ -111,3 +111,29 @@ func sha256Text(t *testing.T, content string) string {
 	}
 	return hash
 }
+
+func TestKnownArtifactScanKeepsTheProvenanceOfDownloadedFiles(t *testing.T) {
+	manager := transferTestManager(t, "http://hub.invalid")
+	path := filepath.Join(manager.config.Storage.Root, "owner", "model", "model.gguf")
+	writeLibraryFile(t, path, "downloaded weights")
+	hash := sha256Text(t, "downloaded weights")
+	if err := WriteHashSidecar(path, hash); err != nil {
+		t.Fatal(err)
+	}
+	downloaded, err := artifactFromFile(path, hash, "owner/model", "model.gguf", libraryTestCommit, "download")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.recordArtifact(downloaded); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := manager.ScanKnownArtifacts(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	record, found, err := manager.store.Artifact(path)
+	if err != nil || !found || record.Repository != "owner/model" || record.Revision != libraryTestCommit || record.VerificationSource != "download" {
+		t.Fatalf("start scan rewrote the downloaded artifact found=%t error=%v record=%#v", found, err, record)
+	}
+}

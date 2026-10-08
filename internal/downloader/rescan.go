@@ -56,21 +56,23 @@ func (manager *Manager) scanLibrary(ctx context.Context) ([]ArtifactRecord, []Un
 }
 
 func (manager *Manager) knownArtifact(filePath string, info os.FileInfo) (ArtifactRecord, bool, error) {
-	if hash, trusted, err := ReadTrustedHashSidecar(filePath); err != nil {
-		return ArtifactRecord{}, false, err
-	} else if trusted {
-		record, err := artifactFromFile(filePath, hash, "", "", "", "sidecar")
-		if err != nil {
-			return ArtifactRecord{}, false, err
-		}
-		saved, err := manager.recordArtifact(record)
-		return saved, true, err
-	}
 	record, found, err := manager.store.Artifact(filePath)
-	if err != nil || !found || !record.describes(info) {
+	if err != nil {
 		return ArtifactRecord{}, false, err
 	}
-	return record, true, manager.notifyArtifact(record)
+	if found && record.describes(info) {
+		return record, true, manager.notifyArtifact(record)
+	}
+	hash, trusted, err := ReadTrustedHashSidecar(filePath)
+	if err != nil || !trusted {
+		return ArtifactRecord{}, false, err
+	}
+	sidecarRecord, err := artifactFromFile(filePath, hash, "", "", "", "sidecar")
+	if err != nil {
+		return ArtifactRecord{}, false, err
+	}
+	saved, err := manager.recordArtifact(sidecarRecord)
+	return saved, true, err
 }
 
 func (record ArtifactRecord) describes(info os.FileInfo) bool {
