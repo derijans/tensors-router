@@ -27,6 +27,7 @@ type HashStore struct {
 	flushDelay time.Duration
 	flushTimer *time.Timer
 	persist    func(hashCache) error
+	knownHash  func(string) (string, bool)
 }
 
 const defaultHashFlushDelay = 500 * time.Millisecond
@@ -194,6 +195,12 @@ func cloneHashCache(cache hashCache) hashCache {
 	return cloned
 }
 
+func (store *HashStore) useKnownHashes(source func(string) (string, bool)) {
+	store.mu.Lock()
+	store.knownHash = source
+	store.mu.Unlock()
+}
+
 func (store *HashStore) ModelHash(configContent []byte) string {
 	return ModelReferenceHash(configContent, store.HashFile)
 }
@@ -220,11 +227,18 @@ func (store *HashStore) HashFile(path string) (string, bool) {
 		store.mu.Unlock()
 		return hash, true
 	}
+	knownHash := store.knownHash
 	store.mu.Unlock()
 
-	hash, err := hashFileContent(absolute)
-	if err != nil {
-		return "", false
+	hash, known := "", false
+	if knownHash != nil {
+		hash, known = knownHash(absolute)
+	}
+	if !known {
+		var err error
+		if hash, err = hashFileContent(absolute); err != nil {
+			return "", false
+		}
 	}
 
 	store.mu.Lock()

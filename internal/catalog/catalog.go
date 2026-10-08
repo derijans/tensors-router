@@ -89,6 +89,12 @@ func (catalog *Catalog) List() ([]Model, error) {
 	return cloneModels(snapshot.models), nil
 }
 
+func (catalog *Catalog) UseKnownFileHashes(source func(string) (string, bool)) {
+	if catalog.hashStore != nil {
+		catalog.hashStore.useKnownHashes(source)
+	}
+}
+
 func (catalog *Catalog) Refresh() error {
 	return catalog.refresh(true)
 }

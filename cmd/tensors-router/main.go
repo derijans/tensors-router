@@ -137,6 +137,7 @@ func runServe(args []string) error {
 		return err
 	}
 	assetIndex.SetHashWorkers(cfg.Models.HashWorkers)
+	modelCatalog.UseKnownFileHashes(assetIndex.CachedFileHash)
 	defer assetIndex.Close()
 	var storeHandle *routerstore.Handle
 	var analyticsStore *routeranalytics.Store
@@ -407,28 +408,6 @@ func runServe(args []string) error {
 	drainErr := shutdownServer(server, cfg.Limits.DrainTimeout)
 	cleanupErr := cleanupRuntime()
 	return errors.Join(serveErr, drainErr, cleanupErr)
-}
-
-func indexDownloadedArtifact(index *modelassets.Index, artifact downloader.ArtifactRecord) error {
-	asset, err := index.IndexFile(artifact.Path)
-	if err != nil {
-		return err
-	}
-	if asset.SHA256 != artifact.SHA256 {
-		return fmt.Errorf("downloaded artifact hash differs from its record")
-	}
-	verificationSource := artifact.VerificationSource
-	if verificationSource == "" {
-		verificationSource = "sha256"
-	}
-	if err := index.SetVerificationSource(asset.SHA256, verificationSource); err != nil {
-		return err
-	}
-	origin := modelassets.Origin{Repository: artifact.Repository, Commit: artifact.Revision, Path: artifact.RepositoryPath}
-	if origin.URI() == "" {
-		return nil
-	}
-	return index.BindOrigin(asset.SHA256, origin)
 }
 
 func shutdownServer(server *http.Server, timeout time.Duration) error {
