@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestApplyResponseExtractsTextUsageAndSpeed(t *testing.T) {
@@ -37,6 +38,16 @@ func TestDeriveTokenTotalsFillsSpeedOnlyWhenOutputTokensAreReported(t *testing.T
 	deriveTokenTotals(&empty)
 	if empty.TokensPerSecond != 0 {
 		t.Fatalf("content-only response should not derive token speed, got %.2f", empty.TokensPerSecond)
+	}
+}
+
+func TestDeriveTokenTotalsLeavesModelLoadTimeOutOfTheSpeed(t *testing.T) {
+	started := time.Unix(1_000, 0)
+	event := Event{StartedAt: started, WorkStartedAt: started.Add(8 * time.Second), FinishedAt: started.Add(10 * time.Second), DurationMS: 10_000}
+	ApplyResponse(&event, "application/json", []byte(`{"usage":{"completion_tokens":10}}`))
+	deriveTokenTotals(&event)
+	if event.TokensPerSecond != 5 {
+		t.Fatalf("cold-load speed counted the model load, got %.2f tok/s", event.TokensPerSecond)
 	}
 }
 

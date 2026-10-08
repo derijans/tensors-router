@@ -357,7 +357,7 @@ func deriveTokenTotals(event *Event) {
 }
 
 func derivedTokensPerSecond(event *Event) float64 {
-	generationMS := event.DurationMS
+	generationMS := workDurationMS(event)
 	if event.DecodeMS > 0 {
 		generationMS = event.DecodeMS
 	}
@@ -365,6 +365,13 @@ func derivedTokensPerSecond(event *Event) float64 {
 		return 0
 	}
 	return float64(event.OutputTokens) / (float64(generationMS) / 1000)
+}
+
+func workDurationMS(event *Event) int64 {
+	if event.WorkStartedAt.IsZero() || event.FinishedAt.IsZero() || !event.FinishedAt.After(event.WorkStartedAt) {
+		return event.DurationMS
+	}
+	return event.FinishedAt.Sub(event.WorkStartedAt).Milliseconds()
 }
 
 func estimatedPromptTokensPerSecond(event *Event) float64 {
