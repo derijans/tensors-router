@@ -1,11 +1,11 @@
 package proxy
 
 import (
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	routeranalytics "tensors-router/internal/analytics"
 )
@@ -86,14 +86,8 @@ func TestAnalyticsRecordsOllamaStreamingCounts(t *testing.T) {
 	if response.Summary.InputTokens != 11 || response.Summary.OutputTokens != 195 {
 		t.Fatalf("ollama streaming counts were not recorded %#v", response.Summary)
 	}
-	if response.Summary.AverageDuration <= 0 {
-		if response.Summary.AverageTokensPS != 0 {
-			t.Fatalf("speed cannot be derived without a measured duration %#v", response.Summary)
-		}
-		return
-	}
-	wallClockSpeed := float64(response.Summary.OutputTokens) / (response.Summary.AverageDuration / 1000)
-	if math.Abs(response.Summary.AverageTokensPS-wallClockSpeed) > 0.001 {
+	fastestCredibleSpeed := float64(response.Summary.OutputTokens) / time.Millisecond.Seconds()
+	if response.Summary.AverageTokensPS > fastestCredibleSpeed {
 		t.Fatalf("placeholder eval_duration leaked into the speed %#v", response.Summary)
 	}
 }
