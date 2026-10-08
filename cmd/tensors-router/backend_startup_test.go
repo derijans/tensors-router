@@ -12,16 +12,19 @@ import (
 )
 
 func TestBackgroundStartupStopCancelsAStartThatNeverFinishes(t *testing.T) {
+	running := make(chan struct{})
 	cancelled := make(chan struct{})
 	startup := startInBackground(context.Background(), log.New(io.Discard, "", 0), []startupStep{{
 		name: "backend start",
 		run: func(ctx context.Context) error {
+			close(running)
 			<-ctx.Done()
 			close(cancelled)
 			return ctx.Err()
 		},
 	}}, func(loaderrors.Phase, string, error) { t.Error("a cancelled start was recorded as a failure") })
 
+	<-running
 	stopped := make(chan struct{})
 	go func() {
 		startup.Stop()
