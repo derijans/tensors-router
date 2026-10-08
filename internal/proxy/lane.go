@@ -41,7 +41,7 @@ type activeConfigState struct {
 	ownIdleSince         time.Time
 	switching            bool
 	switchingForBorrowed bool
-	switchWaiters        int
+	queue                switchQueue
 	vramBaselineMB       int64
 	vramTotalMB          int64
 	vramBaselineValid    bool
@@ -250,33 +250,24 @@ func (service *Service) loadModelConfig(runtime *backendRuntime, ctx context.Con
 func (service *Service) reloadHeldModelConfig(runtime *backendRuntime, ctx context.Context, modelID string, configFilename string, readiness backendReadiness) error {
 	state := runtime.state
 	profile := service.chatTemplateProfileForConfig(configFilename)
-	waitingSwitch := false
+	state.mu.Lock()
+	ticket := state.takeTicketLocked()
+	state.joinQueueLocked(ticket, neverSatisfied)
 	for {
-		state.mu.Lock()
-		if !waitingSwitch && state.switchWaiters > 0 {
-			changed := state.changed
-			state.mu.Unlock()
-			if err := waitForActiveConfigChange(ctx, changed); err != nil {
-				return err
-			}
-			continue
-		}
-		if !waitingSwitch {
-			state.switchWaiters++
-			waitingSwitch = true
-		}
 		// Our own lease is the one user we expect; anything more means another request is
-		// still on the backend and must finish first.
+		// still on the backend and must finish first. Queue order does not apply here:
+		// older switch waiters are waiting for this very lease to end.
 		if state.switching || state.users > 1 {
 			changed := state.changed
 			state.mu.Unlock()
 			if err := waitForActiveConfigChange(ctx, changed); err != nil {
-				cancelConfigSwitchWaiter(state)
+				leaveSwitchQueue(state, ticket)
 				return err
 			}
+			state.mu.Lock()
 			continue
 		}
-		state.switchWaiters--
+		state.leaveQueueLocked(ticket)
 		beginRuntimeSwitchLocked(state, contextIsBorrowed(ctx))
 		state.pendingFilename = configFilename
 		state.pendingProfile = profile
@@ -306,6 +297,7 @@ func (service *Service) reloadHeldModelConfig(runtime *backendRuntime, ctx conte
 		state.generation++
 		applyPhysicalLoadProfileLocked(state, configFilename, profile, readiness)
 		applyLoadMeasurementLocked(state, loadMeasurement)
+		state.openLeaseWindowLocked()
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
 		service.analytics.recordLoad(modelID, configFilename, readiness, runtime.mode, loadMeasurement.analytics)
@@ -319,17 +311,18 @@ func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.
 }
 
 func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, options modelConfigAcquireOptions) (func(), bool, error) {
-	waitingSwitch := false
 	state := runtime.state
 	profile := service.chatTemplateProfileForConfig(configFilename)
 	borrowed := contextIsBorrowed(ctx)
+	satisfiedBy := func(current *activeConfigState) bool {
+		return !options.forceReload && activeConfigMatchesAcquireOptions(current, configFilename, profile, options)
+	}
+	state.mu.Lock()
+	ticket := state.takeTicketLocked()
+	queued := false
 	for {
-		state.mu.Lock()
-		if !options.forceReload && activeConfigMatchesAcquireOptions(state, configFilename, profile, options) && !state.switching && (state.switchWaiters == 0 || waitingSwitch) {
-			if waitingSwitch {
-				state.switchWaiters--
-				notifyActiveConfigLocked(state)
-			}
+		if satisfiedBy(state) && !state.switching && state.admitsLeaseLocked(ticket) {
+			state.leaveQueueLocked(ticket)
 			logicalConfigChanged := state.filename != configFilename
 			logicalModelChanged := state.modelID != modelID
 			state.filename = configFilename
@@ -347,29 +340,22 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 			return release, false, nil
 		}
 
-		if !waitingSwitch && state.switchWaiters > 0 {
+		if !queued {
+			state.joinQueueLocked(ticket, satisfiedBy)
+			queued = true
+		}
+		if satisfiedBy(state) || state.switching || state.users > 0 || !state.maySwitchLocked(ticket) {
 			changed := state.changed
 			state.mu.Unlock()
 			if err := waitForActiveConfigChange(ctx, changed); err != nil {
+				leaveSwitchQueue(state, ticket)
 				return nil, false, err
 			}
-			continue
-		}
-		if !waitingSwitch {
-			state.switchWaiters++
-			waitingSwitch = true
-		}
-		if state.switching || state.users > 0 {
-			changed := state.changed
-			state.mu.Unlock()
-			if err := waitForActiveConfigChange(ctx, changed); err != nil {
-				cancelConfigSwitchWaiter(state)
-				return nil, false, err
-			}
+			state.mu.Lock()
 			continue
 		}
 
-		state.switchWaiters--
+		state.leaveQueueLocked(ticket)
 		beginRuntimeSwitchLocked(state, borrowed)
 		state.pendingFilename = configFilename
 		state.pendingProfile = profile
@@ -421,6 +407,7 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 		}
 		applyPhysicalLoadProfileLocked(state, configFilename, profile, readiness)
 		applyLoadMeasurementLocked(state, loadMeasurement)
+		state.openLeaseWindowLocked()
 		release := service.addRuntimeLeaseLocked(state, modelID, borrowed)
 		notifyActiveConfigLocked(state)
 		state.mu.Unlock()
@@ -503,42 +490,29 @@ func runtimeAlwaysUnloadable(*activeConfigState) error {
 }
 
 func claimIdleRuntime(ctx context.Context, state *activeConfigState, stillUnloadable func(*activeConfigState) error) error {
-	waitingSwitch := false
+	state.mu.Lock()
+	ticket := state.takeTicketLocked()
+	state.joinQueueLocked(ticket, neverSatisfied)
 	for {
-		state.mu.Lock()
 		if err := stillUnloadable(state); err != nil {
-			if waitingSwitch {
-				state.switchWaiters--
-				notifyActiveConfigLocked(state)
-			}
+			state.leaveQueueLocked(ticket)
 			state.mu.Unlock()
 			return err
 		}
-		if !waitingSwitch && state.switchWaiters > 0 {
+		if state.switching || state.users > 0 || !state.maySwitchLocked(ticket) {
 			changed := state.changed
 			state.mu.Unlock()
 			if err := waitForActiveConfigChange(ctx, changed); err != nil {
+				leaveSwitchQueue(state, ticket)
 				return err
 			}
-			continue
-		}
-		if !waitingSwitch {
-			state.switchWaiters++
-			waitingSwitch = true
-		}
-		if state.switching || state.users > 0 {
-			changed := state.changed
-			state.mu.Unlock()
-			if err := waitForActiveConfigChange(ctx, changed); err != nil {
-				cancelConfigSwitchWaiter(state)
-				return err
-			}
+			state.mu.Lock()
 			continue
 		}
 
 		state.modelID = ""
 		state.generation++
-		state.switchWaiters--
+		state.leaveQueueLocked(ticket)
 		beginRuntimeSwitchLocked(state, false)
 		state.filename = ""
 		clearPhysicalLoadProfileLocked(state)
@@ -553,15 +527,6 @@ func finishRuntimeSwitch(state *activeConfigState) {
 	state.mu.Lock()
 	endRuntimeSwitchLocked(state)
 	notifyActiveConfigLocked(state)
-	state.mu.Unlock()
-}
-
-func cancelConfigSwitchWaiter(state *activeConfigState) {
-	state.mu.Lock()
-	if state.switchWaiters > 0 {
-		state.switchWaiters--
-		notifyActiveConfigLocked(state)
-	}
 	state.mu.Unlock()
 }
 

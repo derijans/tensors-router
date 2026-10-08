@@ -52,7 +52,7 @@ func (service *Service) localRuntimeStatus() NodeRuntimeStatus {
 	for _, runtime := range uniqueBackendRuntimes(family) {
 		runtime.state.mu.Lock()
 		status.ActiveRequests += runtime.state.users
-		status.QueuedRequests += runtime.state.switchWaiters
+		status.QueuedRequests += runtime.state.queuedWaitersLocked()
 		runtime.state.mu.Unlock()
 	}
 	runtime, err := service.runtimeForBackendMode(mode, readinessTranscription)

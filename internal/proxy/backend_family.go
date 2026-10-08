@@ -219,7 +219,7 @@ func (service *Service) localBackendAvailableForRoute(ctx context.Context, mode 
 func localRuntimeAcceptsQueuedRequest(runtime *backendRuntime) bool {
 	runtime.state.mu.Lock()
 	defer runtime.state.mu.Unlock()
-	return runtime.state.filename == "" || runtime.state.switching || runtime.state.switchWaiters > 0
+	return runtime.state.filename == "" || runtime.state.switching || runtime.state.queuedWaitersLocked() > 0
 }
 
 func (service *Service) currentConfigFilename() string {

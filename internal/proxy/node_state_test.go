@@ -281,7 +281,7 @@ func waitForRuntimeUnloadWaiter(t *testing.T, state *activeConfigState) {
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		state.mu.Lock()
-		waiting := state.switchWaiters > 0
+		waiting := state.queuedWaitersLocked() > 0
 		state.mu.Unlock()
 		if waiting {
 			return
