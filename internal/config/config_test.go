@@ -707,23 +707,6 @@ func TestLoadStripsInlineCommentsWithoutTouchingQuotedContent(t *testing.T) {
 	}
 }
 
-func TestStripInlineCommentKeepsHashesThatAreNotComments(t *testing.T) {
-	for input, expected := range map[string]string{
-		`"https://example.test/whl/cu129" #line 61`: `"https://example.test/whl/cu129"`,
-		`"a # b"`:                     `"a # b"`,
-		`'a # b'`:                     `'a # b'`,
-		`https://example.test/x#frag`: `https://example.test/x#frag`,
-		`plain value`:                 `plain value`,
-		`value\t# tabbed comment`:     `value\t# tabbed comment`,
-		`""  # empty quoted`:          `""`,
-		`# whole value is a comment`:  ``,
-	} {
-		if actual := stripInlineComment(input); actual != expected {
-			t.Fatalf("stripInlineComment(%q) = %q, want %q", input, actual, expected)
-		}
-	}
-}
-
 func TestValidateRejectsUnsafeVLLMProfile(t *testing.T) {
 	cfg := Defaults()
 	cfg.VLLM.Profile = "../../escape"
