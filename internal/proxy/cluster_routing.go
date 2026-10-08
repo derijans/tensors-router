@@ -175,8 +175,6 @@ func (service *Service) serveTextThroughLendingQueue(w http.ResponseWriter, r *h
 	}
 }
 
-// A linked image model queues in the router instead of going straight to
-// the backend, which is what keeps its backlog recallable and lendable.
 func (service *Service) serveImageThroughLendingQueue(w http.ResponseWriter, r *http.Request, request *http.Request, body []byte, requestBody []byte, publicImageID string, route cluster.Route, release func()) (complete func(), handled bool) {
 	modelID := route.LocalImageID
 	if !service.scheduler.queuesForLending(cluster.RouteLaneImage, route.NodeID, modelID) {
