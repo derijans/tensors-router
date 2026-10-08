@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -80,7 +81,7 @@ func TestRepositoryDestinationRejectsTraversal(t *testing.T) {
 	}
 }
 
-func TestSetConfigValueRejectsNativeIntOverflow(t *testing.T) {
+func TestLoadConfigRejectsNativeIntOverflow(t *testing.T) {
 	maximum := "9223372036854775807"
 	overflow := "9223372036854775808"
 	underflow := "-9223372036854775809"
@@ -104,15 +105,17 @@ func TestSetConfigValueRejectsNativeIntOverflow(t *testing.T) {
 
 	for _, testCase := range tests {
 		t.Run(testCase.section+"_"+testCase.key, func(t *testing.T) {
-			config := DefaultConfig(filepath.Join(t.TempDir(), "downloader.yaml"))
-			if err := setConfigValue(&config, testCase.section, testCase.key, maximum); err != nil {
-				t.Fatalf("accepted native integer value returned %v", err)
+			content := func(value string) string {
+				return testCase.section + ":\n  " + testCase.key + ": " + value + "\n"
 			}
-			if err := setConfigValue(&config, testCase.section, testCase.key, overflow); err == nil {
-				t.Fatal("native integer overflow was accepted")
+			if _, err := loadDownloaderConfigContent(t, content(maximum)); err != nil && strings.HasPrefix(err.Error(), "line ") {
+				t.Fatalf("accepted native integer value failed to parse: %v", err)
 			}
-			if err := setConfigValue(&config, testCase.section, testCase.key, underflow); err == nil {
-				t.Fatal("native integer underflow was accepted")
+			for _, rejected := range []string{overflow, underflow} {
+				_, err := loadDownloaderConfigContent(t, content(rejected))
+				if err == nil || !strings.HasPrefix(err.Error(), "line 2: ") || !strings.HasSuffix(err.Error(), "value out of range") {
+					t.Fatalf("native integer %s was not rejected as out of range: %v", rejected, err)
+				}
 			}
 		})
 	}
