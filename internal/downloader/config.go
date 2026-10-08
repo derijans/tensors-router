@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"tensors-router/internal/flatyaml"
 )
 
 func DefaultConfig(configPath string) Config {
@@ -44,7 +46,7 @@ func LoadConfig(configPath string) (Config, []string, error) {
 	case err != nil:
 		return Config{}, nil, err
 	default:
-		if err := parseConfig(content, &cfg); err != nil {
+		if err := flatyaml.Decode(content, downloaderConfigDialect, cfg.schema()); err != nil {
 			return Config{}, nil, err
 		}
 	}
@@ -56,38 +58,6 @@ func LoadConfig(configPath string) (Config, []string, error) {
 		cfg.HuggingFace.Token = environmentHubToken()
 	}
 	return cfg, warnings, nil
-}
-
-func parseConfig(content []byte, cfg *Config) error {
-	section := ""
-	for index, rawLine := range strings.Split(strings.ReplaceAll(string(content), "\r\n", "\n"), "\n") {
-		line := strings.TrimSpace(rawLine)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		if strings.Contains(rawLine, "\t") {
-			return fmt.Errorf("line %d: tabs are not supported", index+1)
-		}
-		if !strings.HasPrefix(rawLine, " ") && strings.HasSuffix(line, ":") {
-			section = strings.TrimSuffix(line, ":")
-			continue
-		}
-		if section == "" {
-			return fmt.Errorf("line %d: expected a section", index+1)
-		}
-		key, value, ok := strings.Cut(line, ":")
-		if !ok {
-			return fmt.Errorf("line %d: expected key value", index+1)
-		}
-		value, err := downloaderConfigString(strings.TrimSpace(value))
-		if err != nil {
-			return fmt.Errorf("line %d: %w", index+1, err)
-		}
-		if err := setConfigValue(cfg, section, strings.TrimSpace(key), value); err != nil {
-			return fmt.Errorf("line %d: %w", index+1, err)
-		}
-	}
-	return nil
 }
 
 func downloaderConfigString(value string) (string, error) {
@@ -112,129 +82,6 @@ func downloaderConfigString(value string) (string, error) {
 		return "", err
 	}
 	return parsed, nil
-}
-
-func setConfigValue(cfg *Config, section string, key string, value string) error {
-	parseInt64 := func() (int64, error) { return strconv.ParseInt(value, 10, 64) }
-	parseNativeInt := func() (int, error) {
-		parsed, err := strconv.ParseInt(value, 10, strconv.IntSize)
-		if err != nil {
-			return 0, err
-		}
-		return int(parsed), nil
-	}
-	parseBool := func() (bool, error) { return strconv.ParseBool(value) }
-	switch section {
-	case "storage":
-		switch key {
-		case "root":
-			cfg.Storage.Root = value
-		case "state_dir":
-			cfg.Storage.StateDir = value
-		case "database_path":
-			cfg.Storage.DatabasePath = value
-		case "free_space_reserve_gb":
-			parsed, err := parseInt64()
-			if err != nil {
-				return err
-			}
-			cfg.Storage.FreeSpaceReserveGB = parsed
-		default:
-			return fmt.Errorf("unknown key %s.%s", section, key)
-		}
-	case "huggingface":
-		switch key {
-		case "token":
-			cfg.HuggingFace.Token = value
-		case "endpoint":
-			cfg.HuggingFace.Endpoint = value
-		default:
-			return fmt.Errorf("unknown key %s.%s", section, key)
-		}
-	case "downloads":
-		switch key {
-		case "concurrent_jobs":
-			parsed, err := parseNativeInt()
-			if err != nil {
-				return err
-			}
-			cfg.Downloads.ConcurrentJobs = parsed
-		case "concurrent_files":
-			parsed, err := parseNativeInt()
-			if err != nil {
-				return err
-			}
-			cfg.Downloads.ConcurrentFiles = parsed
-		case "retry_limit":
-			parsed, err := parseNativeInt()
-			if err != nil {
-				return err
-			}
-			cfg.Downloads.RetryLimit = parsed
-		case "timeout":
-			parsed, err := time.ParseDuration(value)
-			if err != nil {
-				return err
-			}
-			cfg.Downloads.Timeout = parsed
-		case "stall_timeout":
-			parsed, err := time.ParseDuration(value)
-			if err != nil {
-				return err
-			}
-			cfg.Downloads.StallTimeout = parsed
-		default:
-			return fmt.Errorf("unknown key %s.%s", section, key)
-		}
-	case "scanning":
-		switch key {
-		case "hash_workers":
-			parsed, err := parseNativeInt()
-			if err != nil {
-				return err
-			}
-			cfg.Scanning.HashWorkers = parsed
-		case "write_hash_sidecars":
-			parsed, err := parseBool()
-			if err != nil {
-				return err
-			}
-			cfg.Scanning.WriteHashSidecars = parsed
-		default:
-			return fmt.Errorf("unknown key %s.%s", section, key)
-		}
-	case "hardware":
-		switch key {
-		case "default_context":
-			parsed, err := parseNativeInt()
-			if err != nil {
-				return err
-			}
-			cfg.Hardware.DefaultContext = parsed
-		case "vram_reserve_mb":
-			parsed, err := parseInt64()
-			if err != nil {
-				return err
-			}
-			cfg.Hardware.VRAMReserveMB = parsed
-		case "safety_margin_percent":
-			parsed, err := parseNativeInt()
-			if err != nil {
-				return err
-			}
-			cfg.Hardware.SafetyMarginPercent = parsed
-		default:
-			return fmt.Errorf("unknown key %s.%s", section, key)
-		}
-	case "logging":
-		if key != "mode" {
-			return fmt.Errorf("unknown key %s.%s", section, key)
-		}
-		cfg.Logging.Mode = value
-	default:
-		return fmt.Errorf("unknown section %s", section)
-	}
-	return nil
 }
 
 func finalizeConfig(configPath string, cfg *Config) error {
