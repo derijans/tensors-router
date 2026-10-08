@@ -5,7 +5,6 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net/url"
@@ -15,11 +14,12 @@ import (
 	"strings"
 	"time"
 
+	"tensors-router/internal/atomicfile"
+
 	"github.com/sigstore/sigstore/pkg/signature"
 	tufmetadata "github.com/theupdateframework/go-tuf/v2/metadata"
 	tufconfig "github.com/theupdateframework/go-tuf/v2/metadata/config"
 	"github.com/theupdateframework/go-tuf/v2/metadata/updater"
-	"tensors-router/internal/atomicfile"
 )
 
 type SigningSecrets struct{ Upstream, Snapshot, Timestamp string }
@@ -31,145 +31,6 @@ const (
 	maxTargetsMetadataBytes   = 16 << 20
 	maxVerificationFileBytes  = 32 << 20
 )
-
-func Publish(repository, output string, targetBodies map[string][]byte, secrets SigningSecrets, now time.Time) error {
-	metadataDir := filepath.Join(repository, "metadata")
-	rootBytes, err := readBoundedFile(filepath.Join(metadataDir, "root.json"), maxTrustedRootBytes)
-	if err != nil {
-		return err
-	}
-	root, err := tufmetadata.Root().FromBytes(rootBytes)
-	if err != nil {
-		return err
-	}
-	topBytes, err := readBoundedFile(filepath.Join(metadataDir, "targets.json"), maxTargetsMetadataBytes)
-	if err != nil {
-		return err
-	}
-	top, err := tufmetadata.Targets().FromBytes(topBytes)
-	if err != nil {
-		return err
-	}
-	oldDelegatedBytes, err := readBoundedFile(filepath.Join(metadataDir, "upstream-targets.json"), maxTargetsMetadataBytes)
-	if err != nil {
-		return err
-	}
-	oldDelegated, err := tufmetadata.Targets().FromBytes(oldDelegatedBytes)
-	if err != nil {
-		return err
-	}
-	oldSnapshotBytes, err := readBoundedFile(filepath.Join(metadataDir, "snapshot.json"), maxSnapshotMetadataBytes)
-	if err != nil {
-		return err
-	}
-	oldSnapshot, err := tufmetadata.Snapshot().FromBytes(oldSnapshotBytes)
-	if err != nil {
-		return err
-	}
-	oldTimestampBytes, err := readBoundedFile(filepath.Join(metadataDir, "timestamp.json"), maxTimestampMetadataBytes)
-	if err != nil {
-		return err
-	}
-	oldTimestamp, err := tufmetadata.Timestamp().FromBytes(oldTimestampBytes)
-	if err != nil {
-		return err
-	}
-	if root.Signed.IsExpired(now) {
-		return fmt.Errorf("root metadata is expired")
-	}
-	upstreamRole, err := delegatedRole(top, "upstream-targets")
-	if err != nil {
-		return err
-	}
-	for targetPath := range targetBodies {
-		allowed, err := upstreamRole.IsDelegatedPath(targetPath)
-		if err != nil {
-			return fmt.Errorf("validate delegated target path %q: %w", targetPath, err)
-		}
-		if !allowed {
-			return fmt.Errorf("trusted targets do not delegate %q to upstream-targets", targetPath)
-		}
-	}
-	upstreamSigner, err := authorizedSigner(secrets.Upstream, upstreamRole.KeyIDs)
-	if err != nil {
-		return fmt.Errorf("upstream-targets key: %w", err)
-	}
-	snapshotSigner, err := authorizedSigner(secrets.Snapshot, root.Signed.Roles["snapshot"].KeyIDs)
-	if err != nil {
-		return fmt.Errorf("snapshot key: %w", err)
-	}
-	timestampSigner, err := authorizedSigner(secrets.Timestamp, root.Signed.Roles["timestamp"].KeyIDs)
-	if err != nil {
-		return fmt.Errorf("timestamp key: %w", err)
-	}
-	delegated := tufmetadata.Targets(now.AddDate(0, 1, 0))
-	delegated.Signed.Version = oldDelegated.Signed.Version + 1
-	for targetPath, body := range targetBodies {
-		info, err := tufmetadata.TargetFile().FromBytes(targetPath, body, "sha256")
-		if err != nil {
-			return err
-		}
-		delegated.Signed.Targets[targetPath] = info
-	}
-	if _, err := delegated.Sign(upstreamSigner); err != nil {
-		return err
-	}
-	delegatedBytes, err := delegated.ToBytes(true)
-	if err != nil {
-		return err
-	}
-	snapshot := tufmetadata.Snapshot(now.AddDate(0, 0, 14))
-	snapshot.Signed.Version = oldSnapshot.Signed.Version + 1
-	snapshot.Signed.Meta["targets.json"] = publicationMeta(top.Signed.Version, topBytes)
-	snapshot.Signed.Meta["upstream-targets.json"] = publicationMeta(delegated.Signed.Version, delegatedBytes)
-	if _, err := snapshot.Sign(snapshotSigner); err != nil {
-		return err
-	}
-	snapshotBytes, err := snapshot.ToBytes(true)
-	if err != nil {
-		return err
-	}
-	timestamp := tufmetadata.Timestamp(now.AddDate(0, 0, 2))
-	timestamp.Signed.Version = oldTimestamp.Signed.Version + 1
-	timestamp.Signed.Meta["snapshot.json"] = publicationMeta(snapshot.Signed.Version, snapshotBytes)
-	if _, err := timestamp.Sign(timestampSigner); err != nil {
-		return err
-	}
-	timestampBytes, err := timestamp.ToBytes(true)
-	if err != nil {
-		return err
-	}
-	if err := preparePublicationOutput(repository, output); err != nil {
-		return err
-	}
-	metadataOutputs := map[string][]byte{
-		fmt.Sprintf("%d.upstream-targets.json", delegated.Signed.Version): delegatedBytes,
-		"upstream-targets.json":                                  delegatedBytes,
-		fmt.Sprintf("%d.snapshot.json", snapshot.Signed.Version): snapshotBytes,
-		"snapshot.json":                                          snapshotBytes,
-	}
-	for name, body := range metadataOutputs {
-		if err := atomicfile.Write(filepath.Join(output, "metadata", name), body, 0o644); err != nil {
-			return err
-		}
-	}
-	for targetPath, body := range targetBodies {
-		digest := sha256.Sum256(body)
-		directory, name := filepath.Split(filepath.FromSlash(targetPath))
-		name = hex.EncodeToString(digest[:]) + "." + name
-		if err := atomicfile.Write(filepath.Join(output, "targets", directory, name), body, 0o644); err != nil {
-			return err
-		}
-	}
-	if err := atomicfile.Write(filepath.Join(output, "metadata", "timestamp.json"), timestampBytes, 0o644); err != nil {
-		return err
-	}
-	expectedTargets := make([]string, 0, len(targetBodies))
-	for targetPath := range targetBodies {
-		expectedTargets = append(expectedTargets, targetPath)
-	}
-	return Verify(output, expectedTargets)
-}
 
 type directoryFetcher struct{ root string }
 
