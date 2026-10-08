@@ -17,42 +17,11 @@ import (
 )
 
 func NewService(config ServiceConfig) *Service {
+	config = config.withDefaults()
 	logger := config.Logger
-	if logger == nil {
-		logger = log.Default()
-	}
 	backendMode, err := backendmode.Resolve("", config.BackendMode)
 	if err != nil {
 		backendMode = BackendModeKobold
-	}
-	clusterRole := strings.TrimSpace(config.ClusterRole)
-	if clusterRole == "" {
-		clusterRole = cluster.RoleStandalone
-	}
-	vramSampleInterval := config.VRAMSampleInterval
-	if vramSampleInterval <= 0 {
-		vramSampleInterval = 250 * time.Millisecond
-	}
-	vramSource := config.VRAMSource
-	var vramSampler *hardware.VRAMSampler
-	if config.VRAMAnalyticsEnabled && vramSource == nil {
-		vramSampler = hardware.NewVRAMSampler(hardware.NewVRAMReader(), vramSampleInterval)
-		vramSource = vramSampler
-	}
-	maxControlBodyBytes := config.MaxControlBodyBytes
-	if config.LoadCaptureMaxOutputBytes <= 0 {
-		config.LoadCaptureMaxOutputBytes = 64 * 1024 * 1024
-	}
-	if maxControlBodyBytes <= 0 {
-		maxControlBodyBytes = 8 * transportbody.MiB
-	}
-	concurrentAssetTransfers := config.ConcurrentAssetTransfers
-	if concurrentAssetTransfers <= 0 {
-		concurrentAssetTransfers = 2
-	}
-	nodeID := strings.TrimSpace(config.NodeID)
-	if nodeID == "" {
-		nodeID = "local"
 	}
 	backendFamilies := backendFamiliesFromConfig(config, backendMode)
 	if backendFamilies[backendMode] == nil {
@@ -71,8 +40,8 @@ func NewService(config ServiceConfig) *Service {
 		catalog:                   config.Catalog,
 		registry:                  config.Registry,
 		clusterToken:              config.ClusterToken,
-		clusterRole:               clusterRole,
-		nodeID:                    nodeID,
+		clusterRole:               config.ClusterRole,
+		nodeID:                    config.NodeID,
 		nodeURL:                   strings.TrimSpace(config.NodeURL),
 		masterURL:                 strings.TrimSpace(config.MasterURL),
 		slaveURLs:                 append([]string{}, config.SlaveURLs...),
@@ -92,7 +61,7 @@ func NewService(config ServiceConfig) *Service {
 		sdcppJobs:                 newSdcppJobStore(),
 		vllmResponses:             newVLLMResponseStore(),
 		transportLimits:           config.TransportLimits.Normalized(),
-		maxControlBodyBytes:       maxControlBodyBytes,
+		maxControlBodyBytes:       config.MaxControlBodyBytes,
 		backendBinaryPaths:        copyStringMap(config.BackendBinaryPaths),
 		vllm:                      config.VLLM,
 		vllmUnavailableReason:     strings.TrimSpace(config.VLLMUnavailableReason),
@@ -109,24 +78,14 @@ func NewService(config ServiceConfig) *Service {
 		backendReadinessWait:          defaultBackendReadinessWait,
 		backendRetryDelay:             defaultBackendRetryDelay,
 		backendRetryMaxDelay:          defaultBackendRetryMaxDelay,
+		clusterClient:                 serviceClusterClient(config),
 	}
 	service.transportBudget = transportbody.NewBudget(service.transportLimits.MemoryBudgetBytes)
-	if service.clusterClient == nil {
-		service.clusterClient = cluster.NewClient(config.ClusterToken)
-	}
 	if service.hardware == nil {
 		service.hardware = hardware.NewCache()
 	}
 	service.nodeMemory = config.MemorySource
-	service.analytics = &requestAnalytics{
-		store:        config.AnalyticsStore,
-		vramEnabled:  config.VRAMAnalyticsEnabled,
-		vramSource:   vramSource,
-		vramSampler:  vramSampler,
-		vramInterval: vramSampleInterval,
-		nodeID:       nodeID,
-		loadSection:  service.loadAnalyticsSection,
-	}
+	service.analytics = newServiceAnalytics(config, service.loadAnalyticsSection)
 	service.webUI = newWebUIProxy(service, service.analytics)
 	service.benchmarks = newBenchmarkRunner(service, config.BenchmarkStore, logger)
 	service.downloads = downloads.New(downloadDeps{service: service}, config.Downloader, config.DownloaderCapability)
@@ -134,12 +93,9 @@ func NewService(config ServiceConfig) *Service {
 		index:              config.AssetIndex,
 		fileRoots:          config.FileRoots,
 		downloader:         config.Downloader,
-		concurrentTransfer: concurrentAssetTransfers,
+		concurrentTransfer: config.ConcurrentAssetTransfers,
 		logger:             logger,
 	})
-	if config.ClusterClient != nil {
-		service.clusterClient = config.ClusterClient
-	}
 	if err := service.clusterClient.AllowBaseURLs(service.knownClusterTargets()...); err != nil {
 		service.logger.Printf("cluster target setup failed: %v", err)
 	}
@@ -151,6 +107,58 @@ func NewService(config ServiceConfig) *Service {
 	service.reloadLendingSettings(context.Background())
 	service.routes = newRouteTable(service.requireClusterToken, service.controlRoutes(), service.siteRoutes(), service.nodeRoutes(), service.downloads.Routes(), service.benchmarks.routes(), service.assets.routes(), service.webUI.routes())
 	return service
+}
+
+func (config ServiceConfig) withDefaults() ServiceConfig {
+	if config.Logger == nil {
+		config.Logger = log.Default()
+	}
+	config.ClusterRole = strings.TrimSpace(config.ClusterRole)
+	if config.ClusterRole == "" {
+		config.ClusterRole = cluster.RoleStandalone
+	}
+	config.NodeID = strings.TrimSpace(config.NodeID)
+	if config.NodeID == "" {
+		config.NodeID = "local"
+	}
+	if config.VRAMSampleInterval <= 0 {
+		config.VRAMSampleInterval = 250 * time.Millisecond
+	}
+	if config.LoadCaptureMaxOutputBytes <= 0 {
+		config.LoadCaptureMaxOutputBytes = 64 * 1024 * 1024
+	}
+	if config.MaxControlBodyBytes <= 0 {
+		config.MaxControlBodyBytes = 8 * transportbody.MiB
+	}
+	if config.ConcurrentAssetTransfers <= 0 {
+		config.ConcurrentAssetTransfers = 2
+	}
+	return config
+}
+
+func serviceClusterClient(config ServiceConfig) *cluster.Client {
+	if config.ClusterClient != nil {
+		return config.ClusterClient
+	}
+	return cluster.NewClient(config.ClusterToken)
+}
+
+func newServiceAnalytics(config ServiceConfig, loadSection func(configFilename string, readiness backendReadiness) string) *requestAnalytics {
+	vramSource := config.VRAMSource
+	var vramSampler *hardware.VRAMSampler
+	if config.VRAMAnalyticsEnabled && vramSource == nil {
+		vramSampler = hardware.NewVRAMSampler(hardware.NewVRAMReader(), config.VRAMSampleInterval)
+		vramSource = vramSampler
+	}
+	return &requestAnalytics{
+		store:        config.AnalyticsStore,
+		vramEnabled:  config.VRAMAnalyticsEnabled,
+		vramSource:   vramSource,
+		vramSampler:  vramSampler,
+		vramInterval: config.VRAMSampleInterval,
+		nodeID:       config.NodeID,
+		loadSection:  loadSection,
+	}
 }
 
 func backendFamiliesFromConfig(config ServiceConfig, defaultMode string) map[string]*backendFamily {

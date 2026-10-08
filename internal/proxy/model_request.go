@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -35,10 +34,8 @@ func (service *Service) handleModels(w http.ResponseWriter) {
 }
 
 func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Request, requireModel bool) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		service.logger.Printf("request body read failed path=%s remote=%s error=%v", r.URL.Path, r.RemoteAddr, err)
-		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "request body could not be read")
+	body, ok := service.readRequestBody(w, r)
+	if !ok {
 		return
 	}
 	defer r.Body.Close()
@@ -84,102 +81,123 @@ func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	configFilename := ""
-	backendModelID := modelID
-	selectedBackendMode, err := service.resolveBackendMode("")
-	if err != nil {
-		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+	target, ok := service.resolveLocalModelTarget(w, r, modelID, hasModel)
+	if !ok {
 		return
 	}
-	var selectedModel catalog.Model
-	if hasModel {
-		model, ok, err := service.resolveCatalogModelForOpenAIPath(modelID, r.URL.Path)
-		if err != nil {
-			service.logger.Printf("model catalog check failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
-			service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
-			return
-		}
-		if !ok {
-			service.logger.Printf("unknown model requested path=%s remote=%s model=%q", r.URL.Path, r.RemoteAddr, modelID)
-			openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", modelID))
-			return
-		}
-		if !modelSupportsOpenAIPath(model, r.URL.Path) {
-			service.logger.Printf("non-llm model requested path=%s remote=%s model=%q", r.URL.Path, r.RemoteAddr, modelID)
-			openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", modelID))
-			return
-		}
-		enabled, err := service.localModelEnabled(r.Context(), model.ID)
-		if err != nil {
-			service.logger.Printf("model state check failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
-			service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
-			return
-		}
-		if !enabled {
-			service.logger.Printf("disabled model requested path=%s remote=%s model=%q", r.URL.Path, r.RemoteAddr, modelID)
-			openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", modelID))
-			return
-		}
-		configFilename = model.Filename
-		backendModelID = model.ID
-		selectedModel = model
-		selectedBackendMode, err = service.catalogModelBackendMode(model)
-		if err != nil {
-			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
-			return
-		}
-		if selectedBackendMode == BackendModeVLLM {
-			backendModelID = vllmRequestModelID(modelID, model.ID, model.ServedNames)
-		}
-	}
-	if selectedBackendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
+	if target.backendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
 		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
 		return
 	}
+	service.forwardLocalModelRequest(w, r, body, modelID, target, insertModel)
+}
 
-	if hasModel && selectedBackendMode == BackendModeLlamaSDCPP && selectedModel.HasImage && !isEmbeddingsPath(r.URL.Path) {
-		if err := service.loadLocalRuntimeForRequest(r.Context(), selectedBackendMode, selectedModel.ImageID, selectedModel.Filename, readinessImage); err != nil {
+type localModelTarget struct {
+	model          catalog.Model
+	hasModel       bool
+	configFilename string
+	backendModelID string
+	backendMode    string
+}
+
+func (service *Service) resolveLocalModelTarget(w http.ResponseWriter, r *http.Request, modelID string, hasModel bool) (localModelTarget, bool) {
+	backendMode, err := service.resolveBackendMode("")
+	if err != nil {
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return localModelTarget{}, false
+	}
+	target := localModelTarget{hasModel: hasModel, backendModelID: modelID, backendMode: backendMode}
+	if !hasModel {
+		return target, true
+	}
+	model, ok, err := service.resolveCatalogModelForOpenAIPath(modelID, r.URL.Path)
+	if err != nil {
+		service.logger.Printf("model catalog check failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
+		service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
+		return localModelTarget{}, false
+	}
+	if !ok {
+		service.logger.Printf("unknown model requested path=%s remote=%s model=%q", r.URL.Path, r.RemoteAddr, modelID)
+		openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", modelID))
+		return localModelTarget{}, false
+	}
+	if !modelSupportsOpenAIPath(model, r.URL.Path) {
+		service.logger.Printf("non-llm model requested path=%s remote=%s model=%q", r.URL.Path, r.RemoteAddr, modelID)
+		openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", modelID))
+		return localModelTarget{}, false
+	}
+	enabled, err := service.localModelEnabled(r.Context(), model.ID)
+	if err != nil {
+		service.logger.Printf("model state check failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
+		service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
+		return localModelTarget{}, false
+	}
+	if !enabled {
+		service.logger.Printf("disabled model requested path=%s remote=%s model=%q", r.URL.Path, r.RemoteAddr, modelID)
+		openai.WriteError(w, http.StatusNotFound, "invalid_request_error", fmt.Sprintf("model %q was not found", modelID))
+		return localModelTarget{}, false
+	}
+	return service.catalogModelTarget(w, modelID, model)
+}
+
+func (service *Service) catalogModelTarget(w http.ResponseWriter, modelID string, model catalog.Model) (localModelTarget, bool) {
+	backendMode, err := service.catalogModelBackendMode(model)
+	if err != nil {
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return localModelTarget{}, false
+	}
+	target := localModelTarget{model: model, hasModel: true, configFilename: model.Filename, backendModelID: model.ID, backendMode: backendMode}
+	if backendMode == BackendModeVLLM {
+		target.backendModelID = vllmRequestModelID(modelID, model.ID, model.ServedNames)
+	}
+	return target, true
+}
+
+func (service *Service) forwardLocalModelRequest(w http.ResponseWriter, r *http.Request, body []byte, modelID string, target localModelTarget, insertModel bool) {
+	if target.hasModel && target.backendMode == BackendModeLlamaSDCPP && target.model.HasImage && !isEmbeddingsPath(r.URL.Path) {
+		if err := service.loadLocalRuntimeForRequest(r.Context(), target.backendMode, target.model.ImageID, target.model.Filename, readinessImage); err != nil {
 			service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 			return
 		}
 	}
 
 	readiness := modelReadiness(r.URL.Path)
-	if selectedBackendMode == BackendModeVLLM {
-		readiness = vllmReadinessForTask(r.URL.Path, selectedModel.VLLMTask)
+	if target.backendMode == BackendModeVLLM {
+		readiness = vllmReadinessForTask(r.URL.Path, target.model.VLLMTask)
 	}
-	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, backendModelID, readiness, selectedModel.ChatTemplate, hasModel && backendModelID != modelID || insertModel, insertModel)
+	requestBody, transformErr := transformBufferedTransportRequestBody(r, body, target.backendModelID, readiness, target.model.ChatTemplate, target.hasModel && target.backendModelID != modelID || insertModel, insertModel)
 	if transformErr != nil {
 		writeTransportError(w, transformErr)
 		return
 	}
 
-	requestBody, usageInjected := injectStreamUsageOption(requestBody, r.URL.Path, selectedBackendMode)
+	requestBody, usageInjected := injectStreamUsageOption(requestBody, r.URL.Path, target.backendMode)
 
+	observed := target.hasModel || isTextInferencePath(r.URL.Path)
 	started := time.Now()
-	analyticsEvent := service.analytics.newEvent(started, r, requestBody, backendModelID, textAnalyticsSection(r.URL.Path), selectedBackendMode)
+	analyticsEvent := service.analytics.newEvent(started, r, requestBody, target.backendModelID, textAnalyticsSection(r.URL.Path), target.backendMode)
 	analyticsEvent.PromptBytes = int64(len(body))
-	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, backendModelID, configFilename, hasModel, readiness, selectedBackendMode)
+	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, target.backendModelID, target.configFilename, target.hasModel, readiness, target.backendMode)
 	if err != nil {
-		if hasModel || isTextInferencePath(r.URL.Path) {
+		if observed {
 			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
 		}
 		service.writeBackendFailure(w, err)
 		return
 	}
-	if selectedBackendMode == BackendModeVLLM && r.URL.Path == "/v1/responses" {
+	if target.backendMode == BackendModeVLLM && r.URL.Path == "/v1/responses" {
 		response = service.responseWithVLLMTracking(response, vllmResponseTarget{
 			publicID:       modelID,
-			localID:        backendModelID,
-			configFilename: configFilename,
+			localID:        target.backendModelID,
+			configFilename: target.configFilename,
 		})
 	}
-	if hasModel || isTextInferencePath(r.URL.Path) {
+	if observed {
 		response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
 	}
 	response = clientStreamUsage(response, usageInjected)
 
-	if err := service.writeModelProxyResponse(w, response, modelID, hasModel); err != nil {
+	if err := service.writeModelProxyResponse(w, response, modelID, target.hasModel); err != nil {
 		return
 	}
 }

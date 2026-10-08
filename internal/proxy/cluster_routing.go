@@ -175,6 +175,40 @@ func (service *Service) serveTextThroughLendingQueue(w http.ResponseWriter, r *h
 	}
 }
 
+// A linked image model queues in the router instead of going straight to
+// the backend, which is what keeps its backlog recallable and lendable.
+func (service *Service) serveImageThroughLendingQueue(w http.ResponseWriter, r *http.Request, request *http.Request, body []byte, requestBody []byte, publicImageID string, route cluster.Route, release func()) (complete func(), handled bool) {
+	modelID := route.LocalImageID
+	if !service.scheduler.queuesForLending(cluster.RouteLaneImage, route.NodeID, modelID) {
+		return nil, false
+	}
+	admission, queueErr := service.scheduler.enterImageQueue(r.Context(), modelID, imageWorkHint(r, body).Work, requestIsBorrowed(r))
+	if queueErr != nil {
+		release()
+		service.writeClientError(w, http.StatusBadGateway, "backend_error", queueErr)
+		return nil, true
+	}
+	switch admission.outcome {
+	case offloadReturned:
+		release()
+		writeOffloadReturned(w)
+		return nil, true
+	case offloadWithdrawn:
+		if service.forwardOffloadedImageRequest(w, r, request, requestBody, admission.entry, publicImageID, release) {
+			return nil, true
+		}
+		requeued := service.scheduler.imageQueue.Requeue(modelID, imageWorkHint(r, body).Work, 0, time.Now())
+		if outcome, waitErr := service.scheduler.imageQueue.Await(r.Context(), requeued); waitErr != nil || outcome != offloadAdmitted {
+			release()
+			openai.WriteError(w, http.StatusBadGateway, "backend_error", "returned request could not be re-queued")
+			return nil, true
+		}
+		return func() { service.scheduler.completeImageQueueEntry(modelID, requeued) }, false
+	default:
+		return func() { service.scheduler.completeImageQueueEntry(modelID, admission.entry) }, false
+	}
+}
+
 func (service *Service) acquireRegistryModelRoute(r *http.Request, publicID string) (cluster.Model, cluster.Route, func(), bool) {
 	if isEmbeddingsPath(r.URL.Path) {
 		model, ok := service.registry.EmbeddingModel(publicID)
@@ -258,35 +292,12 @@ func (service *Service) handleRegistryImageRequest(w http.ResponseWriter, r *htt
 			return true
 		}
 
-		// A linked image model queues in the router instead of going straight to
-		// the backend, which is what keeps its backlog recallable and lendable.
-		if modelID := route.LocalImageID; service.scheduler.queuesForLending(cluster.RouteLaneImage, route.NodeID, modelID) {
-			admission, queueErr := service.scheduler.enterImageQueue(r.Context(), modelID, imageWorkHint(r, body).Work, requestIsBorrowed(r))
-			if queueErr != nil {
-				release()
-				service.writeClientError(w, http.StatusBadGateway, "backend_error", queueErr)
-				return true
-			}
-			switch admission.outcome {
-			case offloadReturned:
-				release()
-				writeOffloadReturned(w)
-				return true
-			case offloadWithdrawn:
-				handled := service.forwardOffloadedImageRequest(w, r, request, requestBody, admission.entry, publicImageID, release)
-				if handled {
-					return true
-				}
-				requeued := service.scheduler.imageQueue.Requeue(modelID, imageWorkHint(r, body).Work, 0, time.Now())
-				if outcome, waitErr := service.scheduler.imageQueue.Await(r.Context(), requeued); waitErr != nil || outcome != offloadAdmitted {
-					release()
-					openai.WriteError(w, http.StatusBadGateway, "backend_error", "returned request could not be re-queued")
-					return true
-				}
-				defer service.scheduler.completeImageQueueEntry(modelID, requeued)
-			default:
-				defer service.scheduler.completeImageQueueEntry(modelID, admission.entry)
-			}
+		complete, handled := service.serveImageThroughLendingQueue(w, r, request, body, requestBody, publicImageID, route, release)
+		if handled {
+			return true
+		}
+		if complete != nil {
+			defer complete()
 		}
 
 		if routeBackendMode == BackendModeLlamaSDCPP && clusterModelNeedsPrimaryTextRuntime(model) {

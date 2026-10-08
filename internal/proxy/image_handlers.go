@@ -3,7 +3,6 @@ package proxy
 import (
 	"context"
 	"fmt"
-	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -55,10 +54,8 @@ func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Reques
 			"sd_model_checkpoint": model.ImageID,
 		})
 	case http.MethodPost:
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			service.logger.Printf("request body read failed path=%s remote=%s error=%v", r.URL.Path, r.RemoteAddr, err)
-			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "request body could not be read")
+		body, ok := service.readRequestBody(w, r)
+		if !ok {
 			return
 		}
 		defer r.Body.Close()
@@ -108,10 +105,8 @@ func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Reques
 }
 
 func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(r.Body)
-	if err != nil {
-		service.logger.Printf("request body read failed path=%s remote=%s error=%v", r.URL.Path, r.RemoteAddr, err)
-		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "request body could not be read")
+	body, ok := service.readRequestBody(w, r)
+	if !ok {
 		return
 	}
 	defer r.Body.Close()
@@ -125,45 +120,11 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 
 	if !hasModel {
 		if target, ok := service.sdcppJobs.routeForPath(r.URL.Path); ok {
-			if target.remote {
-				response, err := service.forwardRemote(r.Context(), r, body, cluster.Route{NodeURL: target.nodeURL, Remote: true})
-				if err != nil {
-					service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
-					return
-				}
-				if err := service.writeProxyResponse(w, response, target.publicImageID, false); err != nil {
-					return
-				}
-				return
-			}
-			started := time.Now()
-			analyticsEvent := service.analytics.newEvent(started, r, body, target.publicImageID, routeranalytics.SectionImage, target.backendMode)
-			response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, target.publicImageID, target.configFilename, true, readinessImage, target.backendMode)
-			if err != nil {
-				service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
-				service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
-				return
-			}
-			response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
-			if err := service.writeProxyResponse(w, response, target.publicImageID, false); err != nil {
-				return
-			}
+			service.forwardTrackedSdcppJob(w, r, body, target)
 			return
 		}
 		if isImageDiscoveryPath(r.URL.Path) {
-			selectedBackendMode, err := service.resolveBackendMode("")
-			if err != nil {
-				openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
-				return
-			}
-			response, err := service.forwardWithFallback(r.Context(), r, body, "", "", false, readinessImage, selectedBackendMode)
-			if err != nil {
-				service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
-				return
-			}
-			if err := service.writeProxyResponse(w, response, "", false); err != nil {
-				return
-			}
+			service.forwardImageDiscovery(w, r, body)
 			return
 		}
 	}
@@ -221,6 +182,48 @@ func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Reques
 	response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
 
 	if err := service.writeProxyResponse(w, response, model.ImageID, hasModel); err != nil {
+		return
+	}
+}
+
+func (service *Service) forwardTrackedSdcppJob(w http.ResponseWriter, r *http.Request, body []byte, target sdcppJobTarget) {
+	if target.remote {
+		response, err := service.forwardRemote(r.Context(), r, body, cluster.Route{NodeURL: target.nodeURL, Remote: true})
+		if err != nil {
+			service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
+			return
+		}
+		if err := service.writeProxyResponse(w, response, target.publicImageID, false); err != nil {
+			return
+		}
+		return
+	}
+	started := time.Now()
+	analyticsEvent := service.analytics.newEvent(started, r, body, target.publicImageID, routeranalytics.SectionImage, target.backendMode)
+	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, target.publicImageID, target.configFilename, true, readinessImage, target.backendMode)
+	if err != nil {
+		service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
+		service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
+		return
+	}
+	response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
+	if err := service.writeProxyResponse(w, response, target.publicImageID, false); err != nil {
+		return
+	}
+}
+
+func (service *Service) forwardImageDiscovery(w http.ResponseWriter, r *http.Request, body []byte) {
+	backendMode, err := service.resolveBackendMode("")
+	if err != nil {
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return
+	}
+	response, err := service.forwardWithFallback(r.Context(), r, body, "", "", false, readinessImage, backendMode)
+	if err != nil {
+		service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
+		return
+	}
+	if err := service.writeProxyResponse(w, response, "", false); err != nil {
 		return
 	}
 }
