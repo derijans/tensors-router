@@ -41,31 +41,36 @@ func validateBackendEndpointUniqueness(cfg *Config) error {
 	}
 
 	for _, candidate := range candidates {
-		raw := strings.TrimSpace(candidate.raw)
-		if raw == "" {
-			// An empty override is rejected when the corresponding manager
-			// is constructed; nothing to compare here.
-			continue
-		}
-		parsed, err := backendendpoint.ParseLoopback(raw)
+		address, pinned, err := pinnedBackendAddress(candidate.key, candidate.raw)
 		if err != nil {
-			// An invalid URL is rejected by the field's own validator.
+			return err
+		}
+		if !pinned {
 			continue
 		}
-		port := parsed.Port()
-		if port == "" {
-			return fmt.Errorf("%s must include an explicit port, or 0 to allocate one at startup", candidate.key)
-		}
-		if port == "0" {
-			continue
-		}
-		address := normalizedBackendAddress(parsed.Hostname(), port)
 		if owner, exists := seen[address]; exists {
 			return fmt.Errorf("%s and %s must not use the same address (%s)", owner, candidate.key, address)
 		}
 		seen[address] = candidate.key
 	}
 	return nil
+}
+
+const dynamicallyAllocatedPort = "0"
+
+func pinnedBackendAddress(key string, raw string) (string, bool, error) {
+	parsed, unparseable := backendendpoint.ParseLoopback(raw)
+	if unparseable != nil {
+		return "", false, nil
+	}
+	switch port := parsed.Port(); port {
+	case "":
+		return "", false, fmt.Errorf("%s must include an explicit port, or 0 to allocate one at startup", key)
+	case dynamicallyAllocatedPort:
+		return "", false, nil
+	default:
+		return normalizedBackendAddress(parsed.Hostname(), port), true, nil
+	}
 }
 
 func normalizedLoopbackBindAddress(bind string) (string, bool) {

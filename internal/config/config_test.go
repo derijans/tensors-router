@@ -443,6 +443,23 @@ kobold:
 	}
 }
 
+func TestEndpointUniquenessLeavesUnparseableURLsToTheirFieldValidators(t *testing.T) {
+	cfg := Defaults()
+	cfg.Llama.BackendURL = "not a url"
+	cfg.SDCPP.BackendURL = ""
+	cfg.WhisperCPP.BackendURL = "http://example.test:5003"
+	if err := validateBackendEndpointUniqueness(&cfg); err != nil {
+		t.Fatalf("expected unparseable URLs to be skipped, got: %v", err)
+	}
+	if err := validate(&cfg); err != nil {
+		t.Fatalf("expected kobold mode to ignore the split backend URLs, got: %v", err)
+	}
+	cfg.Backend.Mode = "llama_sdcpp"
+	if err := validate(&cfg); err == nil || !strings.Contains(err.Error(), "llama.backend_url is invalid") {
+		t.Fatalf("expected the llama field validator to report the URL, got: %v", err)
+	}
+}
+
 func TestValidateAllowsDynamicEndpointsToShareTheZeroPort(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.yaml")
 	if err := os.WriteFile(path, []byte(`
