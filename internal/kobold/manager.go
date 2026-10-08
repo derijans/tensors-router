@@ -21,6 +21,8 @@ import (
 
 	"tensors-router/internal/backenddiagnostic"
 	"tensors-router/internal/backendendpoint"
+	"tensors-router/internal/ctxmutex"
+	"tensors-router/internal/healthwait"
 	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/mcp"
 	"tensors-router/internal/portalloc"
@@ -48,7 +50,8 @@ type Manager struct {
 	adminPassword string
 	probeClient   *http.Client
 	reloadClient  *http.Client
-	mu            sync.Mutex
+	lifecycle     ctxmutex.Mutex
+	state         sync.Mutex
 	exitMu        sync.RWMutex
 	cmd           *exec.Cmd
 	logFile       *os.File
@@ -140,12 +143,15 @@ func (manager *Manager) LaunchArguments() []string {
 	if manager.config.Quiet {
 		args = append(args, "--quiet")
 	}
+	manager.state.Lock()
+	roleArgs := append([]string(nil), manager.roleArgs...)
+	manager.state.Unlock()
 	extraArgs := launchExtraArgs(manager.config.ExtraArgs)
 	if manager.role == embeddingsRole {
-		extraArgs = embeddingLaunchExtraArgs(extraArgs, len(manager.roleArgs) > 0)
+		extraArgs = embeddingLaunchExtraArgs(extraArgs, len(roleArgs) > 0)
 	}
 	args = append(args, extraArgs...)
-	args = append(args, manager.roleArgs...)
+	args = append(args, roleArgs...)
 	return args
 }
 
@@ -189,8 +195,10 @@ func embeddingLaunchExtraArgs(args []string, cpu bool) []string {
 }
 
 func (manager *Manager) Start(ctx context.Context) error {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
+	if err := manager.lifecycle.Lock(ctx); err != nil {
+		return err
+	}
+	defer manager.lifecycle.Unlock()
 
 	return manager.startLocked(ctx)
 }
@@ -295,8 +303,10 @@ func (manager *Manager) spawnLocked(ctx context.Context) error {
 }
 
 func (manager *Manager) Stop(ctx context.Context) error {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
+	if err := manager.lifecycle.Lock(ctx); err != nil {
+		return err
+	}
+	defer manager.lifecycle.Unlock()
 
 	err := manager.stopLocked(ctx)
 	cleanupErr := manager.cleanupGeneratedLocked()
@@ -356,8 +366,10 @@ func (manager *Manager) Restart(ctx context.Context) error {
 }
 
 func (manager *Manager) Unload(ctx context.Context) error {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
+	if err := manager.lifecycle.Lock(ctx); err != nil {
+		return err
+	}
+	defer manager.lifecycle.Unlock()
 
 	if err := manager.stopLocked(ctx); err != nil {
 		return err
@@ -380,15 +392,17 @@ func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error
 		return err
 	}
 	if manager.role == embeddingsRole {
-		manager.mu.Lock()
+		if err := manager.lifecycle.Lock(ctx); err != nil {
+			return err
+		}
 		if manager.cmd == nil || manager.cmd.Process == nil {
 			if err := manager.startLocked(ctx); err != nil {
-				manager.mu.Unlock()
+				manager.lifecycle.Unlock()
 				manager.removeGenerated(generatedPath)
 				return err
 			}
 		}
-		manager.mu.Unlock()
+		manager.lifecycle.Unlock()
 	}
 	configFilename := runtimeFilename
 	baseConfig := ""
@@ -454,9 +468,12 @@ func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error
 		return fmt.Errorf("admin reload failed: %s", reloadErrorDetail(responseBody))
 	}
 
-	manager.mu.Lock()
+	if err := manager.lifecycle.Lock(ctx); err != nil {
+		manager.removeGenerated(generatedPath)
+		return err
+	}
 	exitDone := manager.exitDone
-	manager.mu.Unlock()
+	manager.lifecycle.Unlock()
 	if err := manager.waitHealthy(ctx, 90*time.Second, exitDone); err != nil {
 		manager.removeGenerated(generatedPath)
 		return err
@@ -484,25 +501,15 @@ func (manager *Manager) Healthy(ctx context.Context) bool {
 }
 
 func (manager *Manager) waitHealthy(ctx context.Context, timeout time.Duration, exitDone <-chan error) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		select {
-		case err := <-exitDone:
-			return unexpectedExitError("koboldcpp", err)
-		default:
-		}
-		if manager.Healthy(ctx) {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case err := <-exitDone:
-			return unexpectedExitError("koboldcpp", err)
-		case <-time.After(500 * time.Millisecond):
-		}
+	err := healthwait.Wait(ctx, timeout, exitDone, manager.Healthy)
+	var exited healthwait.ExitError
+	switch {
+	case errors.As(err, &exited):
+		return unexpectedExitError("koboldcpp", exited.Err)
+	case errors.Is(err, healthwait.ErrDeadline):
+		return fmt.Errorf("koboldcpp did not become healthy within %s", timeout)
 	}
-	return fmt.Errorf("koboldcpp did not become healthy within %s", timeout)
+	return err
 }
 
 func (manager *Manager) BackendExitError() error {

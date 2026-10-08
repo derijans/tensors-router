@@ -19,6 +19,8 @@ import (
 	"tensors-router/internal/backendendpoint"
 	"tensors-router/internal/backendreadiness"
 	"tensors-router/internal/catalog"
+	"tensors-router/internal/ctxmutex"
+	"tensors-router/internal/healthwait"
 	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/mcp"
 	"tensors-router/internal/portalloc"
@@ -45,7 +47,7 @@ type Manager struct {
 	argumentBuilder argumentBuilder
 	extraArgsFilter func(catalog.RuntimeConfig, []string) []string
 	client          *http.Client
-	mu              sync.Mutex
+	lifecycle       ctxmutex.Mutex
 	exitMu          sync.RWMutex
 	cmd             *exec.Cmd
 	logFile         *os.File
@@ -141,8 +143,10 @@ func (manager *Manager) LaunchArguments(filename string) ([]string, error) {
 }
 
 func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
+	if err := manager.lifecycle.Lock(ctx); err != nil {
+		return err
+	}
+	defer manager.lifecycle.Unlock()
 
 	if manager.currentFilename == filename && manager.cmd != nil && manager.cmd.Process != nil && manager.healthy(ctx) {
 		return nil
@@ -163,8 +167,10 @@ func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error
 }
 
 func (manager *Manager) Restart(ctx context.Context) error {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
+	if err := manager.lifecycle.Lock(ctx); err != nil {
+		return err
+	}
+	defer manager.lifecycle.Unlock()
 
 	if manager.currentFilename == "" {
 		return nil
@@ -183,8 +189,10 @@ func (manager *Manager) Restart(ctx context.Context) error {
 }
 
 func (manager *Manager) Unload(ctx context.Context) error {
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
+	if err := manager.lifecycle.Lock(ctx); err != nil {
+		return err
+	}
+	defer manager.lifecycle.Unlock()
 
 	manager.currentFilename = ""
 	return manager.stopLocked(ctx)
@@ -200,9 +208,11 @@ func (manager *Manager) ReleaseEndpoint() {
 }
 
 func (manager *Manager) Healthy(ctx context.Context) bool {
-	manager.mu.Lock()
+	if manager.lifecycle.Lock(ctx) != nil {
+		return false
+	}
 	hasCurrent := manager.currentFilename != ""
-	manager.mu.Unlock()
+	manager.lifecycle.Unlock()
 	if !hasCurrent {
 		return true
 	}
@@ -342,25 +352,15 @@ func (manager *Manager) healthy(ctx context.Context) bool {
 }
 
 func (manager *Manager) waitHealthy(ctx context.Context, timeout time.Duration, exitDone <-chan error) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		select {
-		case err := <-exitDone:
-			return manager.exitError(err)
-		default:
-		}
-		if manager.healthy(ctx) {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case err := <-exitDone:
-			return manager.exitError(err)
-		case <-time.After(500 * time.Millisecond):
-		}
+	err := healthwait.Wait(ctx, timeout, exitDone, manager.healthy)
+	var exited healthwait.ExitError
+	switch {
+	case errors.As(err, &exited):
+		return manager.exitError(exited.Err)
+	case errors.Is(err, healthwait.ErrDeadline):
+		return fmt.Errorf("native server did not become healthy within %s", timeout)
 	}
-	return fmt.Errorf("native server did not become healthy within %s", timeout)
+	return err
 }
 
 func (manager *Manager) BackendExitError() error {

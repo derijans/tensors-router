@@ -39,13 +39,13 @@ func (manager *Manager) runtimeConfig(filename string) (string, string, catalog.
 		return "", "", catalog.RuntimeConfig{}, err
 	}
 	if manager.role == embeddingsRole {
-		manager.mu.Lock()
+		manager.state.Lock()
 		if metadata.EmbeddingsGPU {
 			manager.roleArgs = nil
 		} else {
 			manager.roleArgs = []string{"--usecpu"}
 		}
-		manager.mu.Unlock()
+		manager.state.Unlock()
 		values = embeddingRuntimeValues(values, metadata.EmbeddingsGPU)
 	} else {
 		delete(values, "embeddingsmodel")
@@ -105,9 +105,9 @@ func (manager *Manager) runtimeConfig(filename string) (string, string, catalog.
 			return "", "", catalog.RuntimeConfig{}, chmodErr
 		}
 	}
-	manager.mu.Lock()
+	manager.state.Lock()
 	manager.generated[runtimePath] = struct{}{}
-	manager.mu.Unlock()
+	manager.state.Unlock()
 	return filepath.Join(".router-runtime", runtimeName), runtimePath, metadata, nil
 }
 
@@ -182,13 +182,15 @@ func (manager *Manager) removeGenerated(path string) {
 	if path == "" {
 		return
 	}
-	manager.mu.Lock()
-	defer manager.mu.Unlock()
+	manager.state.Lock()
+	defer manager.state.Unlock()
 	_ = os.Remove(path)
 	delete(manager.generated, path)
 }
 
 func (manager *Manager) cleanupGeneratedLocked() error {
+	manager.state.Lock()
+	defer manager.state.Unlock()
 	var firstErr error
 	for path := range manager.generated {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) && firstErr == nil {

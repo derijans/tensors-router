@@ -3,6 +3,7 @@ package kobold
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -380,5 +381,48 @@ func TestReloadOutlivesTheHealthProbeTimeoutWhileAModelLoads(t *testing.T) {
 
 	if err := manager.ReloadConfig(context.Background(), "a.kcpps"); err != nil {
 		t.Fatalf("reload of a model slower than the probe timeout failed: %v", err)
+	}
+}
+
+func TestWaitHealthyNeverOutlivesItsDeadline(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	manager, err := NewManager(ProcessConfig{BackendURL: server.URL, BinaryPath: "./koboldcpp", ConfigDir: "./kcpps", DataDir: "./data", Multiuser: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	started := time.Now()
+	err = manager.waitHealthy(context.Background(), 200*time.Millisecond, nil)
+
+	if err == nil || time.Since(started) > 2*time.Second {
+		t.Fatalf("health wait of 200ms took %s and returned %v", time.Since(started), err)
+	}
+}
+
+func TestStopGivesUpWhenItsContextEndsDuringAStart(t *testing.T) {
+	manager, err := NewManager(ProcessConfig{BackendURL: "http://127.0.0.1:1", BinaryPath: "./koboldcpp", ConfigDir: t.TempDir(), DataDir: t.TempDir(), Multiuser: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.lifecycle.Lock(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	defer manager.lifecycle.Unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	stopped := make(chan error, 1)
+	go func() { stopped <- manager.Stop(ctx) }()
+
+	select {
+	case err := <-stopped:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("stop during a start returned %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("stop waited for the in-flight start despite its expired context")
 	}
 }
