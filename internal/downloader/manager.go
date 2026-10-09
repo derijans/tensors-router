@@ -312,7 +312,7 @@ func (manager *Manager) stagingDirectory(jobID string) (string, error) {
 }
 
 func (manager *Manager) removeStaging(jobID string) {
-	if !safeRepositoryPart(jobID) {
+	if !filepath.IsLocal(jobID) || !safeRepositoryPart(jobID) {
 		return
 	}
 	staging, err := secureResolve(manager.config.Storage.StateDir, "staging", jobID)
