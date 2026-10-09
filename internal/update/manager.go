@@ -719,15 +719,14 @@ func archiveBinaryPathFromNames(entryNames []string, target downloadTarget) (str
 func targetPathCanContainArchivePath(targetPath string, archivePath string) bool {
 	cleanTargetPath := filepath.ToSlash(filepath.Clean(targetPath))
 	cleanArchivePath := filepath.ToSlash(filepath.Clean(archivePath))
-	return strings.EqualFold(cleanTargetPath, cleanArchivePath) || strings.HasSuffix(strings.ToLower(cleanTargetPath), strings.ToLower("/"+cleanArchivePath))
+	_, hasArchiveSuffix := trimInstallPathSuffix(cleanTargetPath, "/"+cleanArchivePath)
+	return sameInstallPath(cleanTargetPath, cleanArchivePath) || hasArchiveSuffix
 }
 
 func archiveInstallDir(target downloadTarget, archiveBinaryPath string) (string, error) {
 	targetPath := filepath.ToSlash(filepath.Clean(target.BinaryPath))
 	archivePath := filepath.ToSlash(filepath.Clean(archiveBinaryPath))
-	suffix := "/" + archivePath
-	if strings.HasSuffix(strings.ToLower(targetPath), strings.ToLower(suffix)) {
-		installDir := strings.TrimSuffix(targetPath, suffix)
+	if installDir, trimmed := trimInstallPathSuffix(targetPath, "/"+archivePath); trimmed {
 		if installDir == "" || installDir == "." {
 			return "", fmt.Errorf("%s binary_path must include a backend install directory", target.Name)
 		}
@@ -773,7 +772,7 @@ func normalizeVersionedArchiveRoot(extractedDir string, archiveBinaryPath string
 
 func matchesBinaryArchiveName(entryName string, names []string) bool {
 	for _, name := range names {
-		if strings.EqualFold(entryName, name) {
+		if sameInstallPath(entryName, name) {
 			return true
 		}
 	}

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 )
 
 type installationPromotion struct {
@@ -15,10 +14,6 @@ type installationPromotion struct {
 	directory  bool
 	children   []*installationPromotion
 	obsolete   []string
-}
-
-func normalizedInstallRelativePath(path string) string {
-	return strings.ToLower(filepath.Clean(path))
 }
 
 func promoteDirectory(stagingPath string, targetPath string) (*installationPromotion, error) {
