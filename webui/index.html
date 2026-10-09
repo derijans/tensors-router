@@ -85,7 +85,7 @@
           </div>
           <div class="search" role="search">
             <svg class="icon"><use href="#icon-search"/></svg>
-            <input id="globalSearchInput" type="search" placeholder="Search models, nodes, recipes, WebUIs" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="globalSearchResults" aria-autocomplete="list">
+            <input id="globalSearchInput" type="search" aria-label="Search models, nodes, recipes, WebUIs" placeholder="Search models, nodes, recipes, WebUIs" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="globalSearchResults" aria-autocomplete="list">
             <kbd>Ctrl K</kbd>
             <ul id="globalSearchResults" class="search-results" role="listbox" aria-label="Search results" hidden></ul>
           </div>
@@ -171,7 +171,7 @@
               <p class="muted">Backend web interfaces reachable through the router.</p>
             </div>
             <div class="panel-actions">
-              <input id="webuiFilterInput" type="search" placeholder="Filter WebUIs">
+              <input id="webuiFilterInput" type="search" aria-label="Filter WebUIs" placeholder="Filter WebUIs">
             </div>
           </header>
           <p id="webuiStatus" class="action-status"></p>
@@ -208,7 +208,7 @@
               </div>
               <section class="download-filters" aria-label="Hugging Face filters">
                 <div id="downloadFilterTabs" class="segmented filter-tabs"><button type="button" data-download-filter-tab="main">Main</button><button type="button" data-download-filter-tab="tasks">Tasks</button><button type="button" data-download-filter-tab="libraries">Libraries</button><button type="button" data-download-filter-tab="languages">Languages</button><button type="button" data-download-filter-tab="licenses">Licenses</button><button type="button" data-download-filter-tab="other">Other</button></div>
-                <input id="downloadFilterSearch" type="search" placeholder="Search filters in this tab">
+                <input id="downloadFilterSearch" type="search" aria-label="Search filters in this tab" placeholder="Search filters in this tab">
                 <div id="downloadFilterOptions" class="filter-options"></div>
                 <div id="downloadFilterSummary" class="filter-summary"></div>
               </section>
@@ -544,7 +544,7 @@
                 <div class="button-strip">
                   <button id="previewButton" type="button" data-operation-group="cook">Preview</button>
                   <button id="simpleImportButton" type="button" data-operation-group="cook-selection">Import KCPPS</button>
-                  <input id="simpleImportInput" type="file" accept=".kcpps,.json" hidden>
+                  <input id="simpleImportInput" type="file" accept=".kcpps,.json" aria-label="Import KCPPS file" hidden>
                   <button id="simpleExportButton" type="button" data-operation-group="cook">Export KCPPS</button>
                   <button class="primary" type="submit" data-operation-group="cook">Save</button>
                 </div>

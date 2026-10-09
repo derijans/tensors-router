@@ -81,5 +81,5 @@ export function triggersFromSelection(selected: Set<string>): string[] {
   if (triggers.includes("none")) {
     return ["none"];
   }
-  return triggers.sort();
+  return triggers.sort((left, right) => left.localeCompare(right));
 }
