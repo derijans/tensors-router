@@ -120,9 +120,7 @@ func serverSentDataEvent(payload any) []byte {
 	if err != nil {
 		return nil
 	}
-	event := make([]byte, 0, len(encoded)+8)
-	event = append(event, serverSentEventDataPrefix...)
-	event = append(event, encoded...)
+	event := append([]byte(serverSentEventDataPrefix), encoded...)
 	return append(event, "\n\n"...)
 }
 
