@@ -5,10 +5,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -41,7 +39,7 @@ var filesystemFields = map[string]struct{}{
 	"admindir": {}, "downloaddir": {}, "mcpfile": {}, "baseconfig": {},
 }
 
-func BuildSnapshot(configPath string) (Snapshot, error) {
+func BuildSnapshot(configPath string, knownFileHash KnownFileHash) (Snapshot, error) {
 	content, err := os.ReadFile(configPath)
 	if err != nil {
 		return Snapshot{}, err
@@ -50,7 +48,7 @@ func BuildSnapshot(configPath string) (Snapshot, error) {
 	if err := json.Unmarshal(content, &values); err != nil {
 		return Snapshot{}, err
 	}
-	builder := snapshotBuilder{configDir: filepath.Dir(configPath), redactions: make(map[string]string)}
+	builder := snapshotBuilder{configDir: filepath.Dir(configPath), knownFileHash: knownFileHash, redactions: make(map[string]string)}
 	sanitized, err := builder.transformMap(values)
 	if err != nil {
 		return Snapshot{}, err
@@ -64,9 +62,10 @@ func BuildSnapshot(configPath string) (Snapshot, error) {
 }
 
 type snapshotBuilder struct {
-	configDir  string
-	assets     []Asset
-	redactions map[string]string
+	configDir     string
+	knownFileHash KnownFileHash
+	assets        []Asset
+	redactions    map[string]string
 }
 
 func (builder *snapshotBuilder) transformMap(values map[string]any) (map[string]any, error) {
@@ -105,7 +104,7 @@ func (builder *snapshotBuilder) transformAssetValue(role string, value any, posi
 		if value == "" {
 			return "", nil
 		}
-		digest, variants, err := contentIdentity(builder.configDir, value)
+		digest, variants, err := builder.contentIdentity(value)
 		if err != nil {
 			return nil, fmt.Errorf("verify load asset %s: %w", role, err)
 		}
@@ -158,63 +157,6 @@ func transformNonModelValue(value any) any {
 	default:
 		return typed
 	}
-}
-
-func contentIdentity(configDir string, value string) (string, []string, error) {
-	path := value
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(configDir, path)
-	}
-	absolute, err := filepath.Abs(path)
-	if err != nil {
-		return "", nil, err
-	}
-	info, err := os.Stat(absolute)
-	if err != nil {
-		return "", nil, err
-	}
-	if info.IsDir() {
-		digest, err := hashDirectory(absolute)
-		return digest, []string{value, absolute, filepath.Clean(absolute)}, err
-	}
-	digest, err := hashFile(absolute)
-	return digest, []string{value, absolute, filepath.Clean(absolute)}, err
-}
-
-func hashDirectory(path string) (string, error) {
-	hashes := []string{}
-	err := filepath.WalkDir(path, func(candidate string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.Type().IsRegular() {
-			digest, err := hashFile(candidate)
-			if err != nil {
-				return err
-			}
-			hashes = append(hashes, digest)
-		}
-		return nil
-	})
-	if err != nil {
-		return "", err
-	}
-	sort.Strings(hashes)
-	sum := sha256.Sum256([]byte(strings.Join(hashes, "\n")))
-	return hex.EncodeToString(sum[:]), nil
-}
-
-func hashFile(path string) (string, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
-	digest := sha256.New()
-	if _, err := io.Copy(digest, file); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(digest.Sum(nil)), nil
 }
 
 func isSecretField(key string) bool {

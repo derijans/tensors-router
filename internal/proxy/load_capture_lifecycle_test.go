@@ -2,8 +2,11 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -89,6 +92,43 @@ func TestReloadFailureCompletesPhysicalCapture(t *testing.T) {
 	}
 	if len(attempts) != 1 || attempts[0].Status != loadcapture.StatusFailed || attempts[0].FailureMessage != "reload denied" {
 		t.Fatalf("reload failure was not captured: %#v", attempts)
+	}
+}
+
+type knownHashCatalog struct {
+	ModelCatalog
+	hashes map[string]string
+}
+
+func (catalog knownHashCatalog) HashFile(path string) (string, bool) {
+	hash, known := catalog.hashes[path]
+	return hash, known
+}
+
+func TestPhysicalCaptureUsesCatalogKnownModelHash(t *testing.T) {
+	service, _ := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
+	store := enableLoadCaptureForTest(t, service)
+	model := filepath.Join(t.TempDir(), "model.gguf")
+	if err := os.WriteFile(model, []byte("weights"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config, err := json.Marshal(map[string]string{"model_param": model})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeProxyTestConfig(t, service.configDir, "a", string(config))
+	const knownHash = "3333333333333333333333333333333333333333333333333333333333333333"
+	service.catalog = knownHashCatalog{ModelCatalog: service.catalog, hashes: map[string]string{model: knownHash}}
+
+	if err := service.PreloadModel(context.Background(), "a"); err != nil {
+		t.Fatal(err)
+	}
+	attempts, err := store.ListFiltered(context.Background(), loadcapture.ListQuery{Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(attempts) != 1 || len(attempts[0].ModelHashes) != 1 || attempts[0].ModelHashes[0] != "model_param:"+knownHash {
+		t.Fatalf("physical capture must use the catalog's known model hash: %#v", attempts)
 	}
 }
 

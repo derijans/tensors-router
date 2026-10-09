@@ -36,11 +36,11 @@ func TestBuildSnapshotUsesContentIdentityWithoutPathsOrSecrets(t *testing.T) {
 	if err := os.WriteFile(secondConfig, secondContent, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	first, err := BuildSnapshot(firstConfig)
+	first, err := BuildSnapshot(firstConfig, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := BuildSnapshot(secondConfig)
+	second, err := BuildSnapshot(secondConfig, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,11 +90,11 @@ func TestBuildSnapshotDirectoryIdentityIgnoresNamesAndTracksContent(t *testing.T
 	if err := os.WriteFile(secondConfig, secondJSON, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	first, err := BuildSnapshot(firstConfig)
+	first, err := BuildSnapshot(firstConfig, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := BuildSnapshot(secondConfig)
+	second, err := BuildSnapshot(secondConfig, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -104,7 +104,7 @@ func TestBuildSnapshotDirectoryIdentityIgnoresNamesAndTracksContent(t *testing.T
 	if err := os.WriteFile(filepath.Join(secondAssets, "renamed-one.gguf"), []byte("changed"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	changed, err := BuildSnapshot(secondConfig)
+	changed, err := BuildSnapshot(secondConfig, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,7 +131,7 @@ func TestBuildSnapshotRetainsAssetArrayRoleAndOrder(t *testing.T) {
 	if err := os.WriteFile(configPath, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := BuildSnapshot(configPath)
+	snapshot, err := BuildSnapshot(configPath, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestBuildSnapshotHashesSDCPPTokenizerAndAudioEncoder(t *testing.T) {
 	if err := os.WriteFile(configPath, content, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	snapshot, err := BuildSnapshot(configPath)
+	snapshot, err := BuildSnapshot(configPath, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -180,5 +180,55 @@ func TestBuildSnapshotHashesSDCPPTokenizerAndAudioEncoder(t *testing.T) {
 		if strings.Contains(string(snapshot.JSON), forbidden) {
 			t.Fatalf("snapshot leaked %q: %s", forbidden, snapshot.JSON)
 		}
+	}
+}
+
+func TestBuildSnapshotDirectoryIdentityIncludesSymlinkedShards(t *testing.T) {
+	linkedRoot := t.TempDir()
+	copiedRoot := t.TempDir()
+	shardStore := t.TempDir()
+	linkedAssets := filepath.Join(linkedRoot, "assets")
+	copiedAssets := filepath.Join(copiedRoot, "assets")
+	for _, dir := range []string{linkedAssets, copiedAssets} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "first.gguf"), []byte("first shard"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sharedShard := filepath.Join(shardStore, "second.gguf")
+	if err := os.WriteFile(sharedShard, []byte("second shard"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(sharedShard, filepath.Join(linkedAssets, "second.gguf")); err != nil {
+		t.Skipf("symlinks are unavailable: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(copiedAssets, "second.gguf"), []byte("second shard"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	linkedConfig := filepath.Join(linkedRoot, "linked.kcpps")
+	copiedConfig := filepath.Join(copiedRoot, "copied.kcpps")
+	for config, assets := range map[string]string{linkedConfig: linkedAssets, copiedConfig: copiedAssets} {
+		content, err := json.Marshal(map[string]any{"ttsdir": assets})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(config, content, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	linked, err := BuildSnapshot(linkedConfig, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	copied, err := BuildSnapshot(copiedConfig, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if linked.SHA256 != copied.SHA256 {
+		t.Fatalf("a symlinked shard must count toward the directory identity: %s != %s", linked.SHA256, copied.SHA256)
 	}
 }

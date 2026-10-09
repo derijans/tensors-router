@@ -93,6 +93,13 @@ func (catalog *Catalog) UseKnownFileHashes(source func(string) (string, bool)) {
 	}
 }
 
+func (catalog *Catalog) HashFile(path string) (string, bool) {
+	if catalog.hashStore == nil {
+		return "", false
+	}
+	return catalog.hashStore.HashFile(path)
+}
+
 func (catalog *Catalog) Refresh() error {
 	return catalog.refresh(true)
 }

@@ -13,6 +13,10 @@ type backendLoadCaptureRecorder interface {
 	BeginLoadCapture(int64) func() loadcapture.Capture
 }
 
+type fileHashSource interface {
+	HashFile(path string) (string, bool)
+}
+
 type physicalLoadCapture struct {
 	attempt      loadcapture.Attempt
 	finishOutput func() loadcapture.Capture
@@ -23,7 +27,7 @@ func (service *Service) beginPhysicalLoadCapture(ctx context.Context, runtime *b
 	if service.loadCaptureStore == nil {
 		return nil, nil
 	}
-	snapshot, err := loadcapture.BuildSnapshot(filepath.Join(service.configDir, configFilename))
+	snapshot, err := loadcapture.BuildSnapshot(filepath.Join(service.configDir, configFilename), service.knownFileHash())
 	if err != nil {
 		return nil, err
 	}
@@ -37,6 +41,13 @@ func (service *Service) beginPhysicalLoadCapture(ctx context.Context, runtime *b
 		finishOutput = recorder.BeginLoadCapture(service.loadCaptureMaxOutputBytes)
 	}
 	return &physicalLoadCapture{attempt: attempt, finishOutput: finishOutput, redactions: snapshot.Redactions}, nil
+}
+
+func (service *Service) knownFileHash() loadcapture.KnownFileHash {
+	if source, ok := service.catalog.(fileHashSource); ok {
+		return source.HashFile
+	}
+	return nil
 }
 
 func (service *Service) finishPhysicalLoadCapture(capture *physicalLoadCapture, loadErr error) {
