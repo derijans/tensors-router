@@ -296,12 +296,7 @@ func (assets *assetManager) lockModelAssetConfig(target string) func() {
 }
 
 func (assets *assetManager) modelAssetConfigTarget(request siteapi.ModelAssetConfigRequest) (string, string, string, error) {
-	id, filename, err := configFileIdentity(siteapi.ConfigFileRequest{ID: request.ID, Filename: request.Filename})
-	if err != nil {
-		return "", "", "", err
-	}
-	target, err := assets.deps.localConfigFileTarget(filename)
-	return id, filename, target, err
+	return assets.deps.localConfigFile(siteapi.ConfigFileRequest{ID: request.ID, Filename: request.Filename})
 }
 
 func assetFieldResults(values []modelassets.FieldResult) []siteapi.ModelAssetFieldResult {

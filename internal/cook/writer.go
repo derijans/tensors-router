@@ -63,7 +63,10 @@ func (writer Writer) write(request NodeConfigRequest) (ConfigResult, error) {
 		}
 	}
 
-	filename := id + ".kcpps"
+	filename, err := ConfigFilenameOnDisk(writer.ConfigDir, id+configExtension)
+	if err != nil {
+		return ConfigResult{}, err
+	}
 	target, err := writer.configTarget(filename)
 	if err != nil {
 		return ConfigResult{}, err

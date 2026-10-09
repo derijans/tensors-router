@@ -2,12 +2,14 @@ package proxy
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"tensors-router/internal/catalog"
+	"tensors-router/internal/cook"
 	"tensors-router/internal/modelassets"
 	"tensors-router/internal/siteapi"
 )
@@ -126,5 +128,49 @@ func TestEnsureModelAssetsResolvesAConfigNamedWithAnUppercaseExtension(t *testin
 	}
 	if strings.Contains(string(resolved), "_hash") || !strings.Contains(string(resolved), "weights.gguf") {
 		t.Fatalf("portable config was not resolved: %s", resolved)
+	}
+}
+
+func TestSaveConfigByIDRewritesTheFileWithAnUppercaseExtension(t *testing.T) {
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "CaseExt.KCPPS"), []byte(`{"threads":1}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(ServiceConfig{ConfigDir: configDir})
+
+	response, err := service.saveLocalConfigFile(siteapi.ConfigFileRequest{ID: "CaseExt", Overwrite: true, Options: cook.Options{"threads": json.RawMessage("2")}}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if response.Filename != "CaseExt.KCPPS" {
+		t.Fatalf("save by id targeted %q instead of the config on disk", response.Filename)
+	}
+	entries, err := os.ReadDir(configDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "CaseExt.KCPPS" {
+		t.Fatalf("save by id created a second config with the same id: %v", entries)
+	}
+}
+
+func TestDeleteConfigByIDRemovesTheFileWithAnUppercaseExtension(t *testing.T) {
+	configDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(configDir, "CaseExt.KCPPS"), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	service := NewService(ServiceConfig{ConfigDir: configDir})
+
+	response, err := service.deleteLocalConfigFile(siteapi.ConfigFileRequest{ID: "CaseExt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if response.Filename != "CaseExt.KCPPS" {
+		t.Fatalf("delete by id targeted %q instead of the config on disk", response.Filename)
+	}
+	if _, err := os.Stat(filepath.Join(configDir, "CaseExt.KCPPS")); !os.IsNotExist(err) {
+		t.Fatalf("config with an uppercase extension survived delete by id: %v", err)
 	}
 }

@@ -180,11 +180,7 @@ func (service *Service) deleteConfigFile(ctx context.Context, request siteapi.Co
 }
 
 func (service *Service) deleteLocalConfigFile(request siteapi.ConfigFileRequest) (siteapi.ConfigFileResponse, error) {
-	id, filename, err := configFileIdentity(request)
-	if err != nil {
-		return siteapi.ConfigFileResponse{}, err
-	}
-	target, err := service.localConfigFileTarget(filename)
+	id, filename, target, err := service.localConfigFile(request)
 	if err != nil {
 		return siteapi.ConfigFileResponse{}, err
 	}
@@ -295,6 +291,18 @@ func usableExistingConfigStem(stem string) bool {
 	return true
 }
 
+func (service *Service) localConfigFile(request siteapi.ConfigFileRequest) (string, string, string, error) {
+	id, filename, err := configFileIdentity(request)
+	if err != nil {
+		return "", "", "", err
+	}
+	if filename, err = cook.ConfigFilenameOnDisk(service.configDir, filename); err != nil {
+		return "", "", "", err
+	}
+	target, err := service.localConfigFileTarget(filename)
+	return id, filename, target, err
+}
+
 func (service *Service) localConfigFileTarget(filename string) (string, error) {
 	if strings.TrimSpace(service.configDir) == "" {
 		return "", fmt.Errorf("config dir is required")
@@ -331,11 +339,7 @@ func (service *Service) saveLocalConfigFile(request siteapi.ConfigFileRequest, d
 	if options == nil {
 		options = cook.Options{}
 	}
-	id, filename, err := configFileIdentity(request)
-	if err != nil {
-		return siteapi.ConfigFileResponse{}, err
-	}
-	target, err := service.localConfigFileTarget(filename)
+	id, filename, target, err := service.localConfigFile(request)
 	if err != nil {
 		return siteapi.ConfigFileResponse{}, err
 	}

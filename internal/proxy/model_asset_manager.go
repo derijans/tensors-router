@@ -12,13 +12,14 @@ import (
 	"tensors-router/internal/downloader"
 	"tensors-router/internal/modelassets"
 	"tensors-router/internal/proxy/routing"
+	"tensors-router/internal/siteapi"
 )
 
 var errAssetManagerClosed = errors.New("model asset manager is closed")
 
 type assetDeps interface {
 	configNodeTarget(nodeID string, nodeURL string) (configNodeTarget, error)
-	localConfigFileTarget(filename string) (string, error)
+	localConfigFile(request siteapi.ConfigFileRequest) (string, string, string, error)
 	refreshLocalRegistry() error
 	localClusterModels() ([]cluster.Model, error)
 	siteControlAllowed() bool
