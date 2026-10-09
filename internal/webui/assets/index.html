@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tensors Router</title>
   <link rel="icon" type="image/svg+xml" href="/logo.svg">
-  <script type="module" crossorigin src="/assets/index-Caq4pEex.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-Dv5KmnvL.css">
+  <script type="module" crossorigin src="/assets/index-CTnSqF_x.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-sFZ5Fynj.css">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -52,7 +52,7 @@
     </section>
 
     <section id="appView" class="app-view hidden">
-      <aside class="rail">
+      <aside class="rail" aria-label="Workspace">
         <img class="brand-mark" src="/logo.svg" alt="">
         <nav class="rail-nav" aria-label="Sections">
           <button class="rail-item active" type="button" data-tab="overview"><svg class="icon"><use href="#icon-overview"/></svg><span>Overview</span></button>
@@ -112,11 +112,11 @@
                   <h2>Requests by lane</h2>
                   <ul id="overviewLegend" class="lane-legend"></ul>
                 </div>
-                <div class="segmented" role="group" aria-label="Period">
+                <fieldset class="segmented" aria-label="Period">
                   <button class="active" type="button" data-overview-period="24h">24h</button>
                   <button type="button" data-overview-period="7d">7d</button>
                   <button type="button" data-overview-period="30d">30d</button>
-                </div>
+                </fieldset>
               </header>
               <div id="overviewChart" class="overview-chart-body"></div>
             </article>
@@ -520,17 +520,17 @@
               <p class="muted">Compose configs and split recipes.</p>
             </div>
             <div class="panel-actions">
-              <div class="segmented" role="group" aria-label="Cook mode">
+              <fieldset class="segmented" aria-label="Cook mode">
                 <button class="active" type="button" data-cook-mode="quick">Quick cook</button>
                 <button type="button" data-cook-mode="constructor">Advanced cook</button>
-              </div>
+              </fieldset>
               <label class="toggle-row"><input id="overwriteInput" type="checkbox"><span>Overwrite</span></label>
             </div>
           </header>
 
           <section class="cook-mode active" data-cook-panel="quick">
             <form id="cookForm" class="simple-cook">
-              <aside class="card simple-controls">
+              <aside class="card simple-controls" aria-label="Cook controls">
                 <label>Node<select id="simpleNodeSelect" data-operation-group="cook-selection"></select></label>
                 <label>Config<select id="simpleConfigSelect" data-operation-group="cook-selection"></select></label>
                 <label>Config id<input id="cookIdInput" type="text" required placeholder="my-model"></label>
@@ -560,7 +560,7 @@
                 <div id="simpleConfigEditor" class="config-editor"></div>
               </div>
 
-              <aside id="simpleFieldSidebar" class="card field-sidebar"></aside>
+              <aside id="simpleFieldSidebar" class="card field-sidebar" aria-label="Field details"></aside>
             </form>
           </section>
 

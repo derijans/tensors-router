@@ -68,41 +68,39 @@ func SplitOnEveryComma(body string) []string {
 func SplitOnUnquotedCommas(body string) []string {
 	var items []string
 	var current strings.Builder
-	var quote rune
-	escaped := false
-
+	var quotes quoteTracker
 	for _, char := range body {
-		if escaped {
-			current.WriteRune(char)
-			escaped = false
-			continue
-		}
-		if char == '\\' && quote == '"' {
-			current.WriteRune(char)
-			escaped = true
-			continue
-		}
-		if quote != 0 {
-			current.WriteRune(char)
-			if char == quote {
-				quote = 0
-			}
-			continue
-		}
-		if char == '\'' || char == '"' {
-			quote = char
-			current.WriteRune(char)
-			continue
-		}
-		if char == ',' {
+		if !quotes.consume(char) && char == ',' {
 			items = append(items, current.String())
 			current.Reset()
 			continue
 		}
 		current.WriteRune(char)
 	}
-
 	return append(items, current.String())
+}
+
+type quoteTracker struct {
+	quote   rune
+	escaped bool
+}
+
+func (tracker *quoteTracker) consume(char rune) (quoted bool) {
+	switch {
+	case tracker.escaped:
+		tracker.escaped = false
+	case tracker.quote == '"' && char == '\\':
+		tracker.escaped = true
+	case tracker.quote != 0:
+		if char == tracker.quote {
+			tracker.quote = 0
+		}
+	case char == '\'' || char == '"':
+		tracker.quote = char
+	default:
+		return false
+	}
+	return true
 }
 
 func StripTrailingComment(line string) string {

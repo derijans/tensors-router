@@ -122,104 +122,120 @@ analytics:
 		t.Fatal(err)
 	}
 
-	if cfg.Server.Bind != "127.0.0.1:9999" {
-		t.Fatalf("unexpected bind %q", cfg.Server.Bind)
+	for _, field := range overriddenConfigFields(cfg) {
+		if !reflect.DeepEqual(field.got, field.want) {
+			t.Errorf("%s = %#v, want %#v", field.name, field.got, field.want)
+		}
 	}
-	if !reflect.DeepEqual(cfg.Auth.BearerKeys, []string{"alpha-inference-key-01", "beta-inference-key-002"}) {
-		t.Fatalf("unexpected bearer keys %#v", cfg.Auth.BearerKeys)
+	expectOverrideDeprecationWarnings(t, cfg.Warnings)
+}
+
+type loadedConfigField struct {
+	name string
+	got  any
+	want any
+}
+
+func overriddenConfigFields(cfg Config) []loadedConfigField {
+	fields := []loadedConfigField{
+		{"server.bind", cfg.Server.Bind, "127.0.0.1:9999"},
+		{"auth.bearer_keys", cfg.Auth.BearerKeys, []string{"alpha-inference-key-01", "beta-inference-key-002"}},
+		{"auth.inference_keys", cfg.Auth.InferenceKeys, []string{"alpha-inference-key-01", "beta-inference-key-002"}},
+		{"auth.admin_keys", cfg.Auth.AdminKeys, []string{"admin-alpha-key-00001"}},
+		{"models.startup_model", cfg.Models.StartupModel, "alpha"},
+		{"models.file_roots", cfg.Models.FileRoots, []string{"C:/models", "D:/assets"}},
+		{"backend.mode", cfg.Backend.Mode, "llama_sdcpp"},
+		{"logging.enabled", cfg.Logging.Enabled, false},
+		{"logging.mode", cfg.Logging.Mode, LoggingModeQuiet},
+		{"logging.backend_logs_to_disk", cfg.Logging.BackendLogsToDisk, true},
+		{"downloader.enabled", cfg.Downloader.Enabled, false},
+		{"downloader.binary_location", cfg.Downloader.BinaryLocation, "./tools/tensor-router-downloader"},
+		{"analytics.enabled", cfg.Analytics.Enabled, true},
+		{"analytics.vram_enabled", cfg.Analytics.VRAMEnabled, false},
+		{"analytics.flush_interval", cfg.Analytics.FlushInterval, 2 * time.Minute},
+		{"analytics.database_path", cfg.Analytics.DatabasePath, "./store/custom-analytics.sqlite"},
 	}
-	if !reflect.DeepEqual(cfg.Auth.InferenceKeys, []string{"alpha-inference-key-01", "beta-inference-key-002"}) || !reflect.DeepEqual(cfg.Auth.AdminKeys, []string{"admin-alpha-key-00001"}) {
-		t.Fatalf("unexpected split auth %#v", cfg.Auth)
+	fields = append(fields, overriddenKoboldFields(cfg.Kobold)...)
+	fields = append(fields, overriddenNativeBackendFields(cfg)...)
+	fields = append(fields, overriddenUpdateFields(cfg.Updates)...)
+	return append(fields, overriddenClusterFields(cfg.Cluster)...)
+}
+
+func overriddenKoboldFields(kobold KoboldConfig) []loadedConfigField {
+	return []loadedConfigField{
+		{"kobold.extra_args", kobold.ExtraArgs, []string{"--flashattention", "--quiet"}},
+		{"kobold.multiuser", kobold.Multiuser, 2},
+		{"kobold.embeddings_backend_url", kobold.EmbeddingsBackendURL, "http://127.0.0.1:6004"},
+		{"kobold.quiet", kobold.Quiet, false},
+		{"kobold.skip_launcher", kobold.SkipLauncher, false},
+		{"kobold.no_model", kobold.NoModel, false},
+		{"kobold.hide_window", kobold.HideWindow, false},
 	}
-	if !reflect.DeepEqual(cfg.Kobold.ExtraArgs, []string{"--flashattention", "--quiet"}) {
-		t.Fatalf("unexpected extra args %#v", cfg.Kobold.ExtraArgs)
+}
+
+func overriddenNativeBackendFields(cfg Config) []loadedConfigField {
+	return []loadedConfigField{
+		{"llama.backend_url", cfg.Llama.BackendURL, "http://127.0.0.1:6002"},
+		{"llama.embeddings_backend_url", cfg.Llama.EmbeddingsBackendURL, "http://127.0.0.1:6005"},
+		{"llama.binary_path", cfg.Llama.BinaryPath, "./bin/llama-server"},
+		{"llama.data_dir", cfg.Llama.DataDir, "./llama-state"},
+		{"llama.hide_window", cfg.Llama.HideWindow, false},
+		{"llama.extra_args", cfg.Llama.ExtraArgs, []string{"--parallel", "2"}},
+		{"sdcpp.backend_url", cfg.SDCPP.BackendURL, "http://127.0.0.1:7861"},
+		{"sdcpp.binary_path", cfg.SDCPP.BinaryPath, "./bin/sd-server"},
+		{"sdcpp.data_dir", cfg.SDCPP.DataDir, "./sd-state"},
+		{"sdcpp.hide_window", cfg.SDCPP.HideWindow, false},
+		{"sdcpp.extra_args", cfg.SDCPP.ExtraArgs, []string{"--verbose"}},
+		{"whispercpp.backend_url", cfg.WhisperCPP.BackendURL, "http://127.0.0.1:6003"},
+		{"whispercpp.binary_path", cfg.WhisperCPP.BinaryPath, "./bin/whisper-server"},
+		{"whispercpp.data_dir", cfg.WhisperCPP.DataDir, "./whisper-state"},
+		{"whispercpp.hide_window", cfg.WhisperCPP.HideWindow, false},
+		{"whispercpp.extra_args", cfg.WhisperCPP.ExtraArgs, []string{"--language", "auto"}},
 	}
-	if cfg.Kobold.Multiuser != 2 {
-		t.Fatalf("unexpected multiuser %d", cfg.Kobold.Multiuser)
+}
+
+func overriddenUpdateFields(updates UpdatesConfig) []loadedConfigField {
+	return []loadedConfigField{
+		{"updates.enabled", updates.Enabled, false},
+		{"updates.check_interval", updates.CheckInterval, 24 * time.Hour},
+		{"updates.binary_url", updates.BinaryURL, "https://example.test/koboldcpp"},
+		{"updates.llama_binary_url", updates.LlamaBinaryURL, "https://example.test/llama-server"},
+		{"updates.sdcpp_binary_url", updates.SDCPPBinaryURL, "https://example.test/sd-server"},
+		{"updates.whispercpp_binary_url", updates.WhisperCPPBinaryURL, "https://example.test/whisper-server"},
+		{"updates.binary_sha256", updates.BinarySHA256, "0000000000000000000000000000000000000000000000000000000000000001"},
+		{"updates.llama_binary_sha256", updates.LlamaSHA256, "0000000000000000000000000000000000000000000000000000000000000002"},
+		{"updates.sdcpp_binary_sha256", updates.SDCPPSHA256, "0000000000000000000000000000000000000000000000000000000000000003"},
+		{"updates.whispercpp_binary_sha256", updates.WhisperCPPSHA256, "0000000000000000000000000000000000000000000000000000000000000004"},
+		{"updates.whispercpp_repository_url", updates.WhisperCPPRepositoryURL, "https://github.com/ggml-org/whisper.cpp"},
+		{"updates.whispercpp_asset_glob", updates.WhisperCPPAssetGlob, "whisper-bin-x64.zip"},
 	}
-	if cfg.Kobold.EmbeddingsBackendURL != "http://127.0.0.1:6004" {
-		t.Fatalf("unexpected kobold embeddings URL %q", cfg.Kobold.EmbeddingsBackendURL)
+}
+
+func overriddenClusterFields(cluster ClusterConfig) []loadedConfigField {
+	return []loadedConfigField{
+		{"cluster.role", cluster.Role, "master"},
+		{"cluster.node_id", cluster.NodeID, "master-a"},
+		{"cluster.slave_urls", cluster.SlaveURLs, []string{"http://127.0.0.1:8081"}},
+		{"cluster.token", cluster.Token, "cluster-secret-token-01"},
+		{"cluster.store_dir", cluster.StoreDir, "./store"},
+		{"cluster.sync_interval", cluster.SyncInterval, 30 * time.Second},
+		{"cluster.health_interval", cluster.HealthInterval, 5 * time.Second},
 	}
-	if cfg.Models.StartupModel != "alpha" {
-		t.Fatalf("unexpected startup model %q", cfg.Models.StartupModel)
+}
+
+func expectOverrideDeprecationWarnings(t *testing.T, warnings []string) {
+	t.Helper()
+	if len(warnings) != 5 {
+		t.Fatalf("expected 5 compatibility warnings, got %#v", warnings)
 	}
-	if !reflect.DeepEqual(cfg.Models.FileRoots, []string{"C:/models", "D:/assets"}) {
-		t.Fatalf("unexpected file roots %#v", cfg.Models.FileRoots)
-	}
-	if cfg.Backend.Mode != "llama_sdcpp" {
-		t.Fatalf("unexpected backend mode %q", cfg.Backend.Mode)
-	}
-	if cfg.Kobold.Quiet || cfg.Kobold.SkipLauncher || cfg.Kobold.NoModel || cfg.Kobold.HideWindow {
-		t.Fatalf("unexpected kobold bool settings %#v", cfg.Kobold)
-	}
-	if cfg.Llama.BackendURL != "http://127.0.0.1:6002" || cfg.Llama.BinaryPath != "./bin/llama-server" || cfg.Llama.DataDir != "./llama-state" || cfg.Llama.HideWindow {
-		t.Fatalf("unexpected llama config %#v", cfg.Llama)
-	}
-	if cfg.Llama.EmbeddingsBackendURL != "http://127.0.0.1:6005" {
-		t.Fatalf("unexpected llama embeddings URL %q", cfg.Llama.EmbeddingsBackendURL)
-	}
-	if !reflect.DeepEqual(cfg.Llama.ExtraArgs, []string{"--parallel", "2"}) {
-		t.Fatalf("unexpected llama extra args %#v", cfg.Llama.ExtraArgs)
-	}
-	if cfg.SDCPP.BackendURL != "http://127.0.0.1:7861" || cfg.SDCPP.BinaryPath != "./bin/sd-server" || cfg.SDCPP.DataDir != "./sd-state" || cfg.SDCPP.HideWindow {
-		t.Fatalf("unexpected sdcpp config %#v", cfg.SDCPP)
-	}
-	if !reflect.DeepEqual(cfg.SDCPP.ExtraArgs, []string{"--verbose"}) {
-		t.Fatalf("unexpected sdcpp extra args %#v", cfg.SDCPP.ExtraArgs)
-	}
-	if cfg.WhisperCPP.BackendURL != "http://127.0.0.1:6003" || cfg.WhisperCPP.BinaryPath != "./bin/whisper-server" || cfg.WhisperCPP.DataDir != "./whisper-state" || cfg.WhisperCPP.HideWindow {
-		t.Fatalf("unexpected whispercpp config %#v", cfg.WhisperCPP)
-	}
-	if !reflect.DeepEqual(cfg.WhisperCPP.ExtraArgs, []string{"--language", "auto"}) {
-		t.Fatalf("unexpected whispercpp extra args %#v", cfg.WhisperCPP.ExtraArgs)
-	}
-	if cfg.Logging.Enabled {
-		t.Fatalf("logging should be disabled")
-	}
-	if cfg.Logging.Mode != LoggingModeQuiet || len(cfg.Warnings) != 5 {
-		t.Fatalf("unexpected compatibility result mode=%q warnings=%#v", cfg.Logging.Mode, cfg.Warnings)
-	}
-	if !anyContains(cfg.Warnings, "kobold.embeddings_backend_url is deprecated") || !anyContains(cfg.Warnings, "llama.embeddings_backend_url is deprecated") {
-		t.Fatalf("expected embeddings_backend_url deprecation warnings, got %#v", cfg.Warnings)
-	}
-	if !anyContains(cfg.Warnings, "analytics.database_path is deprecated") {
-		t.Fatalf("expected analytics.database_path deprecation warning, got %#v", cfg.Warnings)
-	}
-	if !cfg.Logging.BackendLogsToDisk {
-		t.Fatalf("backend logs to disk should be enabled")
-	}
-	if cfg.Updates.Enabled {
-		t.Fatalf("updates should be disabled")
-	}
-	if cfg.Updates.CheckInterval != 24*time.Hour {
-		t.Fatalf("unexpected check interval %s", cfg.Updates.CheckInterval)
-	}
-	if cfg.Updates.BinaryURL != "https://example.test/koboldcpp" || cfg.Updates.LlamaBinaryURL != "https://example.test/llama-server" || cfg.Updates.SDCPPBinaryURL != "https://example.test/sd-server" || cfg.Updates.WhisperCPPBinaryURL != "https://example.test/whisper-server" {
-		t.Fatalf("unexpected update urls %#v", cfg.Updates)
-	}
-	if cfg.Updates.BinarySHA256 != "0000000000000000000000000000000000000000000000000000000000000001" || cfg.Updates.LlamaSHA256 != "0000000000000000000000000000000000000000000000000000000000000002" || cfg.Updates.SDCPPSHA256 != "0000000000000000000000000000000000000000000000000000000000000003" || cfg.Updates.WhisperCPPSHA256 != "0000000000000000000000000000000000000000000000000000000000000004" {
-		t.Fatalf("unexpected update hashes %#v", cfg.Updates)
-	}
-	if cfg.Updates.WhisperCPPRepositoryURL != "https://github.com/ggml-org/whisper.cpp" || cfg.Updates.WhisperCPPAssetGlob != "whisper-bin-x64.zip" {
-		t.Fatalf("unexpected whispercpp update source %#v", cfg.Updates.WhisperCPPSource())
-	}
-	if cfg.Downloader.Enabled || cfg.Downloader.BinaryLocation != "./tools/tensor-router-downloader" {
-		t.Fatalf("unexpected downloader config %#v", cfg.Downloader)
-	}
-	if cfg.Cluster.Role != "master" || cfg.Cluster.NodeID != "master-a" {
-		t.Fatalf("unexpected cluster identity %#v", cfg.Cluster)
-	}
-	if !reflect.DeepEqual(cfg.Cluster.SlaveURLs, []string{"http://127.0.0.1:8081"}) {
-		t.Fatalf("unexpected slave urls %#v", cfg.Cluster.SlaveURLs)
-	}
-	if cfg.Cluster.Token != "cluster-secret-token-01" || cfg.Cluster.StoreDir != "./store" {
-		t.Fatalf("unexpected cluster config %#v", cfg.Cluster)
-	}
-	if cfg.Cluster.SyncInterval != 30*time.Second || cfg.Cluster.HealthInterval != 5*time.Second {
-		t.Fatalf("unexpected cluster intervals %#v", cfg.Cluster)
-	}
-	if !cfg.Analytics.Enabled || cfg.Analytics.VRAMEnabled || cfg.Analytics.FlushInterval != 2*time.Minute || cfg.Analytics.DatabasePath != "./store/custom-analytics.sqlite" {
-		t.Fatalf("unexpected analytics config %#v", cfg.Analytics)
+	for _, expected := range []string{
+		"kobold.embeddings_backend_url is deprecated",
+		"llama.embeddings_backend_url is deprecated",
+		"analytics.database_path is deprecated",
+	} {
+		if !anyContains(warnings, expected) {
+			t.Errorf("expected warning containing %q, got %#v", expected, warnings)
+		}
 	}
 }
 

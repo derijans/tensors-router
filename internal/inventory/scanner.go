@@ -43,11 +43,6 @@ type FileRecord struct {
 	SHA256       string   `json:"sha256,omitempty"`
 }
 
-type pathReference struct {
-	role  string
-	model string
-}
-
 func Scan(roots []string, models []cluster.Model, nodeID string) ([]FileRecord, error) {
 	references := referencesByPath(models)
 	files := make([]FileRecord, 0)
@@ -174,59 +169,6 @@ func inferredRoles(path string, extension string, references map[string][]pathRe
 	}
 	referencedBy := sortedKeys(modelSet)
 	return roles, referencedBy
-}
-
-func referencesByPath(models []cluster.Model) map[string][]pathReference {
-	references := map[string][]pathReference{}
-	for _, model := range models {
-		modelName := model.PublicID
-		if modelName == "" {
-			modelName = model.LocalID
-		}
-		if model.Capabilities.Embeddings != nil {
-			addReference(references, model.Capabilities.Embeddings.Model, RoleEmbeddings, modelName)
-		}
-		if model.Capabilities.Multimodal != nil {
-			addReference(references, model.Capabilities.Multimodal.Projector, RoleMultimodal, modelName)
-		}
-		if model.Capabilities.Image != nil {
-			addReference(references, model.Capabilities.Image.Model, RoleImage, modelName)
-			addReference(references, model.Capabilities.Image.VAE, RoleVAE, modelName)
-			addReference(references, model.Capabilities.Image.Clip1, RoleClip, modelName)
-			addReference(references, model.Capabilities.Image.Clip2, RoleClip, modelName)
-			addReference(references, model.Capabilities.Image.ClipL, RoleClip, modelName)
-			addReference(references, model.Capabilities.Image.ClipG, RoleClip, modelName)
-			addReference(references, model.Capabilities.Image.T5XXL, RoleT5, modelName)
-			addReference(references, model.Capabilities.Image.Upscaler, RoleUpscaler, modelName)
-			for _, lora := range model.Capabilities.Image.LoRA {
-				addReference(references, lora, RoleLoRA, modelName)
-			}
-		}
-		if model.Capabilities.Voice != nil {
-			addReference(references, model.Capabilities.Voice.WhisperModel, RoleVoice, modelName)
-			addReference(references, model.Capabilities.Voice.VADModel, RoleVoice, modelName)
-			addReference(references, model.Capabilities.Voice.TTSModel, RoleVoice, modelName)
-			addReference(references, model.Capabilities.Voice.WAVTokenizer, RoleVoice, modelName)
-			addReference(references, model.Capabilities.Voice.Directory, RoleVoice, modelName)
-		}
-		if model.Capabilities.Music != nil {
-			addReference(references, model.Capabilities.Music.LLM, RoleMusic, modelName)
-			addReference(references, model.Capabilities.Music.Embeddings, RoleMusic, modelName)
-			addReference(references, model.Capabilities.Music.Diffusion, RoleMusic, modelName)
-			addReference(references, model.Capabilities.Music.VAE, RoleMusic, modelName)
-		}
-	}
-	return references
-}
-
-func addReference(references map[string][]pathReference, path string, role string, model string) {
-	path = strings.TrimSpace(path)
-	if path == "" {
-		return
-	}
-	for _, key := range pathKeys(path) {
-		references[key] = append(references[key], pathReference{role: role, model: model})
-	}
 }
 
 func pathKeys(path string) []string {

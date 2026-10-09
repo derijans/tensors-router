@@ -43,32 +43,40 @@ func largestAbsoluteEntry(matrix [][]float64) float64 {
 }
 
 func eliminateWithPartialPivoting(augmented [][]float64, threshold float64) bool {
-	n := len(augmented)
-	for pivotIndex := 0; pivotIndex < n; pivotIndex++ {
-		bestRow := pivotIndex
-		bestValue := math.Abs(augmented[pivotIndex][pivotIndex])
-		for row := pivotIndex + 1; row < n; row++ {
-			if value := math.Abs(augmented[row][pivotIndex]); value > bestValue {
-				bestRow, bestValue = row, value
-			}
-		}
+	for pivotIndex := range augmented {
+		bestRow, bestValue := largestPivotRow(augmented, pivotIndex)
 		if bestValue < threshold {
 			return false
 		}
 		augmented[pivotIndex], augmented[bestRow] = augmented[bestRow], augmented[pivotIndex]
-
-		pivot := augmented[pivotIndex][pivotIndex]
-		for row := pivotIndex + 1; row < n; row++ {
-			factor := augmented[row][pivotIndex] / pivot
-			if factor == 0 {
-				continue
-			}
-			for col := pivotIndex; col <= n; col++ {
-				augmented[row][col] -= factor * augmented[pivotIndex][col]
-			}
-		}
+		eliminateBelowPivot(augmented, pivotIndex)
 	}
 	return true
+}
+
+func largestPivotRow(augmented [][]float64, pivotIndex int) (int, float64) {
+	bestRow := pivotIndex
+	bestValue := math.Abs(augmented[pivotIndex][pivotIndex])
+	for row := pivotIndex + 1; row < len(augmented); row++ {
+		if value := math.Abs(augmented[row][pivotIndex]); value > bestValue {
+			bestRow, bestValue = row, value
+		}
+	}
+	return bestRow, bestValue
+}
+
+func eliminateBelowPivot(augmented [][]float64, pivotIndex int) {
+	pivotRow := augmented[pivotIndex]
+	pivot := pivotRow[pivotIndex]
+	for _, row := range augmented[pivotIndex+1:] {
+		factor := row[pivotIndex] / pivot
+		if factor == 0 {
+			continue
+		}
+		for col := pivotIndex; col < len(row); col++ {
+			row[col] -= factor * pivotRow[col]
+		}
+	}
 }
 
 func backSubstitute(augmented [][]float64) ([]float64, bool) {

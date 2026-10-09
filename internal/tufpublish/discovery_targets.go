@@ -109,9 +109,6 @@ func readRuntimeManifest(platform string, manifestPath string) ([]byte, vllm.Man
 	return body, manifest, nil
 }
 
-// selectReleaseAsset picks the newest release that actually carries the
-// configured asset.
-//
 // Upstreams publish releases holding no build output at all: llama.cpp tags a
 // marker release carrying only nightly-tag.txt alongside its real per-build
 // releases. Such a release is simply not a candidate, so keep looking rather

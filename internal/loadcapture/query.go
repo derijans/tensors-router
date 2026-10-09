@@ -21,87 +21,111 @@ func (store *Store) ListFiltered(ctx context.Context, query ListQuery) ([]Attemp
 	if store == nil {
 		return nil, nil
 	}
-	if query.Limit < 1 || query.Limit > 500 {
-		query.Limit = 100
+	if err := query.validate(); err != nil {
+		return nil, err
 	}
-	statement := `SELECT id, node_id, kind, status, backend_mode, runtime, lane, snapshot_sha256, COALESCE(physical_attempt_id, ''), started_at, finished_at, duration_ms, failure_class, failure_message, captured_bytes, truncated FROM load_capture_attempts WHERE 1 = 1`
-	arguments := []any{}
-	if query.BeforeStartedMS > 0 {
-		if query.BeforeID == "" {
-			statement += ` AND started_at < ?`
-			arguments = append(arguments, query.BeforeStartedMS)
-		} else {
-			statement += ` AND (started_at < ? OR (started_at = ? AND id < ?))`
-			arguments = append(arguments, query.BeforeStartedMS, query.BeforeStartedMS, query.BeforeID)
-		}
-	}
-	if query.FromMS > 0 {
-		statement += ` AND started_at >= ?`
-		arguments = append(arguments, query.FromMS)
-	}
-	if query.ToMS > 0 {
-		statement += ` AND started_at <= ?`
-		arguments = append(arguments, query.ToMS)
-	}
-	if query.Status != "" {
-		if !validStatus(query.Status) {
-			return nil, fmt.Errorf("invalid load capture status %q", query.Status)
-		}
-		statement += ` AND status = ?`
-		arguments = append(arguments, query.Status)
-	}
-	if query.Kind != "" {
-		if query.Kind != KindPhysical && query.Kind != KindReuse {
-			return nil, fmt.Errorf("invalid load capture kind %q", query.Kind)
-		}
-		statement += ` AND kind = ?`
-		arguments = append(arguments, query.Kind)
-	}
-	if backendMode := strings.TrimSpace(query.BackendMode); backendMode != "" {
-		statement += ` AND backend_mode = ?`
-		arguments = append(arguments, backendMode)
-	}
-	statement += ` ORDER BY started_at DESC, id DESC LIMIT ?`
-	arguments = append(arguments, query.Limit)
-	rows, err := store.reader.QueryContext(ctx, statement, arguments...)
+	attempts, err := store.queryAttempts(ctx, query)
 	if err != nil {
 		return nil, err
 	}
+	for index := range attempts {
+		attempts[index].ModelHashes, err = store.snapshotModelHashes(ctx, attempts[index].SnapshotSHA256)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return attempts, nil
+}
+
+func (query ListQuery) validate() error {
+	if query.Status != "" && !validStatus(query.Status) {
+		return fmt.Errorf("invalid load capture status %q", query.Status)
+	}
+	if query.Kind != "" && query.Kind != KindPhysical && query.Kind != KindReuse {
+		return fmt.Errorf("invalid load capture kind %q", query.Kind)
+	}
+	return nil
+}
+
+func (query ListQuery) filterClause() (string, []any) {
+	var clause strings.Builder
+	arguments := []any{}
+	addFilter := func(condition string, values ...any) {
+		clause.WriteString(" AND " + condition)
+		arguments = append(arguments, values...)
+	}
+	if query.BeforeStartedMS > 0 && query.BeforeID == "" {
+		addFilter("started_at < ?", query.BeforeStartedMS)
+	}
+	if query.BeforeStartedMS > 0 && query.BeforeID != "" {
+		addFilter("(started_at < ? OR (started_at = ? AND id < ?))", query.BeforeStartedMS, query.BeforeStartedMS, query.BeforeID)
+	}
+	if query.FromMS > 0 {
+		addFilter("started_at >= ?", query.FromMS)
+	}
+	if query.ToMS > 0 {
+		addFilter("started_at <= ?", query.ToMS)
+	}
+	if query.Status != "" {
+		addFilter("status = ?", query.Status)
+	}
+	if query.Kind != "" {
+		addFilter("kind = ?", query.Kind)
+	}
+	if backendMode := strings.TrimSpace(query.BackendMode); backendMode != "" {
+		addFilter("backend_mode = ?", backendMode)
+	}
+	return clause.String(), arguments
+}
+
+func (query ListQuery) pageLimit() int {
+	if query.Limit < 1 || query.Limit > 500 {
+		return 100
+	}
+	return query.Limit
+}
+
+func (store *Store) queryAttempts(ctx context.Context, query ListQuery) ([]Attempt, error) {
+	filter, arguments := query.filterClause()
+	statement := `SELECT id, node_id, kind, status, backend_mode, runtime, lane, snapshot_sha256, COALESCE(physical_attempt_id, ''), started_at, finished_at, duration_ms, failure_class, failure_message, captured_bytes, truncated FROM load_capture_attempts WHERE 1 = 1` + filter + ` ORDER BY started_at DESC, id DESC LIMIT ?`
+	rows, err := store.reader.QueryContext(ctx, statement, append(arguments, query.pageLimit())...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
 	attempts := []Attempt{}
 	for rows.Next() {
 		attempt, err := scanAttempt(rows)
 		if err != nil {
-			_ = rows.Close()
 			return nil, err
 		}
 		attempts = append(attempts, attempt)
 	}
 	if err := rows.Err(); err != nil {
-		_ = rows.Close()
 		return nil, err
 	}
-	if err := rows.Close(); err != nil {
+	return attempts, rows.Close()
+}
+
+func (store *Store) snapshotModelHashes(ctx context.Context, snapshotSHA256 string) ([]string, error) {
+	rows, err := store.reader.QueryContext(ctx, `SELECT role, sha256 FROM load_capture_snapshot_assets WHERE snapshot_sha256 = ? ORDER BY role, position`, snapshotSHA256)
+	if err != nil {
 		return nil, err
 	}
-	for index := range attempts {
-		assetRows, err := store.reader.QueryContext(ctx, `SELECT role, sha256 FROM load_capture_snapshot_assets WHERE snapshot_sha256 = ? ORDER BY role, position`, attempts[index].SnapshotSHA256)
-		if err != nil {
+	defer func() { _ = rows.Close() }()
+	var hashes []string
+	for rows.Next() {
+		var role string
+		var hash string
+		if err := rows.Scan(&role, &hash); err != nil {
 			return nil, err
 		}
-		for assetRows.Next() {
-			var role string
-			var hash string
-			if err := assetRows.Scan(&role, &hash); err != nil {
-				_ = assetRows.Close()
-				return nil, err
-			}
-			attempts[index].ModelHashes = append(attempts[index].ModelHashes, role+":"+hash)
-		}
-		if err := assetRows.Close(); err != nil {
-			return nil, err
-		}
+		hashes = append(hashes, role+":"+hash)
 	}
-	return attempts, nil
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return hashes, rows.Close()
 }
 
 func validStatus(status Status) bool {

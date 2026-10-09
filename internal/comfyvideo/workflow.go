@@ -144,23 +144,24 @@ func applySamplerSettings(params *Params, graph Graph, sampler Node) {
 func applyVideoDimensions(params *Params, graph Graph) {
 	for _, nodeID := range sortedNodeIDs(graph) {
 		inputs := graph[nodeID].Inputs
-		if width, ok := numberValue(inputs["width"]); ok && width > 0 {
-			params.Width = int(width)
-		}
-		if height, ok := numberValue(inputs["height"]); ok && height > 0 {
-			params.Height = int(height)
-		}
+		assignPositiveInput(&params.Width, inputs, "width")
+		assignPositiveInput(&params.Height, inputs, "height")
 		for _, key := range videoLengthInputKeys {
-			if frames, ok := numberValue(inputs[key]); ok && frames > 0 {
-				params.Frames = int(frames)
-			}
+			assignPositiveInput(&params.Frames, inputs, key)
 		}
-		if fps, ok := numberValue(inputs["fps"]); ok && fps > 0 {
-			params.FPS = int(fps)
-		} else if fps, ok := numberValue(inputs["frame_rate"]); ok && fps > 0 {
-			params.FPS = int(fps)
+		if !assignPositiveInput(&params.FPS, inputs, "fps") {
+			assignPositiveInput(&params.FPS, inputs, "frame_rate")
 		}
 	}
+}
+
+func assignPositiveInput(target *int, inputs map[string]any, key string) bool {
+	value, ok := numberValue(inputs[key])
+	if !ok || value <= 0 {
+		return false
+	}
+	*target = int(value)
+	return true
 }
 
 func findSamplerNode(graph Graph) (Node, bool) {

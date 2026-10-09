@@ -140,10 +140,45 @@ func LocalModelsWithBackendMode(models []catalog.Model, nodeID string, nodeURL s
 	if err != nil {
 		fallbackMode = BackendModeKobold
 	}
-	primaryIDs := make(map[string]struct{}, len(models))
-	servedNameOwners := make(map[string]int)
+	servedNames := indexServedNames(models)
+	location := localModelLocation{nodeID: nodeID, nodeURL: nodeURL, source: source}
+	records := make([]Model, 0, len(models))
 	for _, model := range models {
-		primaryIDs[model.ID] = struct{}{}
+		modelBackendMode := backendmode.Normalize(model.BackendMode)
+		if modelBackendMode == "" {
+			modelBackendMode = fallbackMode
+		}
+		record := localModelRecord(model, modelBackendMode, location)
+		records = append(records, record)
+		for _, servedName := range model.ServedNames {
+			servedName = strings.TrimSpace(servedName)
+			if !servedNames.uniqueAlias(servedName, model.ID) {
+				continue
+			}
+			alias := record
+			alias.PublicID = servedName
+			alias.ServedNames = append([]string{}, record.ServedNames...)
+			records = append(records, alias)
+		}
+	}
+	return records
+}
+
+type localModelLocation struct {
+	nodeID  string
+	nodeURL string
+	source  string
+}
+
+type servedNameIndex struct {
+	primaryIDs map[string]struct{}
+	owners     map[string]int
+}
+
+func indexServedNames(models []catalog.Model) servedNameIndex {
+	index := servedNameIndex{primaryIDs: make(map[string]struct{}, len(models)), owners: make(map[string]int)}
+	for _, model := range models {
+		index.primaryIDs[model.ID] = struct{}{}
 		seen := make(map[string]struct{}, len(model.ServedNames))
 		for _, servedName := range model.ServedNames {
 			servedName = strings.TrimSpace(servedName)
@@ -154,61 +189,51 @@ func LocalModelsWithBackendMode(models []catalog.Model, nodeID string, nodeURL s
 				continue
 			}
 			seen[servedName] = struct{}{}
-			servedNameOwners[servedName]++
+			index.owners[servedName]++
 		}
 	}
-	records := make([]Model, 0, len(models))
-	for _, model := range models {
-		modelBackendMode := backendmode.Normalize(model.BackendMode)
-		if modelBackendMode == "" {
-			modelBackendMode = fallbackMode
-		}
-		record := Model{
-			PublicID:         model.ID,
-			LocalID:          model.ID,
-			ImageID:          model.ImageID,
-			PublicImageID:    model.ImageID,
-			Filename:         model.Filename,
-			Created:          model.Created,
-			Size:             model.Size,
-			HasLLM:           model.HasLLM,
-			HasImage:         model.HasImage,
-			HasEmbeddings:    model.HasEmbeddings,
-			HasMultimodal:    model.HasMultimodal,
-			HasVoice:         model.HasVoice,
-			HasMusic:         model.HasMusic,
-			MCPEnabled:       model.MCPEnabled,
-			ModelHash:        model.ModelHash,
-			ConfigHash:       model.ConfigHash,
-			Capabilities:     model.Capabilities,
-			Options:          catalog.SanitizedOptions(model.Options),
-			BackendMode:      modelBackendMode,
-			Source:           source,
-			NodeID:           nodeID,
-			NodeURL:          nodeURL,
-			Available:        true,
-			AssetState:       model.AssetState,
-			UnresolvedFields: model.UnresolvedFields,
-			AssetFailure:     model.AssetFailure,
-			ServedNames:      append([]string{}, model.ServedNames...),
-			VLLMTask:         model.VLLMTask,
-		}
-		records = append(records, record)
-		for _, servedName := range model.ServedNames {
-			servedName = strings.TrimSpace(servedName)
-			if servedName == "" || servedName == model.ID || servedNameOwners[servedName] != 1 {
-				continue
-			}
-			if _, conflicts := primaryIDs[servedName]; conflicts {
-				continue
-			}
-			alias := record
-			alias.PublicID = servedName
-			alias.ServedNames = append([]string{}, record.ServedNames...)
-			records = append(records, alias)
-		}
+	return index
+}
+
+func (index servedNameIndex) uniqueAlias(servedName string, modelID string) bool {
+	if servedName == "" || servedName == modelID || index.owners[servedName] != 1 {
+		return false
 	}
-	return records
+	_, conflicts := index.primaryIDs[servedName]
+	return !conflicts
+}
+
+func localModelRecord(model catalog.Model, backendMode string, location localModelLocation) Model {
+	return Model{
+		PublicID:         model.ID,
+		LocalID:          model.ID,
+		ImageID:          model.ImageID,
+		PublicImageID:    model.ImageID,
+		Filename:         model.Filename,
+		Created:          model.Created,
+		Size:             model.Size,
+		HasLLM:           model.HasLLM,
+		HasImage:         model.HasImage,
+		HasEmbeddings:    model.HasEmbeddings,
+		HasMultimodal:    model.HasMultimodal,
+		HasVoice:         model.HasVoice,
+		HasMusic:         model.HasMusic,
+		MCPEnabled:       model.MCPEnabled,
+		ModelHash:        model.ModelHash,
+		ConfigHash:       model.ConfigHash,
+		Capabilities:     model.Capabilities,
+		Options:          catalog.SanitizedOptions(model.Options),
+		BackendMode:      backendMode,
+		Source:           location.source,
+		NodeID:           location.nodeID,
+		NodeURL:          location.nodeURL,
+		Available:        true,
+		AssetState:       model.AssetState,
+		UnresolvedFields: model.UnresolvedFields,
+		AssetFailure:     model.AssetFailure,
+		ServedNames:      append([]string{}, model.ServedNames...),
+		VLLMTask:         model.VLLMTask,
+	}
 }
 
 func WithMCPAvailability(models []Model, available bool) []Model {

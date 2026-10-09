@@ -99,45 +99,68 @@ func parseROCmVRAM(output []byte) (VRAMInfo, bool) {
 	return parseROCmText(output)
 }
 
+type rocmVRAMColumns struct {
+	usedIndex   int
+	totalIndex  int
+	usedHeader  string
+	totalHeader string
+}
+
 func parseROCmCSV(records [][]string) (VRAMInfo, bool) {
 	if len(records) < 2 {
 		return VRAMInfo{}, false
 	}
-	usedIndex := -1
-	totalIndex := -1
-	headers := records[0]
-	for index, header := range headers {
-		normalized := strings.ToLower(strings.TrimSpace(header))
-		if strings.Contains(normalized, "vram") && strings.Contains(normalized, "used") {
-			usedIndex = index
-		}
-		if strings.Contains(normalized, "vram") && strings.Contains(normalized, "total") && !strings.Contains(normalized, "used") {
-			totalIndex = index
-		}
-	}
-	if usedIndex < 0 || totalIndex < 0 {
+	columns, ok := findROCmVRAMColumns(records[0])
+	if !ok {
 		return VRAMInfo{}, false
 	}
-	usedHeader := strings.ToLower(headers[usedIndex])
-	totalHeader := strings.ToLower(headers[totalIndex])
 	var usedMB int64
 	var totalMB int64
 	for _, record := range records[1:] {
-		if len(record) <= usedIndex || len(record) <= totalIndex {
+		if len(record) <= columns.usedIndex || len(record) <= columns.totalIndex {
 			continue
 		}
-		used, ok := parseVRAMValue(record[usedIndex], usedHeader)
+		used, total, ok := columns.rowVRAM(record)
 		if !ok {
-			return VRAMInfo{}, false
-		}
-		total, ok := parseVRAMValue(record[totalIndex], totalHeader)
-		if !ok || total <= 0 {
 			return VRAMInfo{}, false
 		}
 		usedMB += used
 		totalMB += total
 	}
 	return vramInfo(usedMB, totalMB)
+}
+
+func findROCmVRAMColumns(headers []string) (rocmVRAMColumns, bool) {
+	columns := rocmVRAMColumns{usedIndex: -1, totalIndex: -1}
+	for index, header := range headers {
+		normalized := strings.ToLower(strings.TrimSpace(header))
+		if !strings.Contains(normalized, "vram") {
+			continue
+		}
+		if strings.Contains(normalized, "used") {
+			columns.usedIndex = index
+		} else if strings.Contains(normalized, "total") {
+			columns.totalIndex = index
+		}
+	}
+	if columns.usedIndex < 0 || columns.totalIndex < 0 {
+		return rocmVRAMColumns{}, false
+	}
+	columns.usedHeader = strings.ToLower(headers[columns.usedIndex])
+	columns.totalHeader = strings.ToLower(headers[columns.totalIndex])
+	return columns, true
+}
+
+func (columns rocmVRAMColumns) rowVRAM(record []string) (int64, int64, bool) {
+	used, ok := parseVRAMValue(record[columns.usedIndex], columns.usedHeader)
+	if !ok {
+		return 0, 0, false
+	}
+	total, ok := parseVRAMValue(record[columns.totalIndex], columns.totalHeader)
+	if !ok || total <= 0 {
+		return 0, 0, false
+	}
+	return used, total, true
 }
 
 func parseROCmText(output []byte) (VRAMInfo, bool) {

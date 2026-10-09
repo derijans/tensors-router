@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -242,62 +243,34 @@ func TestSubsystemsShareOneHandleWithoutRacing(t *testing.T) {
 	groupStore := routinggroups.NewStore(handle.DB(), handle.Reader())
 
 	const rounds = 8
-	failures := make(chan error, 4*rounds)
-	var waiting sync.WaitGroup
-	waiting.Add(4)
-	go func() {
-		defer waiting.Done()
-		now := time.Now().UTC()
-		for round := 0; round < rounds; round++ {
+	now := time.Now().UTC()
+	owner := routinggroups.Endpoint{NodeID: "node-a", ModelID: "sdxl"}
+	helper := routinggroups.Endpoint{NodeID: "node-b", ModelID: "sdxl-q8"}
+	failures := runConcurrentRounds(rounds,
+		func(int) error {
 			analyticsStore.Record(routeranalytics.Event{ModelID: "llm-a", Section: routeranalytics.SectionLLM, StatusCode: 200, Success: true, StartedAt: now, FinishedAt: now})
-			if err := analyticsStore.Flush(context.Background()); err != nil {
-				failures <- err
-				return
-			}
-		}
-	}()
-	go func() {
-		defer waiting.Done()
-		for round := 0; round < rounds; round++ {
+			return analyticsStore.Flush(context.Background())
+		},
+		func(round int) error {
 			snapshot := loadcapture.Snapshot{SHA256: strings.Repeat(strconv.Itoa(round), 64), JSON: []byte(`{}`)}
 			attempt, err := captureStore.BeginPhysical(context.Background(), snapshot, "kobold", "koboldcpp", "llm")
 			if err != nil {
-				failures <- err
-				return
+				return err
 			}
-			if err := captureStore.CompletePhysical(context.Background(), attempt, nil, loadcapture.Capture{}, nil); err != nil {
-				failures <- err
-				return
-			}
-		}
-	}()
-	go func() {
-		defer waiting.Done()
-		for round := 0; round < rounds; round++ {
-			if err := errorStore.Record(context.Background(), loaderrors.RecordInput{Phase: loaderrors.PhasePreload, Source: "test", Message: "failure " + strconv.Itoa(round)}); err != nil {
-				failures <- err
-				return
-			}
-		}
-	}()
-	go func() {
-		defer waiting.Done()
-		for round := 0; round < rounds; round++ {
-			owner := routinggroups.Endpoint{NodeID: "node-a", ModelID: "sdxl"}
-			helper := routinggroups.Endpoint{NodeID: "node-b", ModelID: "sdxl-q8"}
+			return captureStore.CompletePhysical(context.Background(), attempt, nil, loadcapture.Capture{}, nil)
+		},
+		func(round int) error {
+			return errorStore.Record(context.Background(), loaderrors.RecordInput{Phase: loaderrors.PhasePreload, Source: "test", Message: "failure " + strconv.Itoa(round)})
+		},
+		func(int) error {
 			if err := groupStore.ReplaceLinksTouching(context.Background(), routinggroups.ImageLane, owner, []routinggroups.Link{{Owner: owner, Helper: helper}}); err != nil {
-				failures <- err
-				return
+				return err
 			}
-			if _, err := groupStore.Links(context.Background(), routinggroups.ImageLane); err != nil {
-				failures <- err
-				return
-			}
-		}
-	}()
-	waiting.Wait()
-	close(failures)
-	for err := range failures {
+			_, err := groupStore.Links(context.Background(), routinggroups.ImageLane)
+			return err
+		},
+	)
+	for _, err := range failures {
 		t.Fatalf("shared handle failed under concurrent use: %v", err)
 	}
 
@@ -313,4 +286,21 @@ func TestSubsystemsShareOneHandleWithoutRacing(t *testing.T) {
 	if got := scalarInt(t, handle.Reader(), `SELECT COUNT(*) FROM routing_image_links`); got != 1 {
 		t.Fatalf("routing image links = %d, want 1", got)
 	}
+}
+
+func runConcurrentRounds(rounds int, workers ...func(round int) error) []error {
+	failures := make([]error, len(workers))
+	var waiting sync.WaitGroup
+	for index, worker := range workers {
+		waiting.Go(func() {
+			for round := range rounds {
+				if err := worker(round); err != nil {
+					failures[index] = err
+					return
+				}
+			}
+		})
+	}
+	waiting.Wait()
+	return slices.DeleteFunc(failures, func(err error) bool { return err == nil })
 }

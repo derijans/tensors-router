@@ -95,24 +95,26 @@ func (policy *Policy) Middleware(next http.Handler) http.Handler {
 		}
 		principal := policy.principal(r.Header.Get("Authorization"))
 		r = r.WithContext(context.WithValue(r.Context(), principalContextKey{}, principal))
-		class := classifyRoute(r.URL.Path)
-		if class == routeCluster {
-			if policy.clusterToken == "" || !allowedBearer(r.Header.Get("Authorization"), []string{policy.clusterToken}) {
-				writeAccessError(w, r.URL.Path, http.StatusUnauthorized, "unauthorized")
-				return
-			}
-		} else if policy.profile == ProfileSecure {
-			keys := policy.inferenceKeys
-			if class == routeAdmin {
-				keys = policy.adminKeys
-			}
-			if len(keys) > 0 && !allowedBearer(r.Header.Get("Authorization"), keys) {
-				writeAccessError(w, r.URL.Path, http.StatusUnauthorized, "unauthorized")
-				return
-			}
+		if !policy.authorized(classifyRoute(r.URL.Path), r.Header.Get("Authorization")) {
+			writeAccessError(w, r.URL.Path, http.StatusUnauthorized, "unauthorized")
+			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func (policy *Policy) authorized(class routeClass, authorization string) bool {
+	if class == routeCluster {
+		return policy.clusterToken != "" && allowedBearer(authorization, []string{policy.clusterToken})
+	}
+	if policy.profile != ProfileSecure {
+		return true
+	}
+	keys := policy.inferenceKeys
+	if class == routeAdmin {
+		keys = policy.adminKeys
+	}
+	return len(keys) == 0 || allowedBearer(authorization, keys)
 }
 
 func writeAccessError(w http.ResponseWriter, path string, status int, message string) {

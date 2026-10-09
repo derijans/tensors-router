@@ -108,30 +108,7 @@ func stripControlSequences(value string) string {
 	for index := 0; index < len(value); index++ {
 		current := value[index]
 		if current == 0x1b {
-			if index+1 < len(value) && value[index+1] == '[' {
-				index += 2
-				for index < len(value) && (value[index] < 0x40 || value[index] > 0x7e) {
-					index++
-				}
-				continue
-			}
-			if index+1 < len(value) && value[index+1] == ']' {
-				index += 2
-				for index < len(value) {
-					if value[index] == 0x07 {
-						break
-					}
-					if value[index] == 0x1b && index+1 < len(value) && value[index+1] == '\\' {
-						index++
-						break
-					}
-					index++
-				}
-				continue
-			}
-			if index+1 < len(value) {
-				index++
-			}
+			index = escapeSequenceLastIndex(value, index)
 			continue
 		}
 		if current < 0x20 && current != '\n' && current != '\r' && current != '\t' {
@@ -140,6 +117,40 @@ func stripControlSequences(value string) string {
 		result.WriteByte(current)
 	}
 	return result.String()
+}
+
+func escapeSequenceLastIndex(value string, escapeIndex int) int {
+	next := escapeIndex + 1
+	if next >= len(value) {
+		return escapeIndex
+	}
+	switch value[next] {
+	case '[':
+		return controlSequenceLastIndex(value, next+1)
+	case ']':
+		return operatingSystemCommandLastIndex(value, next+1)
+	default:
+		return next
+	}
+}
+
+func controlSequenceLastIndex(value string, index int) int {
+	for index < len(value) && (value[index] < 0x40 || value[index] > 0x7e) {
+		index++
+	}
+	return index
+}
+
+func operatingSystemCommandLastIndex(value string, index int) int {
+	for ; index < len(value); index++ {
+		if value[index] == 0x07 {
+			return index
+		}
+		if value[index] == 0x1b && index+1 < len(value) && value[index+1] == '\\' {
+			return index + 1
+		}
+	}
+	return index
 }
 
 type Failure struct {

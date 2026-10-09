@@ -272,34 +272,12 @@ func ModelReferenceHash(content []byte, hashFile func(string) (string, bool)) st
 	}
 	entries := make([]string, 0)
 	for key, value := range raw {
-		if strings.HasSuffix(key, "_hash") {
-			base := strings.TrimSuffix(key, "_hash")
-			if modelassets.IsModelField(base) {
-				for _, hash := range stringValues(value) {
-					if modelassets.ValidHash(hash) {
-						entries = append(entries, strings.ToLower(base)+"="+hash)
-					}
-				}
-			}
+		if base, recorded := strings.CutSuffix(key, "_hash"); recorded {
+			entries = append(entries, recordedModelHashEntries(base, value)...)
 			continue
 		}
-		if _, ok := pathValueKeys[strings.ToLower(key)]; !ok {
-			continue
-		}
-		for _, path := range stringValues(value) {
-			if strings.TrimSpace(path) == "" {
-				continue
-			}
-			hash := ""
-			if hashFile != nil {
-				if fileHash, ok := hashFile(path); ok {
-					hash = fileHash
-				}
-			}
-			if hash == "" {
-				hash = "missing:" + filenameStem(path)
-			}
-			entries = append(entries, strings.ToLower(key)+"="+hash)
+		if _, ok := pathValueKeys[strings.ToLower(key)]; ok {
+			entries = append(entries, modelPathHashEntries(key, value, hashFile)...)
 		}
 	}
 	if len(entries) == 0 {
@@ -307,6 +285,39 @@ func ModelReferenceHash(content []byte, hashFile func(string) (string, bool)) st
 	}
 	sort.Strings(entries)
 	return hashBytes([]byte(strings.Join(entries, "\n")))
+}
+
+func recordedModelHashEntries(base string, value any) []string {
+	if !modelassets.IsModelField(base) {
+		return nil
+	}
+	var entries []string
+	for _, hash := range stringValues(value) {
+		if modelassets.ValidHash(hash) {
+			entries = append(entries, strings.ToLower(base)+"="+hash)
+		}
+	}
+	return entries
+}
+
+func modelPathHashEntries(key string, value any, hashFile func(string) (string, bool)) []string {
+	var entries []string
+	for _, path := range stringValues(value) {
+		if strings.TrimSpace(path) == "" {
+			continue
+		}
+		entries = append(entries, strings.ToLower(key)+"="+modelPathHash(path, hashFile))
+	}
+	return entries
+}
+
+func modelPathHash(path string, hashFile func(string) (string, bool)) string {
+	if hashFile != nil {
+		if fileHash, ok := hashFile(path); ok && fileHash != "" {
+			return fileHash
+		}
+	}
+	return "missing:" + filenameStem(path)
 }
 
 func normalizeConfigValue(key string, value any) any {

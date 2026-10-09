@@ -8,8 +8,6 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
-
-	"tensors-router/internal/modelassets"
 )
 
 type Catalog struct {
@@ -312,147 +310,6 @@ func (catalog *Catalog) ResolveActiveImage(activeConfigFilename string) (Model, 
 	return Model{}, false, nil
 }
 
-func (catalog *Catalog) withMetadata(model Model, includeModelHash bool) Model {
-	model.AssetState = "ready"
-	model.HasLLM = true
-	content, err := os.ReadFile(model.Path)
-	if err != nil {
-		model.Capabilities = capabilitiesFromMetadata(configMetadata{}, model.HasLLM, false, false, false, false, false)
-		return model
-	}
-	var options map[string]json.RawMessage
-	if err := json.Unmarshal(content, &options); err != nil {
-		model.Capabilities = capabilitiesFromMetadata(configMetadata{}, model.HasLLM, false, false, false, false, false)
-		return model
-	}
-	model.Options = options
-	if unresolved, statusErr := modelassets.UnresolvedFields(content); statusErr == nil && unresolved > 0 {
-		model.AssetState = "unresolved"
-		model.UnresolvedFields = unresolved
-	} else if statusErr != nil {
-		model.AssetState = "failed"
-		model.AssetFailure = "invalid portable metadata"
-	}
-	model.ChatTemplate = ChatTemplateProfileForConfig(content)
-	var metadata configMetadata
-	if err := json.Unmarshal(content, &metadata); err != nil {
-		model.Capabilities = capabilitiesFromMetadata(configMetadata{}, model.HasLLM, false, false, false, false, false)
-		return model
-	}
-
-	model.HasImage = metadata.ImageModelPath() != "" || portableModelField(options, "sdmodel", "sddiffusionmodel", "sdhighnoisediffusionmodel", "sdunconddiffusionmodel")
-	model.HasEmbeddings = strings.TrimSpace(metadata.EmbeddingsModel) != "" || portableModelField(options, "embeddingsmodel")
-	model.HasMultimodal = modelHasValue(metadata.MMProj) || portableModelField(options, "mmproj")
-	model.HasVoice = hasVoiceModel(metadata) || portableModelField(options, "whispermodel", "whispercpp_vad_model", "ttsmodel", "ttswavtokenizer", "talkermodel", "code2wavmodel")
-	model.HasMusic = hasMusicModel(metadata) || portableModelField(options, "musicllm", "musicembeddings", "musicdiffusion", "musicvae")
-	model.HasLLM = hasLLMModel(metadata) || portableModelField(options, "model", "model_param", "draftmodel")
-	if model.HasLLM {
-		model.Size = regularFileSize(metadata.TextModelPath())
-	}
-	model.BackendMode = strings.TrimSpace(metadata.BackendMode)
-	if model.BackendMode == "vllm" {
-		applyVLLMMetadata(&model, metadata)
-	}
-	model.MCPEnabled = metadata.MCPEnabled
-	if model.HasImage {
-		model.ImageModelPath = metadata.ImageModelPath()
-		if model.ImageModelPath == "" {
-			model.ImageModelPath = portableModelFilename(options, "sdmodel", "sddiffusionmodel", "sdhighnoisediffusionmodel", "sdunconddiffusionmodel")
-		}
-		model.ImageModelName = filenameStem(model.ImageModelPath)
-		model.ImageID = model.ID + "-" + model.ImageModelName
-	}
-	model.Capabilities = capabilitiesFromMetadata(metadata, model.HasLLM, model.HasImage, model.HasEmbeddings, model.HasMultimodal, model.HasVoice, model.HasMusic)
-	model.ConfigHash = ConfigHash(content)
-	if catalog.hashStore != nil && includeModelHash {
-		model.ModelHash = catalog.hashStore.ModelHash(content)
-	} else {
-		model.ModelHash = ModelReferenceHash(content, nil)
-	}
-	return model
-}
-
-func applyVLLMMetadata(model *Model, metadata configMetadata) {
-	model.HasLLM = false
-	model.HasEmbeddings = false
-	model.HasMultimodal = false
-	model.HasVoice = false
-	model.VLLMTask = strings.ToLower(strings.TrimSpace(metadata.VLLM.Task))
-	if model.VLLMTask == "" || model.VLLMTask == "auto" {
-		model.VLLMTask = strings.ToLower(strings.TrimSpace(metadata.VLLM.Runner))
-	}
-	if model.VLLMTask == "" || model.VLLMTask == "auto" {
-		model.VLLMTask = "generate"
-	}
-	servedNames := append([]string{}, metadata.VLLM.ServedNames...)
-	for _, adapter := range metadata.VLLM.StaticAdapters {
-		servedNames = append(servedNames, adapter.Name)
-	}
-	model.ServedNames = normalizedServedNames(servedNames)
-	switch model.VLLMTask {
-	case "generate", "generation", "text", "chat", "multimodal", "generative_scoring":
-		model.HasLLM = true
-		model.HasMultimodal = model.VLLMTask == "multimodal"
-	case "embed", "embedding", "embeddings", "classify", "classification", "score", "scoring", "reward", "rerank", "pooling":
-		model.HasEmbeddings = true
-	case "speech", "transcription", "translation", "realtime":
-		model.HasVoice = true
-	}
-	model.Size = 0
-}
-
-func normalizedServedNames(values []string) []string {
-	seen := map[string]struct{}{}
-	result := make([]string, 0, len(values))
-	for _, value := range values {
-		value = strings.TrimSpace(value)
-		if value == "" {
-			continue
-		}
-		if _, exists := seen[value]; exists {
-			continue
-		}
-		seen[value] = struct{}{}
-		result = append(result, value)
-	}
-	return result
-}
-
-func regularFileSize(path string) int64 {
-	info, err := os.Stat(strings.TrimSpace(path))
-	if err != nil || !info.Mode().IsRegular() {
-		return 0
-	}
-	return info.Size()
-}
-
-func portableModelField(options map[string]json.RawMessage, fields ...string) bool {
-	for _, field := range fields {
-		if value, found := options[field+"_hash"]; found && len(value) > 0 && string(value) != "null" {
-			return true
-		}
-	}
-	return false
-}
-
-func portableModelFilename(options map[string]json.RawMessage, fields ...string) string {
-	for _, field := range fields {
-		value, found := options[field+"_filename"]
-		if !found {
-			continue
-		}
-		var scalar string
-		if json.Unmarshal(value, &scalar) == nil && scalar != "" {
-			return scalar
-		}
-		var array []string
-		if json.Unmarshal(value, &array) == nil && len(array) > 0 {
-			return array[0]
-		}
-	}
-	return ""
-}
-
 func newCatalogSnapshot(models []Model, loadErr error) *catalogSnapshot {
 	cloned := cloneModels(models)
 	snapshot := &catalogSnapshot{
@@ -541,48 +398,6 @@ func cloneCapabilities(capabilities Capabilities) Capabilities {
 		cloned.Music = &music
 	}
 	return cloned
-}
-
-func hasLLMModel(metadata configMetadata) bool {
-	if strings.TrimSpace(metadata.ModelParam) != "" {
-		return true
-	}
-	if modelHasValue(metadata.Model) {
-		return true
-	}
-	return !metadata.NoModel && strings.TrimSpace(metadata.SDModel) == ""
-}
-
-func hasVoiceModel(metadata configMetadata) bool {
-	return strings.TrimSpace(metadata.WhisperModel) != "" ||
-		strings.TrimSpace(metadata.TTSModel) != "" ||
-		strings.TrimSpace(metadata.TTSWAVTokenizer) != "" ||
-		strings.TrimSpace(metadata.TalkerModel) != "" ||
-		strings.TrimSpace(metadata.Code2WAVModel) != "" ||
-		strings.TrimSpace(metadata.TTSDir) != ""
-}
-
-func hasMusicModel(metadata configMetadata) bool {
-	return strings.TrimSpace(metadata.MusicLLM) != "" ||
-		strings.TrimSpace(metadata.MusicEmbeddings) != "" ||
-		strings.TrimSpace(metadata.MusicDiffusion) != "" ||
-		strings.TrimSpace(metadata.MusicVAE) != ""
-}
-
-func modelHasValue(value any) bool {
-	switch typed := value.(type) {
-	case string:
-		return strings.TrimSpace(typed) != ""
-	case []any:
-		for _, item := range typed {
-			if modelHasValue(item) {
-				return true
-			}
-		}
-		return false
-	default:
-		return false
-	}
 }
 
 func filenameStem(value string) string {
