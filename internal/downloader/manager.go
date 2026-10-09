@@ -208,7 +208,7 @@ func (manager *Manager) Jobs() ([]DownloadJob, error) { return manager.store.Job
 func (manager *Manager) Artifacts() ([]ArtifactRecord, error) { return manager.store.ListArtifacts() }
 
 func (manager *Manager) Pause(id string) (DownloadJob, error) {
-	if err := manager.transition(id, "paused", JobPaused, JobQueued, JobRunning); err != nil {
+	if _, err := manager.transition(id, "paused", JobPaused, JobQueued, JobRunning); err != nil {
 		return DownloadJob{}, err
 	}
 	manager.cancelRun(id)
@@ -218,7 +218,7 @@ func (manager *Manager) Pause(id string) (DownloadJob, error) {
 }
 
 func (manager *Manager) Resume(id string) (DownloadJob, error) {
-	if err := manager.transition(id, "resumed", JobQueued, JobPaused, JobFailed); err != nil {
+	if _, err := manager.transition(id, "resumed", JobQueued, JobPaused, JobFailed); err != nil {
 		return DownloadJob{}, err
 	}
 	if err := manager.store.ResetUnfinishedFiles(id); err != nil {
@@ -232,7 +232,8 @@ func (manager *Manager) Resume(id string) (DownloadJob, error) {
 }
 
 func (manager *Manager) Cancel(id string) (DownloadJob, error) {
-	if err := manager.transition(id, "cancelled", JobCancelled, JobQueued, JobRunning, JobPaused, JobFailed); err != nil {
+	cancelled, err := manager.transition(id, "cancelled", JobCancelled, JobQueued, JobRunning, JobPaused, JobFailed)
+	if err != nil {
 		return DownloadJob{}, err
 	}
 	manager.mu.Lock()
@@ -242,26 +243,26 @@ func (manager *Manager) Cancel(id string) (DownloadJob, error) {
 	if run != nil {
 		run.cancel()
 	} else {
-		manager.removeStaging(id)
+		manager.removeStaging(cancelled.ID)
 	}
 	manager.publishCurrent(id)
 	manager.logRuntime("download cancelled job=%s", id)
 	return manager.currentJob(id)
 }
 
-func (manager *Manager) transition(id string, verb string, to JobState, from ...JobState) error {
+func (manager *Manager) transition(id string, verb string, to JobState, from ...JobState) (DownloadJob, error) {
 	job, err := manager.currentJob(id)
 	if err != nil {
-		return err
+		return DownloadJob{}, err
 	}
 	changed, err := manager.store.TransitionJob(id, to, "", from...)
 	if err != nil {
-		return err
+		return DownloadJob{}, err
 	}
 	if !changed {
-		return fmt.Errorf("download job cannot be %s from %s", verb, job.State)
+		return DownloadJob{}, fmt.Errorf("download job cannot be %s from %s", verb, job.State)
 	}
-	return nil
+	return job, nil
 }
 
 func (manager *Manager) Subscribe(id string) (<-chan DownloadJob, func()) {
