@@ -56,7 +56,7 @@ func bootstrap(keyDirectory string, rootOutput string) error {
 	if err := writeInitialRepository(keyDirectory, root, keys); err != nil {
 		return err
 	}
-	recovery := []byte("Keep root-1 through root-3 and targets-1 through targets-2 in separate offline custody. Provision upstream-targets-1, snapshot-1, and timestamp-1 to protected publication secrets. Publish repository/ as the initial public repository. Do not commit or print private key files.\\n")
+	recovery := []byte("Keep root-1 through root-3 and targets-1 through targets-2 in separate offline custody. Provision upstream-targets-1, snapshot-1, and timestamp-1 to protected publication secrets. Publish repository/ as the initial public repository. Do not commit or print private key files.\n")
 	return atomicfile.Write(filepath.Join(keyDirectory, "CUSTODY.txt"), recovery, 0o600)
 }
 
