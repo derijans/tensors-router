@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "407352954",
+      "tag": "master-948-228c707",
+      "published_at": "2026-10-08T23:50:58Z",
+      "payloads": [
+        {
+          "name": "sd-master-228c707-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-948-228c707/sd-master-228c707-bin-win-cpu-x64.zip",
+          "length": 17517910,
+          "sha256": "e6da0b2c0ca1774ae3d2f36807102ffd859af8108265117882f84da422fc6655"
+        }
+      ]
+    }
+  ]
+}
