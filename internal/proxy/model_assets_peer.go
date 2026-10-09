@@ -299,8 +299,11 @@ func secureAssetDirectory(root string, target string) bool {
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return false
 	}
-	current := root
-	if info, err := os.Lstat(current); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+	current, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return false
+	}
+	if info, err := os.Lstat(current); err != nil || !info.IsDir() {
 		return false
 	}
 	if relative == "." {
@@ -423,7 +426,10 @@ func (assets *assetManager) promotePeerAsset(source io.Reader, expectedHash stri
 }
 
 func openRegularPartialFile(path string) (*os.File, bool) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if !regularFileOrAbsent(path) {
+		return nil, false
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|openNoFollow, 0o600)
 	if err != nil {
 		return nil, false
 	}
@@ -434,6 +440,14 @@ func openRegularPartialFile(path string) (*os.File, bool) {
 		return nil, false
 	}
 	return file, true
+}
+
+func regularFileOrAbsent(path string) bool {
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return true
+	}
+	return err == nil && info.Mode().IsRegular()
 }
 
 func (transfer peerAssetTransfer) writeVerified(temporary *os.File, temporaryPath string) bool {
