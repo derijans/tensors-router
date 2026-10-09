@@ -1,11 +1,9 @@
 package kobold
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -384,101 +382,6 @@ func (manager *Manager) Unload(ctx context.Context) error {
 		return err
 	}
 	return manager.cleanupGeneratedLocked()
-}
-
-func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error {
-	runtimeFilename, generatedPath, _, err := manager.runtimeConfig(filename)
-	if err != nil {
-		return err
-	}
-	if manager.role == embeddingsRole {
-		if err := manager.lifecycle.Lock(ctx); err != nil {
-			return err
-		}
-		if manager.cmd == nil || manager.cmd.Process == nil {
-			if err := manager.startLocked(ctx); err != nil {
-				manager.lifecycle.Unlock()
-				manager.removeGenerated(generatedPath)
-				return err
-			}
-		}
-		manager.lifecycle.Unlock()
-	}
-	configFilename := runtimeFilename
-	baseConfig := ""
-	if manager.config.MCP != nil {
-		result, err := manager.config.MCP.Reconcile(filename, mcp.BackendKobold)
-		if err != nil {
-			return err
-		}
-		if result.Enabled {
-			configFilename = filepath.Join(".router-mcp", filename)
-			baseConfig = runtimeFilename
-		}
-	}
-	body, err := json.Marshal(map[string]string{
-		"filename":       configFilename,
-		"baseconfig":     baseConfig,
-		"overrideconfig": "",
-	})
-	if err != nil {
-		return err
-	}
-
-	target := manager.URL()
-	target.Path = "/api/admin/reload_config"
-
-	reloadContext, cancelReload := context.WithTimeout(ctx, adminReloadTimeout)
-	defer cancelReload()
-	request, err := http.NewRequestWithContext(reloadContext, http.MethodPost, target.String(), bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("Authorization", "Bearer "+manager.adminPassword)
-
-	response, err := manager.reloadClient.Do(request)
-	if err != nil {
-		manager.removeGenerated(generatedPath)
-		return err
-	}
-	defer response.Body.Close()
-
-	responseBody, err := io.ReadAll(response.Body)
-	if err != nil {
-		return err
-	}
-	if response.StatusCode < 200 || response.StatusCode > 299 {
-		manager.removeGenerated(generatedPath)
-		return fmt.Errorf("admin reload failed with status %d: %s", response.StatusCode, reloadErrorDetail(responseBody))
-	}
-
-	var reload reloadResponse
-	if err := json.Unmarshal(responseBody, &reload); err != nil {
-		manager.removeGenerated(generatedPath)
-		return err
-	}
-	if !reload.Success {
-		manager.removeGenerated(generatedPath)
-		if reload.Error != "" {
-			return fmt.Errorf("admin reload failed: %s", reload.Error)
-		}
-		// KoboldCpp can report failure with no error field at all. Fall back to the raw
-		// response rather than an unattributable "admin reload failed".
-		return fmt.Errorf("admin reload failed: %s", reloadErrorDetail(responseBody))
-	}
-
-	if err := manager.lifecycle.Lock(ctx); err != nil {
-		manager.removeGenerated(generatedPath)
-		return err
-	}
-	exitDone := manager.exitDone
-	manager.lifecycle.Unlock()
-	if err := manager.waitHealthy(ctx, 90*time.Second, exitDone); err != nil {
-		manager.removeGenerated(generatedPath)
-		return err
-	}
-	return nil
 }
 
 func (manager *Manager) Healthy(ctx context.Context) bool {

@@ -1,5 +1,5 @@
 import { SafeHTML, html, setHTML } from "./safe-html";
-import { badge, fact } from "./markup-primitives";
+import { badge, fact, optionElement } from "./markup-primitives";
 import { getBenchmarkRecord, runBenchmark } from "./api";
 import { benchmarkSections } from "./benchmark-data";
 import { allNodeModels } from "./data";
@@ -10,22 +10,23 @@ import { setControlUnavailable } from "./operations";
 
 export function renderBenchmarks(): void {
   ensureBenchmarkSelection();
-  setHTML(elements.benchmarkModelSelect, html`${benchmarkModels().map(model => html`
-    <option value="${modelKey(model)}" ${modelKey(model) === state.benchmark.modelKey ? "selected" : ""}>
-      ${modelLabel(model)}
-    </option>
-  `)}`);
+  setHTML(elements.benchmarkModelSelect, html`${benchmarkModels().map(model => optionElement(modelKey(model), modelLabel(model), modelKey(model) === state.benchmark.modelKey))}`);
   elements.benchmarkTypeSelect.value = state.benchmark.type;
   elements.benchmarkAllSections.checked = selectedAllSections();
-  setHTML(elements.benchmarkSections, html`${benchmarkSections.map(section => html`
-    <label class="toggle-row">
-      <input type="checkbox" value="${section}" data-operation-group="benchmark" data-benchmark-section="${section}" ${state.benchmark.sections.includes(section) ? "checked" : ""} ${state.benchmark.type === "general" || selectedAllSections() ? "disabled data-unavailable" : ""}>
-      <span>${section}</span>
-    </label>
-  `)}`);
+  const sectionsLocked = state.benchmark.type === "general" || selectedAllSections();
+  setHTML(elements.benchmarkSections, html`${benchmarkSections.map(section => sectionToggle(section, sectionsLocked))}`);
   setControlUnavailable(elements.runBenchmarkButton, state.benchmark.running || !selectedModel());
   renderBenchmarkLatest();
   renderBenchmarkHistory();
+}
+
+function sectionToggle(section: BenchmarkSection, locked: boolean): SafeHTML {
+  return html`
+    <label class="toggle-row">
+      <input type="checkbox" value="${section}" data-operation-group="benchmark" data-benchmark-section="${section}" ${state.benchmark.sections.includes(section) ? "checked" : ""} ${locked ? "disabled data-unavailable" : ""}>
+      <span>${section}</span>
+    </label>
+  `;
 }
 
 export async function loadSelectedBenchmark(): Promise<void> {
@@ -120,7 +121,11 @@ function renderBenchmarkHistory(): void {
     setHTML(elements.benchmarkHistory, html`<div class="empty-state">No history yet</div>`);
     return;
   }
-  setHTML(elements.benchmarkHistory, html`${history.slice().reverse().map(summary => html`
+  setHTML(elements.benchmarkHistory, html`${history.slice().reverse().map(historyRow)}`);
+}
+
+function historyRow(summary: BenchmarkSummary): SafeHTML {
+  return html`
     <article class="benchmark-row">
       <div>
         <strong>${summary.section}</strong>
@@ -129,7 +134,7 @@ function renderBenchmarkHistory(): void {
       ${badge(summary.status, benchmarkStatusTone(summary.status))}
       <div class="badge-row">${optionChanges(summary)}</div>
     </article>
-  `)}`);
+  `;
 }
 
 function summaryCard(title: string, summary: BenchmarkSummary): SafeHTML {
@@ -184,7 +189,11 @@ function optionChanges(summary: BenchmarkSummary): SafeHTML {
   if (changes.length === 0) {
     return html`<span class="muted">no option changes</span>`;
   }
-  return html`${changes.map(change => badge(`${change.key} ${change.kind}`, "warning"))}`;
+  return html`${changes.map(optionChangeBadge)}`;
+}
+
+function optionChangeBadge(change: NonNullable<BenchmarkSummary["option_changes"]>[number]): SafeHTML {
+  return badge(`${change.key} ${change.kind}`, "warning");
 }
 
 function currentBenchmarkRecord(): BenchmarkRecord | null {

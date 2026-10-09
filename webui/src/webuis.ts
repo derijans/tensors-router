@@ -1,3 +1,4 @@
+import { pluralSuffix } from "./utils";
 import { SafeHTML, html, setHTML } from "./safe-html";
 import { getWebUIs, loadWebUI, setWebUISession } from "./api";
 import { elements } from "./elements";
@@ -115,7 +116,7 @@ function renderWebUIGroup(group: WebUIGroup): SafeHTML {
     <section class="webui-node-group">
       <header class="section-head">
         <h3>${group.nodeID}</h3>
-        ${badge(`${group.entries.length} WebUI${group.entries.length === 1 ? "" : "s"}`, "neutral")}
+        ${badge(`${group.entries.length} WebUI${pluralSuffix(group.entries.length)}`, "neutral")}
       </header>
       <div class="webui-cards">
         ${group.entries.map(renderWebUICard)}

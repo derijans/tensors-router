@@ -8,7 +8,6 @@ export function registerDirtyStateGuard(): void {
       return;
     }
     event.preventDefault();
-    event.returnValue = "";
   });
 }
 
@@ -24,7 +23,7 @@ export async function confirmDiscardDirtyWork(action: string): Promise<boolean> 
 }
 
 export function markSimpleCookClean(): void {
-  state.simpleCook.cleanFields = clone(state.simpleCook.fields);
+  state.simpleCook.cleanFields = structuredClone(state.simpleCook.fields);
   state.simpleCook.cleanID = elements.cookIdInput.value.trim();
 }
 
@@ -55,8 +54,4 @@ function constructorSnapshot(): string {
     options: state.constructor.options,
     id: elements.advancedCookIdInput.value.trim()
   });
-}
-
-function clone<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
 }

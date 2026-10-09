@@ -61,39 +61,6 @@ func (service *Service) forwardTransportRoute(r *http.Request, body transportbod
 	return responseWithRelease(response, release), event, finalizer, nil
 }
 
-func (service *Service) prepareTransportCompanionRuntime(ctx context.Context, path string, route transportRoute) error {
-	if route.backendMode != BackendModeLlamaSDCPP {
-		return nil
-	}
-	model := route.catalogModel
-	hasLLM := model.HasLLM || route.clusterModel.HasLLM
-	hasEmbeddings := model.HasEmbeddings || route.clusterModel.HasEmbeddings
-	hasMultimodal := model.HasMultimodal || route.clusterModel.HasMultimodal
-	hasImage := model.HasImage || route.clusterModel.HasImage
-	textID := model.ID
-	imageID := model.ImageID
-	if textID == "" {
-		textID = route.clusterModel.LocalID
-	}
-	if imageID == "" {
-		imageID = route.clusterModel.ImageID
-	}
-	separateEmbeddings := (model.Capabilities.Embeddings != nil && model.Capabilities.Embeddings.Separate) ||
-		(route.clusterModel.Capabilities.Embeddings != nil && route.clusterModel.Capabilities.Embeddings.Separate)
-	if route.readiness == readinessImage && (hasLLM || hasMultimodal || (hasEmbeddings && !separateEmbeddings)) {
-		return service.loadLocalRuntimeForRequest(ctx, route.backendMode, textID, route.configFilename, readinessText)
-	}
-	if route.readiness == readinessText && hasImage && !isEmbeddingsPath(path) {
-		return service.loadLocalRuntimeForRequest(ctx, route.backendMode, imageID, route.configFilename, readinessImage)
-	}
-	if isVoicePath(path) || isMusicPath(path) {
-		if isMusicPath(path) || !routeSupportsSplitAudio(route, path) {
-			return fmt.Errorf("audio route is not supported by the selected split backend config")
-		}
-	}
-	return nil
-}
-
 func routeSupportsSplitAudio(route transportRoute, path string) bool {
 	model := route.catalogModel
 	if model.Capabilities.Voice == nil && route.clusterModel.Capabilities.Voice != nil {
@@ -235,4 +202,63 @@ func (service *Service) writeTransportForwardError(w http.ResponseWriter, err er
 	default:
 		service.writeBackendFailure(w, err)
 	}
+}
+
+type routeCapabilities struct {
+	textID             string
+	imageID            string
+	hasLLM             bool
+	hasEmbeddings      bool
+	hasMultimodal      bool
+	hasImage           bool
+	separateEmbeddings bool
+}
+
+func (capabilities routeCapabilities) needsPrimaryTextRuntime() bool {
+	return capabilities.hasLLM || capabilities.hasMultimodal || (capabilities.hasEmbeddings && !capabilities.separateEmbeddings)
+}
+
+func mergedRouteCapabilities(route transportRoute) routeCapabilities {
+	model, clustered := route.catalogModel, route.clusterModel
+	capabilities := routeCapabilities{
+		textID:        model.ID,
+		imageID:       model.ImageID,
+		hasLLM:        model.HasLLM || clustered.HasLLM,
+		hasEmbeddings: model.HasEmbeddings || clustered.HasEmbeddings,
+		hasMultimodal: model.HasMultimodal || clustered.HasMultimodal,
+		hasImage:      model.HasImage || clustered.HasImage,
+		separateEmbeddings: (model.Capabilities.Embeddings != nil && model.Capabilities.Embeddings.Separate) ||
+			(clustered.Capabilities.Embeddings != nil && clustered.Capabilities.Embeddings.Separate),
+	}
+	if capabilities.textID == "" {
+		capabilities.textID = clustered.LocalID
+	}
+	if capabilities.imageID == "" {
+		capabilities.imageID = clustered.ImageID
+	}
+	return capabilities
+}
+
+func (service *Service) prepareTransportCompanionRuntime(ctx context.Context, path string, route transportRoute) error {
+	if route.backendMode != BackendModeLlamaSDCPP {
+		return nil
+	}
+	capabilities := mergedRouteCapabilities(route)
+	if route.readiness == readinessImage && capabilities.needsPrimaryTextRuntime() {
+		return service.loadLocalRuntimeForRequest(ctx, route.backendMode, capabilities.textID, route.configFilename, readinessText)
+	}
+	if route.readiness == readinessText && capabilities.hasImage && !isEmbeddingsPath(path) {
+		return service.loadLocalRuntimeForRequest(ctx, route.backendMode, capabilities.imageID, route.configFilename, readinessImage)
+	}
+	return splitAudioRouteError(route, path)
+}
+
+func splitAudioRouteError(route transportRoute, path string) error {
+	if !isVoicePath(path) && !isMusicPath(path) {
+		return nil
+	}
+	if isMusicPath(path) || !routeSupportsSplitAudio(route, path) {
+		return fmt.Errorf("audio route is not supported by the selected split backend config")
+	}
+	return nil
 }

@@ -97,7 +97,7 @@ func withoutRouterPrivateUsage(line []byte, text string) []byte {
 		return line
 	}
 	rewritten := make([]byte, 0, len(line))
-	rewritten = append(rewritten, "data: "...)
+	rewritten = append(rewritten, serverSentEventDataPrefix...)
 	rewritten = append(rewritten, public...)
 	return append(rewritten, line[len(text):]...)
 }

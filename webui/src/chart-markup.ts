@@ -7,7 +7,11 @@ const areaPlot: PlotSize = {width: 1000, height: 260};
 const sparkPlot: PlotSize = {width: 120, height: 36};
 
 export function laneLegend(series: LaneSeries): SafeHTML {
-  return html`${series.lanes.map(lane => html`<li class="${timelineLaneAccent(lane)}"><i></i>${timelineLaneLabels[lane]}</li>`)}`;
+  return html`${series.lanes.map(laneLegendItem)}`;
+}
+
+function laneLegendItem(lane: LaneSeries["lanes"][number]): SafeHTML {
+  return html`<li class="${timelineLaneAccent(lane)}"><i></i>${timelineLaneLabels[lane]}</li>`;
 }
 
 export function stackedLaneChart(series: LaneSeries, formatTick: (bucketStart: number) => string, label: string): SafeHTML {

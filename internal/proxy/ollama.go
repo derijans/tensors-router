@@ -252,49 +252,6 @@ func (service *Service) ollamaVisibleModels(ctx context.Context) ([]cluster.Mode
 	return service.modelsWithRuntimeState(ctx, localModels), nil
 }
 
-func (service *Service) modelsWithRuntimeState(ctx context.Context, models []cluster.Model) []cluster.Model {
-	loadedFiles := map[string]bool{}
-	loadedEmbeddingFiles := map[string]bool{}
-	for _, family := range service.backendFamilies {
-		if family == nil {
-			continue
-		}
-		if family.textRuntime != nil && family.textRuntime.backend != nil && family.textRuntime.backend.Healthy(ctx) {
-			filename := currentRuntimeConfigFilename(family.textRuntime)
-			if filename != "" {
-				loadedFiles[filename] = true
-			}
-		}
-		if family.embeddingsRuntime != nil && family.embeddingsRuntime.backend != nil && family.embeddingsRuntime.backend.Healthy(ctx) {
-			filename := currentRuntimeConfigFilename(family.embeddingsRuntime)
-			if filename != "" {
-				loadedEmbeddingFiles[filename] = true
-			}
-		}
-	}
-	if service.separatePool != nil {
-		for _, entry := range service.separatePool.snapshot() {
-			if entry.lane != "embeddings" || entry.runtime.backend == nil || !entry.runtime.backend.Healthy(ctx) {
-				continue
-			}
-			if filename := currentRuntimeConfigFilename(entry.runtime); filename != "" {
-				loadedEmbeddingFiles[filename] = true
-			}
-		}
-	}
-	result := make([]cluster.Model, len(models))
-	copy(result, models)
-	for index := range result {
-		if result[index].NodeID == service.nodeID && loadedFiles[result[index].Filename] {
-			result[index].Loaded = true
-		}
-		if result[index].NodeID == service.nodeID && result[index].HasEmbeddings && loadedEmbeddingFiles[result[index].Filename] {
-			result[index].EmbeddingsLoaded = true
-		}
-	}
-	return result
-}
-
 func ollamaModels(models []cluster.Model, loadedOnly bool) []ollamaModel {
 	seen := map[string]struct{}{}
 	result := make([]ollamaModel, 0, len(models))
@@ -357,48 +314,6 @@ func ollamaDetails(model cluster.Model) map[string]any {
 
 const maxNDJSONRecordBytes = 4 * 1024 * 1024
 
-func writeNDJSONResponseWithVirtualModel(w http.ResponseWriter, response *http.Response, virtualModelID string) error {
-	copyResponseHeaders(w.Header(), response.Header)
-	w.Header().Set("Content-Type", "application/x-ndjson")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Del("Content-Length")
-	w.WriteHeader(response.StatusCode)
-	flusher, _ := w.(http.Flusher)
-	reader := bufio.NewReader(response.Body)
-	for {
-		record, readErr := readBoundedNDJSONRecord(reader)
-		hasNewline := len(record) > 0 && record[len(record)-1] == '\n'
-		line := record
-		if hasNewline {
-			line = line[:len(line)-1]
-		}
-		line = bytes.TrimSuffix(line, []byte("\r"))
-		if len(line) > 0 {
-			if !json.Valid(line) {
-				return fmt.Errorf("backend returned invalid ndjson")
-			}
-			line = htmlEscapeJSON(rewriteJSONModel(line, virtualModelID))
-			if _, writeErr := w.Write(line); writeErr != nil {
-				return writeErr
-			}
-		}
-		if hasNewline {
-			if _, writeErr := io.WriteString(w, "\n"); writeErr != nil {
-				return writeErr
-			}
-		}
-		if flusher != nil && len(record) > 0 {
-			flusher.Flush()
-		}
-		if readErr == io.EOF {
-			return nil
-		}
-		if readErr != nil {
-			return readErr
-		}
-	}
-}
-
 func readBoundedNDJSONRecord(reader *bufio.Reader) ([]byte, error) {
 	record := make([]byte, 0, 4096)
 	for {
@@ -417,11 +332,102 @@ func readBoundedNDJSONRecord(reader *bufio.Reader) ([]byte, error) {
 	}
 }
 func isNDJSONResponse(header http.Header) bool {
-	contentType := strings.ToLower(header.Get("Content-Type"))
+	contentType := strings.ToLower(header.Get(headerContentType))
 	return strings.Contains(contentType, "application/x-ndjson") || strings.Contains(contentType, "application/ndjson")
 }
 func writeOllamaJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, mediaTypeJSON)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
+}
+
+func (service *Service) modelsWithRuntimeState(ctx context.Context, models []cluster.Model) []cluster.Model {
+	loadedFiles, loadedEmbeddingFiles := service.loadedRuntimeConfigFiles(ctx)
+	result := make([]cluster.Model, len(models))
+	copy(result, models)
+	for index := range result {
+		model := &result[index]
+		if model.NodeID != service.nodeID {
+			continue
+		}
+		if loadedFiles[model.Filename] {
+			model.Loaded = true
+		}
+		if model.HasEmbeddings && loadedEmbeddingFiles[model.Filename] {
+			model.EmbeddingsLoaded = true
+		}
+	}
+	return result
+}
+
+func (service *Service) loadedRuntimeConfigFiles(ctx context.Context) (map[string]bool, map[string]bool) {
+	loadedFiles := map[string]bool{}
+	loadedEmbeddingFiles := map[string]bool{}
+	for _, family := range service.backendFamilies {
+		if family == nil {
+			continue
+		}
+		markHealthyRuntimeConfig(ctx, family.textRuntime, loadedFiles)
+		markHealthyRuntimeConfig(ctx, family.embeddingsRuntime, loadedEmbeddingFiles)
+	}
+	if service.separatePool != nil {
+		for _, entry := range service.separatePool.snapshot() {
+			if entry.lane == "embeddings" {
+				markHealthyRuntimeConfig(ctx, entry.runtime, loadedEmbeddingFiles)
+			}
+		}
+	}
+	return loadedFiles, loadedEmbeddingFiles
+}
+
+func markHealthyRuntimeConfig(ctx context.Context, runtime *backendRuntime, loaded map[string]bool) {
+	if runtime == nil || runtime.backend == nil || !runtime.backend.Healthy(ctx) {
+		return
+	}
+	if filename := currentRuntimeConfigFilename(runtime); filename != "" {
+		loaded[filename] = true
+	}
+}
+
+func writeNDJSONResponseWithVirtualModel(w http.ResponseWriter, response *http.Response, virtualModelID string) error {
+	copyResponseHeaders(w.Header(), response.Header)
+	w.Header().Set(headerContentType, "application/x-ndjson")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Del(headerContentLength)
+	w.WriteHeader(response.StatusCode)
+	flusher, _ := w.(http.Flusher)
+	reader := bufio.NewReader(response.Body)
+	for {
+		record, readErr := readBoundedNDJSONRecord(reader)
+		if err := writeNDJSONRecord(w, record, virtualModelID); err != nil {
+			return err
+		}
+		if flusher != nil && len(record) > 0 {
+			flusher.Flush()
+		}
+		if readErr == io.EOF {
+			return nil
+		}
+		if readErr != nil {
+			return readErr
+		}
+	}
+}
+
+func writeNDJSONRecord(w io.Writer, record []byte, virtualModelID string) error {
+	hasNewline := len(record) > 0 && record[len(record)-1] == '\n'
+	line := bytes.TrimSuffix(bytes.TrimSuffix(record, []byte("\n")), []byte("\r"))
+	if len(line) > 0 {
+		if !json.Valid(line) {
+			return fmt.Errorf("backend returned invalid ndjson")
+		}
+		if _, err := w.Write(htmlEscapeJSON(rewriteJSONModel(line, virtualModelID))); err != nil {
+			return err
+		}
+	}
+	if !hasNewline {
+		return nil
+	}
+	_, err := io.WriteString(w, "\n")
+	return err
 }

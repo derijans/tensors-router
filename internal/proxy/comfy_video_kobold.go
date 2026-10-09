@@ -23,7 +23,7 @@ const (
 // KoboldCpp's video fields. The MJPG-AVI encoder is the only one of
 // KoboldCpp's two video containers that carries a MiniMax-H3 audio track.
 func (service *Service) generateKoboldVideo(ctx context.Context, model catalog.Model, requestBody []byte) ([]byte, error) {
-	response, finalizer, err := service.forwardWithFallbackObserved(ctx, syntheticImageRequest(http.MethodPost, koboldVideoGenerationPath), requestBody, model.ImageID, model.Filename, true, readinessImage, BackendModeKobold)
+	response, finalizer, err := service.forwardWithFallbackObserved(ctx, syntheticImageRequest(http.MethodPost, koboldVideoGenerationPath), requestBody, backendForwardTarget{modelID: model.ImageID, configFilename: model.Filename, hasModel: true, readiness: readinessImage, mode: BackendModeKobold})
 	finishVRAMWork(finalizer)
 	if err != nil {
 		return nil, err

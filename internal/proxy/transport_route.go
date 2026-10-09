@@ -2,9 +2,7 @@ package proxy
 
 import (
 	"fmt"
-	"mime"
 	"net/http"
-	"strconv"
 	"strings"
 
 	routeranalytics "tensors-router/internal/analytics"
@@ -38,6 +36,8 @@ type transportRouteError struct {
 	message string
 }
 
+var errEndpointNotFoundRoute = transportRouteError{http.StatusNotFound, "not_found", "endpoint not found"}
+
 func (err transportRouteError) Error() string {
 	return err.message
 }
@@ -53,7 +53,7 @@ func (service *Service) handleStreamingRequest(w http.ResponseWriter, r *http.Re
 	}
 	request := rewriteTransportRequestSelectors(r, route.localID, route.readiness)
 	profile := service.localChatTemplateProfile(route.configFilename, route.remote)
-	forwardBody, err := transformTransportRequestBody(request, body, route.publicID, route.localID, route.backendMode, route.readiness, profile, route.insertModel)
+	forwardBody, err := transformTransportRequestBody(request, body, route, profile)
 	if err != nil {
 		route.release()
 		writeTransportError(w, err)
@@ -147,89 +147,12 @@ func (service *Service) resolveTransportRoute(r *http.Request, selector string) 
 		if route.release != nil {
 			route.release()
 		}
-		return transportRoute{}, transportRouteError{http.StatusNotFound, "not_found", "endpoint not found"}
+		return transportRoute{}, errEndpointNotFoundRoute
 	}
 	if automaticallySelected {
 		route.rewriteModel = false
 	}
 	return route, nil
-}
-
-func (service *Service) resolveTransportTextRoute(r *http.Request, publicID string) (transportRoute, error) {
-	readiness := modelReadiness(r.URL.Path)
-	if recipe, component, ok := service.recipeModelComponent(publicID, r.URL.Path); ok {
-		return service.transportRecipeRoute(recipe, component, publicID, component.ModelID, readiness, textAnalyticsSection(r.URL.Path), true)
-	}
-	if service.registry != nil && service.registryHasModelForOpenAIPath(publicID, r.URL.Path) {
-		model, route, release, ok := service.acquireRegistryModelRoute(r, publicID)
-		if !ok {
-			return transportRoute{}, transportRouteError{http.StatusBadGateway, "backend_error", fmt.Sprintf("model %q has no available replicas", publicID)}
-		}
-		if !registryModelSupportsOpenAIPath(model, r.URL.Path) {
-			release()
-			return transportRoute{}, modelNotFoundRouteError(publicID)
-		}
-		mode, err := service.clusterRouteBackendMode(route, model)
-		if err != nil {
-			release()
-			return transportRoute{}, err
-		}
-		if mode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
-			release()
-			return transportRoute{}, transportRouteError{http.StatusNotFound, "not_found", "endpoint not found"}
-		}
-		if mode == BackendModeVLLM {
-			readiness = vllmReadinessForTask(r.URL.Path, model.VLLMTask)
-		}
-		localID := route.LocalID
-		if mode == BackendModeVLLM {
-			localID = vllmRequestModelID(publicID, route.LocalID, model.ServedNames)
-		}
-		return transportRoute{
-			publicID:       publicID,
-			localID:        localID,
-			configFilename: route.Filename,
-			backendMode:    mode,
-			readiness:      readiness,
-			section:        textAnalyticsSection(r.URL.Path),
-			remote:         route.Remote,
-			nodeURL:        route.NodeURL,
-			rewriteModel:   true,
-			release:        release,
-			clusterModel:   model,
-		}, nil
-	}
-	model, ok, err := service.resolveCatalogModelForOpenAIPath(publicID, r.URL.Path)
-	if err != nil {
-		return transportRoute{}, err
-	}
-	if !ok || !modelSupportsOpenAIPath(model, r.URL.Path) {
-		return transportRoute{}, modelNotFoundRouteError(publicID)
-	}
-	mode, err := service.catalogModelBackendMode(model)
-	if err != nil {
-		return transportRoute{}, err
-	}
-	if mode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
-		return transportRoute{}, transportRouteError{http.StatusNotFound, "not_found", "endpoint not found"}
-	}
-	if mode == BackendModeVLLM {
-		readiness = vllmReadinessForTask(r.URL.Path, model.VLLMTask)
-	}
-	localID := model.ID
-	if mode == BackendModeVLLM {
-		localID = vllmRequestModelID(publicID, model.ID, model.ServedNames)
-	}
-	return transportRoute{
-		publicID:       publicID,
-		localID:        localID,
-		configFilename: model.Filename,
-		backendMode:    mode,
-		readiness:      readiness,
-		section:        textAnalyticsSection(r.URL.Path),
-		rewriteModel:   true,
-		catalogModel:   model,
-	}, nil
 }
 
 func (service *Service) resolveTransportImageRoute(r *http.Request, publicID string) (transportRoute, error) {
@@ -387,59 +310,6 @@ func (service *Service) transportRecipeRoute(recipe recipes.Recipe, component re
 	}, nil
 }
 
-func transformTransportRequestBody(r *http.Request, body transportbody.Body, publicID string, localID string, backendMode string, readiness backendReadiness, profile catalog.ChatTemplateProfile, insertModel bool) (transportbody.Body, error) {
-	if strings.TrimSpace(localID) == "" && chatTemplateProfileForRequest(r.URL.Path, profile) == nil {
-		return body, nil
-	}
-	if transportRequestIsJSON(r) {
-		return transportbody.TransformJSON(body, requestJSONRewrite(r.URL.Path, localID, readiness, profile, true, insertModel)), nil
-	}
-	mediaType, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err == nil && strings.HasPrefix(strings.ToLower(mediaType), "multipart/") {
-		boundary := params["boundary"]
-		if boundary == "" {
-			return nil, fmt.Errorf("multipart boundary is required")
-		}
-		fields := map[string]transportbody.StringReplacement{"model": {To: localID}}
-		dropFields := map[string]bool{}
-		if backendMode == BackendModeLlamaSDCPP && readiness == readinessTranscription {
-			header, hasFile, headerErr := transportbody.InspectMultipartFileHeader(body, boundary, "file", 12)
-			if headerErr != nil {
-				return nil, headerErr
-			}
-			if !hasFile {
-				return nil, fmt.Errorf("transcription file is required")
-			}
-			if len(header) < 12 || string(header[:4]) != "RIFF" || string(header[8:12]) != "WAVE" {
-				return nil, fmt.Errorf("only native WAV transcription input is supported for uploads this large; ffmpeg conversion is only available on the buffered (smaller) transcription path")
-			}
-			format, present, inspectErr := transportbody.InspectMultipartField(body, boundary, "response_format")
-			if inspectErr != nil && inspectErr != transportbody.ErrSelectorRequired {
-				return nil, inspectErr
-			}
-			if !present || strings.TrimSpace(format) == "" {
-				format = "json"
-			}
-			switch format {
-			case "json", "verbose_json", "text", "srt", "vtt":
-			default:
-				return nil, fmt.Errorf("unsupported transcription response format %q", format)
-			}
-			r.Header.Set("X-Tensors-Whisper-Response-Format", format)
-			fields["response_format"] = transportbody.StringReplacement{To: "verbose_json"}
-			fields["translate"] = transportbody.StringReplacement{To: strconv.FormatBool(r.URL.Path == "/v1/audio/translations")}
-			dropFields["model"] = true
-		}
-		transformed, newBoundary, err := transportbody.TransformMultipart(body, boundary, transportbody.MultipartRewrite{Fields: fields, DropFields: dropFields})
-		if err != nil {
-			return nil, err
-		}
-		r.Header.Set("Content-Type", transportbody.MultipartContentType(mediaType, newBoundary))
-		return transformed, nil
-	}
-	return body, nil
-}
-
 func rewriteTransportRequestSelectors(original *http.Request, localID string, readiness backendReadiness) *http.Request {
 	rewritten := original.Clone(original.Context())
 	rewritten.Header = original.Header.Clone()
@@ -456,8 +326,8 @@ func rewriteTransportRequestSelectors(original *http.Request, localID string, re
 	}
 	requestURL.RawQuery = values.Encode()
 	rewritten.URL = &requestURL
-	if strings.TrimSpace(rewritten.Header.Get("X-Tensors-Model")) != "" {
-		rewritten.Header.Set("X-Tensors-Model", localID)
+	if strings.TrimSpace(rewritten.Header.Get(headerTensorsModel)) != "" {
+		rewritten.Header.Set(headerTensorsModel, localID)
 	}
 	return rewritten
 }
@@ -472,4 +342,94 @@ func writeTransportRouteError(w http.ResponseWriter, err error) {
 		return
 	}
 	openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+}
+
+func (service *Service) resolveTransportTextRoute(r *http.Request, publicID string) (transportRoute, error) {
+	if recipe, component, ok := service.recipeModelComponent(publicID, r.URL.Path); ok {
+		return service.transportRecipeRoute(recipe, component, publicID, component.ModelID, modelReadiness(r.URL.Path), textAnalyticsSection(r.URL.Path), true)
+	}
+	if service.registry != nil && service.registryHasModelForOpenAIPath(publicID, r.URL.Path) {
+		return service.resolveRegistryTextRoute(r, publicID)
+	}
+	return service.resolveCatalogTextRoute(r, publicID)
+}
+
+func (service *Service) resolveRegistryTextRoute(r *http.Request, publicID string) (transportRoute, error) {
+	model, route, release, ok := service.acquireRegistryModelRoute(r, publicID)
+	if !ok {
+		return transportRoute{}, transportRouteError{http.StatusBadGateway, "backend_error", fmt.Sprintf("model %q has no available replicas", publicID)}
+	}
+	if !registryModelSupportsOpenAIPath(model, r.URL.Path) {
+		release()
+		return transportRoute{}, modelNotFoundRouteError(publicID)
+	}
+	mode, err := service.clusterRouteBackendMode(route, model)
+	if err != nil {
+		release()
+		return transportRoute{}, err
+	}
+	target, err := textRouteTarget(r, publicID, mode, route.LocalID, model.ServedNames, model.VLLMTask)
+	if err != nil {
+		release()
+		return transportRoute{}, err
+	}
+	return transportRoute{
+		publicID:       publicID,
+		localID:        target.localID,
+		configFilename: route.Filename,
+		backendMode:    mode,
+		readiness:      target.readiness,
+		section:        textAnalyticsSection(r.URL.Path),
+		remote:         route.Remote,
+		nodeURL:        route.NodeURL,
+		rewriteModel:   true,
+		release:        release,
+		clusterModel:   model,
+	}, nil
+}
+
+func (service *Service) resolveCatalogTextRoute(r *http.Request, publicID string) (transportRoute, error) {
+	model, ok, err := service.resolveCatalogModelForOpenAIPath(publicID, r.URL.Path)
+	if err != nil {
+		return transportRoute{}, err
+	}
+	if !ok || !modelSupportsOpenAIPath(model, r.URL.Path) {
+		return transportRoute{}, modelNotFoundRouteError(publicID)
+	}
+	mode, err := service.catalogModelBackendMode(model)
+	if err != nil {
+		return transportRoute{}, err
+	}
+	target, err := textRouteTarget(r, publicID, mode, model.ID, model.ServedNames, model.VLLMTask)
+	if err != nil {
+		return transportRoute{}, err
+	}
+	return transportRoute{
+		publicID:       publicID,
+		localID:        target.localID,
+		configFilename: model.Filename,
+		backendMode:    mode,
+		readiness:      target.readiness,
+		section:        textAnalyticsSection(r.URL.Path),
+		rewriteModel:   true,
+		catalogModel:   model,
+	}, nil
+}
+
+type textRouteSelection struct {
+	localID   string
+	readiness backendReadiness
+}
+
+func textRouteTarget(r *http.Request, publicID string, mode string, localID string, servedNames []string, vllmTask string) (textRouteSelection, error) {
+	if mode != BackendModeVLLM {
+		return textRouteSelection{localID: localID, readiness: modelReadiness(r.URL.Path)}, nil
+	}
+	if !vllmInferenceAllowed(r.Method, r.URL.Path) {
+		return textRouteSelection{}, errEndpointNotFoundRoute
+	}
+	return textRouteSelection{
+		localID:   vllmRequestModelID(publicID, localID, servedNames),
+		readiness: vllmReadinessForTask(r.URL.Path, vllmTask),
+	}, nil
 }

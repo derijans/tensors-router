@@ -32,3 +32,7 @@ export function badge(label: unknown, accent: Accent): SafeHTML {
 export function fact(label: string, value: unknown): SafeHTML {
   return html`<div class="fact"><dt>${label}</dt><dd>${displayText(value)}</dd></div>`;
 }
+
+export function optionElement(value: string, label: unknown, selected = false): SafeHTML {
+  return html`<option value="${value}"${selected ? " selected" : ""}>${displayText(label)}</option>`;
+}

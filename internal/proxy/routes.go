@@ -58,7 +58,7 @@ func (table *routeTable) match(method string, path string) (routing.Route, bool)
 func (table *routeTable) serve(w http.ResponseWriter, r *http.Request) {
 	matched, ok := table.match(r.Method, r.URL.Path)
 	if !ok {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	if matched.ClusterOnly && !table.requireClusterToken(w, r) {

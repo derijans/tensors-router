@@ -26,7 +26,7 @@ func vllmRequestModelID(publicID string, modelID string, servedNames []string) s
 
 func selectorlessVLLMPath(path string) bool {
 	switch path {
-	case "/classify", "/score", "/v1/score", "/pooling", "/generative_scoring", "/invocations", "/tokenize", "/detokenize":
+	case pathClassify, pathScore, pathScoreV1, pathPooling, "/generative_scoring", "/invocations", "/tokenize", "/detokenize":
 		return true
 	default:
 		return false

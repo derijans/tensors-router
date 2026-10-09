@@ -12,22 +12,22 @@ var vllmStaticInferenceRoutes = map[string]map[string]struct{}{
 	"/v1/responses":              {http.MethodPost: {}},
 	"/v1/responses/input_tokens": {http.MethodPost: {}},
 	"/v1/responses/render":       {http.MethodPost: {}},
-	"/v1/embeddings":             {http.MethodPost: {}},
-	"/v1/audio/transcriptions":   {http.MethodPost: {}},
-	"/v1/audio/translations":     {http.MethodPost: {}},
+	pathEmbeddings:               {http.MethodPost: {}},
+	pathAudioTranscriptions:      {http.MethodPost: {}},
+	pathAudioTranslations:        {http.MethodPost: {}},
 	"/v1/realtime":               {http.MethodGet: {}},
 	"/v1/messages":               {http.MethodPost: {}},
 	"/v1/messages/count_tokens":  {http.MethodPost: {}},
 	"/v1/messages/render":        {http.MethodPost: {}},
 	"/cohere/v2/chat/render":     {http.MethodPost: {}},
-	"/v2/embed":                  {http.MethodPost: {}},
-	"/rerank":                    {http.MethodPost: {}},
-	"/v1/rerank":                 {http.MethodPost: {}},
-	"/v2/rerank":                 {http.MethodPost: {}},
-	"/classify":                  {http.MethodPost: {}},
-	"/score":                     {http.MethodPost: {}},
-	"/v1/score":                  {http.MethodPost: {}},
-	"/pooling":                   {http.MethodPost: {}},
+	pathEmbedV2:                  {http.MethodPost: {}},
+	pathRerank:                   {http.MethodPost: {}},
+	pathRerankV1:                 {http.MethodPost: {}},
+	pathRerankV2:                 {http.MethodPost: {}},
+	pathClassify:                 {http.MethodPost: {}},
+	pathScore:                    {http.MethodPost: {}},
+	pathScoreV1:                  {http.MethodPost: {}},
+	pathPooling:                  {http.MethodPost: {}},
 	"/generative_scoring":        {http.MethodPost: {}},
 	"/invocations":               {http.MethodPost: {}},
 	"/tokenize":                  {http.MethodPost: {}},
@@ -80,7 +80,7 @@ func vllmResponseOperation(path string) (string, string, bool) {
 
 func isVLLMPoolingPath(path string) bool {
 	switch path {
-	case "/v1/embeddings", "/v2/embed", "/rerank", "/v1/rerank", "/v2/rerank", "/classify", "/score", "/v1/score", "/pooling":
+	case pathEmbeddings, pathEmbedV2, pathRerank, pathRerankV1, pathRerankV2, pathClassify, pathScore, pathScoreV1, pathPooling:
 		return true
 	default:
 		return false
@@ -89,7 +89,7 @@ func isVLLMPoolingPath(path string) bool {
 
 func isVLLMTextServingPath(path string) bool {
 	if _, found := vllmStaticInferenceRoutes[path]; found {
-		return path != "/v1/audio/transcriptions" && path != "/v1/audio/translations" && path != "/v1/realtime"
+		return path != pathAudioTranscriptions && path != pathAudioTranslations && path != "/v1/realtime"
 	}
 	_, _, found := vllmResponseOperation(path)
 	return found
@@ -109,13 +109,13 @@ func vllmTaskSupportsPath(task string, path string) bool {
 		"/v1/messages", "/v1/messages/count_tokens", "/v1/messages/render",
 		"/cohere/v2/chat/render", "/generative_scoring", "/invocations":
 		return vllmGenerationTask(task)
-	case "/v1/embeddings", "/v2/embed":
+	case pathEmbeddings, pathEmbedV2:
 		return task == "embed" || task == "embedding" || task == "embeddings"
-	case "/classify":
+	case pathClassify:
 		return task == "classify" || task == "classification"
-	case "/score", "/v1/score", "/rerank", "/v1/rerank", "/v2/rerank":
+	case pathScore, pathScoreV1, pathRerank, pathRerankV1, pathRerankV2:
 		return task == "score" || task == "scoring" || task == "reward" || task == "rerank"
-	case "/pooling":
+	case pathPooling:
 		return task == "pooling"
 	default:
 		return false

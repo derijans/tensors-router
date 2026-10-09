@@ -143,112 +143,6 @@ func (writer Writer) reusableConfig(components []Component) (bool, ConfigResult,
 	}, nil
 }
 
-func (writer Writer) composedConfig(components []Component, options Options) (map[string]json.RawMessage, string, error) {
-	body := map[string]json.RawMessage{}
-	for _, component := range components {
-		if componentSource(component) != SourceConfig {
-			continue
-		}
-		source, err := writer.configBody(component)
-		if err != nil {
-			return nil, "", err
-		}
-		copySharedKeys(body, source)
-		break
-	}
-
-	for _, component := range components {
-		source := componentSource(component)
-		switch component.Kind {
-		case KindText:
-			if source == SourceFile {
-				filePath, err := writer.validateRawFile(component.FilePath)
-				if err != nil {
-					return nil, "", err
-				}
-				setJSONString(body, "model_param", filePath)
-				setJSONBool(body, "nomodel", false)
-				continue
-			}
-			sourceBody, err := writer.configBody(component)
-			if err != nil {
-				return nil, "", err
-			}
-			copyKeys(body, sourceBody, textKeys)
-			setJSONBool(body, "nomodel", false)
-		case KindEmbeddings:
-			if source == SourceFile {
-				filePath, err := writer.validateRawFile(component.FilePath)
-				if err != nil {
-					return nil, "", err
-				}
-				setJSONString(body, "embeddingsmodel", filePath)
-				continue
-			}
-			sourceBody, err := writer.configBody(component)
-			if err != nil {
-				return nil, "", err
-			}
-			copyKeys(body, sourceBody, embeddingKeys)
-		case KindImage:
-			if source == SourceFile {
-				filePath, err := writer.validateRawFile(component.FilePath)
-				if err != nil {
-					return nil, "", err
-				}
-				setJSONString(body, "sdmodel", filePath)
-				continue
-			}
-			sourceBody, err := writer.configBody(component)
-			if err != nil {
-				return nil, "", err
-			}
-			copyPrefix(body, sourceBody, "sd")
-		case KindVoice:
-			if source == SourceFile {
-				filePath, err := writer.validateRawFile(component.FilePath)
-				if err != nil {
-					return nil, "", err
-				}
-				setJSONString(body, component.OptionKey, filePath)
-				continue
-			}
-			sourceBody, err := writer.configBody(component)
-			if err != nil {
-				return nil, "", err
-			}
-			copyKeys(body, sourceBody, voiceKeys)
-		case KindMusic:
-			if source == SourceFile {
-				filePath, err := writer.validateRawFile(component.FilePath)
-				if err != nil {
-					return nil, "", err
-				}
-				setJSONString(body, component.OptionKey, filePath)
-				continue
-			}
-			sourceBody, err := writer.configBody(component)
-			if err != nil {
-				return nil, "", err
-			}
-			copyKeys(body, sourceBody, musicKeys)
-		default:
-			return nil, "", fmt.Errorf("component kind %q is invalid", component.Kind)
-		}
-	}
-	if !hasKind(components, KindText) {
-		setJSONBool(body, "nomodel", true)
-	}
-	applyOptions(body, options)
-	if err := validateComposedVLLMConfig(body, components); err != nil {
-		return nil, "", err
-	}
-	if err := validateComposedRuntimeConfig(body); err != nil {
-		return nil, "", err
-	}
-	return body, rawJSONString(body["sdmodel"]), nil
-}
-
 func validateComposedVLLMConfig(body map[string]json.RawMessage, components []Component) error {
 	mode := rawJSONString(body[backendmode.Key])
 	if mode != backendmode.VLLM {
@@ -342,49 +236,6 @@ func (writer Writer) validateRawFile(path string) (string, error) {
 		return resolvedFile, nil
 	}
 	return "", fmt.Errorf("file path is outside configured model roots")
-}
-
-func NormalizedComponents(components []Component) ([]Component, error) {
-	if len(components) == 0 {
-		return nil, fmt.Errorf("at least one component is required")
-	}
-	result := make([]Component, 0, len(components))
-	seen := map[string]struct{}{}
-	for _, component := range components {
-		component.Kind = strings.TrimSpace(component.Kind)
-		component.Source = componentSource(component)
-		component.NodeID = strings.TrimSpace(component.NodeID)
-		component.NodeURL = strings.TrimSpace(component.NodeURL)
-		component.ModelID = strings.TrimSpace(component.ModelID)
-		component.ImageID = strings.TrimSpace(component.ImageID)
-		component.FilePath = strings.TrimSpace(component.FilePath)
-		component.OptionKey = strings.TrimSpace(component.OptionKey)
-		if _, ok := seen[component.Kind]; ok {
-			return nil, fmt.Errorf("duplicate %s component", component.Kind)
-		}
-		switch component.Kind {
-		case KindText, KindImage, KindEmbeddings, KindVoice, KindMusic:
-		default:
-			return nil, fmt.Errorf("component kind %q is invalid", component.Kind)
-		}
-		switch component.Source {
-		case SourceConfig, SourceFile:
-		default:
-			return nil, fmt.Errorf("%s source %q is invalid", component.Kind, component.Source)
-		}
-		if component.Source == SourceFile && component.FilePath == "" {
-			return nil, fmt.Errorf("%s file path is required", component.Kind)
-		}
-		if component.Source == SourceFile && (component.Kind == KindVoice || component.Kind == KindMusic) && !validRawFileOptionKey(component.Kind, component.OptionKey) {
-			return nil, fmt.Errorf("%s option key %q is invalid", component.Kind, component.OptionKey)
-		}
-		if component.Source == SourceConfig && component.ModelID == "" && component.ImageID == "" {
-			return nil, fmt.Errorf("%s model id is required", component.Kind)
-		}
-		seen[component.Kind] = struct{}{}
-		result = append(result, component)
-	}
-	return result, nil
 }
 
 func NormalizedOptions(options Options) (Options, error) {
@@ -501,27 +352,7 @@ func SanitizedID(id string) (string, error) {
 	if filepath.IsAbs(id) || filepath.VolumeName(id) != "" || strings.ContainsAny(id, `/\`) {
 		return "", fmt.Errorf("id is invalid")
 	}
-	var builder strings.Builder
-	lastDash := false
-	for _, char := range id {
-		switch {
-		case char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z':
-			builder.WriteRune(char)
-			lastDash = false
-		case char >= '0' && char <= '9':
-			builder.WriteRune(char)
-			lastDash = false
-		case char == '_' || char == '-':
-			builder.WriteRune(char)
-			lastDash = char == '-'
-		default:
-			if !lastDash {
-				builder.WriteRune('-')
-				lastDash = true
-			}
-		}
-	}
-	result := strings.Trim(builder.String(), "-_")
+	result := strings.Trim(dashUnsafeIDRuns(id), "-_")
 	if result == "" {
 		return "", fmt.Errorf("id is invalid")
 	}
@@ -529,6 +360,29 @@ func SanitizedID(id string) (string, error) {
 		return "", fmt.Errorf("id is invalid")
 	}
 	return result, nil
+}
+
+func dashUnsafeIDRuns(id string) string {
+	var builder strings.Builder
+	lastDash := false
+	for _, char := range id {
+		switch {
+		case isASCIIAlphanumeric(char):
+			builder.WriteRune(char)
+			lastDash = false
+		case char == '_' || char == '-':
+			builder.WriteRune(char)
+			lastDash = char == '-'
+		case !lastDash:
+			builder.WriteRune('-')
+			lastDash = true
+		}
+	}
+	return builder.String()
+}
+
+func isASCIIAlphanumeric(char rune) bool {
+	return char >= 'a' && char <= 'z' || char >= 'A' && char <= 'Z' || char >= '0' && char <= '9'
 }
 
 func (writer Writer) configTarget(filename string) (string, error) {

@@ -15,6 +15,6 @@ func imageWorkHint(r *http.Request, body []byte) requestWorkHint {
 		return requestWorkHint{}
 	}
 	event := routeranalytics.Event{Section: routeranalytics.SectionImage}
-	routeranalytics.ApplyRequest(&event, r.URL.Path, body, r.Header.Get("Content-Type"))
+	routeranalytics.ApplyRequest(&event, r.URL.Path, body, r.Header.Get(headerContentType))
 	return requestWorkHint{Work: schedulingcost.ImageWork(routeranalytics.ImageWork(event))}
 }

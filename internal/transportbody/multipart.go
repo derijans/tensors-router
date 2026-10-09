@@ -119,68 +119,6 @@ func TransformMultipart(body Body, oldBoundary string, rewrite MultipartRewrite)
 	return transformed, newBoundary, nil
 }
 
-func rewriteMultipart(source io.Reader, destination io.Writer, oldBoundary string, newBoundary string, rewrite MultipartRewrite) error {
-	reader := multipart.NewReader(source, oldBoundary)
-	writer := multipart.NewWriter(destination)
-	if err := writer.SetBoundary(newBoundary); err != nil {
-		return err
-	}
-	writtenFields := make(map[string]bool)
-	for {
-		part, err := reader.NextPart()
-		if err == io.EOF {
-			for name, replacement := range rewrite.Fields {
-				if writtenFields[name] || rewrite.DropFields[name] {
-					continue
-				}
-				target, createErr := writer.CreateFormField(name)
-				if createErr != nil {
-					return createErr
-				}
-				if _, writeErr := io.WriteString(target, replacement.To); writeErr != nil {
-					return writeErr
-				}
-			}
-			return writer.Close()
-		}
-		if err != nil {
-			return err
-		}
-		if rewrite.DropFields[part.FormName()] {
-			_ = part.Close()
-			continue
-		}
-		writtenFields[part.FormName()] = true
-		target, err := writer.CreatePart(cloneMIMEHeader(part.Header))
-		if err != nil {
-			_ = part.Close()
-			return err
-		}
-		replacement, selected := rewrite.Fields[part.FormName()]
-		if selected {
-			value, readErr := readSelectorPart(part)
-			_ = part.Close()
-			if readErr != nil {
-				return readErr
-			}
-			if replacement.From == "" || strings.TrimSpace(value) == strings.TrimSpace(replacement.From) {
-				value = replacement.To
-			}
-			if _, err := io.WriteString(target, value); err != nil {
-				return err
-			}
-			continue
-		}
-		if _, err := Copy(target, part); err != nil {
-			_ = part.Close()
-			return err
-		}
-		if err := part.Close(); err != nil {
-			return err
-		}
-	}
-}
-
 func readSelectorPart(reader io.Reader) (string, error) {
 	content, err := io.ReadAll(io.LimitReader(reader, selectorValueLimit+1))
 	if err != nil {
@@ -202,4 +140,81 @@ func cloneMIMEHeader(source textproto.MIMEHeader) textproto.MIMEHeader {
 
 func MultipartContentType(mediaType string, boundary string) string {
 	return fmt.Sprintf("%s; boundary=%q", mediaType, boundary)
+}
+
+type multipartRewriter struct {
+	writer        *multipart.Writer
+	rewrite       MultipartRewrite
+	writtenFields map[string]bool
+}
+
+func rewriteMultipart(source io.Reader, destination io.Writer, oldBoundary string, newBoundary string, rewrite MultipartRewrite) error {
+	reader := multipart.NewReader(source, oldBoundary)
+	rewriter := multipartRewriter{writer: multipart.NewWriter(destination), rewrite: rewrite, writtenFields: make(map[string]bool)}
+	if err := rewriter.writer.SetBoundary(newBoundary); err != nil {
+		return err
+	}
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			return rewriter.finish()
+		}
+		if err != nil {
+			return err
+		}
+		if err := rewriter.copyPart(part); err != nil {
+			return err
+		}
+	}
+}
+
+func (rewriter *multipartRewriter) copyPart(part *multipart.Part) error {
+	name := part.FormName()
+	if rewriter.rewrite.DropFields[name] {
+		_ = part.Close()
+		return nil
+	}
+	rewriter.writtenFields[name] = true
+	target, err := rewriter.writer.CreatePart(cloneMIMEHeader(part.Header))
+	if err != nil {
+		_ = part.Close()
+		return err
+	}
+	if replacement, selected := rewriter.rewrite.Fields[name]; selected {
+		return writeReplacedSelector(target, part, replacement)
+	}
+	if _, err := Copy(target, part); err != nil {
+		_ = part.Close()
+		return err
+	}
+	return part.Close()
+}
+
+func writeReplacedSelector(target io.Writer, part *multipart.Part, replacement StringReplacement) error {
+	value, err := readSelectorPart(part)
+	_ = part.Close()
+	if err != nil {
+		return err
+	}
+	if replacement.From == "" || strings.TrimSpace(value) == strings.TrimSpace(replacement.From) {
+		value = replacement.To
+	}
+	_, err = io.WriteString(target, value)
+	return err
+}
+
+func (rewriter *multipartRewriter) finish() error {
+	for name, replacement := range rewriter.rewrite.Fields {
+		if rewriter.writtenFields[name] || rewriter.rewrite.DropFields[name] {
+			continue
+		}
+		target, err := rewriter.writer.CreateFormField(name)
+		if err != nil {
+			return err
+		}
+		if _, err := io.WriteString(target, replacement.To); err != nil {
+			return err
+		}
+	}
+	return rewriter.writer.Close()
 }

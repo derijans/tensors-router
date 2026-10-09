@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
+	"iter"
+	"maps"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -143,29 +146,6 @@ func sdcppJobIDFromResponse(body []byte) string {
 	return findSdcppJobID(value)
 }
 
-func findSdcppJobID(value any) string {
-	switch typed := value.(type) {
-	case map[string]any:
-		for _, key := range []string{"job_id", "jobId", "task_id", "taskId", "id"} {
-			if jobID := jobIDString(typed[key]); jobID != "" {
-				return jobID
-			}
-		}
-		for _, item := range typed {
-			if jobID := findSdcppJobID(item); jobID != "" {
-				return jobID
-			}
-		}
-	case []any:
-		for _, item := range typed {
-			if jobID := findSdcppJobID(item); jobID != "" {
-				return jobID
-			}
-		}
-	}
-	return ""
-}
-
 func jobIDString(value any) string {
 	switch typed := value.(type) {
 	case string:
@@ -175,4 +155,31 @@ func jobIDString(value any) string {
 	default:
 		return ""
 	}
+}
+
+var sdcppJobIDKeys = []string{"job_id", "jobId", "task_id", "taskId", "id"}
+
+func findSdcppJobID(value any) string {
+	switch typed := value.(type) {
+	case map[string]any:
+		for _, key := range sdcppJobIDKeys {
+			if jobID := jobIDString(typed[key]); jobID != "" {
+				return jobID
+			}
+		}
+		return firstNestedSdcppJobID(maps.Values(typed))
+	case []any:
+		return firstNestedSdcppJobID(slices.Values(typed))
+	default:
+		return ""
+	}
+}
+
+func firstNestedSdcppJobID(items iter.Seq[any]) string {
+	for item := range items {
+		if jobID := findSdcppJobID(item); jobID != "" {
+			return jobID
+		}
+	}
+	return ""
 }

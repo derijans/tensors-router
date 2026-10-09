@@ -35,7 +35,7 @@ func (analytics *requestAnalytics) newEvent(started time.Time, r *http.Request, 
 		RequestBytes: int64(len(body)),
 	}
 	if len(body) <= analyticsRequestMetadataLimit {
-		routeranalytics.ApplyRequest(&event, r.URL.Path, body, r.Header.Get("Content-Type"))
+		routeranalytics.ApplyRequest(&event, r.URL.Path, body, r.Header.Get(headerContentType))
 	}
 	return event
 }
@@ -62,7 +62,7 @@ func (analytics *requestAnalytics) withResponse(response *http.Response, event r
 		analytics.recordFinished(event, finalizers...)
 		return response
 	}
-	response.Body = routeranalytics.NewResponseObserver(analytics.store, event, response.Header.Get("Content-Type"), response.Body, finalizers...)
+	response.Body = routeranalytics.NewResponseObserver(analytics.store, event, response.Header.Get(headerContentType), response.Body, finalizers...)
 	return response
 }
 

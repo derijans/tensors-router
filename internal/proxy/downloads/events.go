@@ -15,12 +15,12 @@ const downloadEventHeartbeat = 15 * time.Second
 
 func (handlers *Handlers) SiteEvents(w http.ResponseWriter, r *http.Request) {
 	if !handlers.deps.SiteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
-	jobID, ok := downloadJobID(r.URL.Path, "/events", "")
+	jobID, ok := downloadJobID(r.URL.Path, jobEventsSuffix, "")
 	if !ok {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	if remoteURL, remote, err := handlers.downloadTarget(r.URL.Query().Get("node_id")); err != nil {
@@ -34,26 +34,26 @@ func (handlers *Handlers) SiteEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 func (handlers *Handlers) NodeEvents(w http.ResponseWriter, r *http.Request) {
-	jobID, ok := downloadJobID(r.URL.Path, "/events", "")
+	jobID, ok := downloadJobID(r.URL.Path, jobEventsSuffix, "")
 	if !ok {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	handlers.writeDownloadEvents(w, r, jobID)
 }
 
 func (handlers *Handlers) streamRemoteDownloadEvents(w http.ResponseWriter, r *http.Request, nodeURL string, jobID string) {
-	response, err := handlers.deps.ClusterClient().Stream(r.Context(), http.MethodGet, nodeURL, "/router/v1/node/site/download/jobs/"+jobID+"/events")
+	response, err := handlers.deps.ClusterClient().Stream(r.Context(), http.MethodGet, nodeURL, nodeDownloadJobsPrefix+jobID+jobEventsSuffix)
 	if err != nil {
 		writeDownloadError(w, err)
 		return
 	}
 	defer response.Body.Close()
-	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set(headerContentType, "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("X-Content-Type-Options", "nosniff")
-	if response.Header.Get("Content-Encoding") != "" {
-		w.Header().Set("Content-Encoding", response.Header.Get("Content-Encoding"))
+	if response.Header.Get(headerContentEncoding) != "" {
+		w.Header().Set(headerContentEncoding, response.Header.Get(headerContentEncoding))
 	}
 	w.WriteHeader(http.StatusOK)
 	_, _ = transportbody.CopyFlushing(w, response.Body)
@@ -76,7 +76,7 @@ func (handlers *Handlers) writeDownloadEvents(w http.ResponseWriter, r *http.Req
 		openai.WriteError(w, http.StatusInternalServerError, "download_error", "streaming is unavailable")
 		return
 	}
-	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set(headerContentType, "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Content-Type-Options", "nosniff")

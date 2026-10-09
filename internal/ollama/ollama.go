@@ -7,6 +7,13 @@ import (
 	"strings"
 )
 
+const (
+	headerContentType        = "Content-Type"
+	mediaTypeJSON            = "application/json"
+	headerContentTypeOptions = "X-Content-Type-Options"
+	mediaTypeNDJSON          = "application/x-ndjson"
+)
+
 var methods = map[string]string{
 	"/api/show":     http.MethodPost,
 	"/api/generate": http.MethodPost,
@@ -25,8 +32,8 @@ func Method(path string) (string, bool) {
 }
 
 func WriteError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set(headerContentType, mediaTypeJSON)
+	w.Header().Set(headerContentTypeOptions, "nosniff")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }
@@ -63,12 +70,12 @@ func (writer *ErrorResponseWriter) Write(body []byte) (int, error) {
 		writer.WriteHeader(http.StatusOK)
 	}
 	if writer.committed {
-		contentType := "application/json"
-		if isNDJSON(writer.header.Get("Content-Type")) {
-			contentType = "application/x-ndjson"
+		contentType := mediaTypeJSON
+		if isNDJSON(writer.header.Get(headerContentType)) {
+			contentType = mediaTypeNDJSON
 		}
-		writer.destination.Header().Set("Content-Type", contentType)
-		writer.destination.Header().Set("X-Content-Type-Options", "nosniff")
+		writer.destination.Header().Set(headerContentType, contentType)
+		writer.destination.Header().Set(headerContentTypeOptions, "nosniff")
 		return writer.destination.Write(body)
 	}
 	if writer.overflowed || len(body) > maxBufferedErrorBytes-writer.body.Len() {
@@ -114,19 +121,19 @@ func (writer *ErrorResponseWriter) Finish() {
 
 func (writer *ErrorResponseWriter) commitHeaders() {
 	copyHeaders(writer.destination.Header(), writer.header)
-	contentType := "application/json"
-	if isNDJSON(writer.header.Get("Content-Type")) {
-		contentType = "application/x-ndjson"
+	contentType := mediaTypeJSON
+	if isNDJSON(writer.header.Get(headerContentType)) {
+		contentType = mediaTypeNDJSON
 	}
-	writer.destination.Header().Set("Content-Type", contentType)
-	writer.destination.Header().Set("X-Content-Type-Options", "nosniff")
+	writer.destination.Header().Set(headerContentType, contentType)
+	writer.destination.Header().Set(headerContentTypeOptions, "nosniff")
 	writer.destination.WriteHeader(writer.status)
 	writer.committed = true
 }
 
 func isNDJSON(contentType string) bool {
 	contentType = strings.ToLower(contentType)
-	return strings.Contains(contentType, "application/x-ndjson") || strings.Contains(contentType, "application/ndjson")
+	return strings.Contains(contentType, mediaTypeNDJSON) || strings.Contains(contentType, "application/ndjson")
 }
 
 func errorMessage(body []byte, fallback string) string {

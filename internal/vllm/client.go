@@ -12,8 +12,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"tensors-router/internal/processcontrol"
 )
 
 const (
@@ -55,84 +53,6 @@ type Client struct {
 }
 
 var _ Service = (*Client)(nil)
-
-func StartClient(ctx context.Context, binaryPath string, configuration ClientConfig) (*Client, error) {
-	arguments := []string{"worker", "--data-dir", configuration.DataDir, "--profile", configuration.DefaultProfile}
-	if configuration.ManifestPath != "" {
-		arguments = append(arguments, "--manifest", configuration.ManifestPath)
-	}
-	if configuration.TUFRepositoryURL != "" {
-		arguments = append(arguments, "--tuf-repository-url", configuration.TUFRepositoryURL)
-		if configuration.TUFRootPath != "" {
-			arguments = append(arguments, "--tuf-root", configuration.TUFRootPath)
-		}
-	} else if configuration.ManifestSHA256 != "" || configuration.ManifestSize != 0 {
-		arguments = append(arguments, "--manifest-size", fmt.Sprint(configuration.ManifestSize), "--manifest-sha256", configuration.ManifestSHA256)
-	}
-	if configuration.AllowUnverifiedInstall {
-		arguments = append(arguments, "--allow-unverified-install", "true")
-		if configuration.UnverifiedVLLMVersion != "" {
-			arguments = append(arguments, "--unverified-vllm-version", configuration.UnverifiedVLLMVersion)
-		}
-		if configuration.UnverifiedPythonVersion != "" {
-			arguments = append(arguments, "--unverified-python-version", configuration.UnverifiedPythonVersion)
-		}
-		if configuration.UnverifiedIndexURL != "" {
-			arguments = append(arguments, "--unverified-index-url", configuration.UnverifiedIndexURL)
-		}
-		if configuration.UnverifiedExtraIndexURL != "" {
-			arguments = append(arguments, "--unverified-extra-index-url", configuration.UnverifiedExtraIndexURL)
-		}
-	}
-	if configuration.OCIRunAsImageUser {
-		arguments = append(arguments, "--oci-run-as-image-user", "true")
-	}
-	if configuration.AllowTrustRemoteCode {
-		arguments = append(arguments, "--allow-trust-remote-code", "true")
-	}
-	if configuration.AllowExternalTools {
-		arguments = append(arguments, "--allow-external-tools", "true")
-	}
-	if configuration.AllowDynamicLoRA {
-		arguments = append(arguments, "--allow-dynamic-lora", "true")
-	}
-	command := exec.Command(binaryPath, arguments...)
-	processcontrol.Prepare(command, processcontrol.Options{HideWindow: true})
-	input, err := command.StdinPipe()
-	if err != nil {
-		return nil, err
-	}
-	output, err := command.StdoutPipe()
-	if err != nil {
-		return nil, err
-	}
-	logs := newBoundedLog(maximumRuntimeLogBytes)
-	command.Stderr = logs
-	if err := command.Start(); err != nil {
-		return nil, err
-	}
-	client := &Client{command: command, input: input, pending: map[uint64]chan protocolResponse{}, done: make(chan struct{}), logs: logs}
-	go client.readResponses(output)
-	handshakeContext, cancel := context.WithTimeout(ctx, companionHandshakeTimeout)
-	defer cancel()
-	var handshake Handshake
-	if err := client.call(handshakeContext, "handshake", nil, &handshake); err != nil {
-		_ = client.Close()
-		return nil, fmt.Errorf("vLLM companion handshake failed: %w", err)
-	}
-	if handshake.Protocol != ProtocolVersion {
-		_ = client.Close()
-		return nil, fmt.Errorf("vLLM companion protocol %d is incompatible with required protocol %d", handshake.Protocol, ProtocolVersion)
-	}
-	for _, capability := range []string{"persistent_jobs", "atomic_environments", "generation", "pooling", "speech", "unix_socket"} {
-		if !containsString(handshake.Capabilities, capability) {
-			_ = client.Close()
-			return nil, fmt.Errorf("vLLM companion lacks required capability %q", capability)
-		}
-	}
-	client.state = handshake.State
-	return client, nil
-}
 
 func (client *Client) State(ctx context.Context) State {
 	var state State

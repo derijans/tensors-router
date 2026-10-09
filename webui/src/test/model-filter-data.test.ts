@@ -3,8 +3,8 @@ import { changedNodeSelection, defaultNodeSelection, retainedNodeSelection } fro
 
 describe("model node filters", () => {
   it("defaults to all nodes and retains valid multi-node selections", () => {
-    expect(defaultNodeSelection("node-b", ["node-a", "node-b"])).toEqual(["*"]);
-    expect(retainedNodeSelection(["node-a", "node-b"], "node-b", ["node-a", "node-b", "node-c"])).toEqual(["node-a", "node-b"]);
+    expect(defaultNodeSelection()).toEqual(["*"]);
+    expect(retainedNodeSelection(["node-a", "node-b"], ["node-a", "node-b", "node-c"])).toEqual(["node-a", "node-b"]);
   });
 
   it("makes All Nodes exclusive when selection changes", () => {

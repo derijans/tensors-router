@@ -264,18 +264,12 @@ func TestOptionCatalogIncludesCurrentCompatibilityOptions(t *testing.T) {
 			}
 		})
 	}
-	if definition, ok := OptionDefinitionForKey("reasoningeffort"); !ok || definition.Default != "default" || !containsString(definition.Choices, "none") || !containsString(definition.Choices, "xhigh") {
-		t.Fatalf("unexpected reasoning effort definition %#v", definition)
-	}
-	if definition, ok := OptionDefinitionForKey("defaultgenamt"); !ok || definition.Default != "1536" || !containsString(definition.Choices, "32768") {
-		t.Fatalf("unexpected default generation amount definition %#v", definition)
-	}
-	if definition, ok := OptionDefinitionForKey("sampling_method"); !ok || !containsString(definition.Choices, "dpm++2m_sde_bt") {
-		t.Fatalf("missing current sampling method %#v", definition)
-	}
-	if definition, ok := OptionDefinitionForKey("scheduler"); !ok || !containsString(definition.Choices, "logit_normal") || !containsString(definition.Choices, "beta") || !containsString(definition.Choices, "llada_image") {
-		t.Fatalf("missing current scheduler choices %#v", definition)
-	}
+	requireOptionDefault(t, "reasoningeffort", "default")
+	requireOptionChoices(t, "reasoningeffort", "none", "xhigh")
+	requireOptionDefault(t, "defaultgenamt", "1536")
+	requireOptionChoices(t, "defaultgenamt", "32768")
+	requireOptionChoices(t, "sampling_method", "dpm++2m_sde_bt")
+	requireOptionChoices(t, "scheduler", "logit_normal", "beta", "llada_image")
 	for key, expected := range map[string][]string{
 		"load_mode":        {"auto", "none", "mmap", "mlock", "mmap+mlock", "dio"},
 		"lazy_mode":        {"on", "auto", "off"},
@@ -286,21 +280,40 @@ func TestOptionCatalogIncludesCurrentCompatibilityOptions(t *testing.T) {
 		"sdloglevel":       {"debug", "verbose", "info", "warn", "error"},
 		"device":           {"none", "CPU", "CUDA0", "Vulkan0", "CUDA0,CUDA1"},
 	} {
-		definition, ok := OptionDefinitionForKey(key)
-		if !ok {
-			t.Fatalf("missing option %q", key)
-		}
-		for _, choice := range expected {
-			if !containsString(definition.Choices, choice) {
-				t.Fatalf("option %q missing upstream choice %q: %#v", key, choice, definition.Choices)
-			}
+		requireOptionChoices(t, key, expected...)
+	}
+	rejectOptionChoices(t, "device", "llama.cpp --device takes backend device names such as CUDA0, not backend families", "cuda", "vulkan")
+	rejectOptionChoices(t, "prediction", "sd.cpp master-908 prediction_to_str has no flux2_flow", "flux2_flow")
+}
+
+func requireOptionDefault(t *testing.T, key string, expected string) {
+	t.Helper()
+	definition, ok := OptionDefinitionForKey(key)
+	if !ok || definition.Default != expected {
+		t.Fatalf("option %q default = %#v, want %q", key, definition, expected)
+	}
+}
+
+func requireOptionChoices(t *testing.T, key string, expected ...string) {
+	t.Helper()
+	definition, ok := OptionDefinitionForKey(key)
+	if !ok {
+		t.Fatalf("missing option %q", key)
+	}
+	for _, choice := range expected {
+		if !containsString(definition.Choices, choice) {
+			t.Fatalf("option %q missing upstream choice %q: %#v", key, choice, definition.Choices)
 		}
 	}
-	if definition, _ := OptionDefinitionForKey("device"); containsString(definition.Choices, "cuda") || containsString(definition.Choices, "vulkan") {
-		t.Fatalf("llama.cpp --device takes backend device names such as CUDA0, not backend families: %#v", definition.Choices)
-	}
-	if definition, _ := OptionDefinitionForKey("prediction"); containsString(definition.Choices, "flux2_flow") {
-		t.Fatalf("sd.cpp master-908 prediction_to_str has no flux2_flow: %#v", definition.Choices)
+}
+
+func rejectOptionChoices(t *testing.T, key string, reason string, rejected ...string) {
+	t.Helper()
+	definition, _ := OptionDefinitionForKey(key)
+	for _, choice := range rejected {
+		if containsString(definition.Choices, choice) {
+			t.Fatalf("%s: %#v", reason, definition.Choices)
+		}
 	}
 }
 

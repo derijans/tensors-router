@@ -50,7 +50,7 @@ function ensurePhaseOptions(): void {
   for (const phase of phaseOptions) {
     const option = document.createElement("option");
     option.value = phase;
-    option.textContent = phase.replace(/_/g, " ");
+    option.textContent = phase.replaceAll("_", " ");
     elements.loadErrorPhaseSelect.append(option);
   }
 }

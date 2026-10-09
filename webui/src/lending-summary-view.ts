@@ -1,3 +1,4 @@
+import { pluralSuffix } from "./utils";
 import { SafeHTML, html } from "./safe-html";
 import type { LendingLease, LendingNodeSummary, LendingSummaryResponse } from "./types";
 import { badge, laneAccent } from "./markup-primitives";
@@ -33,7 +34,7 @@ function renderLease(lease: LendingLease, now: Date): SafeHTML {
   return html`<li>
     ${badge(lease.lane, laneAccent(lease.lane))}
     <span>${lease.owner_node_id}/${lease.owner_model_id} → ${lease.helper_node_id}/${lease.helper_model_id}</span>
-    ${badge(`${lease.helper_slots} slot${lease.helper_slots === 1 ? "" : "s"}`, "neutral")}
+    ${badge(`${lease.helper_slots} slot${pluralSuffix(lease.helper_slots)}`, "neutral")}
     ${lease.probe ? badge("probe", "info") : ""}
     <span class="muted">expires in ${remainingSeconds.toFixed(0)}s</span>
   </li>`;

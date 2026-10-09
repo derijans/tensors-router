@@ -21,7 +21,7 @@ func (service *Service) handleVLLMRealtime(w http.ResponseWriter, r *http.Reques
 	}
 	modelID := strings.TrimSpace(r.URL.Query().Get("model"))
 	if modelID == "" {
-		modelID = strings.TrimSpace(r.Header.Get("X-Tensors-Model"))
+		modelID = strings.TrimSpace(r.Header.Get(headerTensorsModel))
 	}
 	if modelID == "" {
 		openai.WriteError(w, http.StatusBadRequest, "streaming_model_selector_required", "model selector is required")

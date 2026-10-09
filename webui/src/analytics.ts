@@ -17,10 +17,10 @@ import { elements } from "./elements";
 import { renderVersionRows } from "./analytics-versions-view";
 import { laneLegend } from "./chart-markup";
 import { laneSeries } from "./lane-series";
-import { badge, laneAccent } from "./markup-primitives";
+import { badge, laneAccent, optionElement } from "./markup-primitives";
 import { renderLaneChart } from "./overview/overview-view";
 import { state } from "./state";
-import type { AnalyticsModelUsage, AnalyticsNodeUsage, AnalyticsQuery, AnalyticsRecentEvent, AnalyticsSectionUsage, SelectChoice } from "./types";
+import type { AnalyticsModelUsage, AnalyticsNodeError, AnalyticsNodeUsage, AnalyticsQuery, AnalyticsRecentEvent, AnalyticsSectionUsage, SelectChoice } from "./types";
 
 export async function loadAnalytics(): Promise<void> {
   state.analytics.loading = true;
@@ -177,9 +177,11 @@ function renderAnalyticsTables(): void {
   setHTML(elements.analyticsNodesTable, html`${data.nodes.map(nodeRow)}`);
   setHTML(elements.analyticsVersionsTable, renderVersionRows(data.router_versions ?? []));
   setHTML(elements.analyticsRecentTable, html`${data.recent.map(recentRow)}`);
-  setHTML(elements.analyticsNodeErrors, html`${(data.node_errors ?? []).map(error => html`
-    <div class="error-text">${error.node_id || error.node_url || "node"}: ${error.error}</div>
-  `)}`);
+  setHTML(elements.analyticsNodeErrors, html`${(data.node_errors ?? []).map(nodeErrorLine)}`);
+}
+
+function nodeErrorLine(error: AnalyticsNodeError): SafeHTML {
+  return html`<div class="error-text">${error.node_id || error.node_url || "node"}: ${error.error}</div>`;
 }
 
 function metricCard(label: string, value: string, detail: string): SafeHTML {
@@ -238,17 +240,6 @@ function nodeRow(node: AnalyticsNodeUsage): SafeHTML {
 }
 
 function recentRow(event: AnalyticsRecentEvent): SafeHTML {
-  const media = state.analytics.showDetails
-    ? streamDetail(event)
-    : event.event_type === "model_load"
-    ? loadDetail(event)
-    : event.section === "image"
-    ? imageDetail(event)
-    : event.section === "embed"
-    ? embeddingDetail(event)
-    : event.section === "voice" || event.section === "music"
-      ? audioDetail(event)
-      : tokenDetail(event);
   return html`
     <tr>
       <td>${formatDate(event.finished_at)}</td>
@@ -256,10 +247,38 @@ function recentRow(event: AnalyticsRecentEvent): SafeHTML {
       <td>${event.model_id || "unknown"}</td>
       <td>${sectionLabel(event.section)}</td>
       <td>${event.backend_mode || ""}</td>
-      <td>${event.success ? badge("ok", "success") : badge(String(event.status_code), event.status_code >= 500 || event.status_code === 0 ? "danger" : "warning")}</td>
-      <td>${media}</td>
+      <td>${recentStatusBadge(event)}</td>
+      <td>${recentEventDetail(event)}</td>
     </tr>
   `;
+}
+
+function recentStatusBadge(event: AnalyticsRecentEvent): SafeHTML {
+  if (event.success) {
+    return badge("ok", "success");
+  }
+  const serverFailed = event.status_code >= 500 || event.status_code === 0;
+  return badge(String(event.status_code), serverFailed ? "danger" : "warning");
+}
+
+function recentEventDetail(event: AnalyticsRecentEvent): string {
+  if (state.analytics.showDetails) {
+    return streamDetail(event);
+  }
+  if (event.event_type === "model_load") {
+    return loadDetail(event);
+  }
+  switch (event.section) {
+    case "image":
+      return imageDetail(event);
+    case "embed":
+      return embeddingDetail(event);
+    case "voice":
+    case "music":
+      return audioDetail(event);
+    default:
+      return tokenDetail(event);
+  }
 }
 
 function streamDetail(event: AnalyticsRecentEvent): string {
@@ -334,9 +353,7 @@ function workVRAMDetail(event: AnalyticsRecentEvent): string {
 }
 
 function optionsHTML(options: SelectChoice[], selected: string): SafeHTML {
-  return html`${options.map(option => html`
-    <option value="${option.value}" ${option.value === selected ? "selected" : ""}>${option.label}</option>
-  `)}`;
+  return html`${options.map(option => optionElement(option.value, option.label, option.value === selected))}`;
 }
 
 function choicesWithSelected(options: SelectChoice[], selected: string | undefined): SelectChoice[] {

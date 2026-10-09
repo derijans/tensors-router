@@ -6,6 +6,14 @@ import (
 	"tensors-router/internal/proxy/routing"
 )
 
+const (
+	siteDownloadJobsPrefix = "/router/v1/site/download/jobs/"
+	nodeDownloadJobsPrefix = "/router/v1/node/site/download/jobs/"
+	jobEventsSuffix        = "/events"
+	headerContentType      = "Content-Type"
+	headerContentEncoding  = "Content-Encoding"
+)
+
 func (handlers *Handlers) Routes() []routing.Route {
 	return append(handlers.siteRoutes(), routing.ClusterOnly(handlers.nodeRoutes())...)
 }
@@ -18,11 +26,11 @@ func (handlers *Handlers) siteRoutes() []routing.Route {
 		routing.Exact(http.MethodPost, "/router/v1/site/download/repository", handlers.SiteRepository),
 		routing.Exact(http.MethodPost, "/router/v1/site/download/plan", handlers.SitePlan),
 		routing.Exact(http.MethodPost, "/router/v1/site/download/jobs", handlers.SiteCreateJob),
-		routing.PrefixSuffix(http.MethodGet, "/router/v1/site/download/jobs/", "/events", handlers.SiteEvents),
-		routing.Prefix(http.MethodGet, "/router/v1/site/download/jobs/", handlers.SiteJob),
-		routing.PrefixSuffix(http.MethodPost, "/router/v1/site/download/jobs/", "/pause", handlers.SitePause),
-		routing.PrefixSuffix(http.MethodPost, "/router/v1/site/download/jobs/", "/resume", handlers.SiteResume),
-		routing.PrefixSuffix(http.MethodPost, "/router/v1/site/download/jobs/", "/cancel", handlers.SiteCancel),
+		routing.PrefixSuffix(http.MethodGet, siteDownloadJobsPrefix, jobEventsSuffix, handlers.SiteEvents),
+		routing.Prefix(http.MethodGet, siteDownloadJobsPrefix, handlers.SiteJob),
+		routing.PrefixSuffix(http.MethodPost, siteDownloadJobsPrefix, "/pause", handlers.SitePause),
+		routing.PrefixSuffix(http.MethodPost, siteDownloadJobsPrefix, "/resume", handlers.SiteResume),
+		routing.PrefixSuffix(http.MethodPost, siteDownloadJobsPrefix, "/cancel", handlers.SiteCancel),
 		routing.Exact(http.MethodGet, "/router/v1/site/download/library", handlers.SiteLibrary),
 		routing.Exact(http.MethodPost, "/router/v1/site/download/rescan", handlers.SiteRescan),
 	}
@@ -36,11 +44,11 @@ func (handlers *Handlers) nodeRoutes() []routing.Route {
 		routing.Exact(http.MethodPost, "/router/v1/node/site/download/repository", handlers.NodeRepository),
 		routing.Exact(http.MethodPost, "/router/v1/node/site/download/plan", handlers.NodePlan),
 		routing.Exact(http.MethodPost, "/router/v1/node/site/download/jobs", handlers.NodeCreateJob),
-		routing.PrefixSuffix(http.MethodGet, "/router/v1/node/site/download/jobs/", "/events", handlers.NodeEvents),
-		routing.Prefix(http.MethodGet, "/router/v1/node/site/download/jobs/", handlers.NodeJob),
-		routing.PrefixSuffix(http.MethodPost, "/router/v1/node/site/download/jobs/", "/pause", handlers.NodePause),
-		routing.PrefixSuffix(http.MethodPost, "/router/v1/node/site/download/jobs/", "/resume", handlers.NodeResume),
-		routing.PrefixSuffix(http.MethodPost, "/router/v1/node/site/download/jobs/", "/cancel", handlers.NodeCancel),
+		routing.PrefixSuffix(http.MethodGet, nodeDownloadJobsPrefix, jobEventsSuffix, handlers.NodeEvents),
+		routing.Prefix(http.MethodGet, nodeDownloadJobsPrefix, handlers.NodeJob),
+		routing.PrefixSuffix(http.MethodPost, nodeDownloadJobsPrefix, "/pause", handlers.NodePause),
+		routing.PrefixSuffix(http.MethodPost, nodeDownloadJobsPrefix, "/resume", handlers.NodeResume),
+		routing.PrefixSuffix(http.MethodPost, nodeDownloadJobsPrefix, "/cancel", handlers.NodeCancel),
 		routing.Exact(http.MethodGet, "/router/v1/node/site/download/library", handlers.NodeLibrary),
 		routing.Exact(http.MethodPost, "/router/v1/node/site/download/rescan", handlers.NodeRescan),
 	}

@@ -76,7 +76,7 @@ func (service *Service) recordLoadErrorFromErr(phase loaderrors.Phase, source st
 
 func (service *Service) handleSiteLoadErrors(w http.ResponseWriter, r *http.Request) {
 	if !service.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	filter, err := parseLoadErrorQuery(r.URL.Query())

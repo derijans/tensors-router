@@ -1,7 +1,6 @@
 package transportbody
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -56,106 +55,6 @@ func copyJSONObject(destination map[string]json.RawMessage, source map[string]js
 	for key, value := range source {
 		destination[key] = append(json.RawMessage(nil), value...)
 	}
-}
-
-func readRawJSONValue(reader *bufio.Reader, first byte) ([]byte, error) {
-	content := []byte{first}
-	appendByte := func(value byte) error {
-		if int64(len(content)) >= maxChatTemplateKwargsBytes {
-			return ErrChatTemplateKwargsTooLarge
-		}
-		content = append(content, value)
-		return nil
-	}
-	if first == '{' || first == '[' {
-		depth := 1
-		inString := false
-		escaped := false
-		for depth > 0 {
-			value, err := reader.ReadByte()
-			if err != nil {
-				return nil, rawJSONReadError(err)
-			}
-			if err := appendByte(value); err != nil {
-				return nil, err
-			}
-			if inString {
-				if escaped {
-					escaped = false
-					continue
-				}
-				if value == '\\' {
-					escaped = true
-					continue
-				}
-				if value == '"' {
-					inString = false
-				}
-				continue
-			}
-			switch value {
-			case '"':
-				inString = true
-			case '{', '[':
-				depth++
-			case '}', ']':
-				depth--
-			}
-		}
-		if !json.Valid(content) {
-			return nil, ErrInvalidJSON
-		}
-		return content, nil
-	}
-	if first == '"' {
-		escaped := false
-		for {
-			value, err := reader.ReadByte()
-			if err != nil {
-				return nil, rawJSONReadError(err)
-			}
-			if err := appendByte(value); err != nil {
-				return nil, err
-			}
-			if escaped {
-				escaped = false
-				continue
-			}
-			if value == '\\' {
-				escaped = true
-				continue
-			}
-			if value == '"' {
-				break
-			}
-		}
-		if !json.Valid(content) {
-			return nil, ErrInvalidJSON
-		}
-		return content, nil
-	}
-	for {
-		value, err := reader.ReadByte()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return nil, err
-		}
-		if isJSONDelimiter(value) {
-			if err := reader.UnreadByte(); err != nil {
-				return nil, err
-			}
-			break
-		}
-		if err := appendByte(value); err != nil {
-			return nil, err
-		}
-	}
-	if !json.Valid(content) {
-		return nil, ErrInvalidJSON
-	}
-	return content, nil
 }
 
 func rawJSONReadError(err error) error {

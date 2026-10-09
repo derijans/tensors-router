@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 )
 
@@ -16,79 +15,6 @@ type installationPromotion struct {
 	directory  bool
 	children   []*installationPromotion
 	obsolete   []string
-}
-
-func promoteArchiveTree(stagingPath string, targetPath string, binaryRelativePath string) (*installationPromotion, error) {
-	stagedFiles := make([]string, 0)
-	stagedRelativePaths := map[string]struct{}{}
-	err := filepath.WalkDir(stagingPath, func(path string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() {
-			return nil
-		}
-		if entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() {
-			return fmt.Errorf("staged archive contains unsupported entry %s", path)
-		}
-		relativePath, err := filepath.Rel(stagingPath, path)
-		if err != nil {
-			return err
-		}
-		stagedFiles = append(stagedFiles, relativePath)
-		stagedRelativePaths[normalizedInstallRelativePath(relativePath)] = struct{}{}
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	binaryRelativePath = filepath.FromSlash(binaryRelativePath)
-	sort.Slice(stagedFiles, func(left int, right int) bool {
-		leftIsBinary := normalizedInstallRelativePath(stagedFiles[left]) == normalizedInstallRelativePath(binaryRelativePath)
-		rightIsBinary := normalizedInstallRelativePath(stagedFiles[right]) == normalizedInstallRelativePath(binaryRelativePath)
-		if leftIsBinary != rightIsBinary {
-			return !leftIsBinary
-		}
-		return stagedFiles[left] < stagedFiles[right]
-	})
-	group := &installationPromotion{}
-	for _, relativePath := range stagedFiles {
-		stagedFile := filepath.Join(stagingPath, relativePath)
-		targetFile := filepath.Join(targetPath, relativePath)
-		promotion, err := promoteBinary(stagedFile, targetFile)
-		if err != nil {
-			_ = group.Rollback()
-			return nil, err
-		}
-		group.children = append(group.children, promotion)
-	}
-	if _, ok := stagedRelativePaths[normalizedInstallRelativePath(binaryRelativePath)]; !ok {
-		_ = group.Rollback()
-		return nil, fmt.Errorf("staged archive does not contain executable %s", binaryRelativePath)
-	}
-	if info, err := os.Stat(targetPath); err == nil && info.IsDir() {
-		err = filepath.WalkDir(targetPath, func(path string, entry os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !entry.Type().IsRegular() || strings.HasSuffix(entry.Name(), ".previous") {
-				return nil
-			}
-			relativePath, err := filepath.Rel(targetPath, path)
-			if err != nil {
-				return err
-			}
-			if _, ok := stagedRelativePaths[normalizedInstallRelativePath(relativePath)]; !ok {
-				group.obsolete = append(group.obsolete, path)
-			}
-			return nil
-		})
-		if err != nil {
-			_ = group.Rollback()
-			return nil, err
-		}
-	}
-	return group, nil
 }
 
 func normalizedInstallRelativePath(path string) string {

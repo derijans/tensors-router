@@ -7,22 +7,32 @@ import (
 	"time"
 )
 
-func recordImageRequest(store *Store, now time.Time, modelID string, steps int64, width int64, height int64, count int64, durationMS int64, success bool) {
+type imageRequest struct {
+	modelID    string
+	steps      int64
+	width      int64
+	height     int64
+	count      int64
+	durationMS int64
+	success    bool
+}
+
+func recordImageRequest(store *Store, now time.Time, request imageRequest) {
 	store.Record(Event{
-		ModelID:     modelID,
+		ModelID:     request.modelID,
 		Section:     SectionImage,
 		BackendMode: "llama_sdcpp",
 		Route:       "/sdapi/v1/*",
 		EventType:   EventTypeRequest,
 		StatusCode:  200,
-		Success:     success,
-		StartedAt:   now.Add(-time.Duration(durationMS) * time.Millisecond),
+		Success:     request.success,
+		StartedAt:   now.Add(-time.Duration(request.durationMS) * time.Millisecond),
 		FinishedAt:  now,
-		DurationMS:  durationMS,
-		ImageCount:  count,
-		ImageWidth:  width,
-		ImageHeight: height,
-		ImageSteps:  steps,
+		DurationMS:  request.durationMS,
+		ImageCount:  request.count,
+		ImageWidth:  request.width,
+		ImageHeight: request.height,
+		ImageSteps:  request.steps,
 	})
 }
 
@@ -43,7 +53,7 @@ func TestCostSamplesAggregatesTheSumsAFitNeeds(t *testing.T) {
 		{30, 512, 512, 2, 9000},
 	}
 	for _, value := range points {
-		recordImageRequest(store, now, "sdxl", value.steps, value.width, value.height, value.count, value.duration, true)
+		recordImageRequest(store, now, imageRequest{modelID: "sdxl", steps: value.steps, width: value.width, height: value.height, count: value.count, durationMS: value.duration, success: true})
 	}
 
 	samples, _, err := store.CostSamples(context.Background(), SectionImage, 24*time.Hour, now.Add(time.Second))
@@ -98,10 +108,10 @@ func TestCostSamplesAggregatesTheSumsAFitNeeds(t *testing.T) {
 func TestCostSamplesExcludesRowsWithoutAWorkValue(t *testing.T) {
 	store := newTestStore(t, "node-a")
 	now := time.Now().UTC()
-	recordImageRequest(store, now, "sdxl", 30, 1024, 1024, 1, 18000, true)
-	recordImageRequest(store, now, "sdxl", 0, 1024, 1024, 1, 18000, true)
-	recordImageRequest(store, now, "sdxl", 30, 0, 1024, 1, 18000, true)
-	recordImageRequest(store, now, "sdxl", 30, 1024, 0, 1, 18000, true)
+	recordImageRequest(store, now, imageRequest{modelID: "sdxl", steps: 30, width: 1024, height: 1024, count: 1, durationMS: 18000, success: true})
+	recordImageRequest(store, now, imageRequest{modelID: "sdxl", steps: 0, width: 1024, height: 1024, count: 1, durationMS: 18000, success: true})
+	recordImageRequest(store, now, imageRequest{modelID: "sdxl", steps: 30, width: 0, height: 1024, count: 1, durationMS: 18000, success: true})
+	recordImageRequest(store, now, imageRequest{modelID: "sdxl", steps: 30, width: 1024, height: 0, count: 1, durationMS: 18000, success: true})
 
 	samples, _, err := store.CostSamples(context.Background(), SectionImage, 24*time.Hour, now.Add(time.Second))
 	if err != nil {
@@ -115,8 +125,8 @@ func TestCostSamplesExcludesRowsWithoutAWorkValue(t *testing.T) {
 func TestCostSamplesExcludesFailuresAndOtherSections(t *testing.T) {
 	store := newTestStore(t, "node-a")
 	now := time.Now().UTC()
-	recordImageRequest(store, now, "sdxl", 30, 1024, 1024, 1, 18000, true)
-	recordImageRequest(store, now, "sdxl", 30, 1024, 1024, 1, 18000, false)
+	recordImageRequest(store, now, imageRequest{modelID: "sdxl", steps: 30, width: 1024, height: 1024, count: 1, durationMS: 18000, success: true})
+	recordImageRequest(store, now, imageRequest{modelID: "sdxl", steps: 30, width: 1024, height: 1024, count: 1, durationMS: 18000, success: false})
 	store.Record(Event{
 		ModelID: "llm-a", Section: SectionLLM, EventType: EventTypeRequest, Success: true,
 		StartedAt: now.Add(-time.Second), FinishedAt: now, DurationMS: 1000,
@@ -135,8 +145,8 @@ func TestCostSamplesExcludesFailuresAndOtherSections(t *testing.T) {
 func TestCostSamplesHonoursTheWindow(t *testing.T) {
 	store := newTestStore(t, "node-a")
 	now := time.Now().UTC()
-	recordImageRequest(store, now, "sdxl", 30, 1024, 1024, 1, 18000, true)
-	recordImageRequest(store, now.Add(-48*time.Hour), "sdxl", 30, 1024, 1024, 1, 18000, true)
+	recordImageRequest(store, now, imageRequest{modelID: "sdxl", steps: 30, width: 1024, height: 1024, count: 1, durationMS: 18000, success: true})
+	recordImageRequest(store, now.Add(-48*time.Hour), imageRequest{modelID: "sdxl", steps: 30, width: 1024, height: 1024, count: 1, durationMS: 18000, success: true})
 
 	samples, _, err := store.CostSamples(context.Background(), SectionImage, 24*time.Hour, now.Add(time.Second))
 	if err != nil {
@@ -180,7 +190,7 @@ func TestCostSamplesSurvivesLargeWorkValuesWithoutOverflow(t *testing.T) {
 	store := newTestStore(t, "node-a")
 	now := time.Now().UTC()
 	for index := 0; index < 200; index++ {
-		recordImageRequest(store, now, "sdxl", 50, 2048, 2048, 4, 60000, true)
+		recordImageRequest(store, now, imageRequest{modelID: "sdxl", steps: 50, width: 2048, height: 2048, count: 4, durationMS: 60000, success: true})
 	}
 
 	samples, _, err := store.CostSamples(context.Background(), SectionImage, 24*time.Hour, now.Add(time.Second))
@@ -212,7 +222,7 @@ func TestImageWorkMatchesTheFitExpression(t *testing.T) {
 	var wantWork float64
 	for index, event := range cases {
 		wantWork += ImageWork(event)
-		recordImageRequest(store, now, "sdxl", event.ImageSteps, event.ImageWidth, event.ImageHeight, event.ImageCount, int64(1000*(index+1)), true)
+		recordImageRequest(store, now, imageRequest{modelID: "sdxl", steps: event.ImageSteps, width: event.ImageWidth, height: event.ImageHeight, count: event.ImageCount, durationMS: int64(1000 * (index + 1)), success: true})
 	}
 
 	samples, _, err := store.CostSamples(context.Background(), SectionImage, 24*time.Hour, now.Add(time.Second))
@@ -317,7 +327,7 @@ func TestTextCostSamplesAreScopedToTheLLMSection(t *testing.T) {
 	store := newTestStore(t, "node-a")
 	now := time.Now().UTC()
 	recordTextRequest(store, now, "llama", 200, 50, 1000, true)
-	recordImageRequest(store, now, "sdxl", 30, 1024, 1024, 1, 18000, true)
+	recordImageRequest(store, now, imageRequest{modelID: "sdxl", steps: 30, width: 1024, height: 1024, count: 1, durationMS: 18000, success: true})
 
 	samples, err := store.TextCostSamples(context.Background(), 24*time.Hour, now.Add(time.Second))
 	if err != nil {

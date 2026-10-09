@@ -190,55 +190,6 @@ func loadRotationSource(repository string, now time.Time) (*tufmetadata.Metadata
 	return root, current, currentBytes, nil
 }
 
-func buildTargetsRotation(current *tufmetadata.Metadata[tufmetadata.TargetsType], expires, now time.Time) (*tufmetadata.Metadata[tufmetadata.TargetsType], error) {
-	if current.Signed.Delegations == nil {
-		return nil, fmt.Errorf("current targets metadata has no delegations")
-	}
-	if current.Signed.Version < 1 {
-		return nil, fmt.Errorf("current targets version is invalid")
-	}
-	expires = expires.UTC().Truncate(time.Second)
-	if !expires.After(now.UTC()) {
-		return nil, fmt.Errorf("rotated targets expiration must be in the future")
-	}
-	if !expires.After(current.Signed.Expires) {
-		return nil, fmt.Errorf("rotated targets expiration must advance beyond the current expiration")
-	}
-	if expires.After(now.UTC().AddDate(1, 0, 0)) {
-		return nil, fmt.Errorf("rotated targets expiration cannot exceed one year")
-	}
-	currentBytes, err := current.ToBytes(false)
-	if err != nil {
-		return nil, err
-	}
-	candidate, err := tufmetadata.Targets().FromBytes(currentBytes)
-	if err != nil {
-		return nil, err
-	}
-	candidate.ClearSignatures()
-	candidate.Signed.Version = current.Signed.Version + 1
-	candidate.Signed.Expires = expires
-	found := false
-	for index := range candidate.Signed.Delegations.Roles {
-		role := &candidate.Signed.Delegations.Roles[index]
-		if role.Name != "upstream-targets" {
-			continue
-		}
-		found = true
-		if slices.Contains(role.Paths, vllmDelegatedPath) {
-			return nil, fmt.Errorf("current targets already delegate %s", vllmDelegatedPath)
-		}
-		if len(role.PathHashPrefixes) != 0 || !slices.Equal(role.Paths, []string{"upstreams/*/*"}) {
-			return nil, fmt.Errorf("upstream-targets must authorize only upstreams/*/* before rotation")
-		}
-		role.Paths = append(role.Paths, vllmDelegatedPath)
-	}
-	if !found {
-		return nil, fmt.Errorf("current targets do not authorize upstream-targets")
-	}
-	return candidate, nil
-}
-
 func requireEmptyDirectory(path string) error {
 	info, err := os.Lstat(path)
 	if err == nil && info.Mode()&os.ModeSymlink != 0 {
@@ -298,4 +249,67 @@ func copyRepository(source, destination string) error {
 		}
 		return atomicfile.Write(target, body, 0o644)
 	})
+}
+
+func buildTargetsRotation(current *tufmetadata.Metadata[tufmetadata.TargetsType], expires, now time.Time) (*tufmetadata.Metadata[tufmetadata.TargetsType], error) {
+	if current.Signed.Delegations == nil {
+		return nil, fmt.Errorf("current targets metadata has no delegations")
+	}
+	if current.Signed.Version < 1 {
+		return nil, fmt.Errorf("current targets version is invalid")
+	}
+	expires = expires.UTC().Truncate(time.Second)
+	if err := validateRotatedTargetsExpiration(expires, current.Signed.Expires, now); err != nil {
+		return nil, err
+	}
+	currentBytes, err := current.ToBytes(false)
+	if err != nil {
+		return nil, err
+	}
+	candidate, err := tufmetadata.Targets().FromBytes(currentBytes)
+	if err != nil {
+		return nil, err
+	}
+	candidate.ClearSignatures()
+	candidate.Signed.Version = current.Signed.Version + 1
+	candidate.Signed.Expires = expires
+	if err := delegateVLLMRuntimes(candidate.Signed.Delegations.Roles); err != nil {
+		return nil, err
+	}
+	return candidate, nil
+}
+
+func validateRotatedTargetsExpiration(expires time.Time, currentExpires time.Time, now time.Time) error {
+	if !expires.After(now.UTC()) {
+		return fmt.Errorf("rotated targets expiration must be in the future")
+	}
+	if !expires.After(currentExpires) {
+		return fmt.Errorf("rotated targets expiration must advance beyond the current expiration")
+	}
+	if expires.After(now.UTC().AddDate(1, 0, 0)) {
+		return fmt.Errorf("rotated targets expiration cannot exceed one year")
+	}
+	return nil
+}
+
+func delegateVLLMRuntimes(roles []tufmetadata.DelegatedRole) error {
+	found := false
+	for index := range roles {
+		role := &roles[index]
+		if role.Name != upstreamTargetsRoleName {
+			continue
+		}
+		found = true
+		if slices.Contains(role.Paths, vllmDelegatedPath) {
+			return fmt.Errorf("current targets already delegate %s", vllmDelegatedPath)
+		}
+		if len(role.PathHashPrefixes) != 0 || !slices.Equal(role.Paths, []string{"upstreams/*/*"}) {
+			return fmt.Errorf("upstream-targets must authorize only upstreams/*/* before rotation")
+		}
+		role.Paths = append(role.Paths, vllmDelegatedPath)
+	}
+	if !found {
+		return fmt.Errorf("current targets do not authorize upstream-targets")
+	}
+	return nil
 }

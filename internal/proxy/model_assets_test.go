@@ -6,10 +6,8 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"log"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -291,97 +289,5 @@ func TestConcurrentPeerResolutionUsesOneDirectTransfer(t *testing.T) {
 	group.Wait()
 	if streams.Load() != 1 {
 		t.Fatalf("expected one peer stream, got %d", streams.Load())
-	}
-}
-
-func TestInferenceWaitsForDirectPeerResolutionBeforeGeneration(t *testing.T) {
-	sourceRoot := t.TempDir()
-	sourceIndex, err := modelassets.NewIndex(filepath.Join(sourceRoot, "store"), filepath.Join(sourceRoot, "shared"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = sourceIndex.Close() })
-	sourcePath := filepath.Join(sourceRoot, "model.gguf")
-	if err := os.WriteFile(sourcePath, []byte("peer generation weights"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	asset, err := sourceIndex.IndexFile(sourcePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	sourceService := NewService(ServiceConfig{ClusterToken: "secret", AssetIndex: sourceIndex})
-	sourceServer := httptest.NewServer(sourceService)
-	defer sourceServer.Close()
-
-	configDir := t.TempDir()
-	configPath := filepath.Join(configDir, "portable.kcpps")
-	if err := os.WriteFile(configPath, []byte(`{"model_param_hash":"`+asset.SHA256+`","model_param_filename":"model.gguf"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	modelCatalog := catalog.New(configDir)
-	models, err := modelCatalog.List()
-	if err != nil {
-		t.Fatal(err)
-	}
-	registry := cluster.NewRegistry(cluster.RoleMaster, "destination", "http://destination.invalid")
-	if err := registry.UpdateLocal(cluster.LocalModels(models, "destination", "http://destination.invalid", cluster.SourceMaster)); err != nil {
-		t.Fatal(err)
-	}
-	if err := registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: "source", NodeURL: sourceServer.URL}); err != nil {
-		t.Fatal(err)
-	}
-	var generationRequests atomic.Int32
-	backendServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if r.Method == http.MethodGet && r.URL.Path == "/v1/models" {
-			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"backend"}]}`))
-			return
-		}
-		if r.Method == http.MethodPost && r.URL.Path == "/v1/chat/completions" {
-			if generationRequests.Add(1) == 1 {
-				http.Error(w, "model is not loaded", http.StatusBadGateway)
-				return
-			}
-			_, _ = w.Write([]byte(`{"id":"chat","object":"chat.completion","created":1,"model":"backend","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
-			return
-		}
-		http.NotFound(w, r)
-	}))
-	defer backendServer.Close()
-	backendURL, err := url.Parse(backendServer.URL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	destinationRoot := t.TempDir()
-	destinationIndex, err := modelassets.NewIndex(filepath.Join(destinationRoot, "store"), filepath.Join(destinationRoot, "shared"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = destinationIndex.Close() })
-	var serviceLogs bytes.Buffer
-	service := NewService(ServiceConfig{
-		Backend:       &fakeBackend{url: backendURL, healthy: true},
-		Catalog:       modelCatalog,
-		Registry:      registry,
-		ClusterRole:   cluster.RoleMaster,
-		NodeID:        "destination",
-		NodeURL:       "http://destination.invalid",
-		ClusterToken:  "secret",
-		ClusterClient: cluster.NewClient("secret", sourceServer.URL),
-		ConfigDir:     configDir,
-		AssetIndex:    destinationIndex,
-		Logger:        log.New(&serviceLogs, "", 0),
-	})
-	service.backendRetryAttempts = 1
-	request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(`{"model":"portable","messages":[]}`))
-	request.Header.Set("Content-Type", "application/json")
-	response := httptest.NewRecorder()
-	service.ServeHTTP(response, request)
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"model":"portable"`) {
-		t.Fatalf("inference did not complete after resolution status=%d body=%s logs=%s", response.Code, response.Body.String(), serviceLogs.String())
-	}
-	resolved, err := os.ReadFile(configPath)
-	if err != nil || strings.Contains(string(resolved), "_hash") {
-		t.Fatalf("config was not resolved before generation content=%s error=%v logs=%s", resolved, err, serviceLogs.String())
 	}
 }

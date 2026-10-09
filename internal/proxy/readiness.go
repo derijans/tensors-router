@@ -33,16 +33,16 @@ func (readiness backendReadiness) endpointForMode(backendMode string) string {
 		return "/sdapi/v1/sd-models"
 	case readinessEmbeddings:
 		if backendMode == BackendModeKobold {
-			return "/api/extra/version"
+			return pathKoboldVersion
 		}
 		return "/v1/models"
 	case readinessTranscription:
 		if backendMode == BackendModeLlamaSDCPP {
 			return "/health"
 		}
-		return "/api/extra/version"
+		return pathKoboldVersion
 	case readinessSpeech, readinessMusic:
-		return "/api/extra/version"
+		return pathKoboldVersion
 	default:
 		return "/v1/models"
 	}
@@ -63,7 +63,7 @@ func (readiness backendReadiness) capability() string {
 
 func audioReadiness(path string, lane string, backendMode string) backendReadiness {
 	if backendMode != BackendModeKobold {
-		if path == "/v1/audio/transcriptions" || path == "/v1/audio/translations" || path == "/v1/realtime" || path == "/api/extra/transcribe" {
+		if path == pathAudioTranscriptions || path == pathAudioTranslations || path == "/v1/realtime" || path == pathKoboldTranscribe {
 			return readinessTranscription
 		}
 		return readinessText
@@ -72,7 +72,7 @@ func audioReadiness(path string, lane string, backendMode string) backendReadine
 		return readinessMusic
 	}
 	switch path {
-	case "/v1/audio/transcriptions", "/v1/audio/translations", "/v1/realtime", "/api/extra/transcribe":
+	case pathAudioTranscriptions, pathAudioTranslations, "/v1/realtime", pathKoboldTranscribe:
 		return readinessTranscription
 	default:
 		return readinessSpeech

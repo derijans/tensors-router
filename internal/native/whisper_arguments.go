@@ -58,7 +58,7 @@ func whisperCPPArguments(metadata catalog.RuntimeConfig, target launchTarget) ([
 	}
 	args := []string{"--host", target.host, "--port", target.port, "--model", modelPath}
 	appendIntArg(&args, "--threads", metadata.Threads)
-	appendIntArg(&args, "--device", nonNegative(metadata.MainGPU))
+	appendIntArg(&args, deviceFlag, nonNegative(metadata.MainGPU))
 	appendOptionalBoolArg(&args, "--flash-attn", "--no-flash-attn", metadata.FlashAttention)
 	appendFlag(&args, "--no-gpu", metadata.UseCPU)
 	keys := make([]string, 0, len(whisperCPPOptionFlags))

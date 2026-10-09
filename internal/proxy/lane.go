@@ -126,47 +126,6 @@ func (service *Service) acquireModelConfigForBackendModeWithOptions(mode string,
 	return runtime, release, loadedFresh, err
 }
 
-func (service *Service) readinessForConfig(filename string, readiness backendReadiness) (backendReadiness, error) {
-	if readiness != readinessEmbeddings {
-		return readiness, nil
-	}
-	if filename == "" {
-		return readiness, nil
-	}
-	if filename != filepath.Base(filename) {
-		return readiness, fmt.Errorf("config filename %q is invalid", filename)
-	}
-	if service.catalog != nil {
-		models, err := service.catalog.List()
-		if err != nil {
-			return readiness, err
-		}
-		for _, model := range models {
-			if model.Filename != filename {
-				continue
-			}
-			if model.Capabilities.Embeddings != nil && model.Capabilities.Embeddings.Separate {
-				return readinessEmbeddings, nil
-			}
-			return readinessText, nil
-		}
-	}
-	if service.configDir == "" {
-		return readinessText, nil
-	}
-	metadata, err := catalog.LoadRuntimeConfig(filepath.Join(service.configDir, filename))
-	if err != nil {
-		if os.IsNotExist(err) {
-			return readinessText, nil
-		}
-		return readiness, err
-	}
-	if !metadata.RunEmbedSeparate {
-		return readinessText, nil
-	}
-	return readinessEmbeddings, nil
-}
-
 func (service *Service) ensureModelConfigHash(filename string) error {
 	hasher, ok := service.catalog.(modelHashEnsurer)
 	if !ok {
@@ -309,113 +268,6 @@ func (service *Service) acquireModelConfig(runtime *backendRuntime, ctx context.
 	return service.acquireModelConfigWithOptions(runtime, ctx, modelID, configFilename, readiness, modelConfigAcquireOptions{forceReload: force})
 }
 
-func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, options modelConfigAcquireOptions) (func(), bool, error) {
-	state := runtime.state
-	profile := service.chatTemplateProfileForConfig(configFilename)
-	borrowed := contextIsBorrowed(ctx)
-	satisfiedBy := func(current *activeConfigState) bool {
-		return !options.forceReload && activeConfigMatchesAcquireOptions(current, configFilename, profile, options)
-	}
-	state.mu.Lock()
-	ticket := state.takeTicketLocked()
-	queued := false
-	for {
-		if satisfiedBy(state) && !state.switching && state.admitsLeaseLocked(ticket) {
-			state.leaveQueueLocked(ticket)
-			logicalConfigChanged := state.filename != configFilename
-			logicalModelChanged := state.modelID != modelID
-			state.filename = configFilename
-			state.modelID = modelID
-			if logicalConfigChanged || logicalModelChanged {
-				state.generation++
-			}
-			release := service.addRuntimeLeaseLocked(state, modelID, borrowed)
-			physicalAttemptID := state.physicalAttemptID
-			state.mu.Unlock()
-			service.recordLoadReuse(physicalAttemptID)
-			if logicalConfigChanged {
-				service.onRuntimeChanged()
-			}
-			return release, false, nil
-		}
-
-		if !queued {
-			state.joinQueueLocked(ticket, satisfiedBy)
-			queued = true
-		}
-		if satisfiedBy(state) || state.switching || state.users > 0 || !state.maySwitchLocked(ticket) {
-			changed := state.changed
-			state.mu.Unlock()
-			if err := waitForActiveConfigChange(ctx, changed); err != nil {
-				leaveSwitchQueue(state, ticket)
-				return nil, false, err
-			}
-			state.mu.Lock()
-			continue
-		}
-
-		state.leaveQueueLocked(ticket)
-		beginRuntimeSwitchLocked(state, borrowed)
-		state.pendingFilename = configFilename
-		state.pendingProfile = profile
-		state.mu.Unlock()
-
-		capture, err := service.beginPhysicalLoadCapture(ctx, runtime, configFilename, readiness)
-		if err != nil {
-			state.mu.Lock()
-			endRuntimeSwitchLocked(state)
-			state.pendingFilename = ""
-			state.pendingProfile = catalog.ChatTemplateProfile{}
-			state.filename = ""
-			state.modelID = ""
-			state.physicalAttemptID = ""
-			clearPhysicalLoadProfileLocked(state)
-			clearLoadMeasurementLocked(state)
-			notifyActiveConfigLocked(state)
-			state.mu.Unlock()
-			service.onRuntimeChanged()
-			return nil, false, err
-		}
-		loadMeasurement := service.beginModelLoad(ctx)
-		err = service.loadModelConfig(runtime, ctx, modelID, configFilename, readiness)
-		service.finishModelLoad(ctx, loadMeasurement)
-		service.finishPhysicalLoadCapture(capture, err)
-
-		state.mu.Lock()
-		endRuntimeSwitchLocked(state)
-		state.pendingFilename = ""
-		state.pendingProfile = catalog.ChatTemplateProfile{}
-		if err != nil {
-			state.filename = ""
-			state.modelID = ""
-			state.physicalAttemptID = ""
-			clearPhysicalLoadProfileLocked(state)
-			clearLoadMeasurementLocked(state)
-			notifyActiveConfigLocked(state)
-			state.mu.Unlock()
-			service.onRuntimeChanged()
-			return nil, false, err
-		}
-		state.filename = configFilename
-		state.modelID = modelID
-		state.generation++
-		if capture != nil {
-			state.physicalAttemptID = capture.attempt.ID
-		} else {
-			state.physicalAttemptID = ""
-		}
-		applyPhysicalLoadProfileLocked(state, configFilename, profile, readiness)
-		applyLoadMeasurementLocked(state, loadMeasurement)
-		state.openLeaseWindowLocked()
-		release := service.addRuntimeLeaseLocked(state, modelID, borrowed)
-		notifyActiveConfigLocked(state)
-		state.mu.Unlock()
-		service.analytics.recordLoad(modelID, configFilename, readiness, runtime.mode, loadMeasurement.analytics)
-		service.onRuntimeChanged()
-		return release, true, nil
-	}
-}
-
 type backendDiagnosticRecorder interface {
 	BeginLoadDiagnostic() func(bool) backenddiagnostic.Diagnostic
 }
@@ -533,31 +385,6 @@ func releaseActiveConfigOnce(state *activeConfigState) func() {
 	return releaseActiveConfigLeaseOnce(state, 0, false)
 }
 
-func releaseActiveConfigLeaseOnce(state *activeConfigState, leaseTag uint64, borrowed bool) func() {
-	var once sync.Once
-	return func() {
-		once.Do(func() {
-			state.mu.Lock()
-			if leaseTag != 0 {
-				delete(state.leases, leaseTag)
-			}
-			if state.users > 0 {
-				state.users--
-				if borrowed && state.borrowedUsers > 0 {
-					state.borrowedUsers--
-				}
-				if !borrowed && state.users == state.borrowedUsers {
-					state.ownIdleSince = time.Now()
-				}
-				if state.users == 0 {
-					notifyActiveConfigLocked(state)
-				}
-			}
-			state.mu.Unlock()
-		})
-	}
-}
-
 func notifyActiveConfigLocked(state *activeConfigState) {
 	close(state.changed)
 	state.changed = make(chan struct{})
@@ -658,4 +485,82 @@ func (service *Service) chatTemplateProfileForConfig(filename string) catalog.Ch
 		}
 	}
 	return catalog.ChatTemplateProfile{}
+}
+
+func (service *Service) readinessForConfig(filename string, readiness backendReadiness) (backendReadiness, error) {
+	if readiness != readinessEmbeddings || filename == "" {
+		return readiness, nil
+	}
+	if filename != filepath.Base(filename) {
+		return readiness, fmt.Errorf("config filename %q is invalid", filename)
+	}
+	if service.catalog != nil {
+		separate, found, err := service.catalogConfigSeparatesEmbeddings(filename)
+		if err != nil {
+			return readiness, err
+		}
+		if found {
+			return embeddingsReadiness(separate), nil
+		}
+	}
+	if service.configDir == "" {
+		return readinessText, nil
+	}
+	metadata, err := catalog.LoadRuntimeConfig(filepath.Join(service.configDir, filename))
+	if os.IsNotExist(err) {
+		return readinessText, nil
+	}
+	if err != nil {
+		return readiness, err
+	}
+	return embeddingsReadiness(metadata.RunEmbedSeparate), nil
+}
+
+func (service *Service) catalogConfigSeparatesEmbeddings(filename string) (bool, bool, error) {
+	models, err := service.catalog.List()
+	if err != nil {
+		return false, false, err
+	}
+	for _, model := range models {
+		if model.Filename == filename {
+			return model.Capabilities.Embeddings != nil && model.Capabilities.Embeddings.Separate, true, nil
+		}
+	}
+	return false, false, nil
+}
+
+func embeddingsReadiness(separate bool) backendReadiness {
+	if separate {
+		return readinessEmbeddings
+	}
+	return readinessText
+}
+
+func releaseActiveConfigLeaseOnce(state *activeConfigState, leaseTag uint64, borrowed bool) func() {
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			state.mu.Lock()
+			defer state.mu.Unlock()
+			if leaseTag != 0 {
+				delete(state.leases, leaseTag)
+			}
+			if state.users > 0 {
+				releaseActiveConfigUserLocked(state, borrowed)
+			}
+		})
+	}
+}
+
+func releaseActiveConfigUserLocked(state *activeConfigState, borrowed bool) {
+	state.users--
+	if borrowed && state.borrowedUsers > 0 {
+		state.borrowedUsers--
+	}
+	if !borrowed && state.users == state.borrowedUsers {
+		state.ownIdleSince = time.Now()
+	}
+	if state.users == 0 {
+		notifyActiveConfigLocked(state)
+	}
 }

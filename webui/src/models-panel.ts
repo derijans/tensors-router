@@ -1,3 +1,4 @@
+import { inventoryScanNotices } from "./inventory-scan-notices";
 import { SafeHTML, emptyHTML, html, setHTML } from "./safe-html";
 import { benchmarkCompactLabel } from "./benchmark-data";
 import { elements } from "./elements";
@@ -5,7 +6,7 @@ import { filterInventoryModels, modelBackends, modelCapabilities } from "./model
 import { linkCountsForModel, routingButtonLabel } from "./routing-links-data";
 import { state } from "./state";
 import type { Model, NodeInventory, RoutingEndpoint, RoutingLane, Tone } from "./types";
-import { badge, laneAccent } from "./markup-primitives";
+import { badge, laneAccent, optionElement } from "./markup-primitives";
 import { capabilities, optionSummary } from "./utils";
 import { modelColumns, visibleModelColumns, type ModelColumnKey } from "./model-columns";
 
@@ -20,13 +21,17 @@ export function renderModelsPanel(models: Model[], nodes: NodeInventory[]): void
     capability: state.models.capabilityFilter
   });
   elements.modelsRowCount.textContent = `${filtered.length} of ${models.length} models`;
-  setHTML(elements.modelsScanNotices, scanNotices(nodes));
+  setHTML(elements.modelsScanNotices, inventoryScanNotices(nodes));
   const columns = visibleModelColumns(state.models.columnChoices, state.models.roomForEveryColumn);
   setHTML(elements.modelColumnsList, columnChoicesMarkup(columns));
-  setHTML(elements.modelsTableHead, html`<tr>${columns.map(column => html`<th class="column-${column}">${columnLabel(column)}</th>`)}</tr>`);
+  setHTML(elements.modelsTableHead, html`<tr>${columns.map(columnHeader)}</tr>`);
   setHTML(elements.modelsTable, filtered.length > 0
     ? html`${filtered.map(model => modelRow(model, columns))}`
     : html`<tr><td class="empty-state" colspan="${columns.length}">No models match the current filters.</td></tr>`);
+}
+
+function columnHeader(column: ModelColumnKey): SafeHTML {
+  return html`<th class="column-${column}">${columnLabel(column)}</th>`;
 }
 
 function columnLabel(column: ModelColumnKey): string {
@@ -34,14 +39,21 @@ function columnLabel(column: ModelColumnKey): string {
 }
 
 function columnChoicesMarkup(visible: readonly ModelColumnKey[]): SafeHTML {
-  return html`${modelColumns.map(column => html`
-    <label class="toggle-row"><input type="checkbox" data-model-column="${column.key}"${visible.includes(column.key) ? " checked" : ""}><span>${column.label}</span></label>
-  `)}`;
+  return html`${modelColumns.map(column => columnChoice(column, visible.includes(column.key)))}`;
+}
+
+function columnChoice(column: typeof modelColumns[number], checked: boolean): SafeHTML {
+  return html`<label class="toggle-row"><input type="checkbox" data-model-column="${column.key}"${checked ? " checked" : ""}><span>${column.label}</span></label>`;
 }
 
 function modelRow(model: Model, columns: readonly ModelColumnKey[]): SafeHTML {
-  return html`<tr class="${model.disabled ? "row-disabled" : ""}">${columns.map(column => html`<td class="column-${column}">${modelCell(model, column)}</td>`)}</tr>`;
+  return html`<tr class="${model.disabled ? "row-disabled" : ""}">${columns.map(column => modelCellElement(model, column))}</tr>`;
 }
+
+function modelCellElement(model: Model, column: ModelColumnKey): SafeHTML {
+  return html`<td class="column-${column}">${modelCell(model, column)}</td>`;
+}
+
 
 function modelCell(model: Model, column: ModelColumnKey): SafeHTML | string {
   const enabled = !model.disabled;
@@ -136,13 +148,5 @@ function capabilityBadges(model: Model): SafeHTML {
 }
 
 function renderSelect(select: HTMLSelectElement, allLabel: string, values: string[], selected: string): void {
-  setHTML(select, html`<option value="">${allLabel}</option>${values.map(value => html`<option value="${value}"${value === selected ? " selected" : ""}>${value}</option>`)}`);
-}
-
-function scanNotices(nodes: NodeInventory[]): SafeHTML {
-  const failed = nodes.filter(node => node.error);
-  if (failed.length === 0) {
-    return emptyHTML;
-  }
-  return html`${failed.map(node => html`<div class="inventory-notice error-text">${node.node_id || node.node_url || "unknown node"}: ${node.error || "scan failed"}</div>`)}`;
+  setHTML(select, html`<option value="">${allLabel}</option>${values.map(value => optionElement(value, value, value === selected))}`);
 }

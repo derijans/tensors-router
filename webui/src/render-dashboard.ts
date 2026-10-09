@@ -1,3 +1,4 @@
+import { pluralSuffix } from "./utils";
 import { SafeHTML, html, setHTML } from "./safe-html";
 import { state } from "./state";
 import { elements } from "./elements";
@@ -78,7 +79,7 @@ export function renderTables(): void {
 
 export function renderRecipes(): void {
   const recipes = state.inventory?.recipes ?? [];
-  elements.recipeCount.textContent = `${recipes.length} recipe${recipes.length === 1 ? "" : "s"}`;
+  elements.recipeCount.textContent = `${recipes.length} recipe${pluralSuffix(recipes.length)}`;
   setHTML(elements.recipesList, recipes.length > 0
     ? html`${recipes.map(renderRecipe)}`
     : html`<div class="card empty-state">No recipes yet. Combine models in Advanced cook to create one.</div>`);

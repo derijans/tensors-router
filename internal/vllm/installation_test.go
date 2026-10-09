@@ -96,10 +96,7 @@ func (runner *recordingCommandRunner) Run(_ context.Context, name string, argume
 
 func TestOCIInstallationImportsVerifiesAndSmokeTestsAuthorizedImage(t *testing.T) {
 	directory := t.TempDir()
-	enginePath := filepath.Join(directory, "docker")
-	if runtimeExecutableSuffix() != "" {
-		enginePath += runtimeExecutableSuffix()
-	}
+	enginePath := filepath.Join(directory, "docker"+runtimeExecutableSuffix())
 	if err := os.WriteFile(enginePath, []byte("engine"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -138,15 +135,19 @@ func TestOCIInstallationImportsVerifiesAndSmokeTestsAuthorizedImage(t *testing.T
 		t.Fatalf("unexpected OCI smoke command count %d", len(runner.commands))
 	}
 	for _, command := range launcher.commands {
-		joined := strings.Join(command.arguments, " ")
-		for _, expected := range []string{"run --rm", "--pull=never", "--network=none", "--read-only", "--entrypoint=python3", profile.OCIImage} {
-			if !strings.Contains(joined, expected) {
-				t.Fatalf("OCI smoke command missing %q: %s", expected, joined)
-			}
+		assertIsolatedOCISmokeCommand(t, strings.Join(command.arguments, " "), profile.OCIImage)
+	}
+}
+
+func assertIsolatedOCISmokeCommand(t *testing.T, joined string, image string) {
+	t.Helper()
+	for _, expected := range []string{"run --rm", "--pull=never", "--network=none", "--read-only", "--entrypoint=python3", image} {
+		if !strings.Contains(joined, expected) {
+			t.Fatalf("OCI smoke command missing %q: %s", expected, joined)
 		}
-		if runtimeIdentityExpected() && !strings.Contains(joined, "--user ") {
-			t.Fatalf("OCI smoke command does not preserve host socket ownership: %s", joined)
-		}
+	}
+	if runtimeIdentityExpected() && !strings.Contains(joined, "--user ") {
+		t.Fatalf("OCI smoke command does not preserve host socket ownership: %s", joined)
 	}
 }
 

@@ -195,7 +195,7 @@ func releaseVLLMResponseLeases(releases []func()) {
 func (service *Service) handleVLLMResponseOperation(w http.ResponseWriter, r *http.Request) {
 	responseID, action, ok := vllmResponseOperation(r.URL.Path)
 	if !ok || !vllmInferenceAllowed(r.Method, r.URL.Path) {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	target, found := service.vllmResponses.target(responseID)
@@ -212,7 +212,7 @@ func (service *Service) handleVLLMResponseOperation(w http.ResponseWriter, r *ht
 	if target.remote {
 		response, err = service.forwardRemote(r.Context(), r, body, cluster.Route{NodeURL: target.nodeURL, Remote: true})
 	} else {
-		response, _, err = service.forwardWithFallbackObserved(r.Context(), r, body, target.localID, target.configFilename, true, readinessText, BackendModeVLLM)
+		response, _, err = service.forwardWithFallbackObserved(r.Context(), r, body, backendForwardTarget{modelID: target.localID, configFilename: target.configFilename, hasModel: true, readiness: readinessText, mode: BackendModeVLLM})
 	}
 	if err != nil {
 		service.writeBackendFailure(w, err)

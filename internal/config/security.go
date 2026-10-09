@@ -11,6 +11,12 @@ import (
 )
 
 const (
+	inferenceKeysSetting = "auth.inference_keys"
+	adminKeysSetting     = "auth.admin_keys"
+	clusterTokenSetting  = "cluster.token"
+)
+
+const (
 	SecurityProfileSecure     = "secure"
 	SecurityProfileTrustedLAN = "trusted_lan"
 	LoggingModeNormal         = "normal"
@@ -84,16 +90,16 @@ func validateSecurity(cfg *Config) error {
 	default:
 		return fmt.Errorf("logging.mode must be normal, startup_only, or quiet")
 	}
-	if err := validateCredentialList("auth.inference_keys", cfg.Auth.InferenceKeys); err != nil {
+	if err := validateCredentialList(inferenceKeysSetting, cfg.Auth.InferenceKeys); err != nil {
 		return err
 	}
-	if err := validateCredentialList("auth.admin_keys", cfg.Auth.AdminKeys); err != nil {
+	if err := validateCredentialList(adminKeysSetting, cfg.Auth.AdminKeys); err != nil {
 		return err
 	}
 	if cfg.MCP.Enabled && !hasCredential(cfg.Auth.AdminKeys) {
 		return fmt.Errorf("auth.admin_keys is required when MCP is enabled")
 	}
-	if err := validateCredential("cluster.token", cfg.Cluster.Token, cfg.Cluster.Role != "standalone"); err != nil {
+	if err := validateCredential(clusterTokenSetting, cfg.Cluster.Token, cfg.Cluster.Role != "standalone"); err != nil {
 		return err
 	}
 	if err := validateCredentialRoleSeparation(cfg); err != nil {
@@ -120,9 +126,9 @@ func credentialWarnings(cfg *Config) []string {
 		name   string
 		values []string
 	}{
-		{name: "auth.inference_keys", values: cfg.Auth.InferenceKeys},
-		{name: "auth.admin_keys", values: cfg.Auth.AdminKeys},
-		{name: "cluster.token", values: []string{cfg.Cluster.Token}},
+		{name: inferenceKeysSetting, values: cfg.Auth.InferenceKeys},
+		{name: adminKeysSetting, values: cfg.Auth.AdminKeys},
+		{name: clusterTokenSetting, values: []string{cfg.Cluster.Token}},
 	}
 	for _, role := range named {
 		for _, value := range role.values {
@@ -140,9 +146,9 @@ func validateCredentialRoleSeparation(cfg *Config) error {
 		name   string
 		values []string
 	}{
-		{name: "auth.inference_keys", values: cfg.Auth.InferenceKeys},
-		{name: "auth.admin_keys", values: cfg.Auth.AdminKeys},
-		{name: "cluster.token", values: []string{cfg.Cluster.Token}},
+		{name: inferenceKeysSetting, values: cfg.Auth.InferenceKeys},
+		{name: adminKeysSetting, values: cfg.Auth.AdminKeys},
+		{name: clusterTokenSetting, values: []string{cfg.Cluster.Token}},
 	}
 	for _, role := range roles {
 		for _, rawValue := range role.values {

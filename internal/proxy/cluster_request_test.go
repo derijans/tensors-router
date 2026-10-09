@@ -77,94 +77,6 @@ func TestClusterFirstLocalRequestLoadsWhenBackendStartsUnhealthy(t *testing.T) {
 	}
 }
 
-func TestClusterLocalRequestQueuesDuringModelLoad(t *testing.T) {
-	for _, requestedModel := range []string{"a", "b"} {
-		t.Run(requestedModel, func(t *testing.T) {
-			service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"model":"backend","choices":[{"message":{"content":"ok"}}]}`))
-			}), map[string]string{"a": `{}`, "b": `{}`})
-			models, err := service.catalog.List()
-			if err != nil {
-				t.Fatal(err)
-			}
-			registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
-			if err := registry.UpdateLocal(cluster.LocalModels(models, "master", "http://master", cluster.SourceMaster)); err != nil {
-				t.Fatal(err)
-			}
-			service.registry = registry
-			backend.healthy = false
-
-			loadStarted := make(chan struct{})
-			continueLoad := make(chan struct{})
-			var loadStartedOnce sync.Once
-			var continueLoadOnce sync.Once
-			t.Cleanup(func() {
-				continueLoadOnce.Do(func() { close(continueLoad) })
-			})
-			backend.onReload = func(filename string) {
-				if filename != "a.kcpps" {
-					return
-				}
-				loadStartedOnce.Do(func() { close(loadStarted) })
-				<-continueLoad
-			}
-
-			loadDone := make(chan error, 1)
-			go func() {
-				loadDone <- service.loadLocalModel(context.Background(), "a", "a")
-			}()
-			select {
-			case <-loadStarted:
-			case <-time.After(time.Second):
-				t.Fatal("initial model load did not start")
-			}
-
-			type requestResult struct {
-				status int
-				body   string
-			}
-			requestDone := make(chan requestResult, 1)
-			go func() {
-				recorder := httptest.NewRecorder()
-				body := fmt.Sprintf(`{"model":%q,"messages":[]}`, requestedModel)
-				request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
-				request.Header.Set("Content-Type", "application/json")
-				service.ServeHTTP(recorder, request)
-				requestDone <- requestResult{status: recorder.Code, body: recorder.Body.String()}
-			}()
-
-			select {
-			case result := <-requestDone:
-				continueLoadOnce.Do(func() { close(continueLoad) })
-				t.Fatalf("request returned during model load with status %d body %s", result.status, result.body)
-			case <-time.After(50 * time.Millisecond):
-			}
-			continueLoadOnce.Do(func() { close(continueLoad) })
-
-			if err := <-loadDone; err != nil {
-				t.Fatalf("initial model load failed: %v", err)
-			}
-			select {
-			case result := <-requestDone:
-				if result.status != http.StatusOK {
-					t.Fatalf("queued request status %d body %s", result.status, result.body)
-				}
-			case <-time.After(time.Second):
-				t.Fatal("queued request did not finish")
-			}
-
-			expectedReloads := int32(1)
-			if requestedModel == "b" {
-				expectedReloads = 2
-			}
-			if backend.reloads.Load() != expectedReloads {
-				t.Fatalf("expected %d reloads, got %d", expectedReloads, backend.reloads.Load())
-			}
-		})
-	}
-}
-
 func TestClusterRemoteRequestRewritesModelBothWays(t *testing.T) {
 	var sawAuthorization bool
 	var sawLocalModel bool
@@ -365,101 +277,6 @@ func TestClusterStreamedSdcppJobPollReturnsToSubmittingNode(t *testing.T) {
 	}
 	if backend.reloads.Load() != 0 {
 		t.Fatalf("remote job unexpectedly loaded the local backend %d times", backend.reloads.Load())
-	}
-}
-
-func TestClusterRemoteImageRequestRewritesSelectors(t *testing.T) {
-	tests := []struct {
-		name           string
-		path           string
-		body           string
-		contentType    string
-		headerModel    string
-		queryKey       string
-		expectedBody   string
-		expectedQuery  string
-		expectedHeader string
-	}{
-		{
-			name:         "sd checkpoint body",
-			path:         "/sdapi/v1/txt2img",
-			body:         `{"sd_model_checkpoint":"same-2-dream","prompt":"cat"}`,
-			contentType:  "application/json",
-			expectedBody: `"sd_model_checkpoint":"same-dream"`,
-		},
-		{
-			name:         "override checkpoint body",
-			path:         "/sdapi/v1/txt2img",
-			body:         `{"override_settings":{"sd_model_checkpoint":"same-2-dream"},"prompt":"cat"}`,
-			contentType:  "application/json",
-			expectedBody: `"sd_model_checkpoint":"same-dream"`,
-		},
-		{
-			name:          "model query",
-			path:          "/v1/images/generations?model=same-2-dream",
-			body:          `{"prompt":"cat"}`,
-			contentType:   "application/json",
-			queryKey:      "model",
-			expectedQuery: "same-dream",
-		},
-		{
-			name:          "sd checkpoint query",
-			path:          "/sdapi/v1/txt2img?sd_model_checkpoint=same-2-dream",
-			body:          `{"prompt":"cat"}`,
-			contentType:   "application/json",
-			queryKey:      "sd_model_checkpoint",
-			expectedQuery: "same-dream",
-		},
-		{
-			name:           "model header",
-			path:           "/sdapi/v1/txt2img",
-			body:           `{"prompt":"cat"}`,
-			contentType:    "application/json",
-			headerModel:    "same-2-dream",
-			expectedHeader: "same-dream",
-		},
-	}
-
-	for _, testCase := range tests {
-		t.Run(testCase.name, func(t *testing.T) {
-			remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				body, err := io.ReadAll(r.Body)
-				if err != nil {
-					t.Fatal(err)
-				}
-				if testCase.expectedBody != "" && !strings.Contains(string(body), testCase.expectedBody) {
-					t.Fatalf("remote body missing rewritten selector: %s", string(body))
-				}
-				if testCase.queryKey != "" && r.URL.Query().Get(testCase.queryKey) != testCase.expectedQuery {
-					t.Fatalf("remote query was not rewritten: %s", r.URL.RawQuery)
-				}
-				if testCase.expectedHeader != "" && r.Header.Get("X-Tensors-Model") != testCase.expectedHeader {
-					t.Fatalf("remote header was not rewritten: %s", r.Header.Get("X-Tensors-Model"))
-				}
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"model":"same-dream","data":[]}`))
-			}))
-			defer remote.Close()
-
-			registry := newConflictingImageRegistry(t, remote.URL)
-			service, _ := newTestServiceWithRegistry(t, registry, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), "secret")
-			recorder := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodPost, testCase.path, strings.NewReader(testCase.body))
-			if testCase.contentType != "" {
-				request.Header.Set("Content-Type", testCase.contentType)
-			}
-			if testCase.headerModel != "" {
-				request.Header.Set("X-Tensors-Model", testCase.headerModel)
-			}
-			service.ServeHTTP(recorder, request)
-
-			if recorder.Code != http.StatusOK {
-				t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
-			}
-			if !strings.Contains(recorder.Body.String(), `"model":"same-2-dream"`) {
-				t.Fatalf("image response model was not rewritten: %s", recorder.Body.String())
-			}
-		})
 	}
 }
 
@@ -678,4 +495,215 @@ func newConflictingImageRegistry(t *testing.T, slaveURL string) *cluster.Registr
 		t.Fatal(err)
 	}
 	return registry
+}
+
+type remoteSelectorRewriteCase struct {
+	name           string
+	path           string
+	body           string
+	contentType    string
+	headerModel    string
+	queryKey       string
+	expectedBody   string
+	expectedQuery  string
+	expectedHeader string
+}
+
+func TestClusterRemoteImageRequestRewritesSelectors(t *testing.T) {
+	tests := []remoteSelectorRewriteCase{
+		{
+			name:         "sd checkpoint body",
+			path:         "/sdapi/v1/txt2img",
+			body:         `{"sd_model_checkpoint":"same-2-dream","prompt":"cat"}`,
+			contentType:  "application/json",
+			expectedBody: `"sd_model_checkpoint":"same-dream"`,
+		},
+		{
+			name:         "override checkpoint body",
+			path:         "/sdapi/v1/txt2img",
+			body:         `{"override_settings":{"sd_model_checkpoint":"same-2-dream"},"prompt":"cat"}`,
+			contentType:  "application/json",
+			expectedBody: `"sd_model_checkpoint":"same-dream"`,
+		},
+		{
+			name:          "model query",
+			path:          "/v1/images/generations?model=same-2-dream",
+			body:          `{"prompt":"cat"}`,
+			contentType:   "application/json",
+			queryKey:      "model",
+			expectedQuery: "same-dream",
+		},
+		{
+			name:          "sd checkpoint query",
+			path:          "/sdapi/v1/txt2img?sd_model_checkpoint=same-2-dream",
+			body:          `{"prompt":"cat"}`,
+			contentType:   "application/json",
+			queryKey:      "sd_model_checkpoint",
+			expectedQuery: "same-dream",
+		},
+		{
+			name:           "model header",
+			path:           "/sdapi/v1/txt2img",
+			body:           `{"prompt":"cat"}`,
+			contentType:    "application/json",
+			headerModel:    "same-2-dream",
+			expectedHeader: "same-dream",
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, testCase.run)
+	}
+}
+
+func (testCase remoteSelectorRewriteCase) run(t *testing.T) {
+	remote := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		testCase.verifyForwarded(t, r)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"same-dream","data":[]}`))
+	}))
+	defer remote.Close()
+
+	registry := newConflictingImageRegistry(t, remote.URL)
+	service, _ := newTestServiceWithRegistry(t, registry, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}), "secret")
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, testCase.request())
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !strings.Contains(recorder.Body.String(), `"model":"same-2-dream"`) {
+		t.Fatalf("image response model was not rewritten: %s", recorder.Body.String())
+	}
+}
+
+func (testCase remoteSelectorRewriteCase) request() *http.Request {
+	request := httptest.NewRequest(http.MethodPost, testCase.path, strings.NewReader(testCase.body))
+	if testCase.contentType != "" {
+		request.Header.Set("Content-Type", testCase.contentType)
+	}
+	if testCase.headerModel != "" {
+		request.Header.Set("X-Tensors-Model", testCase.headerModel)
+	}
+	return request
+}
+
+func (testCase remoteSelectorRewriteCase) verifyForwarded(t *testing.T, r *http.Request) {
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if testCase.expectedBody != "" && !strings.Contains(string(body), testCase.expectedBody) {
+		t.Fatalf("remote body missing rewritten selector: %s", string(body))
+	}
+	if testCase.queryKey != "" && r.URL.Query().Get(testCase.queryKey) != testCase.expectedQuery {
+		t.Fatalf("remote query was not rewritten: %s", r.URL.RawQuery)
+	}
+	if testCase.expectedHeader != "" && r.Header.Get("X-Tensors-Model") != testCase.expectedHeader {
+		t.Fatalf("remote header was not rewritten: %s", r.Header.Get("X-Tensors-Model"))
+	}
+}
+
+type asyncResponse struct {
+	status int
+	body   string
+}
+
+func TestClusterLocalRequestQueuesDuringModelLoad(t *testing.T) {
+	for _, requestedModel := range []string{"a", "b"} {
+		t.Run(requestedModel, func(t *testing.T) {
+			assertLocalRequestQueuesDuringModelLoad(t, requestedModel)
+		})
+	}
+}
+
+func assertLocalRequestQueuesDuringModelLoad(t *testing.T, requestedModel string) {
+	service, backend := newMasterServiceWithLocalModels(t, map[string]string{"a": `{}`, "b": `{}`})
+	backend.healthy = false
+	loadStarted, continueLoad := blockReloadOf(t, backend, "a.kcpps")
+
+	loadDone := make(chan error, 1)
+	go func() {
+		loadDone <- service.loadLocalModel(context.Background(), "a", "a")
+	}()
+	select {
+	case <-loadStarted:
+	case <-time.After(time.Second):
+		t.Fatal("initial model load did not start")
+	}
+
+	requestDone := serveChatCompletionAsync(service, requestedModel)
+	select {
+	case result := <-requestDone:
+		continueLoad()
+		t.Fatalf("request returned during model load with status %d body %s", result.status, result.body)
+	case <-time.After(50 * time.Millisecond):
+	}
+	continueLoad()
+
+	if err := <-loadDone; err != nil {
+		t.Fatalf("initial model load failed: %v", err)
+	}
+	select {
+	case result := <-requestDone:
+		if result.status != http.StatusOK {
+			t.Fatalf("queued request status %d body %s", result.status, result.body)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("queued request did not finish")
+	}
+
+	expectedReloads := int32(1)
+	if requestedModel == "b" {
+		expectedReloads = 2
+	}
+	if backend.reloads.Load() != expectedReloads {
+		t.Fatalf("expected %d reloads, got %d", expectedReloads, backend.reloads.Load())
+	}
+}
+
+func newMasterServiceWithLocalModels(t *testing.T, configs map[string]string) (*Service, *fakeBackend) {
+	service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"backend","choices":[{"message":{"content":"ok"}}]}`))
+	}), configs)
+	models, err := service.catalog.List()
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry := cluster.NewRegistry(cluster.RoleMaster, "master", "http://master")
+	if err := registry.UpdateLocal(cluster.LocalModels(models, "master", "http://master", cluster.SourceMaster)); err != nil {
+		t.Fatal(err)
+	}
+	service.registry = registry
+	return service, backend
+}
+
+func blockReloadOf(t *testing.T, backend *fakeBackend, filename string) (<-chan struct{}, func()) {
+	loadStarted := make(chan struct{})
+	continueLoad := make(chan struct{})
+	var loadStartedOnce sync.Once
+	var continueLoadOnce sync.Once
+	release := func() { continueLoadOnce.Do(func() { close(continueLoad) }) }
+	t.Cleanup(release)
+	backend.onReload = func(reloaded string) {
+		if reloaded != filename {
+			return
+		}
+		loadStartedOnce.Do(func() { close(loadStarted) })
+		<-continueLoad
+	}
+	return loadStarted, release
+}
+
+func serveChatCompletionAsync(service *Service, model string) <-chan asyncResponse {
+	done := make(chan asyncResponse, 1)
+	go func() {
+		recorder := httptest.NewRecorder()
+		body := fmt.Sprintf(`{"model":%q,"messages":[]}`, model)
+		request := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+		request.Header.Set("Content-Type", "application/json")
+		service.ServeHTTP(recorder, request)
+		done <- asyncResponse{status: recorder.Code, body: recorder.Body.String()}
+	}()
+	return done
 }

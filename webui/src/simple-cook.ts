@@ -1,3 +1,5 @@
+import { jinjaKwargsPrecedenceOptions } from "./jinja-precedence-options";
+import { optionElement } from "./markup-primitives";
 import { SafeHTML, html, setHTML } from "./safe-html";
 import { applyConfigFile, deleteConfigFile, errorBody, exportPortableConfig, previewConfigFile } from "./api";
 import { elements } from "./elements";
@@ -12,7 +14,6 @@ import {
   backendModes,
   jinjaKwargsKey,
   jinjaKwargsPrecedenceKey,
-  jinjaKwargsPrecedenceLabels,
   unloadPolicies,
   unloadPolicyKey,
   unloadPolicyLabels,
@@ -309,7 +310,7 @@ function renderAddFieldSelect(): void {
     .sort((left, right) => `${sectionForDefinition(left)}:${left.key}`.localeCompare(`${sectionForDefinition(right)}:${right.key}`));
   setHTML(elements.simpleAddFieldSelect, html`${options.map(definition => {
     const label = `${sectionLabels[sectionForDefinition(definition)] || "Other"} / ${definition.key}`;
-    return html`<option value="${definition.key}">${label}</option>`;
+    return optionElement(definition.key, label);
   })}`);
 }
 
@@ -418,7 +419,7 @@ function backendModeSelect(value: string, virtual: boolean): SafeHTML {
   const selectedValue = backendModes.includes(value as BackendMode) ? value : "kobold";
   return html`
     <select data-simple-backend-mode class="${virtual ? "virtual-backend-select virtual-runtime-select" : ""}">
-      ${backendModes.map(mode => html`<option value="${mode}"${mode === selectedValue ? " selected" : ""}>${backendModeLabels[mode]}</option>`)}
+      ${backendModes.map(mode => optionElement(mode, backendModeLabels[mode], mode === selectedValue))}
     </select>
   `;
 }
@@ -428,11 +429,11 @@ function unloadPolicySelect(values: string[], virtual: boolean): SafeHTML {
   const known = new Set<string>(unloadPolicies);
   const customOptions = html`${values
     .filter(value => !known.has(value))
-    .map(value => html`<option value="${value}" selected>${value}</option>`)}`;
+    .map(value => optionElement(value, value, true))}`;
   return html`
     <select multiple data-simple-field="${unloadPolicyKey}" class="${virtual ? "virtual-runtime-select" : ""}">
       ${customOptions}
-      ${unloadPolicies.map(policy => html`<option value="${policy}"${selected.has(policy) ? " selected" : ""}>${unloadPolicyLabels[policy]}</option>`)}
+      ${unloadPolicies.map(policy => optionElement(policy, unloadPolicyLabels[policy], selected.has(policy)))}
     </select>
   `;
 }
@@ -441,7 +442,7 @@ function jinjaKwargsPrecedenceSelect(value: string, virtual: boolean): SafeHTML 
   const selectedValue = value === "client" ? "client" : "config";
   return html`
     <select data-simple-field="${jinjaKwargsPrecedenceKey}" class="${virtual ? "virtual-runtime-select" : ""}">
-      ${Object.entries(jinjaKwargsPrecedenceLabels).map(([precedence, label]) => html`<option value="${precedence}"${precedence === selectedValue ? " selected" : ""}>${label}</option>`)}
+      ${jinjaKwargsPrecedenceOptions(selectedValue)}
     </select>
   `;
 }
@@ -469,7 +470,7 @@ async function submitSimpleConfig(submitter: ConfigSubmitter): Promise<ConfigFil
 function simpleConfigRequest(): ConfigFileRequest {
   const config = selectedConfig();
   const requestedID = elements.cookIdInput.value.trim();
-  const editingSameConfig = Boolean(config && requestedID === config.local_id);
+  const editingSameConfig = requestedID === config?.local_id;
   return {
     node_id: state.simpleCook.nodeID,
     node_url: selectedNode()?.node_url || "",
@@ -541,7 +542,7 @@ function loadSimpleConfig(model: Model | null): void {
 
 function fillSelect(select: HTMLSelectElement, options: SelectChoice[]): void {
   const selected = select.value;
-  setHTML(select, html`${options.map(option => html`<option value="${option.value}">${option.label}</option>`)}`);
+  setHTML(select, html`${options.map(option => optionElement(option.value, option.label))}`);
   if (Array.from(select.options).some(option => option.value === selected)) {
     select.value = selected;
   }

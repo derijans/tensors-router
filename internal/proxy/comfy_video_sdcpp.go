@@ -28,7 +28,7 @@ const (
 // fields the API reference confirms are sent; sampler/scheduler/steps/cfg
 // fall back to the loaded config's defaults for this path.
 func (service *Service) generateSDCPPVideo(ctx context.Context, model catalog.Model, requestBody []byte) ([]byte, error) {
-	submitResponse, finalizer, err := service.forwardWithFallbackObserved(ctx, syntheticImageRequest(http.MethodPost, sdcppVideoSubmitPath), requestBody, model.ImageID, model.Filename, true, readinessImage, BackendModeLlamaSDCPP)
+	submitResponse, finalizer, err := service.forwardWithFallbackObserved(ctx, syntheticImageRequest(http.MethodPost, sdcppVideoSubmitPath), requestBody, backendForwardTarget{modelID: model.ImageID, configFilename: model.Filename, hasModel: true, readiness: readinessImage, mode: BackendModeLlamaSDCPP})
 	finishVRAMWork(finalizer)
 	if err != nil {
 		return nil, err
@@ -54,7 +54,7 @@ func (service *Service) pollSDCPPVideoJob(ctx context.Context, model catalog.Mod
 			return nil, ctx.Err()
 		case <-ticker.C:
 		}
-		pollResponse, pollFinalizer, err := service.forwardWithFallbackObserved(ctx, syntheticImageRequest(http.MethodGet, sdcppVideoJobPathPrefix+jobID), nil, model.ImageID, model.Filename, true, readinessImage, BackendModeLlamaSDCPP)
+		pollResponse, pollFinalizer, err := service.forwardWithFallbackObserved(ctx, syntheticImageRequest(http.MethodGet, sdcppVideoJobPathPrefix+jobID), nil, backendForwardTarget{modelID: model.ImageID, configFilename: model.Filename, hasModel: true, readiness: readinessImage, mode: BackendModeLlamaSDCPP})
 		finishVRAMWork(pollFinalizer)
 		if err != nil {
 			return nil, err

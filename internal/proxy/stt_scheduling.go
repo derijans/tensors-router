@@ -87,52 +87,6 @@ func (service *Service) selectAutomaticSTTModel(ctx context.Context) (cluster.Mo
 	return service.selectAutomaticSTTCandidate(models, localStatus, service.remoteRuntimeStatuses(ctx))
 }
 
-func (service *Service) selectAutomaticSTTCandidate(models []cluster.Model, localStatus NodeRuntimeStatus, statuses map[string]NodeRuntimeStatus) (cluster.Model, bool) {
-	for _, model := range models {
-		if model.NodeID == service.nodeID && model.Filename == localStatus.ActiveSTTConfigFilename {
-			return model, true
-		}
-	}
-	candidates := make([]sttCandidate, 0, len(models))
-	for _, model := range models {
-		if model.NodeID == service.nodeID {
-			candidates = append(candidates, sttCandidate{model: model, status: localStatus, local: true})
-			continue
-		}
-		if status, ok := statuses[model.NodeID]; ok {
-			candidates = append(candidates, sttCandidate{model: model, status: status})
-		}
-	}
-	loadedRemote := filterSTTCandidates(candidates, func(candidate sttCandidate) bool {
-		return !candidate.local && candidate.status.ActiveSTTConfigFilename == candidate.model.Filename
-	})
-	if selected, ok := service.chooseSTTCandidate(loadedRemote, func(candidate sttCandidate) int {
-		return candidate.status.ActiveRequests + candidate.status.QueuedRequests
-	}); ok {
-		return selected.model, true
-	}
-	idle := filterSTTCandidates(candidates, func(candidate sttCandidate) bool {
-		return candidate.status.ActiveRequests == 0 && candidate.status.QueuedRequests == 0
-	})
-	if selected, ok := service.chooseSTTCandidate(idle, func(sttCandidate) int { return 0 }); ok {
-		return selected.model, true
-	}
-	if service.clusterRole == cluster.RoleMaster {
-		for _, candidate := range candidates {
-			if candidate.local {
-				return candidate.model, true
-			}
-		}
-	}
-	remote := filterSTTCandidates(candidates, func(candidate sttCandidate) bool { return !candidate.local })
-	if selected, ok := service.chooseSTTCandidate(remote, func(candidate sttCandidate) int {
-		return candidate.status.QueuedRequests
-	}); ok {
-		return selected.model, true
-	}
-	return cluster.Model{}, false
-}
-
 func (service *Service) sttSchedulingModels() []cluster.Model {
 	var models []cluster.Model
 	if service.registry != nil {
@@ -215,4 +169,74 @@ func (service *Service) chooseSTTCandidate(values []sttCandidate, workload func(
 		tied++
 	}
 	return values[service.sttTieRotation.pick(tied)], true
+}
+
+func (service *Service) selectAutomaticSTTCandidate(models []cluster.Model, localStatus NodeRuntimeStatus, statuses map[string]NodeRuntimeStatus) (cluster.Model, bool) {
+	for _, model := range models {
+		if model.NodeID == service.nodeID && model.Filename == localStatus.ActiveSTTConfigFilename {
+			return model, true
+		}
+	}
+	candidates := service.sttCandidates(models, localStatus, statuses)
+	selectors := []func([]sttCandidate) (sttCandidate, bool){
+		service.leastBusyLoadedRemoteSTT,
+		service.idleSTT,
+		service.localSTTOnMaster,
+		service.leastQueuedRemoteSTT,
+	}
+	for _, selectCandidate := range selectors {
+		if selected, ok := selectCandidate(candidates); ok {
+			return selected.model, true
+		}
+	}
+	return cluster.Model{}, false
+}
+
+func (service *Service) sttCandidates(models []cluster.Model, localStatus NodeRuntimeStatus, statuses map[string]NodeRuntimeStatus) []sttCandidate {
+	candidates := make([]sttCandidate, 0, len(models))
+	for _, model := range models {
+		if model.NodeID == service.nodeID {
+			candidates = append(candidates, sttCandidate{model: model, status: localStatus, local: true})
+			continue
+		}
+		if status, ok := statuses[model.NodeID]; ok {
+			candidates = append(candidates, sttCandidate{model: model, status: status})
+		}
+	}
+	return candidates
+}
+
+func (service *Service) leastBusyLoadedRemoteSTT(candidates []sttCandidate) (sttCandidate, bool) {
+	loadedRemote := filterSTTCandidates(candidates, func(candidate sttCandidate) bool {
+		return !candidate.local && candidate.status.ActiveSTTConfigFilename == candidate.model.Filename
+	})
+	return service.chooseSTTCandidate(loadedRemote, func(candidate sttCandidate) int {
+		return candidate.status.ActiveRequests + candidate.status.QueuedRequests
+	})
+}
+
+func (service *Service) idleSTT(candidates []sttCandidate) (sttCandidate, bool) {
+	idle := filterSTTCandidates(candidates, func(candidate sttCandidate) bool {
+		return candidate.status.ActiveRequests == 0 && candidate.status.QueuedRequests == 0
+	})
+	return service.chooseSTTCandidate(idle, func(sttCandidate) int { return 0 })
+}
+
+func (service *Service) localSTTOnMaster(candidates []sttCandidate) (sttCandidate, bool) {
+	if service.clusterRole != cluster.RoleMaster {
+		return sttCandidate{}, false
+	}
+	for _, candidate := range candidates {
+		if candidate.local {
+			return candidate, true
+		}
+	}
+	return sttCandidate{}, false
+}
+
+func (service *Service) leastQueuedRemoteSTT(candidates []sttCandidate) (sttCandidate, bool) {
+	remote := filterSTTCandidates(candidates, func(candidate sttCandidate) bool { return !candidate.local })
+	return service.chooseSTTCandidate(remote, func(candidate sttCandidate) int {
+		return candidate.status.QueuedRequests
+	})
 }

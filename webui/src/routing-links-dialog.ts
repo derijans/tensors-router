@@ -20,7 +20,7 @@ function isRoutingDirection(value: string | undefined): value is RoutingDirectio
 }
 
 function isLinkDraftField(value: string | undefined): value is LinkDraftField {
-  return linkDraftFields.some(field => field === value);
+  return value !== undefined && (linkDraftFields as readonly string[]).includes(value);
 }
 
 export function registerRoutingLinksDialog(refreshInventory: () => Promise<void>): void {

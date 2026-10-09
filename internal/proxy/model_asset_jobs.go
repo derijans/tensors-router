@@ -27,7 +27,7 @@ func (assets *assetManager) handleSiteModelAssetCreateJob(w http.ResponseWriter,
 	if target.local {
 		job, err := assets.createLocalModelAssetJob(request)
 		if err != nil {
-			openai.WriteError(w, http.StatusBadRequest, "model_asset_error", "resolution job could not be created")
+			openai.WriteError(w, http.StatusBadRequest, "model_asset_error", messageResolutionJobNotCreated)
 			return
 		}
 		openai.WriteJSON(w, http.StatusAccepted, job)
@@ -35,7 +35,7 @@ func (assets *assetManager) handleSiteModelAssetCreateJob(w http.ResponseWriter,
 	}
 	var job modelassets.ResolutionJob
 	if err := assets.identity().client.JSON(r.Context(), http.MethodPost, target.nodeURL, "/router/v1/node/site/model-assets/jobs", request, &job); err != nil {
-		openai.WriteError(w, http.StatusBadGateway, "cluster_error", "resolution job could not be created")
+		openai.WriteError(w, http.StatusBadGateway, "cluster_error", messageResolutionJobNotCreated)
 		return
 	}
 	openai.WriteJSON(w, http.StatusAccepted, job)
@@ -48,7 +48,7 @@ func (assets *assetManager) handleNodeModelAssetCreateJob(w http.ResponseWriter,
 	}
 	job, err := assets.createLocalModelAssetJob(request)
 	if err != nil {
-		openai.WriteError(w, http.StatusBadRequest, "model_asset_error", "resolution job could not be created")
+		openai.WriteError(w, http.StatusBadRequest, "model_asset_error", messageResolutionJobNotCreated)
 		return
 	}
 	openai.WriteJSON(w, http.StatusAccepted, job)
@@ -105,48 +105,10 @@ func (assets *assetManager) createTrackedResolutionJob(request siteapi.ModelAsse
 	return job, err
 }
 
-func (assets *assetManager) runLocalModelAssetJob(request siteapi.ModelAssetConfigRequest, job modelassets.ResolutionJob) {
-	job.State = modelassets.JobResolving
-	job.Source = "automatic"
-	_ = assets.index.UpdateResolutionJob(job)
-	_ = assets.deps.refreshLocalRegistry()
-	response, err := assets.resolveLocalModelAssetConfig(request)
-	job.Results = make([]modelassets.FieldResult, len(response.Results))
-	for index, result := range response.Results {
-		job.Results[index] = modelassets.FieldResult{Field: result.Field, Hash: result.Hash, Resolved: result.Resolved, Failure: result.Failure, Source: result.Source, Verification: result.Verification, Commit: result.Commit}
-		if result.Source != "" {
-			job.Source = result.Source
-		}
-		if result.Resolved {
-			if asset, found := assets.index.Lookup(result.Hash); found {
-				job.ProgressBytes += asset.Size
-				job.TotalBytes += asset.Size
-			}
-		}
-	}
-	if err != nil {
-		job.State = modelassets.JobFailed
-		job.Error = "resolution failed"
-	} else {
-		job.State = modelassets.JobCompleted
-		for _, result := range response.Results {
-			if !result.Resolved {
-				job.State = modelassets.JobFailed
-				job.Error = "model asset unavailable"
-				break
-			}
-		}
-	}
-	if updateErr := assets.index.UpdateResolutionJob(job); updateErr != nil {
-		assets.logger.Printf("model asset job persistence failed job=%s error_type=%T", job.ID, updateErr)
-	}
-	_ = assets.deps.refreshLocalRegistry()
-}
-
 func (assets *assetManager) handleSiteModelAssetJob(w http.ResponseWriter, r *http.Request) {
 	jobID, events, ok := modelAssetJobPath(r.URL.Path, "/router/v1/site/model-assets/jobs/")
 	if !ok {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	target, err := assets.deps.configNodeTarget(r.URL.Query().Get("node_id"), "")
@@ -157,7 +119,7 @@ func (assets *assetManager) handleSiteModelAssetJob(w http.ResponseWriter, r *ht
 	if !target.local {
 		path := "/router/v1/node/site/model-assets/jobs/" + jobID
 		if events {
-			path += "/events"
+			path += pathSuffixEvents
 			assets.streamRemoteModelAssetJob(w, r, target.nodeURL, path)
 			return
 		}
@@ -179,7 +141,7 @@ func (assets *assetManager) handleSiteModelAssetJob(w http.ResponseWriter, r *ht
 func (assets *assetManager) handleNodeModelAssetJob(w http.ResponseWriter, r *http.Request) {
 	jobID, events, ok := modelAssetJobPath(r.URL.Path, "/router/v1/node/site/model-assets/jobs/")
 	if !ok {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	if events {
@@ -208,7 +170,7 @@ func (assets *assetManager) streamLocalModelAssetJob(w http.ResponseWriter, r *h
 		openai.WriteError(w, http.StatusInternalServerError, "model_asset_error", "streaming unavailable")
 		return
 	}
-	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set(headerContentType, "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	ticker := time.NewTicker(250 * time.Millisecond)
 	defer ticker.Stop()
@@ -241,7 +203,7 @@ func (assets *assetManager) streamRemoteModelAssetJob(w http.ResponseWriter, r *
 		return
 	}
 	defer response.Body.Close()
-	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set(headerContentType, "text/event-stream")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	_, _ = transportbody.CopyFlushing(w, response.Body)
@@ -249,8 +211,8 @@ func (assets *assetManager) streamRemoteModelAssetJob(w http.ResponseWriter, r *
 
 func modelAssetJobPath(value string, prefix string) (string, bool, bool) {
 	value = strings.TrimPrefix(value, prefix)
-	events := strings.HasSuffix(value, "/events")
-	value = strings.TrimSuffix(value, "/events")
+	events := strings.HasSuffix(value, pathSuffixEvents)
+	value = strings.TrimSuffix(value, pathSuffixEvents)
 	if len(value) != 32 {
 		return "", false, false
 	}
@@ -260,4 +222,51 @@ func modelAssetJobPath(value string, prefix string) (string, bool, bool) {
 		}
 	}
 	return value, events, true
+}
+
+func (assets *assetManager) runLocalModelAssetJob(request siteapi.ModelAssetConfigRequest, job modelassets.ResolutionJob) {
+	job.State = modelassets.JobResolving
+	job.Source = "automatic"
+	_ = assets.index.UpdateResolutionJob(job)
+	_ = assets.deps.refreshLocalRegistry()
+	response, err := assets.resolveLocalModelAssetConfig(request)
+	assets.recordResolutionResults(&job, response)
+	state, failure := resolutionJobOutcome(response, err)
+	job.State = state
+	if failure != "" {
+		job.Error = failure
+	}
+	if updateErr := assets.index.UpdateResolutionJob(job); updateErr != nil {
+		assets.logger.Printf("model asset job persistence failed job=%s error_type=%T", job.ID, updateErr)
+	}
+	_ = assets.deps.refreshLocalRegistry()
+}
+
+func (assets *assetManager) recordResolutionResults(job *modelassets.ResolutionJob, response siteapi.ModelAssetConfigResponse) {
+	job.Results = make([]modelassets.FieldResult, len(response.Results))
+	for index, result := range response.Results {
+		job.Results[index] = modelassets.FieldResult{Field: result.Field, Hash: result.Hash, Resolved: result.Resolved, Failure: result.Failure, Source: result.Source, Verification: result.Verification, Commit: result.Commit}
+		if result.Source != "" {
+			job.Source = result.Source
+		}
+		if !result.Resolved {
+			continue
+		}
+		if asset, found := assets.index.Lookup(result.Hash); found {
+			job.ProgressBytes += asset.Size
+			job.TotalBytes += asset.Size
+		}
+	}
+}
+
+func resolutionJobOutcome(response siteapi.ModelAssetConfigResponse, err error) (string, string) {
+	if err != nil {
+		return modelassets.JobFailed, "resolution failed"
+	}
+	for _, result := range response.Results {
+		if !result.Resolved {
+			return modelassets.JobFailed, "model asset unavailable"
+		}
+	}
+	return modelassets.JobCompleted, ""
 }

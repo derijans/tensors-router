@@ -7,6 +7,14 @@ import (
 	"tensors-router/internal/catalog"
 )
 
+const (
+	gpuLayersFlag   = "--n-gpu-layers"
+	deviceFlag      = "--device"
+	splitModeFlag   = "--split-mode"
+	tensorSplitFlag = "--tensor-split"
+	mainGPUFlag     = "--main-gpu"
+)
+
 func llamaEmbeddingArguments(metadata catalog.RuntimeConfig, target launchTarget) ([]string, error) {
 	modelPath := strings.TrimSpace(metadata.EmbeddingsModel)
 	if modelPath == "" {
@@ -28,14 +36,14 @@ func llamaEmbeddingArguments(metadata catalog.RuntimeConfig, target launchTarget
 	appendIntArg(&args, "--batch-size", metadata.BatchSize)
 	appendIntArg(&args, "--ubatch-size", metadata.UBatchSize)
 	if metadata.EmbeddingsGPU {
-		args = append(args, "--n-gpu-layers", "-1")
-		appendStringArg(&args, "--device", metadata.Device)
-		appendStringArg(&args, "--split-mode", metadata.SplitMode)
-		appendStringArg(&args, "--tensor-split", metadata.TensorSplitValue())
-		appendIntArg(&args, "--main-gpu", nonNegative(metadata.MainGPU))
+		args = append(args, gpuLayersFlag, "-1")
+		appendStringArg(&args, deviceFlag, metadata.Device)
+		appendStringArg(&args, splitModeFlag, metadata.SplitMode)
+		appendStringArg(&args, tensorSplitFlag, metadata.TensorSplitValue())
+		appendIntArg(&args, mainGPUFlag, nonNegative(metadata.MainGPU))
 		appendStringArg(&args, "--rpc", metadata.RPCTargets)
 	} else {
-		args = append(args, "--device", "none", "--n-gpu-layers", "0")
+		args = append(args, deviceFlag, "none", gpuLayersFlag, "0")
 	}
 	if err := appendLlamaLoadArguments(&args, metadata); err != nil {
 		return nil, err
@@ -73,7 +81,7 @@ func embeddingRuntimeOwnedArguments(metadata catalog.RuntimeConfig) map[string]b
 	owned := map[string]bool{
 		"--host": true, "--port": true, "--model": true, "--alias": true,
 		"--embeddings": false, "--ctx-size": true,
-		"--n-gpu-layers": true, "--gpu-layers": true, "-ngl": true, "--no-gpu": false,
+		gpuLayersFlag: true, "--gpu-layers": true, "-ngl": true, "--no-gpu": false,
 	}
 	if strings.TrimSpace(metadata.Pooling) != "" {
 		owned["--pooling"] = true
@@ -83,19 +91,19 @@ func embeddingRuntimeOwnedArguments(metadata catalog.RuntimeConfig) map[string]b
 		return owned
 	}
 	if strings.TrimSpace(metadata.Device) != "" {
-		owned["--device"] = true
+		owned[deviceFlag] = true
 		owned["-dev"] = true
 	}
 	if strings.TrimSpace(metadata.SplitMode) != "" {
-		owned["--split-mode"] = true
+		owned[splitModeFlag] = true
 		owned["-sm"] = true
 	}
 	if metadata.TensorSplitValue() != "" {
-		owned["--tensor-split"] = true
+		owned[tensorSplitFlag] = true
 		owned["-ts"] = true
 	}
 	if metadata.MainGPUSet && metadata.MainGPU >= 0 {
-		owned["--main-gpu"] = true
+		owned[mainGPUFlag] = true
 		owned["-mg"] = true
 	}
 	if strings.TrimSpace(metadata.RPCTargets) != "" {
@@ -105,7 +113,7 @@ func embeddingRuntimeOwnedArguments(metadata catalog.RuntimeConfig) map[string]b
 }
 
 func addEmbeddingPlacementArguments(arguments map[string]bool) {
-	for _, argument := range []string{"--device", "-dev", "--split-mode", "-sm", "--tensor-split", "-ts", "--main-gpu", "-mg", "--rpc"} {
+	for _, argument := range []string{deviceFlag, "-dev", splitModeFlag, "-sm", tensorSplitFlag, "-ts", mainGPUFlag, "-mg", "--rpc"} {
 		arguments[argument] = true
 	}
 }

@@ -58,7 +58,7 @@ func (service *Service) handleSiteTextRoutingLinks(w http.ResponseWriter, r *htt
 
 func (service *Service) handleSiteRoutingLinks(w http.ResponseWriter, r *http.Request, lane routingLane) {
 	if !service.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	switch r.Method {

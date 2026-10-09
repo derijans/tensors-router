@@ -47,7 +47,7 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 			return true
 		}
 		if backendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
-			openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+			openai.WriteEndpointNotFound(w)
 			return true
 		}
 		requestBody, usageInjected = injectStreamUsageOption(requestBody, r.URL.Path, backendMode)
@@ -55,7 +55,7 @@ func (service *Service) handleRecipeModelRequest(w http.ResponseWriter, r *http.
 		analyticsEvent = service.analytics.newEvent(started, r, requestBody, component.ModelID, textAnalyticsSection(r.URL.Path), backendMode)
 		analyticsEvent.PromptBytes = int64(len(body))
 		recordAnalytics = true
-		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readiness, backendMode)
+		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, backendForwardTarget{modelID: component.ModelID, configFilename: component.ConfigFilename, hasModel: true, readiness: readiness, mode: backendMode})
 	}
 	if err != nil {
 		if recordAnalytics {
@@ -114,7 +114,7 @@ func (service *Service) handleRecipeImageRequest(w http.ResponseWriter, r *http.
 			return true
 		}
 		if backendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
-			openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+			openai.WriteEndpointNotFound(w)
 			return true
 		}
 		jobBackendMode = backendMode
@@ -127,7 +127,7 @@ func (service *Service) handleRecipeImageRequest(w http.ResponseWriter, r *http.
 		started := time.Now()
 		analyticsEvent = service.analytics.newEvent(started, request, requestBody, component.ImageID, routeranalytics.SectionImage, backendMode)
 		recordAnalytics = true
-		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), request, requestBody, component.ImageID, component.ConfigFilename, true, readinessImage, backendMode)
+		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), request, requestBody, backendForwardTarget{modelID: component.ImageID, configFilename: component.ConfigFilename, hasModel: true, readiness: readinessImage, mode: backendMode})
 	}
 	if err != nil {
 		if recordAnalytics {
@@ -242,71 +242,6 @@ func (service *Service) recipeImageComponent(publicImageID string) (recipes.Reci
 	return service.recipeStore.Image(publicImageID)
 }
 
-func (service *Service) handleRecipeAudioRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string, lane string) bool {
-	recipe, component, ok := service.recipeAudioComponent(publicID, lane)
-	if !ok {
-		return false
-	}
-	if !service.recipeComponentEnabled(component) {
-		openai.WriteError(w, http.StatusNotFound, "not_found", fmt.Sprintf("recipe %q uses a disabled model", publicID))
-		return true
-	}
-	route := routeFromRecipeComponent(recipe, component, false, audioClusterLane(lane))
-	requestBody := body
-	if requestBodyLooksJSON(body, r) {
-		requestBody = rewriteRequestModel(body, component.ModelID)
-	}
-	var response *http.Response
-	var err error
-	var analyticsEvent routeranalytics.Event
-	var workFinalizer routeranalytics.EventFinalizer
-	recordAnalytics := false
-	if component.NodeID != service.nodeID {
-		route.Remote = true
-		response, err = service.forwardRemote(r.Context(), r, requestBody, route)
-	} else {
-		backendMode, modeErr := service.recipeComponentBackendMode(component)
-		if modeErr != nil {
-			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", modeErr.Error())
-			return true
-		}
-		if backendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
-			openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
-			return true
-		}
-		if backendMode == BackendModeLlamaSDCPP {
-			model, ok, modelErr := service.recipeComponentModel(component)
-			if modelErr != nil {
-				service.writeClientError(w, http.StatusInternalServerError, "catalog_error", modelErr)
-				return true
-			}
-			if !ok || lane == recipes.KindMusic || !modelSupportsLlamaAudioPath(model, r.URL.Path) {
-				openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", "audio route is not supported by the selected split backend config")
-				return true
-			}
-		}
-		started := time.Now()
-		analyticsEvent = service.analytics.newEvent(started, r, requestBody, component.ModelID, audioAnalyticsSection(lane), backendMode)
-		recordAnalytics = true
-		readiness := audioReadiness(r.URL.Path, lane, backendMode)
-		response, workFinalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, component.ModelID, component.ConfigFilename, true, readiness, backendMode)
-	}
-	if err != nil {
-		if recordAnalytics {
-			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
-		}
-		service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
-		return true
-	}
-	if recordAnalytics {
-		response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
-	}
-	if err := service.writeProxyResponse(w, response, publicID, false); err != nil {
-		return true
-	}
-	return true
-}
-
 func (service *Service) recipeAudioComponent(publicID string, lane string) (recipes.Recipe, recipes.Component, bool) {
 	if service.recipeStore == nil {
 		return recipes.Recipe{}, recipes.Component{}, false
@@ -395,4 +330,74 @@ func audioClusterLane(lane string) string {
 
 func sameRecipeComponent(left recipes.Component, right recipes.Component) bool {
 	return left.NodeID == right.NodeID && left.ConfigFilename == right.ConfigFilename && left.ModelID == right.ModelID
+}
+
+func (service *Service) handleRecipeAudioRequest(w http.ResponseWriter, r *http.Request, body []byte, publicID string, lane string) bool {
+	recipe, component, ok := service.recipeAudioComponent(publicID, lane)
+	if !ok {
+		return false
+	}
+	if !service.recipeComponentEnabled(component) {
+		openai.WriteError(w, http.StatusNotFound, "not_found", fmt.Sprintf("recipe %q uses a disabled model", publicID))
+		return true
+	}
+	route := routeFromRecipeComponent(recipe, component, false, audioClusterLane(lane))
+	requestBody := body
+	if requestBodyLooksJSON(body, r) {
+		requestBody = rewriteRequestModel(body, component.ModelID)
+	}
+	forwarded, ok := service.forwardRecipeAudio(w, r, requestBody, route, component, lane)
+	if ok {
+		_ = service.writeProxyResponse(w, forwarded.tracking.wrap(forwarded.response), publicID, false)
+	}
+	return true
+}
+
+func (service *Service) forwardRecipeAudio(w http.ResponseWriter, r *http.Request, requestBody []byte, route cluster.Route, component recipes.Component, lane string) (registryForward, bool) {
+	var forwarded registryForward
+	var err error
+	if component.NodeID != service.nodeID {
+		route.Remote = true
+		forwarded.response, err = service.forwardRemote(r.Context(), r, requestBody, route)
+	} else {
+		backendMode, admitted := service.admitLocalRecipeAudio(w, r, component, lane)
+		if !admitted {
+			return forwarded, false
+		}
+		forwarded.tracking = forwardAnalytics{analytics: service.analytics}
+		forwarded.tracking.event = service.analytics.newEvent(time.Now(), r, requestBody, component.ModelID, audioAnalyticsSection(lane), backendMode)
+		target := backendForwardTarget{modelID: component.ModelID, configFilename: component.ConfigFilename, hasModel: true, readiness: audioReadiness(r.URL.Path, lane, backendMode), mode: backendMode}
+		forwarded.response, forwarded.tracking.finalizer, err = service.forwardWithFallbackObserved(r.Context(), r, requestBody, target)
+	}
+	if err != nil {
+		forwarded.tracking.recordFailure(r.Context(), err)
+		service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
+		return forwarded, false
+	}
+	return forwarded, true
+}
+
+func (service *Service) admitLocalRecipeAudio(w http.ResponseWriter, r *http.Request, component recipes.Component, lane string) (string, bool) {
+	backendMode, err := service.recipeComponentBackendMode(component)
+	if err != nil {
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return "", false
+	}
+	if backendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
+		openai.WriteEndpointNotFound(w)
+		return "", false
+	}
+	if backendMode != BackendModeLlamaSDCPP {
+		return backendMode, true
+	}
+	model, ok, err := service.recipeComponentModel(component)
+	if err != nil {
+		service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
+		return "", false
+	}
+	if !ok || lane == recipes.KindMusic || !modelSupportsLlamaAudioPath(model, r.URL.Path) {
+		openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", "audio route is not supported by the selected split backend config")
+		return "", false
+	}
+	return backendMode, true
 }

@@ -38,7 +38,7 @@ func isEmbeddingsPath(path string) bool {
 
 func isVoicePath(path string) bool {
 	switch path {
-	case "/v1/audio/speech", "/v1/audio/transcriptions", "/v1/audio/translations", "/v1/realtime", "/v1/audio/voices", "/audio/voices", "/api/extra/tts", "/api/extra/transcribe":
+	case "/v1/audio/speech", pathAudioTranscriptions, pathAudioTranslations, "/v1/realtime", "/v1/audio/voices", "/audio/voices", "/api/extra/tts", pathKoboldTranscribe:
 		return true
 	default:
 		return false
@@ -46,7 +46,7 @@ func isVoicePath(path string) bool {
 }
 
 func isSTTPath(path string) bool {
-	return path == "/v1/audio/transcriptions" || path == "/v1/audio/translations" || path == "/api/extra/transcribe"
+	return path == pathAudioTranscriptions || path == pathAudioTranslations || path == pathKoboldTranscribe
 }
 
 func isTextToSpeechPath(path string) bool {
@@ -84,8 +84,8 @@ func isTextPath(path string) bool {
 		"/api/extra/generate/stream",
 		"/api/extra/embeddings",
 		"/api/extra/tokencount",
-		"/api/generate",
-		"/api/chat",
+		pathOllamaGenerate,
+		pathOllamaChat,
 		"/api/show",
 		"/api/tags",
 		"/api/ps",
@@ -109,10 +109,10 @@ func textPathRequiresModel(path string) bool {
 		"/v1/responses/input_tokens",
 		"/v1/messages",
 		"/v1/messages/count_tokens",
-		"/v1/rerank",
+		pathRerankV1,
 		"/v1/reranking",
-		"/api/generate",
-		"/api/chat":
+		pathOllamaGenerate,
+		pathOllamaChat:
 		return true
 	default:
 		return false
@@ -124,15 +124,15 @@ func isTextInferencePath(path string) bool {
 		return true
 	}
 	switch path {
-	case "/v1/embeddings",
+	case pathEmbeddings,
 		"/v1/responses",
 		"/v1/messages",
-		"/v1/rerank",
+		pathRerankV1,
 		"/v1/reranking",
 		"/api/v1/generate",
 		"/api/extra/generate/stream",
-		"/api/generate",
-		"/api/chat":
+		pathOllamaGenerate,
+		pathOllamaChat:
 		return true
 	default:
 		return false
@@ -161,7 +161,7 @@ func modelSupportsLlamaAudioPath(model catalog.Model, path string) bool {
 		return false
 	}
 	switch path {
-	case "/v1/audio/transcriptions", "/v1/audio/translations", "/api/extra/transcribe":
+	case pathAudioTranscriptions, pathAudioTranslations, pathKoboldTranscribe:
 		return strings.TrimSpace(model.Capabilities.Voice.WhisperModel) != ""
 	default:
 		return false

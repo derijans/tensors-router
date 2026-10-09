@@ -181,7 +181,7 @@ func (service *Service) handleComfyView(w http.ResponseWriter, r *http.Request) 
 		return true
 	}
 	defer file.Close()
-	w.Header().Set("Content-Type", "video/mp4")
+	w.Header().Set(headerContentType, "video/mp4")
 	// ServeContent answers Range requests, which is what a video player uses
 	// to seek without downloading the whole file.
 	http.ServeContent(w, r, snapshot.filename, time.Time{}, file)

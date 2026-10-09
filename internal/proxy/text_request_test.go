@@ -49,65 +49,6 @@ func TestOpenAIBaseEndpointIsForwarded(t *testing.T) {
 	}
 }
 
-func TestModelAwareTextEndpointsRouteSelectedConfig(t *testing.T) {
-	endpoints := []string{
-		"/v1/responses",
-		"/v1/responses/input_tokens",
-		"/v1/messages",
-		"/v1/messages/count_tokens",
-		"/v1/rerank",
-		"/v1/reranking",
-		"/api/v1/generate",
-		"/api/extra/generate/stream",
-		"/api/extra/embeddings",
-		"/api/extra/tokencount",
-		"/api/generate",
-		"/api/chat",
-	}
-
-	for _, endpoint := range endpoints {
-		t.Run(strings.Trim(endpoint, "/"), func(t *testing.T) {
-			var sawRequest bool
-			service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method == http.MethodGet && r.URL.Path == koboldPerfPath {
-					_, _ = w.Write([]byte(`{"total_gens":0}`))
-					return
-				}
-				if r.URL.Path != endpoint {
-					t.Fatalf("unexpected path %s", r.URL.Path)
-				}
-				body, err := io.ReadAll(r.Body)
-				if err != nil {
-					t.Fatal(err)
-				}
-				sawRequest = strings.Contains(string(body), `"model":"text"`)
-				w.Header().Set("Content-Type", "application/json")
-				_, _ = w.Write([]byte(`{"model":"backend","ok":true}`))
-			}), map[string]string{
-				"text": `{"model_param":"C:\\models\\text.gguf"}`,
-			})
-
-			recorder := httptest.NewRecorder()
-			request := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(`{"model":"text","prompt":"hello"}`))
-			request.Header.Set("Content-Type", "application/json")
-			service.ServeHTTP(recorder, request)
-
-			if recorder.Code != http.StatusOK {
-				t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
-			}
-			if !sawRequest {
-				t.Fatalf("backend did not receive rewritten local model")
-			}
-			if backend.lastReload != "text.kcpps" {
-				t.Fatalf("unexpected reload config %q", backend.lastReload)
-			}
-			if !strings.Contains(recorder.Body.String(), `"model":"text"`) {
-				t.Fatalf("response model was not rewritten: %s", recorder.Body.String())
-			}
-		})
-	}
-}
-
 func TestOllamaStatusEndpointsAreSynthesizedWithoutBackendLeakage(t *testing.T) {
 	endpoints := map[string]string{"/api/tags": `"models"`, "/api/ps": `"models"`, "/api/version": `"version"`}
 	for endpoint, responseField := range endpoints {
@@ -274,4 +215,70 @@ func TestSameModelReusesLoadedConfig(t *testing.T) {
 	if backend.reloads.Load() != 1 {
 		t.Fatalf("expected one reload for repeated model, got %d", backend.reloads.Load())
 	}
+}
+
+func TestModelAwareTextEndpointsRouteSelectedConfig(t *testing.T) {
+	endpoints := []string{
+		"/v1/responses",
+		"/v1/responses/input_tokens",
+		"/v1/messages",
+		"/v1/messages/count_tokens",
+		"/v1/rerank",
+		"/v1/reranking",
+		"/api/v1/generate",
+		"/api/extra/generate/stream",
+		"/api/extra/embeddings",
+		"/api/extra/tokencount",
+		"/api/generate",
+		"/api/chat",
+	}
+	for _, endpoint := range endpoints {
+		t.Run(strings.Trim(endpoint, "/"), func(t *testing.T) {
+			assertTextEndpointRoutesSelectedConfig(t, endpoint)
+		})
+	}
+}
+
+func assertTextEndpointRoutesSelectedConfig(t *testing.T, endpoint string) {
+	var sawRequest bool
+	service, backend := newTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == koboldPerfPath {
+			_, _ = w.Write([]byte(`{"total_gens":0}`))
+			return
+		}
+		sawRequest = forwardedBodyNamesModel(t, r, endpoint, "text")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"model":"backend","ok":true}`))
+	}), map[string]string{
+		"text": `{"model_param":"C:\models\text.gguf"}`,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, endpoint, strings.NewReader(`{"model":"text","prompt":"hello"}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
+	}
+	if !sawRequest {
+		t.Fatalf("backend did not receive rewritten local model")
+	}
+	if backend.lastReload != "text.kcpps" {
+		t.Fatalf("unexpected reload config %q", backend.lastReload)
+	}
+	if !strings.Contains(recorder.Body.String(), `"model":"text"`) {
+		t.Fatalf("response model was not rewritten: %s", recorder.Body.String())
+	}
+}
+
+func forwardedBodyNamesModel(t *testing.T, r *http.Request, expectedPath string, model string) bool {
+	if r.URL.Path != expectedPath {
+		t.Fatalf("unexpected path %s", r.URL.Path)
+	}
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Contains(string(body), `"model":"`+model+`"`)
 }

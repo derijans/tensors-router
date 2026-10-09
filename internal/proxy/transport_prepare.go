@@ -116,11 +116,11 @@ func transportExternalSelector(r *http.Request) string {
 			return value
 		}
 	}
-	return strings.TrimSpace(r.Header.Get("X-Tensors-Model"))
+	return strings.TrimSpace(r.Header.Get(headerTensorsModel))
 }
 
 func transportRequestIsJSON(r *http.Request) bool {
-	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get(headerContentType))
 	return err == nil && strings.Contains(strings.ToLower(mediaType), "json")
 }
 

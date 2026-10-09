@@ -93,13 +93,7 @@ export function optionInputList(value: JsonValue | undefined): string[] {
 }
 
 export function optionValueLabel(value: JsonValue | undefined): string {
-  if (typeof value === "string") {
-    return value;
-  }
-  if (value === undefined) {
-    return "";
-  }
-  return JSON.stringify(value) ?? "";
+  return optionInputValue(value);
 }
 
 export function parseOptionInput(definition: OptionDefinition | undefined, value: string): ParseResult {
@@ -161,7 +155,7 @@ export function emptyComparableValue(value: JsonValue | undefined): boolean {
     return value.trim() === "";
   }
   if (Array.isArray(value)) {
-    return value.length === 0 || value.every(emptyComparableValue);
+    return value.every(emptyComparableValue);
   }
   if (typeof value === "object") {
     return Object.keys(value).length === 0;
@@ -181,4 +175,8 @@ export function formatBytes(value: number): string {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
   return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+
+export function pluralSuffix(count: number): string {
+  return count === 1 ? "" : "s";
 }

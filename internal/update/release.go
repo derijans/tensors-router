@@ -16,6 +16,12 @@ import (
 	"tensors-router/internal/hardware"
 )
 
+const (
+	backendLlamaServer   = "llama-server"
+	backendSDServer      = "sd-server"
+	backendWhisperServer = "whisper-server"
+)
+
 type releaseResolver struct {
 	client  *http.Client
 	apiBase string
@@ -144,7 +150,7 @@ func selectReleasePayloads(backend string, assets []githubAsset, assetGlob strin
 	if strings.TrimSpace(assetGlob) != "" {
 		return selectGlobbedPayload(backend, assets, assetGlob)
 	}
-	if backend == "llama-server" && runtime.GOOS == "linux" && info.GPUBackend == hardware.GPUBackendCUDA {
+	if backend == backendLlamaServer && runtime.GOOS == "linux" && info.GPUBackend == hardware.GPUBackendCUDA {
 		return nil, fmt.Errorf("llama-server Linux NVIDIA releases require updates.llama_asset_glob, updates.llama_repository_url with CUDA assets, or updates.llama_binary_url")
 	}
 	return selectKnownPayloads(backend, assets, info)
@@ -182,7 +188,7 @@ func selectKnownPayloads(backend string, assets []githubAsset, info hardware.Inf
 		return nil, fmt.Errorf("%s release asset selection is ambiguous or incompatible (%d matches); configure an exact asset glob", backend, len(candidates))
 	}
 	payloads := []resolvedPayload{payloadFromAsset(candidates[0])}
-	if runtime.GOOS == "windows" && info.GPUBackend == hardware.GPUBackendCUDA && (backend == "llama-server" || backend == "sd-server") {
+	if runtime.GOOS == "windows" && info.GPUBackend == hardware.GPUBackendCUDA && (backend == backendLlamaServer || backend == backendSDServer) {
 		companions, err := selectCUDACompanions(assets, info)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", backend, err)
@@ -202,19 +208,23 @@ func isPrimaryAsset(backend string, name string) bool {
 		return false
 	}
 	switch backend {
-	case "llama-server":
-		return strings.Contains(lowerName, "llama") && (strings.HasSuffix(lowerName, ".zip") || strings.HasSuffix(lowerName, ".tar.gz") || strings.HasSuffix(lowerName, ".tgz"))
-	case "sd-server":
-		return (strings.Contains(lowerName, "stable") || strings.HasPrefix(lowerName, "sd-")) && (strings.HasSuffix(lowerName, ".zip") || strings.HasSuffix(lowerName, ".tar.gz") || strings.HasSuffix(lowerName, ".tgz"))
-	case "whisper-server":
-		return strings.HasPrefix(lowerName, "whisper-") && strings.Contains(lowerName, "bin") && (strings.HasSuffix(lowerName, ".zip") || strings.HasSuffix(lowerName, ".tar.gz") || strings.HasSuffix(lowerName, ".tgz"))
+	case backendLlamaServer:
+		return strings.Contains(lowerName, "llama") && isReleaseArchive(lowerName)
+	case backendSDServer:
+		return (strings.Contains(lowerName, "stable") || strings.HasPrefix(lowerName, "sd-")) && isReleaseArchive(lowerName)
+	case backendWhisperServer:
+		return strings.HasPrefix(lowerName, "whisper-") && strings.Contains(lowerName, "bin") && isReleaseArchive(lowerName)
 	default:
-		return strings.Contains(lowerName, "kobold") && (strings.HasSuffix(lowerName, ".zip") || strings.HasSuffix(lowerName, ".tar.gz") || strings.HasSuffix(lowerName, ".tgz") || !strings.Contains(lowerName, "."))
+		return strings.Contains(lowerName, "kobold") && (isReleaseArchive(lowerName) || !strings.Contains(lowerName, "."))
 	}
 }
 
+func isReleaseArchive(lowerName string) bool {
+	return strings.HasSuffix(lowerName, ".zip") || strings.HasSuffix(lowerName, ".tar.gz") || strings.HasSuffix(lowerName, ".tgz")
+}
+
 func matchesPlatformForBackend(backend string, name string) bool {
-	if backend != "whisper-server" {
+	if backend != backendWhisperServer {
 		return matchesPlatform(name)
 	}
 	lowerName := strings.ToLower(name)
@@ -242,7 +252,7 @@ func matchesWhisperArchitecture(lowerName string) bool {
 }
 
 func matchesAcceleratorForBackend(backend string, name string, accelerator string) bool {
-	if backend != "whisper-server" {
+	if backend != backendWhisperServer {
 		return matchesAccelerator(name, accelerator)
 	}
 	lowerName := strings.ToLower(name)

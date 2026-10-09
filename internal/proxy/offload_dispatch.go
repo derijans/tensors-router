@@ -131,26 +131,6 @@ func writeOffloadReturned(w http.ResponseWriter) {
 	openai.WriteError(w, http.StatusConflict, offloadReturnedCode, "node has work of its own and returned this borrowed request")
 }
 
-func (service *Service) forwardOffloadedRequest(w http.ResponseWriter, original *http.Request, forwarded *http.Request, body []byte, lane string, entry *offloadEntry, publicID string, release func()) bool {
-	response, err := service.sendOffloadedRequest(original.Context(), lane, entry.modelID, forwarded, body)
-	if err != nil {
-		service.scheduler.finishOffload(lane, entry.modelID, entry, true)
-		return false
-	}
-	defer service.scheduler.finishOffload(lane, entry.modelID, entry, false)
-	response = responseWithRelease(response, release)
-	_ = service.writeProxyResponse(w, response, publicID, true)
-	return true
-}
-
-func (service *Service) forwardOffloadedImageRequest(w http.ResponseWriter, original *http.Request, forwarded *http.Request, body []byte, entry *offloadEntry, publicImageID string, release func()) bool {
-	return service.forwardOffloadedRequest(w, original, forwarded, body, cluster.RouteLaneImage, entry, publicImageID, release)
-}
-
-func (service *Service) forwardOffloadedTextRequest(w http.ResponseWriter, original *http.Request, forwarded *http.Request, body []byte, entry *offloadEntry, publicID string, release func()) bool {
-	return service.forwardOffloadedRequest(w, original, forwarded, body, cluster.RouteLaneText, entry, publicID, release)
-}
-
 func (service *Service) lentTextRequestFitsHelper(modelID string, entry *offloadEntry) bool {
 	lease, leased := service.scheduler.activeOffloadLease(cluster.RouteLaneText, modelID, time.Now())
 	return leased && service.leasedHelperContextFits(routinggroups.Endpoint{NodeID: lease.HelperNodeID, ModelID: lease.HelperModelID}, entry.requiredContext)
@@ -166,4 +146,24 @@ func (service *Service) leasedHelperContextFits(helper routinggroups.Endpoint, r
 		}
 	}
 	return false
+}
+
+func (service *Service) forwardOffloadedRequest(w http.ResponseWriter, original *http.Request, forwarded *http.Request, body []byte, lane string, entry *offloadEntry, acquired acquiredRegistryRoute) bool {
+	response, err := service.sendOffloadedRequest(original.Context(), lane, entry.modelID, forwarded, body)
+	if err != nil {
+		service.scheduler.finishOffload(lane, entry.modelID, entry, true)
+		return false
+	}
+	defer service.scheduler.finishOffload(lane, entry.modelID, entry, false)
+	response = responseWithRelease(response, acquired.release)
+	_ = service.writeProxyResponse(w, response, acquired.publicID, true)
+	return true
+}
+
+func (service *Service) forwardOffloadedImageRequest(w http.ResponseWriter, original *http.Request, forwarded *http.Request, body []byte, entry *offloadEntry, acquired acquiredRegistryRoute) bool {
+	return service.forwardOffloadedRequest(w, original, forwarded, body, cluster.RouteLaneImage, entry, acquired)
+}
+
+func (service *Service) forwardOffloadedTextRequest(w http.ResponseWriter, original *http.Request, forwarded *http.Request, body []byte, entry *offloadEntry, acquired acquiredRegistryRoute) bool {
+	return service.forwardOffloadedRequest(w, original, forwarded, body, cluster.RouteLaneText, entry, acquired)
 }

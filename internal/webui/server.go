@@ -17,6 +17,15 @@ import (
 )
 
 const (
+	messageNotFound            = "not found"
+	headerContentType          = "Content-Type"
+	mediaTypeJSON              = "application/json"
+	httpsScheme                = "https://"
+	webUIProxyPrefix           = "/router/webuis/"
+	messageRequestBodyTooLarge = "request body too large"
+)
+
+const (
 	backendTicketQueryKey     = "tensors_router_ticket"
 	maxWebUIControlBodyBytes  = 8 * transportbody.MiB
 	maxWebUIProxyResponseSize = 32 * transportbody.GiB
@@ -69,7 +78,7 @@ func (server *Server) serveAdminHTTP(w http.ResponseWriter, r *http.Request) {
 		server.handleAPI(w, r)
 		return
 	}
-	if strings.HasPrefix(r.URL.Path, "/router/webuis/") {
+	if strings.HasPrefix(r.URL.Path, webUIProxyPrefix) {
 		server.proxyRouterWebUI(w, r)
 		return
 	}
@@ -85,7 +94,7 @@ func limitAdminAPIRequestBody(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	if r.ContentLength > maxWebUIControlBodyBytes {
-		writeWebError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		writeWebError(w, http.StatusRequestEntityTooLarge, messageRequestBodyTooLarge)
 		return true
 	}
 	content, err := io.ReadAll(io.LimitReader(r.Body, maxWebUIControlBodyBytes+1))
@@ -95,7 +104,7 @@ func limitAdminAPIRequestBody(w http.ResponseWriter, r *http.Request) bool {
 		return true
 	}
 	if int64(len(content)) > maxWebUIControlBodyBytes {
-		writeWebError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		writeWebError(w, http.StatusRequestEntityTooLarge, messageRequestBodyTooLarge)
 		return true
 	}
 	r.Body = io.NopCloser(bytes.NewReader(content))
@@ -106,7 +115,7 @@ func limitAdminAPIRequestBody(w http.ResponseWriter, r *http.Request) bool {
 func (server *Server) serveBackendUIHTTP(w http.ResponseWriter, r *http.Request) {
 	kind, path, ok := backendUIRouterPath(r)
 	if !ok {
-		writeWebError(w, http.StatusNotFound, "not found")
+		writeWebError(w, http.StatusNotFound, messageNotFound)
 		return
 	}
 	if !server.authorizeBackendUIRequest(w, r, kind) {
@@ -121,7 +130,7 @@ func (server *Server) serveIndex(w http.ResponseWriter) {
 		writeWebError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set(headerContentType, "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(content)
 }
@@ -145,7 +154,7 @@ func (server *Server) handleAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	writeWebError(w, http.StatusNotFound, "not found")
+	writeWebError(w, http.StatusNotFound, messageNotFound)
 }
 
 func (server *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -210,9 +219,9 @@ func (server *Server) proxyRouter(w http.ResponseWriter, r *http.Request, method
 	if !ok {
 		return
 	}
-	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Accept", mediaTypeJSON)
 	if hasBody {
-		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set(headerContentType, mediaTypeJSON)
 	}
 	server.forwardRouterProxyRequest(w, request, false)
 }
@@ -222,9 +231,9 @@ func (server *Server) proxyWebUILoad(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	request.Header.Set("Accept", "application/json")
+	request.Header.Set("Accept", mediaTypeJSON)
 	if hasBody {
-		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set(headerContentType, mediaTypeJSON)
 	}
 	response, err := server.client.Do(request)
 	if err != nil {
@@ -267,7 +276,7 @@ func logBackendDiagnostic(content []byte) {
 func (server *Server) proxyRouterWebUI(w http.ResponseWriter, r *http.Request) {
 	kind, ok := webUIKindFromPath(r.URL.Path)
 	if !ok {
-		writeWebError(w, http.StatusNotFound, "not found")
+		writeWebError(w, http.StatusNotFound, messageNotFound)
 		return
 	}
 	if server.authenticationRequired() && !server.sessions.Authorized(r) {
@@ -321,7 +330,7 @@ func (server *Server) backendUIOrigin(r *http.Request) (string, error) {
 	if host == "" {
 		return "", &net.AddrError{Err: "missing request host", Addr: r.Host}
 	}
-	return "https://" + net.JoinHostPort(host, port), nil
+	return httpsScheme + net.JoinHostPort(host, port), nil
 }
 
 func requestHostname(hostPort string) string {
@@ -395,7 +404,7 @@ func (server *Server) newRouterProxyRequest(w http.ResponseWriter, r *http.Reque
 				return nil, false, false
 			}
 			if int64(len(content)) > maxWebUIControlBodyBytes {
-				writeWebError(w, http.StatusRequestEntityTooLarge, "request body too large")
+				writeWebError(w, http.StatusRequestEntityTooLarge, messageRequestBodyTooLarge)
 				return nil, false, false
 			}
 			hasBody = len(content) > 0
@@ -454,7 +463,7 @@ func stateChangingMethod(method string) bool {
 }
 
 func writeWebJSON(w http.ResponseWriter, status int, value any) {
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, mediaTypeJSON)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(value)
 }
@@ -517,7 +526,7 @@ func webUIBackendProxyPath(r *http.Request) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	return "/router/webuis/" + kind + "/" + strings.TrimLeft(r.URL.Path, "/"), true
+	return webUIProxyPrefix + kind + "/" + strings.TrimLeft(r.URL.Path, "/"), true
 }
 
 func backendUIRouterPath(r *http.Request) (string, string, bool) {
@@ -558,7 +567,7 @@ func webUIKindFromReferer(r *http.Request) (string, bool) {
 }
 
 func webUIKindFromPath(path string) (string, bool) {
-	const prefix = "/router/webuis/"
+	const prefix = webUIProxyPrefix
 	if !strings.HasPrefix(path, prefix) {
 		return "", false
 	}
@@ -641,8 +650,8 @@ func NormalizeBind(bind string) string {
 	if strings.HasPrefix(b, "http://") {
 		return strings.TrimPrefix(b, "http://")
 	}
-	if strings.HasPrefix(b, "https://") {
-		return strings.TrimPrefix(b, "https://")
+	if strings.HasPrefix(b, httpsScheme) {
+		return strings.TrimPrefix(b, httpsScheme)
 	}
 	return b
 }

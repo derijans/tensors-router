@@ -1,5 +1,6 @@
+import { jinjaKwargsPrecedenceOptions } from "./jinja-precedence-options";
 import { SafeHTML, emptyHTML, html, listOrFallback, setHTML } from "./safe-html";
-import { compareOptionKeys, jinjaKwargsPrecedenceKey, jinjaKwargsPrecedenceLabels, laneMetadata } from "./constants";
+import { compareOptionKeys, jinjaKwargsPrecedenceKey, laneMetadata } from "./constants";
 import {
   changedDraftValues,
   cloneOptions,
@@ -14,7 +15,7 @@ import { elements } from "./elements";
 import { state } from "./state";
 import { defaultFieldValue } from "./simple-cook-data";
 import { invalidateAcceptedConversions, recordConversion } from "./conversions";
-import { badge } from "./markup-primitives";
+import { badge, optionElement } from "./markup-primitives";
 import {
   optionInputValue,
   optionValueLabel,
@@ -254,9 +255,10 @@ function fieldDiffRow(key: string, sourceValue: JsonValue | undefined, draft: Op
   const hasOverride = Object.hasOwn(draft, key);
   const draftValue = hasOverride ? draft[key] : undefined;
   const changed = hasOverride && comparableJsonValue(draftValue) !== comparableJsonValue(effectiveSourceValue);
-  const input = key === jinjaKwargsPrecedenceKey
-    ? jinjaKwargsPrecedenceInput(key, hasOverride ? draftValue : effectiveSourceValue)
-    : html`<input data-field-draft="${key}" value="${hasOverride ? optionInputValue(draftValue) : ""}" placeholder="inherit">`;
+  const shownValue = hasOverride ? draftValue : effectiveSourceValue;
+  const draftText = hasOverride ? optionInputValue(draftValue) : "";
+  const input = key === jinjaKwargsPrecedenceKey ? jinjaKwargsPrecedenceInput(key, shownValue) : draftTextInput(key, draftText);
+
   return html`
     <div class="field-diff-row ${changed ? "changed" : ""}">
       <div class="field-label">
@@ -272,16 +274,28 @@ function fieldDiffRow(key: string, sourceValue: JsonValue | undefined, draft: Op
         ${input}
       </label>
       <div class="field-state">
-        ${hasOverride ? badge(changed ? "changed" : "same", changed ? "warning" : "neutral") : badge("source", "neutral")}
+        ${fieldStateBadge(hasOverride, changed)}
         <button class="icon-button" type="button" title="Reset field" aria-label="Reset ${key}" data-field-modal-action="reset-field" data-field-key="${key}">×</button>
       </div>
     </div>
   `;
 }
 
-function jinjaKwargsPrecedenceInput(key: string, value: JsonValue | undefined): SafeHTML {
+function draftTextInput(key: string, value: string): SafeHTML {
+  return html`<input data-field-draft="${key}" value="${value}" placeholder="inherit">`;
+}
+
+function fieldStateBadge(hasOverride: boolean, changed: boolean): SafeHTML {
+  if (!hasOverride) {
+    return badge("source", "neutral");
+  }
+  return changed ? badge("changed", "warning") : badge("same", "neutral");
+}
+
+function jinjaKwargsPrecedenceInput(
+key: string, value: JsonValue | undefined): SafeHTML {
   const selectedValue = value === "client" ? "client" : "config";
-  return html`<select data-field-draft="${key}">${Object.entries(jinjaKwargsPrecedenceLabels).map(([precedence, label]) => html`<option value="${precedence}"${precedence === selectedValue ? " selected" : ""}>${label}</option>`)}</select>`;
+  return html`<select data-field-draft="${key}">${jinjaKwargsPrecedenceOptions(selectedValue)}</select>`;
 }
 
 function assignmentBlock(lane: LaneKind, payload: PaletteComponentPayload): SafeHTML {
@@ -298,7 +312,7 @@ function assignmentBlock(lane: LaneKind, payload: PaletteComponentPayload): Safe
       <label>
         Assign file to
         <select data-file-option-key>
-          ${keys.map(key => html`<option value="${key}">${key}</option>`)}
+          ${keys.map(key => optionElement(key, key))}
         </select>
       </label>
     </div>
@@ -328,12 +342,12 @@ function addFieldOptions(lane: LaneKind, usedKeys: string[]): SafeHTML {
   return html`${allOptionDefinitions()
     .filter(definition => (definition.section || "other") === section && !used.has(definition.key))
     .sort(compareDefinitions)
-    .map(definition => html`<option value="${definition.key}">${definition.key}</option>`)}`;
+    .map(definition => optionElement(definition.key, definition.key))}`;
 }
 
 function presetOptions(lane: LaneKind): SafeHTML {
   return html`${matchingPresets(lane)
-    .map(preset => html`<option value="${fieldPresetID(preset)}">${preset.name}</option>`)}`;
+    .map(preset => optionElement(fieldPresetID(preset), preset.name))}`;
 }
 
 function matchingPresets(lane: LaneKind): FieldPreset[] {

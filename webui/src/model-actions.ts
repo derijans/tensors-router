@@ -1,4 +1,4 @@
-import { html, setHTML } from "./safe-html";
+import { SafeHTML, emptyHTML, html, setHTML } from "./safe-html";
 import { createModelAssetResolutionJob, getModelAssetResolutionJob, loadModelConfig } from "./api";
 import type { ModelAssetResolutionJob } from "./api";
 import { filterInventoryModels, inventoryModels } from "./model-inventory-data";
@@ -106,20 +106,43 @@ async function resolveRequest(request: ResolutionRequest): Promise<ResolutionOut
 }
 
 function renderResolutionProgress(results: ResolutionOutcome[], total: number): void {
-  const failed = results.filter(result => result.error || result.job?.state === "failed");
-  const completed = results.length - failed.length;
-  const summary = results.length < total
-    ? `Resolved ${results.length} of ${total} visible configs...`
-    : failed.length > 0
-      ? `${completed} resolved, ${failed.length} failed`
-      : `${completed} visible configs resolved`;
-  elements.modelsActionStatus.classList.toggle("error-text", results.length === total && failed.length > 0);
-  setHTML(elements.modelsActionStatus, html`<p>${summary}</p><div class="resolution-results">${results.map(result => {
-    const failedResult = result.error || result.job?.state === "failed";
-    const fieldSummary = result.job?.results?.map(field => `${field.field}: ${field.resolved ? field.source || "verified" : field.failure || "unavailable"}`).join(", ") || result.error || result.job?.state || "completed";
-    return html`<div class="resolution-result"><span>${result.request.id} · ${fieldSummary}</span>${failedResult ? html`<button type="button" data-model-resolution-retry="${resolutionRequestKey(result.request)}">Retry</button>` : ""}</div>`;
-  })}</div>`);
+  const failedCount = results.filter(resolutionFailed).length;
+  elements.modelsActionStatus.classList.toggle("error-text", results.length === total && failedCount > 0);
+  setHTML(elements.modelsActionStatus, html`<p>${resolutionSummary(results.length, failedCount, total)}</p><div class="resolution-results">${results.map(resolutionResultLine)}</div>`);
 }
+
+function resolutionFailed(result: ResolutionOutcome): boolean {
+  return Boolean(result.error) || result.job?.state === "failed";
+}
+
+function resolutionSummary(finished: number, failedCount: number, total: number): string {
+  if (finished < total) {
+    return `Resolved ${finished} of ${total} visible configs...`;
+  }
+  const completed = finished - failedCount;
+  return failedCount > 0 ? `${completed} resolved, ${failedCount} failed` : `${completed} visible configs resolved`;
+}
+
+function resolutionResultLine(result: ResolutionOutcome): SafeHTML {
+  return html`<div class="resolution-result"><span>${result.request.id} · ${resolutionFieldSummary(result)}</span>${resolutionRetryButton(result)}</div>`;
+}
+
+function resolutionRetryButton(result: ResolutionOutcome): SafeHTML {
+  if (!resolutionFailed(result)) {
+    return emptyHTML;
+  }
+  return html`<button type="button" data-model-resolution-retry="${resolutionRequestKey(result.request)}">Retry</button>`;
+}
+
+function resolutionFieldSummary(result: ResolutionOutcome): string {
+  return result.job?.results?.map(resolvedFieldLabel).join(", ") || result.error || result.job?.state || "completed";
+}
+
+function resolvedFieldLabel(field: NonNullable<ModelAssetResolutionJob["results"]>[number]): string {
+  const outcome = field.resolved ? field.source || "verified" : field.failure || "unavailable";
+  return `${field.field}: ${outcome}`;
+}
+
 
 function resolutionRequestKey(request: ResolutionRequest): string {
   return `${encodeURIComponent(request.node_id)}|${encodeURIComponent(request.id)}`;

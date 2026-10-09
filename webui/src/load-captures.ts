@@ -3,7 +3,7 @@ import { getLoadCaptureDetail, getLoadCaptureOutput, getLoadCaptures } from "./a
 import { elements } from "./elements";
 import { state } from "./state";
 import type { LoadCaptureAttempt, LoadCaptureQuery, Tone } from "./types";
-import { badge } from "./markup-primitives";
+import { badge, optionElement } from "./markup-primitives";
 import { safeTerminalText } from "./terminal-output";
 
 export async function loadLoadCaptures(reset = true): Promise<void> {
@@ -67,7 +67,7 @@ export function renderLoadCaptures(): void {
   } else if (state.loadCaptures.loading) {
     elements.loadCaptureStatus.textContent = "Loading captures...";
   } else {
-    setHTML(elements.loadCaptureStatus, html`${(state.loadCaptures.data?.node_errors || []).map(error => html`<div class="error-text">${error.node_id}: ${error.error}</div>`)}`);
+    setHTML(elements.loadCaptureStatus, html`${(state.loadCaptures.data?.node_errors || []).map(captureNodeError)}`);
   }
   setHTML(elements.loadCaptureRows, html`${state.loadCaptures.attempts.map(captureRow)}`);
   elements.loadCaptureMoreButton.hidden = !state.loadCaptures.nextCursor;
@@ -77,10 +77,21 @@ export function renderLoadCaptures(): void {
 function renderNodeChoices(): void {
   const nodes = state.loadCaptures.data?.nodes || [];
   const selected = new Set(state.loadCaptures.query.node_ids);
-  setHTML(elements.loadCaptureNodeSelect, html`${nodes.map(node => html`<option value="${node.node_id}"${selected.has(node.node_id) ? " selected" : ""}>${node.node_id}${node.enabled ? "" : " (disabled)"}</option>`)}`);
+  setHTML(elements.loadCaptureNodeSelect, html`${nodes.map(node => optionElement(node.node_id, captureNodeLabel(node), selected.has(node.node_id)))}`);
+
 }
 
-function captureRow(attempt: LoadCaptureAttempt): SafeHTML {
+function captureNodeLabel(node: {node_id: string; enabled: boolean}): string {
+  return node.enabled ? node.node_id : `${node.node_id} (disabled)`;
+}
+
+function captureNodeError(
+error: {node_id: string; error: string}): SafeHTML {
+  return html`<div class="error-text">${error.node_id}: ${error.error}</div>`;
+}
+
+function captureRow(
+attempt: LoadCaptureAttempt): SafeHTML {
   const duration = attempt.duration_ms > 0 ? `${attempt.duration_ms} ms` : "N/A";
   const selected = state.loadCaptures.detail?.attempt.id === attempt.id ? html` class="selected"` : emptyHTML;
   return html`<tr${selected}>

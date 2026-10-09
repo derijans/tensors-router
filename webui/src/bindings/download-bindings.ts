@@ -1,30 +1,32 @@
 import { confirmDestructive } from "../dialogs";
 import { elementTarget } from "../dom";
 import {
-  bindDownloadCandidate,
   changeDownloadJob,
   chooseDownloadSearchResult,
-  clearAllDownloadFilters,
-  clearDownloadFilter,
-  debounceDownloadSearch,
   loadDownloadLibrary,
-  prefillDownloadContext,
   previewDownloadPlan,
-  replaceDownloadCandidate,
   rescanDownloadLibrary,
-  searchDownloadRepositories,
-  selectDownloadFilterTab,
   selectDownloadNode,
   setPlannedDownloadSelection,
   startPlannedDownload,
   stopDownloadJobPolling,
   syncDownloadJobPolling,
+  togglePlannedDownloadFile
+} from "../downloads";
+import {
+  bindDownloadCandidate,
+  clearAllDownloadFilters,
+  clearDownloadFilter,
+  debounceDownloadSearch,
+  prefillDownloadContext,
+  replaceDownloadCandidate,
+  searchDownloadRepositories,
+  selectDownloadFilterTab,
   toggleDownloadFilter,
   toggleDownloadFilterGroup,
-  togglePlannedDownloadFile,
   updateDownloadFilterSearch,
   updateDownloadSearchMode
-} from "../downloads";
+} from "../download-finder";
 import { elements } from "../elements";
 import { activateTab, onTabActivation } from "../shell/navigation";
 import { state } from "../state";

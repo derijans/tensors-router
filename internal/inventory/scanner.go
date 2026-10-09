@@ -13,6 +13,8 @@ import (
 	"tensors-router/internal/cluster"
 )
 
+const safetensorsIndexSuffix = ".safetensors.index.json"
+
 const (
 	RoleUnknown    = "unknown"
 	RoleLLM        = "llm"
@@ -273,7 +275,7 @@ func insideRoot(root string, path string) bool {
 
 func roleFromExtension(extension string) string {
 	switch strings.ToLower(extension) {
-	case ".safetensors", ".safetensors.index.json", ".ckpt":
+	case ".safetensors", safetensorsIndexSuffix, ".ckpt":
 		return RoleImage
 	case ".gguf", ".bin":
 		return RoleLLM
@@ -299,13 +301,13 @@ func allowedInventoryFile(path string) bool {
 
 func inventoryExtension(path string) string {
 	if isSafeTensorsIndexManifest(path) {
-		return ".safetensors.index.json"
+		return safetensorsIndexSuffix
 	}
 	return strings.ToLower(filepath.Ext(path))
 }
 
 func isSafeTensorsIndexManifest(path string) bool {
-	return strings.HasSuffix(strings.ToLower(filepath.Base(path)), ".safetensors.index.json")
+	return strings.HasSuffix(strings.ToLower(filepath.Base(path)), safetensorsIndexSuffix)
 }
 
 func sortedKeys(values map[string]struct{}) []string {

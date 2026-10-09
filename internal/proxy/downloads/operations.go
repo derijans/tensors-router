@@ -106,7 +106,7 @@ func (handlers *Handlers) downloadJob(ctx context.Context, nodeID string, jobID 
 	}
 	if remote {
 		var response downloader.DownloadJob
-		err := handlers.deps.ClusterClient().JSON(ctx, http.MethodGet, remoteURL, "/router/v1/node/site/download/jobs/"+jobID, nil, &response)
+		err := handlers.deps.ClusterClient().JSON(ctx, http.MethodGet, remoteURL, nodeDownloadJobsPrefix+jobID, nil, &response)
 		return response, err
 	}
 	if handlers.downloader == nil {
@@ -129,7 +129,7 @@ func (handlers *Handlers) downloadJobAction(ctx context.Context, nodeID string, 
 	}
 	if remote {
 		var response downloader.DownloadJob
-		err := handlers.deps.ClusterClient().JSON(ctx, http.MethodPost, remoteURL, "/router/v1/node/site/download/jobs/"+jobID+"/"+action, nil, &response)
+		err := handlers.deps.ClusterClient().JSON(ctx, http.MethodPost, remoteURL, nodeDownloadJobsPrefix+jobID+"/"+action, nil, &response)
 		return response, err
 	}
 	if handlers.downloader == nil {

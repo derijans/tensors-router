@@ -1,4 +1,4 @@
-import { SafeHTML, html, setHTML } from "./safe-html";
+import { SafeHTML, emptyHTML, html, setHTML } from "./safe-html";
 import { elements } from "./elements";
 import { optionValueLabel } from "./utils";
 import type { ConversionWarning } from "./types";
@@ -48,14 +48,7 @@ export async function confirmDestructive(title: string, message: string, confirm
 }
 
 export async function reviewConversions(warnings: ConversionWarning[]): Promise<boolean> {
-  const rows = html`${warnings.map(warning => html`
-    <tr>
-      <td><code>${warning.field}</code></td>
-      <td>${warning.original}</td>
-      <td>${optionValueLabel(warning.proposed)}</td>
-      <td>${warning.reason}</td>
-    </tr>
-  `)}`;
+  const rows = html`${warnings.map(conversionRow)}`;
   const choice = await showDialog({
     title: "Review lossy conversions",
     message: "These inputs will change meaning when saved.",
@@ -73,7 +66,26 @@ export async function reviewConversions(warnings: ConversionWarning[]): Promise<
   return choice === "accept";
 }
 
+function conversionRow(warning: ConversionWarning): SafeHTML {
+  return html`
+    <tr>
+      <td><code>${warning.field}</code></td>
+      <td>${warning.original}</td>
+      <td>${optionValueLabel(warning.proposed)}</td>
+      <td>${warning.reason}</td>
+    </tr>
+  `;
+}
+
+const dangerClassAttribute = html` class="danger"`;
+
+function dialogChoiceButton(choice: DialogChoice): SafeHTML {
+  return html`<button type="button" data-dialog-choice="${choice.value}"${choice.danger ? dangerClassAttribute : emptyHTML}>${choice.label}</button>`;
+}
+
+
 async function showDialog(request: DialogRequest): Promise<string> {
+
   if (resolveDialog) {
     finishDialog("");
   }
@@ -82,7 +94,7 @@ async function showDialog(request: DialogRequest): Promise<string> {
     <p class="dialog-warning">${request.message}</p>
     ${request.details}
     <div class="dialog-actions">
-      ${request.choices.map(choice => html`<button type="button" data-dialog-choice="${choice.value}"${choice.danger ? html` class="danger"` : ""}>${choice.label}</button>`)}
+      ${request.choices.map(dialogChoiceButton)}
     </div>
   `);
   elements.safetyDialog.showModal();

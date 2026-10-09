@@ -121,7 +121,7 @@ func serverSentDataEvent(payload any) []byte {
 		return nil
 	}
 	event := make([]byte, 0, len(encoded)+8)
-	event = append(event, "data: "...)
+	event = append(event, serverSentEventDataPrefix...)
 	event = append(event, encoded...)
 	return append(event, "\n\n"...)
 }

@@ -1,115 +1,14 @@
 package kobold
 
 import (
-	"bytes"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
-
-	"tensors-router/internal/catalog"
 )
 
-func (manager *Manager) runtimeConfig(filename string) (string, string, catalog.RuntimeConfig, error) {
-	if filename == "" || filename != filepath.Base(filename) {
-		return "", "", catalog.RuntimeConfig{}, fmt.Errorf("config filename %q is invalid", filename)
-	}
-	sourcePath := filepath.Join(manager.config.ConfigDir, filename)
-	content, err := os.ReadFile(sourcePath)
-	if err != nil {
-		if manager.role != embeddingsRole && os.IsNotExist(err) {
-			return filename, "", catalog.RuntimeConfig{}, nil
-		}
-		return "", "", catalog.RuntimeConfig{}, err
-	}
-	metadata, err := catalog.LoadRuntimeConfig(sourcePath)
-	if err != nil {
-		return "", "", catalog.RuntimeConfig{}, err
-	}
-	if !metadata.RunEmbedSeparate {
-		if manager.role == embeddingsRole {
-			return "", "", catalog.RuntimeConfig{}, fmt.Errorf("config %q does not enable run_embed_separate", filename)
-		}
-		return filename, "", metadata, nil
-	}
-	var values map[string]json.RawMessage
-	if err := json.Unmarshal(content, &values); err != nil {
-		return "", "", catalog.RuntimeConfig{}, err
-	}
-	if manager.role == embeddingsRole {
-		manager.state.Lock()
-		if metadata.EmbeddingsGPU {
-			manager.roleArgs = nil
-		} else {
-			manager.roleArgs = []string{"--usecpu"}
-		}
-		manager.state.Unlock()
-		values = embeddingRuntimeValues(values, metadata.EmbeddingsGPU)
-	} else {
-		delete(values, "embeddingsmodel")
-		delete(values, "embeddingsmaxctx")
-		delete(values, "embeddingsgpu")
-		delete(values, "run_embed_separate")
-	}
-	generatedContent, err := json.Marshal(values)
-	if err != nil {
-		return "", "", catalog.RuntimeConfig{}, err
-	}
-	runtimeDir := filepath.Join(manager.config.ConfigDir, ".router-runtime")
-	if err := ensurePrivateRuntimeDir(runtimeDir); err != nil {
-		return "", "", catalog.RuntimeConfig{}, err
-	}
-	digest := sha256.Sum256(append([]byte(manager.role+"\x00"), generatedContent...))
-	roleName := "primary"
-	if manager.role == embeddingsRole {
-		roleName = embeddingsRole
-	}
-	runtimeName := fmt.Sprintf("%s-%s-%x.kcpps", safeRuntimeStem(filename), roleName, digest[:8])
-	runtimePath := filepath.Join(runtimeDir, runtimeName)
-	if info, err := os.Lstat(runtimePath); os.IsNotExist(err) {
-		temporary, createErr := os.CreateTemp(runtimeDir, ".runtime-*.tmp")
-		if createErr != nil {
-			return "", "", catalog.RuntimeConfig{}, createErr
-		}
-		temporaryPath := temporary.Name()
-		writeErr := temporary.Chmod(0o600)
-		if writeErr == nil {
-			_, writeErr = temporary.Write(generatedContent)
-		}
-		if closeErr := temporary.Close(); writeErr == nil {
-			writeErr = closeErr
-		}
-		if writeErr == nil {
-			writeErr = os.Rename(temporaryPath, runtimePath)
-		}
-		if writeErr != nil {
-			_ = os.Remove(temporaryPath)
-			return "", "", catalog.RuntimeConfig{}, writeErr
-		}
-	} else if err != nil {
-		return "", "", catalog.RuntimeConfig{}, err
-	} else {
-		if !info.Mode().IsRegular() {
-			return "", "", catalog.RuntimeConfig{}, fmt.Errorf("generated runtime config %q is not a regular file", runtimePath)
-		}
-		existingContent, readErr := os.ReadFile(runtimePath)
-		if readErr != nil {
-			return "", "", catalog.RuntimeConfig{}, readErr
-		}
-		if !bytes.Equal(existingContent, generatedContent) {
-			return "", "", catalog.RuntimeConfig{}, fmt.Errorf("generated runtime config %q has unexpected content", runtimePath)
-		}
-		if chmodErr := os.Chmod(runtimePath, 0o600); chmodErr != nil {
-			return "", "", catalog.RuntimeConfig{}, chmodErr
-		}
-	}
-	manager.state.Lock()
-	manager.generated[runtimePath] = struct{}{}
-	manager.state.Unlock()
-	return filepath.Join(".router-runtime", runtimeName), runtimePath, metadata, nil
-}
+const routerRuntimeDirectory = ".router-runtime"
 
 func embeddingRuntimeValues(source map[string]json.RawMessage, gpu bool) map[string]json.RawMessage {
 	shared := map[string]bool{
@@ -199,7 +98,7 @@ func (manager *Manager) cleanupGeneratedLocked() error {
 		delete(manager.generated, path)
 	}
 	if manager.config.ConfigDir != "" {
-		_ = os.Remove(filepath.Join(manager.config.ConfigDir, ".router-runtime"))
+		_ = os.Remove(filepath.Join(manager.config.ConfigDir, routerRuntimeDirectory))
 	}
 	return firstErr
 }

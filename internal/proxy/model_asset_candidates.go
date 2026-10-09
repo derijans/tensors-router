@@ -75,72 +75,6 @@ type hfAssetCandidate struct {
 	State          string `json:"state"`
 }
 
-func (assets *assetManager) findHFCandidates(ctx context.Context, reference modelassets.Reference, token string) []hfAssetCandidate {
-	if assets.downloader == nil || !modelassets.ValidHash(reference.Hash) || !modelassets.SafeFilename(reference.Filename) {
-		return nil
-	}
-	stem := strings.TrimSuffix(reference.Filename, path.Ext(reference.Filename))
-	results, err := assets.downloader.Search(ctx, downloader.SearchRequest{Query: stem, Limit: 20}, token)
-	if err != nil {
-		return nil
-	}
-	workers := 4
-	if len(results) < workers {
-		workers = len(results)
-	}
-	if workers == 0 {
-		return nil
-	}
-	jobs := make(chan downloader.SearchResult)
-	candidates := make(chan hfAssetCandidate, len(results))
-	var group sync.WaitGroup
-	for worker := 0; worker < workers; worker++ {
-		group.Add(1)
-		go func() {
-			defer group.Done()
-			for result := range jobs {
-				details, err := assets.downloader.Repository(ctx, downloader.RepositoryRequest{Repository: result.ID, Token: token})
-				if err != nil {
-					continue
-				}
-				for _, file := range details.Files {
-					if path.Base(file.Path) != reference.Filename {
-						continue
-					}
-					state := "unverifiable"
-					if modelassets.ValidHash(strings.ToLower(file.LFSHash)) {
-						state = "mismatched"
-						if strings.EqualFold(file.LFSHash, reference.Hash) {
-							state = "exact"
-						}
-					}
-					select {
-					case candidates <- hfAssetCandidate{Repository: details.Repository, RepositoryPath: file.Path, Commit: details.Commit, SHA256: strings.ToLower(file.LFSHash), State: state}:
-					case <-ctx.Done():
-						return
-					}
-				}
-			}
-		}()
-	}
-	go func() {
-		defer close(jobs)
-		for _, result := range results {
-			select {
-			case jobs <- result:
-			case <-ctx.Done():
-				return
-			}
-		}
-	}()
-	go func() { group.Wait(); close(candidates) }()
-	values := make([]hfAssetCandidate, 0)
-	for candidate := range candidates {
-		values = append(values, candidate)
-	}
-	return values
-}
-
 func (assets *assetManager) findUniqueExactHFOrigin(reference modelassets.Reference) (modelassets.Origin, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -154,4 +88,82 @@ func (assets *assetManager) findUniqueExactHFOrigin(reference modelassets.Refere
 		return modelassets.Origin{}, false
 	}
 	return modelassets.Origin{Repository: exact[0].Repository, Commit: exact[0].Commit, Path: exact[0].RepositoryPath}, true
+}
+
+const hfCandidateSearchWorkers = 4
+
+func (assets *assetManager) findHFCandidates(ctx context.Context, reference modelassets.Reference, token string) []hfAssetCandidate {
+	if assets.downloader == nil || !modelassets.ValidHash(reference.Hash) || !modelassets.SafeFilename(reference.Filename) {
+		return nil
+	}
+	stem := strings.TrimSuffix(reference.Filename, path.Ext(reference.Filename))
+	results, err := assets.downloader.Search(ctx, downloader.SearchRequest{Query: stem, Limit: 20}, token)
+	if err != nil || len(results) == 0 {
+		return nil
+	}
+	jobs := make(chan downloader.SearchResult)
+	candidates := make(chan hfAssetCandidate, len(results))
+	var group sync.WaitGroup
+	for range min(hfCandidateSearchWorkers, len(results)) {
+		group.Go(func() {
+			for result := range jobs {
+				if !assets.sendRepositoryCandidates(ctx, result.ID, reference, token, candidates) {
+					return
+				}
+			}
+		})
+	}
+	go feedSearchResults(ctx, results, jobs)
+	go func() { group.Wait(); close(candidates) }()
+	values := make([]hfAssetCandidate, 0)
+	for candidate := range candidates {
+		values = append(values, candidate)
+	}
+	return values
+}
+
+func feedSearchResults(ctx context.Context, results []downloader.SearchResult, jobs chan<- downloader.SearchResult) {
+	defer close(jobs)
+	for _, result := range results {
+		select {
+		case jobs <- result:
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+func (assets *assetManager) sendRepositoryCandidates(ctx context.Context, repository string, reference modelassets.Reference, token string, candidates chan<- hfAssetCandidate) bool {
+	details, err := assets.downloader.Repository(ctx, downloader.RepositoryRequest{Repository: repository, Token: token})
+	if err != nil {
+		return true
+	}
+	for _, file := range details.Files {
+		if path.Base(file.Path) != reference.Filename {
+			continue
+		}
+		candidate := hfAssetCandidate{
+			Repository:     details.Repository,
+			RepositoryPath: file.Path,
+			Commit:         details.Commit,
+			SHA256:         strings.ToLower(file.LFSHash),
+			State:          hfCandidateState(file.LFSHash, reference.Hash),
+		}
+		select {
+		case candidates <- candidate:
+		case <-ctx.Done():
+			return false
+		}
+	}
+	return true
+}
+
+func hfCandidateState(lfsHash string, expectedHash string) string {
+	if !modelassets.ValidHash(strings.ToLower(lfsHash)) {
+		return "unverifiable"
+	}
+	if strings.EqualFold(lfsHash, expectedHash) {
+		return "exact"
+	}
+	return "mismatched"
 }

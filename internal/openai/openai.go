@@ -37,16 +37,7 @@ func ModelsResponseFromCatalog(models []catalog.Model) ModelsResponse {
 	servedNameOwners := make(map[string]int)
 	for _, model := range models {
 		primaryIDs[model.ID] = struct{}{}
-		seen := make(map[string]struct{}, len(model.ServedNames))
-		for _, servedName := range model.ServedNames {
-			servedName = strings.TrimSpace(servedName)
-			if servedName == "" || servedName == model.ID {
-				continue
-			}
-			if _, duplicate := seen[servedName]; duplicate {
-				continue
-			}
-			seen[servedName] = struct{}{}
+		for _, servedName := range distinctAliases(model) {
 			servedNameOwners[servedName]++
 		}
 	}
@@ -61,21 +52,36 @@ func ModelsResponseFromCatalog(models []catalog.Model) ModelsResponse {
 		data = append(data, primary)
 		for _, servedName := range model.ServedNames {
 			servedName = strings.TrimSpace(servedName)
-			if servedName == "" || servedName == model.ID || servedNameOwners[servedName] != 1 {
-				continue
+			if servedName != model.ID && aliasIsUnambiguous(servedName, servedNameOwners, primaryIDs) {
+				alias := primary
+				alias.ID = servedName
+				data = append(data, alias)
 			}
-			if _, conflicts := primaryIDs[servedName]; conflicts {
-				continue
-			}
-			alias := primary
-			alias.ID = servedName
-			data = append(data, alias)
 		}
 	}
 	return ModelsResponse{
 		Object: "list",
 		Data:   data,
 	}
+}
+
+func distinctAliases(model catalog.Model) []string {
+	seen := make(map[string]struct{}, len(model.ServedNames))
+	aliases := make([]string, 0, len(model.ServedNames))
+	for _, servedName := range model.ServedNames {
+		servedName = strings.TrimSpace(servedName)
+		if _, duplicate := seen[servedName]; duplicate || servedName == "" || servedName == model.ID {
+			continue
+		}
+		seen[servedName] = struct{}{}
+		aliases = append(aliases, servedName)
+	}
+	return aliases
+}
+
+func aliasIsUnambiguous(servedName string, servedNameOwners map[string]int, primaryIDs map[string]struct{}) bool {
+	_, conflictsWithPrimary := primaryIDs[servedName]
+	return servedNameOwners[servedName] == 1 && !conflictsWithPrimary
 }
 
 func WriteJSON(w http.ResponseWriter, status int, value any) {
@@ -86,6 +92,10 @@ func WriteJSON(w http.ResponseWriter, status int, value any) {
 
 func WriteError(w http.ResponseWriter, status int, errorType string, message string) {
 	WriteErrorCode(w, status, errorType, "", message)
+}
+
+func WriteEndpointNotFound(w http.ResponseWriter) {
+	WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
 }
 
 func WriteErrorCode(w http.ResponseWriter, status int, errorType string, code string, message string) {

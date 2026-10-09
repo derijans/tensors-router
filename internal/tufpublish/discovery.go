@@ -9,12 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"path"
 	"strings"
 	"time"
-
-	"tensors-router/internal/vllm"
 )
 
 type Config struct {
@@ -66,77 +62,6 @@ type manifestPayload struct {
 	SHA256 string `json:"sha256"`
 }
 
-func Discover(ctx context.Context, client *http.Client, config Config) (map[string][]byte, error) {
-	if len(config.Sources) == 0 {
-		return nil, fmt.Errorf("publication config has no sources")
-	}
-	client = httpsOnlyClient(client)
-	targets := make(map[string][]byte, len(config.Sources))
-	for _, source := range config.Sources {
-		targetPath := path.Join("upstreams", source.Backend, source.Platform+".json")
-		if source.Backend == "" || source.Platform == "" || source.AssetGlob == "" {
-			return nil, fmt.Errorf("source backend, platform, and asset_glob are required")
-		}
-		if _, exists := targets[targetPath]; exists {
-			return nil, fmt.Errorf("duplicate publication target %s", targetPath)
-		}
-		selectedRelease, selectedAsset, err := discoverAsset(ctx, client, source)
-		if err != nil {
-			return nil, err
-		}
-		digest, length, err := hashAsset(ctx, client, selectedAsset)
-		if err != nil {
-			return nil, err
-		}
-		body, err := json.MarshalIndent(manifest{
-			Schema:     1,
-			Repository: source.Repository,
-			Releases: []manifestRelease{{
-				ID:          fmt.Sprint(selectedRelease.ID),
-				Tag:         selectedRelease.Tag,
-				PublishedAt: selectedRelease.PublishedAt,
-				Prerelease:  selectedRelease.Prerelease,
-				Payloads: []manifestPayload{{
-					Name: selectedAsset.Name, URL: selectedAsset.URL, Length: length, SHA256: digest,
-				}},
-			}},
-		}, "", "  ")
-		if err != nil {
-			return nil, err
-		}
-		targets[targetPath] = body
-	}
-	if len(config.RuntimeManifests) > 0 {
-		manifests := make(map[string]vllm.Manifest, len(config.RuntimeManifests))
-		bodies := make(map[string][]byte, len(config.RuntimeManifests))
-		for platform, manifestPath := range config.RuntimeManifests {
-			if _, required := requiredVLLMPlatforms[platform]; !required {
-				return nil, fmt.Errorf("unsupported vLLM runtime manifest platform %q", platform)
-			}
-			body, err := os.ReadFile(manifestPath)
-			if err != nil {
-				return nil, err
-			}
-			if len(body) == 0 || len(body) > 4<<20 {
-				return nil, fmt.Errorf("vLLM runtime manifest %s size is invalid", platform)
-			}
-			manifest, err := vllm.ParseManifest(body)
-			if err != nil {
-				return nil, fmt.Errorf("vLLM runtime manifest %s: %w", platform, err)
-			}
-			manifests[platform] = manifest
-			bodies[platform] = body
-		}
-		if err := vllm.ValidateReleaseProfileMatrix(manifests); err != nil {
-			return nil, err
-		}
-		for platform, body := range bodies {
-			targets[path.Join("runtimes", "vllm", platform+".json")] = body
-		}
-	}
-	return targets, nil
-}
-
 var requiredVLLMPlatforms = map[string]struct{}{"linux-amd64": {}, "linux-arm64": {}, "darwin-arm64": {}}
 
 func discoverAsset(ctx context.Context, client *http.Client, source Source) (release, asset, error) {
@@ -163,44 +88,6 @@ func discoverAsset(ctx context.Context, client *http.Client, source Source) (rel
 		return release{}, asset{}, err
 	}
 	return selectReleaseAsset(releases, source)
-}
-
-// selectReleaseAsset picks the newest release that actually carries the
-// configured asset.
-//
-// Upstreams publish releases holding no build output at all: llama.cpp tags a
-// marker release carrying only nightly-tag.txt alongside its real per-build
-// releases. Such a release is simply not a candidate, so keep looking rather
-// than failing the whole publication on it. Matching more than one asset stays
-// fatal, because that means the configured glob is too loose to identify a
-// single download.
-func selectReleaseAsset(releases []release, source Source) (release, asset, error) {
-	for _, candidate := range releases {
-		if candidate.Draft || candidate.Prerelease && !source.IncludePrereleases {
-			continue
-		}
-		matches := make([]asset, 0, 1)
-		for _, candidateAsset := range candidate.Assets {
-			matched, err := path.Match(source.AssetGlob, candidateAsset.Name)
-			if err != nil {
-				return release{}, asset{}, err
-			}
-			if matched {
-				matches = append(matches, candidateAsset)
-			}
-		}
-		if len(matches) > 1 {
-			return release{}, asset{}, fmt.Errorf("%s release %s asset glob %q matched %d assets", source.Backend, candidate.Tag, source.AssetGlob, len(matches))
-		}
-		if len(matches) == 0 {
-			continue
-		}
-		if matches[0].Size <= 0 {
-			return release{}, asset{}, fmt.Errorf("%s asset has invalid size", matches[0].Name)
-		}
-		return candidate, matches[0], nil
-	}
-	return release{}, asset{}, fmt.Errorf("%s has no release carrying an asset matching %q", source.Repository, source.AssetGlob)
 }
 
 func hashAsset(ctx context.Context, client *http.Client, selected asset) (string, int64, error) {

@@ -31,7 +31,7 @@ var vllmAdminRoutes = map[string]vllmAdminRoute{
 func (service *Service) handleVLLMAdmin(w http.ResponseWriter, r *http.Request) {
 	route, found := vllmAdminRoutes[r.URL.Path]
 	if !found || r.Method != route.method {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	if route.requiresLoRA && !service.vllmDynamicLoRAEnabled {

@@ -1,3 +1,4 @@
+import { optionElement } from "./markup-primitives";
 import { html, setHTML } from "./safe-html";
 import { elements } from "./elements";
 import { renderFilesPanel } from "./files-panel";
@@ -38,19 +39,18 @@ export function updateFileNodeFilter(values: string[]): void {
 }
 
 function syncNodeFilters(nodeIDs: string[]): void {
-  const localNodeID = state.inventory?.node_id || "";
   if (!state.models.initialized) {
-    state.models.configNodeIDs = defaultNodeSelection(localNodeID, nodeIDs);
-    state.models.fileNodeIDs = defaultNodeSelection(localNodeID, nodeIDs);
+    state.models.configNodeIDs = defaultNodeSelection();
+    state.models.fileNodeIDs = defaultNodeSelection();
     state.models.initialized = true;
     return;
   }
-  state.models.configNodeIDs = retainedNodeSelection(state.models.configNodeIDs, localNodeID, nodeIDs);
-  state.models.fileNodeIDs = retainedNodeSelection(state.models.fileNodeIDs, localNodeID, nodeIDs);
+  state.models.configNodeIDs = retainedNodeSelection(state.models.configNodeIDs, nodeIDs);
+  state.models.fileNodeIDs = retainedNodeSelection(state.models.fileNodeIDs, nodeIDs);
 }
 
 function renderNodeFilter(select: HTMLSelectElement, nodeIDs: string[], selected: string[]): void {
-  setHTML(select, html`<option value="*"${selected.includes("*") ? " selected" : ""}>All Nodes</option>${nodeIDs.map(nodeID => html`<option value="${nodeID}"${selected.includes(nodeID) ? " selected" : ""}>${nodeID}</option>`)}`);
+  setHTML(select, html`<option value="*"${selected.includes("*") ? " selected" : ""}>All Nodes</option>${nodeIDs.map(nodeID => optionElement(nodeID, nodeID, selected.includes(nodeID)))}`);
 }
 
 function renderSubtab(): void {

@@ -13,6 +13,12 @@ import (
 	tufmetadata "github.com/theupdateframework/go-tuf/v2/metadata"
 )
 
+const (
+	upstreamTargetsMetadataFile = "upstream-targets.json"
+	upstreamTargetsRoleName     = "upstream-targets"
+	snapshotMetadataFile        = "snapshot.json"
+)
+
 type publishedMetadata struct {
 	root      *tufmetadata.Metadata[tufmetadata.RootType]
 	top       *tufmetadata.Metadata[tufmetadata.TargetsType]
@@ -71,10 +77,10 @@ func loadPublishedMetadata(metadataDir string) (publishedMetadata, error) {
 	if current.top, current.topBytes, err = readMetadata(filepath.Join(metadataDir, "targets.json"), maxTargetsMetadataBytes, tufmetadata.Targets().FromBytes); err != nil {
 		return current, err
 	}
-	if current.delegated, _, err = readMetadata(filepath.Join(metadataDir, "upstream-targets.json"), maxTargetsMetadataBytes, tufmetadata.Targets().FromBytes); err != nil {
+	if current.delegated, _, err = readMetadata(filepath.Join(metadataDir, upstreamTargetsMetadataFile), maxTargetsMetadataBytes, tufmetadata.Targets().FromBytes); err != nil {
 		return current, err
 	}
-	if current.snapshot, _, err = readMetadata(filepath.Join(metadataDir, "snapshot.json"), maxSnapshotMetadataBytes, tufmetadata.Snapshot().FromBytes); err != nil {
+	if current.snapshot, _, err = readMetadata(filepath.Join(metadataDir, snapshotMetadataFile), maxSnapshotMetadataBytes, tufmetadata.Snapshot().FromBytes); err != nil {
 		return current, err
 	}
 	current.timestamp, _, err = readMetadata(filepath.Join(metadataDir, "timestamp.json"), maxTimestampMetadataBytes, tufmetadata.Timestamp().FromBytes)
@@ -98,7 +104,7 @@ func authorizePublication(current publishedMetadata, targetBodies map[string][]b
 	if current.root.Signed.IsExpired(now) {
 		return publicationSigners{}, fmt.Errorf("root metadata is expired")
 	}
-	upstreamRole, err := delegatedRole(current.top, "upstream-targets")
+	upstreamRole, err := delegatedRole(current.top, upstreamTargetsRoleName)
 	if err != nil {
 		return publicationSigners{}, err
 	}
@@ -142,7 +148,7 @@ func signPublication(current publishedMetadata, targetBodies map[string][]byte, 
 	snapshot := tufmetadata.Snapshot(now.AddDate(0, 0, 14))
 	snapshot.Signed.Version = current.snapshot.Signed.Version + 1
 	snapshot.Signed.Meta["targets.json"] = publicationMeta(current.top.Signed.Version, current.topBytes)
-	snapshot.Signed.Meta["upstream-targets.json"] = publicationMeta(delegated.Signed.Version, delegatedBytes)
+	snapshot.Signed.Meta[upstreamTargetsMetadataFile] = publicationMeta(delegated.Signed.Version, delegatedBytes)
 	snapshotBytes, err := signedBytes(snapshot, signers.snapshot)
 	if err != nil {
 		return signedPublication{}, err
@@ -150,7 +156,7 @@ func signPublication(current publishedMetadata, targetBodies map[string][]byte, 
 
 	timestamp := tufmetadata.Timestamp(now.AddDate(0, 0, 2))
 	timestamp.Signed.Version = current.timestamp.Signed.Version + 1
-	timestamp.Signed.Meta["snapshot.json"] = publicationMeta(snapshot.Signed.Version, snapshotBytes)
+	timestamp.Signed.Meta[snapshotMetadataFile] = publicationMeta(snapshot.Signed.Version, snapshotBytes)
 	timestampBytes, err := signedBytes(timestamp, signers.timestamp)
 	if err != nil {
 		return signedPublication{}, err
@@ -174,9 +180,9 @@ func signedBytes[T tufmetadata.Roles](metadata *tufmetadata.Metadata[T], signer 
 func writePublication(output string, publication signedPublication, targetBodies map[string][]byte) error {
 	metadataOutputs := map[string][]byte{
 		fmt.Sprintf("%d.upstream-targets.json", publication.delegatedVersion): publication.delegated,
-		"upstream-targets.json": publication.delegated,
+		upstreamTargetsMetadataFile:                                  publication.delegated,
 		fmt.Sprintf("%d.snapshot.json", publication.snapshotVersion): publication.snapshot,
-		"snapshot.json": publication.snapshot,
+		snapshotMetadataFile:                                         publication.snapshot,
 	}
 	for name, body := range metadataOutputs {
 		if err := atomicfile.Write(filepath.Join(output, "metadata", name), body, 0o644); err != nil {

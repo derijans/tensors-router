@@ -85,7 +85,7 @@ func (service *Service) handleClusterMCP(w http.ResponseWriter, r *http.Request,
 
 func (service *Service) handleNodeMCP(w http.ResponseWriter, r *http.Request) {
 	if service.mcpGateway == nil {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	modelID := r.URL.Query().Get("model")
@@ -190,7 +190,7 @@ func (service *Service) forwardRemoteMCP(w http.ResponseWriter, r *http.Request,
 		return
 	}
 	copyResponseHeaders(w.Header(), response.Header)
-	w.Header().Del("Content-Length")
+	w.Header().Del(headerContentLength)
 	w.WriteHeader(response.StatusCode)
 	if _, err := w.Write(responseBody); err != nil {
 		service.logger.Printf("cluster MCP response failed: %v", err)

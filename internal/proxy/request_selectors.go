@@ -23,7 +23,7 @@ func modelFromRequest(body []byte, r *http.Request) (string, bool, error) {
 	if modelID := strings.TrimSpace(r.URL.Query().Get("model")); modelID != "" {
 		return modelID, true, nil
 	}
-	if modelID := strings.TrimSpace(r.Header.Get("X-Tensors-Model")); modelID != "" {
+	if modelID := strings.TrimSpace(r.Header.Get(headerTensorsModel)); modelID != "" {
 		return modelID, true, nil
 	}
 	return "", false, nil
@@ -42,14 +42,14 @@ func audioModelFromRequest(body []byte, r *http.Request) (string, bool, error) {
 	if modelID := strings.TrimSpace(r.URL.Query().Get("model")); modelID != "" {
 		return modelID, true, nil
 	}
-	if modelID := strings.TrimSpace(r.Header.Get("X-Tensors-Model")); modelID != "" {
+	if modelID := strings.TrimSpace(r.Header.Get(headerTensorsModel)); modelID != "" {
 		return modelID, true, nil
 	}
 	return "", false, nil
 }
 
 func multipartModelFromRequest(body []byte, r *http.Request) (string, bool, error) {
-	contentType := r.Header.Get("Content-Type")
+	contentType := r.Header.Get(headerContentType)
 	mediaType, params, err := mime.ParseMediaType(contentType)
 	if err != nil || !strings.HasPrefix(strings.ToLower(mediaType), "multipart/") {
 		return "", false, nil
@@ -94,15 +94,15 @@ func imageModelFromRequest(body []byte, r *http.Request) (string, bool, error) {
 	if modelID := strings.TrimSpace(r.URL.Query().Get("sd_model_checkpoint")); modelID != "" {
 		return modelID, true, nil
 	}
-	if modelID := strings.TrimSpace(r.Header.Get("X-Tensors-Model")); modelID != "" {
+	if modelID := strings.TrimSpace(r.Header.Get(headerTensorsModel)); modelID != "" {
 		return modelID, true, nil
 	}
 	return "", false, nil
 }
 
 func requestBodyLooksJSON(body []byte, r *http.Request) bool {
-	contentType := strings.ToLower(r.Header.Get("Content-Type"))
-	if strings.Contains(contentType, "application/json") {
+	contentType := strings.ToLower(r.Header.Get(headerContentType))
+	if strings.Contains(contentType, mediaTypeJSON) {
 		return true
 	}
 	trimmed := bytes.TrimSpace(body)

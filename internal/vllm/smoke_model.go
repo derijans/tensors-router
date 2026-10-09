@@ -1,8 +1,6 @@
 package vllm
 
 import (
-	"archive/tar"
-	"compress/gzip"
 	"context"
 	"errors"
 	"fmt"
@@ -11,7 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
@@ -45,155 +42,6 @@ func stageSmokeModel(ctx context.Context, profile Profile, artifacts map[string]
 
 func extractSmokeModel(ctx context.Context, archivePath string, destination string, artifact Artifact) error {
 	return extractAuthorizedArchive(ctx, archivePath, destination, artifact, "smoke-model")
-}
-
-func extractAuthorizedArchive(ctx context.Context, archivePath string, destination string, artifact Artifact, artifactKind string) error {
-	if err := ctx.Err(); err != nil {
-		return err
-	}
-	archiveInfo, err := os.Lstat(archivePath)
-	if err != nil {
-		return err
-	}
-	if !archiveInfo.Mode().IsRegular() || archiveInfo.Mode()&os.ModeSymlink != 0 {
-		return fmt.Errorf("%s archive is not a regular file", artifactKind)
-	}
-	archive, err := os.Open(archivePath)
-	if err != nil {
-		return err
-	}
-	defer archive.Close()
-	destinationRoot, err := os.OpenRoot(destination)
-	if err != nil {
-		return err
-	}
-	defer destinationRoot.Close()
-	var source io.Reader = archive
-	if artifact.ArchiveFormat == "tar.gz" {
-		compressed, err := gzip.NewReader(archive)
-		if err != nil {
-			return err
-		}
-		defer compressed.Close()
-		source = compressed
-	}
-	reader := tar.NewReader(source)
-	seen := make(map[string]struct{})
-	var unpacked int64
-	var files int
-	for {
-		if err := ctx.Err(); err != nil {
-			return err
-		}
-		header, err := reader.Next()
-		if errors.Is(err, io.EOF) {
-			break
-		}
-		if err != nil {
-			return err
-		}
-		normalized, err := normalizePortableArchivePath(header.Name)
-		if err != nil {
-			return err
-		}
-		if _, exists := seen[normalized]; exists {
-			return fmt.Errorf("%s archive contains duplicate path %q", artifactKind, normalized)
-		}
-		seen[normalized] = struct{}{}
-		files++
-		if files > maximumSmokeModelFiles {
-			return fmt.Errorf("%s archive contains too many entries", artifactKind)
-		}
-		switch header.Typeflag {
-		case tar.TypeDir:
-			if err := createArchiveDirectory(destinationRoot, normalized); err != nil {
-				return err
-			}
-		case tar.TypeReg:
-			if header.Size < 0 || header.Size > artifact.UnpackedSize-unpacked {
-				return fmt.Errorf("%s archive exceeds authorized unpacked size", artifactKind)
-			}
-			written, err := writeArchiveRegularFile(ctx, destinationRoot, normalized, reader, header.Size)
-			if err != nil {
-				return err
-			}
-			if written != header.Size {
-				return fmt.Errorf("%s archive entry %q has invalid size", artifactKind, normalized)
-			}
-			unpacked += written
-		default:
-			return fmt.Errorf("%s archive contains unsupported entry %q", artifactKind, normalized)
-		}
-	}
-	if unpacked != artifact.UnpackedSize || files == 0 {
-		return fmt.Errorf("%s archive unpacked size %d does not match authorized size %d", artifactKind, unpacked, artifact.UnpackedSize)
-	}
-	return nil
-}
-
-func writeArchiveRegularFile(ctx context.Context, root *os.Root, portablePath string, source io.Reader, size int64) (int64, error) {
-	if err := createArchiveDirectory(root, pathDirectory(portablePath)); err != nil {
-		return 0, err
-	}
-	file, err := root.OpenFile(filepath.FromSlash(portablePath), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return 0, err
-	}
-	written, copyError := copyContext(ctx, file, io.LimitReader(source, size+1))
-	closeError := file.Close()
-	if copyError != nil {
-		return 0, copyError
-	}
-	if closeError != nil {
-		return 0, closeError
-	}
-	return written, nil
-}
-
-func createArchiveDirectory(root *os.Root, portablePath string) error {
-	if portablePath == "." {
-		return nil
-	}
-	nativePath := filepath.FromSlash(portablePath)
-	if err := root.MkdirAll(nativePath, 0o700); err != nil {
-		return err
-	}
-	current := ""
-	for _, component := range strings.Split(portablePath, "/") {
-		if current == "" {
-			current = component
-		} else {
-			current += string(filepath.Separator) + component
-		}
-		info, err := root.Lstat(current)
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("archive directory %q is unsafe", portablePath)
-		}
-	}
-	return nil
-}
-
-func pathDirectory(portablePath string) string {
-	index := strings.LastIndexByte(portablePath, '/')
-	if index < 0 {
-		return "."
-	}
-	return portablePath[:index]
-}
-
-func normalizePortableArchivePath(value string) (string, error) {
-	value = strings.ReplaceAll(strings.TrimSpace(value), "\\", "/")
-	if value == "" || strings.HasPrefix(value, "/") || strings.ContainsAny(value, ":\x00") {
-		return "", fmt.Errorf("archive path is invalid")
-	}
-	normalized := filepath.ToSlash(filepath.Clean(filepath.FromSlash(value)))
-	if normalized == "." || normalized == ".." || strings.HasPrefix(normalized, "../") || normalized != value && normalized+"/" != value || filepath.IsAbs(filepath.FromSlash(value)) {
-		return "", fmt.Errorf("archive path %q is unsafe", value)
-	}
-	return normalized, nil
 }
 
 func validatePortableInterpreterPath(runtimeDirectory string, interpreterPath string) error {
@@ -230,17 +78,17 @@ func artifactByRole(profile Profile, role string) (Artifact, bool) {
 }
 
 func (tester CommandSmokeTester) testNativeServing(ctx context.Context, pythonPath string, environmentPath string, environment []string, logs io.Writer) error {
-	socketDirectory, socketPath, err := prepareSmokeSocketDirectory(environmentPath)
+	socket, err := prepareSmokeSocket(environmentPath)
 	if err != nil {
 		return err
 	}
 	modelPath := filepath.Join(environmentPath, smokeModelDirectoryName)
-	arguments := smokeServerArguments(socketPath, modelPath)
-	return tester.launchAndProbeSmoke(ctx, pythonPath, arguments, environment, environmentPath, socketDirectory, socketPath, logs)
+	arguments := smokeServerArguments(socket.path, modelPath)
+	return tester.launchAndProbeSmoke(ctx, pythonPath, arguments, environment, environmentPath, socket, logs)
 }
 
 func (tester CommandSmokeTester) testOCIServing(ctx context.Context, profile Profile, environmentPath string, enginePath string, engineName string, logs io.Writer) error {
-	socketDirectory, socketPath, err := prepareSmokeSocketDirectory(environmentPath)
+	socket, err := prepareSmokeSocket(environmentPath)
 	if err != nil {
 		return err
 	}
@@ -249,27 +97,36 @@ func (tester CommandSmokeTester) testOCIServing(ctx context.Context, profile Pro
 		return fmt.Errorf("validate OCI smoke model: %w", err)
 	}
 	mounts := []ociMount{
-		{Source: socketDirectory, Destination: "/router-smoke"},
+		{Source: socket.directory, Destination: "/router-smoke"},
 		{Source: modelPath, Destination: "/smoke-model", ReadOnly: true},
 	}
 	arguments := ociCommandArguments(engineName, profile, mounts, nil, smokeServerArguments("/router-smoke/vllm.sock", "/smoke-model"), false)
-	return tester.launchAndProbeSmoke(ctx, enginePath, arguments, containerEngineEnvironment(environmentPath), environmentPath, socketDirectory, socketPath, logs)
+	return tester.launchAndProbeSmoke(ctx, enginePath, arguments, containerEngineEnvironment(environmentPath), environmentPath, socket, logs)
 }
 
-func prepareSmokeSocketDirectory(environmentPath string) (string, string, error) {
+type smokeSocket struct {
+	directory string
+	path      string
+}
+
+func prepareSmokeSocket(environmentPath string) (smokeSocket, error) {
 	if _, err := os.Lstat(environmentPath); err != nil {
-		return "", "", err
+		return smokeSocket{}, err
 	}
 	socketDirectory, err := os.MkdirTemp("", "tensor-router-vllm-smoke-")
 	if err != nil {
-		return "", "", err
+		return smokeSocket{}, err
 	}
 	if err := os.Chmod(socketDirectory, 0o700); err != nil {
 		_ = os.Remove(socketDirectory)
-		return "", "", err
+		return smokeSocket{}, err
 	}
-	socketPath := filepath.Join(socketDirectory, "vllm.sock")
-	return socketDirectory, socketPath, nil
+	return smokeSocket{directory: socketDirectory, path: filepath.Join(socketDirectory, "vllm.sock")}, nil
+}
+
+func (socket smokeSocket) remove() {
+	_ = os.Remove(socket.path)
+	_ = os.Remove(socket.directory)
 }
 
 func smokeServerArguments(socketPath string, modelPath string) []string {
@@ -280,7 +137,7 @@ func smokeServerArguments(socketPath string, modelPath string) []string {
 	)
 }
 
-func (tester CommandSmokeTester) launchAndProbeSmoke(ctx context.Context, executable string, arguments []string, environment []string, directory string, socketDirectory string, socketPath string, logs io.Writer) error {
+func (tester CommandSmokeTester) launchAndProbeSmoke(ctx context.Context, executable string, arguments []string, environment []string, directory string, socket smokeSocket, logs io.Writer) error {
 	launcher := tester.Launcher
 	if launcher == nil {
 		launcher = ExecRuntimeLauncher{}
@@ -297,12 +154,11 @@ func (tester CommandSmokeTester) launchAndProbeSmoke(ctx context.Context, execut
 	}
 	exited := make(chan error, 1)
 	go func() { exited <- child.Wait() }()
-	probeError := probeSmokeServer(smokeContext, socketPath, exited)
+	probeError := probeSmokeServer(smokeContext, socket.path, exited)
 	stopContext, stopCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	stopError := child.Stop(stopContext)
 	stopCancel()
-	_ = os.Remove(socketPath)
-	_ = os.Remove(socketDirectory)
+	socket.remove()
 	if probeError != nil {
 		return probeError
 	}

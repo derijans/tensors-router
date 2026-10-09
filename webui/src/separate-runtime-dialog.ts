@@ -148,14 +148,19 @@ function triggerGroup(title: string, triggers: string[], selected: Set<string>):
   if (triggers.length === 0) {
     return emptyHTML;
   }
-  const rows = html`${triggers.map(trigger => html`
-    <label class="routing-candidate">
-      <input type="checkbox" data-separate-trigger="${trigger}"${selected.has(trigger) ? " checked" : ""}>
-      <span class="routing-candidate-name">${triggerLabel(trigger)}</span>
-    </label>
-  `)}`;
+  const rows = html`${triggers.map(trigger => triggerOption(trigger, selected.has(trigger)))}`;
   return html`<div class="routing-node"><h3>${title}</h3>${rows}</div>`;
 }
+
+function triggerOption(trigger: string, checked: boolean): SafeHTML {
+  return html`
+    <label class="routing-candidate">
+      <input type="checkbox" data-separate-trigger="${trigger}"${checked ? " checked" : ""}>
+      <span class="routing-candidate-name">${triggerLabel(trigger)}</span>
+    </label>
+  `;
+}
+
 
 function triggerLabel(trigger: string): string {
   if (trigger in unloadPolicyLabels) {

@@ -89,7 +89,7 @@ func (service *Service) rejectUnsupportedAudioBackend(w http.ResponseWriter, r *
 	case target.backendMode == BackendModeLlamaSDCPP && (!target.hasModel || !modelSupportsLlamaAudioPath(target.model, r.URL.Path)):
 		openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", "audio route is not supported by the selected split backend config")
 	case target.backendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path):
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 	default:
 		return false
 	}
@@ -116,7 +116,7 @@ func (service *Service) forwardLocalAudioRequest(w http.ResponseWriter, r *http.
 		}
 		requestBody = adapted
 	}
-	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, target.backendModelID, target.configFilename, target.hasModel, readiness, target.backendMode)
+	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, backendForwardTarget{modelID: target.backendModelID, configFilename: target.configFilename, hasModel: target.hasModel, readiness: readiness, mode: target.backendMode})
 	if err != nil {
 		if analyticsModelID != "" {
 			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)

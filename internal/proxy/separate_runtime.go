@@ -250,31 +250,6 @@ func (service *Service) applySeparateRuntimeTriggers(ctx context.Context, loadin
 	}
 }
 
-func separateEntryTriggeredBy(triggers unloadpolicy.Selection, loadingMode string, lanes map[string]struct{}, identities map[string]struct{}) bool {
-	for _, trigger := range triggers {
-		switch {
-		case trigger == unloadpolicy.None:
-			continue
-		case trigger == unloadpolicy.All:
-			return true
-		case unloadpolicy.ValidLane(trigger):
-			if _, ok := lanes[unloadpolicy.Normalize(trigger)]; ok {
-				return true
-			}
-		default:
-			if mode, ok := unloadpolicy.FamilyTarget(trigger); ok && mode == loadingMode {
-				return true
-			}
-			if id, ok := unloadpolicy.ConfigTarget(trigger); ok {
-				if _, matched := identities[id]; matched {
-					return true
-				}
-			}
-		}
-	}
-	return false
-}
-
 func configIdentitySet(modelID string, filename string) map[string]struct{} {
 	identities := map[string]struct{}{}
 	if trimmed := strings.TrimSpace(modelID); trimmed != "" {
@@ -286,39 +261,6 @@ func configIdentitySet(modelID string, filename string) map[string]struct{} {
 		identities[strings.TrimSuffix(base, filepath.Ext(base))] = struct{}{}
 	}
 	return identities
-}
-
-func (service *Service) configLaneSet(filename string) map[string]struct{} {
-	lanes := map[string]struct{}{}
-	if service.catalog == nil || strings.TrimSpace(filename) == "" {
-		return lanes
-	}
-	models, err := service.catalog.List()
-	if err != nil {
-		return lanes
-	}
-	for _, model := range models {
-		if model.Filename != filename {
-			continue
-		}
-		separateEmbeddings := model.Capabilities.Embeddings != nil && model.Capabilities.Embeddings.Separate
-		if model.HasLLM || model.HasMultimodal || model.HasEmbeddings && !separateEmbeddings {
-			lanes[unloadpolicy.Text] = struct{}{}
-		}
-		if separateEmbeddings {
-			lanes[unloadpolicy.Embeddings] = struct{}{}
-		}
-		if model.HasImage {
-			lanes[unloadpolicy.Image] = struct{}{}
-		}
-		if model.HasVoice {
-			lanes[unloadpolicy.Voice] = struct{}{}
-		}
-		if model.HasMusic {
-			lanes[unloadpolicy.Music] = struct{}{}
-		}
-	}
-	return lanes
 }
 
 // teardownSeparateEntry stops the process and frees its port. The switch lock is
@@ -418,4 +360,70 @@ func separateRuntimeSlug(modelID string, filename string) string {
 		return "config"
 	}
 	return slug
+}
+
+func separateEntryTriggeredBy(triggers unloadpolicy.Selection, loadingMode string, lanes map[string]struct{}, identities map[string]struct{}) bool {
+	for _, trigger := range triggers {
+		if separateTriggerMatches(trigger, loadingMode, lanes, identities) {
+			return true
+		}
+	}
+	return false
+}
+
+func separateTriggerMatches(trigger string, loadingMode string, lanes map[string]struct{}, identities map[string]struct{}) bool {
+	switch {
+	case trigger == unloadpolicy.None:
+		return false
+	case trigger == unloadpolicy.All:
+		return true
+	case unloadpolicy.ValidLane(trigger):
+		_, ok := lanes[unloadpolicy.Normalize(trigger)]
+		return ok
+	}
+	if mode, ok := unloadpolicy.FamilyTarget(trigger); ok && mode == loadingMode {
+		return true
+	}
+	id, ok := unloadpolicy.ConfigTarget(trigger)
+	if !ok {
+		return false
+	}
+	_, matched := identities[id]
+	return matched
+}
+
+func (service *Service) configLaneSet(filename string) map[string]struct{} {
+	lanes := map[string]struct{}{}
+	if service.catalog == nil || strings.TrimSpace(filename) == "" {
+		return lanes
+	}
+	models, err := service.catalog.List()
+	if err != nil {
+		return lanes
+	}
+	for _, model := range models {
+		if model.Filename == filename {
+			addModelUnloadLanes(lanes, model)
+		}
+	}
+	return lanes
+}
+
+func addModelUnloadLanes(lanes map[string]struct{}, model catalog.Model) {
+	separateEmbeddings := modelHasSeparateEmbeddings(model)
+	laneFlags := []struct {
+		lane    string
+		present bool
+	}{
+		{unloadpolicy.Text, model.HasLLM || model.HasMultimodal || model.HasEmbeddings && !separateEmbeddings},
+		{unloadpolicy.Embeddings, separateEmbeddings},
+		{unloadpolicy.Image, model.HasImage},
+		{unloadpolicy.Voice, model.HasVoice},
+		{unloadpolicy.Music, model.HasMusic},
+	}
+	for _, flag := range laneFlags {
+		if flag.present {
+			lanes[flag.lane] = struct{}{}
+		}
+	}
 }

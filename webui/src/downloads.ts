@@ -1,30 +1,23 @@
-import { SafeHTML, emptyHTML, html, listOrFallback, setHTML } from "./safe-html";
-import { badge } from "./markup-primitives";
+import { emptyHTML, html, listOrFallback, setHTML } from "./safe-html";
+import { optionElement } from "./markup-primitives";
 import {
   createDownloadJob,
   downloadJobAction,
   getDownloadCapabilities,
   getDownloadLibrary,
-  bindModelAssetCandidate,
-  findModelAssetCandidates,
-  lookupModelAsset,
-  loadModelConfig,
   planDownload,
-  rescanDownloads,
-  searchDownloadPage,
-  substituteModelAsset
+  rescanDownloads
 } from "./api";
 import { elements } from "./elements";
 import { downloadNodeStatus, enabledDownloadNodes, preferredDownloadNodeID } from "./download-capability-data";
-import { normalizeModelHash, normalizeParameterRange, parseOfficialHFURL, splitSearchFilters } from "./download-finder-data";
-import { planSelectionForMode, selectedDownloadBytes, selectedDownloadFiles, toggleDownloadPath } from "./download-plan-data";
+import { planSelectionForMode, selectedDownloadFiles, toggleDownloadPath } from "./download-plan-data";
 import { trackDownloadProgress, type DownloadProgressTracking } from "./download-job-data";
 import { renderDownloadJob } from "./download-job-view";
 import { renderDownloadLibrary } from "./download-library-view";
-import { hfFilterCatalog, hfFilterCatalogVersion } from "./hf-filter-catalog";
+import { renderDownloadFilters, renderPlan, renderSearchResults } from "./download-search-view";
+import { downloadToken, requestedFiles } from "./download-inputs";
 import { state } from "./state";
-import { formatBytes } from "./utils";
-import type { DownloadLibraryResponse, DownloadPlan } from "./types";
+import type { DownloadLibraryResponse } from "./types";
 import { setControlUnavailable } from "./operations";
 
 export async function loadDownloads(): Promise<void> {
@@ -121,200 +114,6 @@ async function runDownloadJobPoll(): Promise<void> {
   syncDownloadJobPolling();
 }
 
-let searchController: AbortController | null = null;
-let searchDebounce: number | undefined;
-
-export async function searchDownloadRepositories(append = false): Promise<void> {
-  if (!state.downloads.nodeID) {
-    throw new Error("Select a download node first");
-  }
-  const token = downloadToken();
-  const mode = elements.downloadSearchMode.value;
-  const query = elements.downloadSearchInput.value.trim();
-  if (mode !== "text") {
-    searchController?.abort();
-    searchController = new AbortController();
-    state.downloads.searchStatus = "idle";
-    state.downloads.searchError = "";
-    await runSpecialFinderMode(mode, query, token, searchController.signal);
-    renderDownloads();
-    return;
-  }
-  const parameters = parameterRange();
-  const rawTags = elements.downloadRawTagInput.value.split(",").map(value => value.trim()).filter(Boolean);
-  const searchFilters = splitSearchFilters([...state.downloads.filters, ...rawTags]);
-  searchController?.abort();
-  searchController = new AbortController();
-  state.downloads.searchStatus = "searching";
-  state.downloads.searchError = "";
-  state.downloads.searchQuery = query;
-  if (!append) {
-    state.downloads.search = [];
-  }
-  renderDownloads();
-  try {
-    const page = await searchDownloadPage({
-      node_id: state.downloads.nodeID,
-      query,
-      ...(elements.downloadAuthorInput.value.trim() ? {author: elements.downloadAuthorInput.value.trim()} : {}),
-      ...(elements.downloadPipelineInput.value.trim() ? {pipeline_tag: elements.downloadPipelineInput.value.trim()} : {}),
-      filters: searchFilters.filters,
-      apps: searchFilters.apps,
-      inference_providers: searchFilters.providers,
-      trained_datasets: searchFilters.datasets,
-      ...(searchFilters.inference ? {inference: "true"} : {}),
-      sort: elements.downloadSortSelect.value,
-      direction: elements.downloadDirectionSelect.value,
-      ...(append && state.downloads.nextCursor ? {cursor: state.downloads.nextCursor} : {}),
-      limit: 20,
-      ...(elements.downloadGatedSelect.value ? {gated: elements.downloadGatedSelect.value} : {}),
-      ...(parameters ? {num_parameters: parameters} : {}),
-      ...(token ? {token} : {})
-    }, searchController.signal);
-    state.downloads.search = append ? [...state.downloads.search, ...page.results] : page.results;
-    state.downloads.observedFilters = [...new Set([
-      ...state.downloads.observedFilters,
-      ...page.results.flatMap(result => result.tags || []).filter(validObservedFilter)
-    ])].slice(-160);
-    state.downloads.nextCursor = page.next_cursor || "";
-    state.downloads.searchStatus = state.downloads.search.length === 0 ? "empty" : "ok";
-  } catch (error) {
-    if (error instanceof DOMException && error.name === "AbortError") {
-      state.downloads.searchStatus = state.downloads.search.length === 0 ? "idle" : "ok";
-      return;
-    }
-    state.downloads.searchStatus = "error";
-    state.downloads.searchError = error instanceof Error ? error.message : String(error);
-    throw error;
-  } finally {
-    renderDownloads();
-  }
-}
-
-export function updateDownloadSearchMode(): void {
-  const placeholders: Record<string, string> = {
-    text: "Repository or author",
-    url: "https://huggingface.co/owner/repository",
-    hash: "Lowercase SHA-256",
-    filename: "Exact model filename"
-  };
-  elements.downloadSearchInput.placeholder = placeholders[elements.downloadSearchMode.value] || "Repository or author";
-  state.downloads.search = [];
-  state.downloads.candidates = [];
-  state.downloads.nextCursor = "";
-  state.downloads.finderMessage = "";
-  renderDownloads();
-}
-
-export function prefillDownloadContext(context: {nodeID: string; publicID: string; configID: string; configFilename: string; field: string; position?: number; filename: string; hash: string}): void {
-  if (state.downloads.capabilities?.nodes.some(node => node.node_id === context.nodeID)) {
-    state.downloads.nodeID = context.nodeID;
-  }
-  state.downloads.modelHandoff = context;
-  elements.downloadSearchMode.value = "filename";
-  elements.downloadSearchInput.value = context.filename;
-  elements.downloadExpectedHashInput.value = context.hash;
-  updateDownloadSearchMode();
-  state.downloads.finderMessage = "Prefilled from unresolved Models load. Search to verify repository candidates.";
-  renderDownloads();
-}
-
-export async function replaceDownloadCandidate(index: number): Promise<void> {
-  const candidate = state.downloads.candidates[index];
-  const context = state.downloads.modelHandoff;
-  if (!candidate || candidate.state !== "mismatched" || !candidate.sha256 || !context) {
-    throw new Error("A verified mismatching Models candidate is required");
-  }
-  const token = downloadToken();
-  await substituteModelAsset({
-    node_id: context.nodeID,
-    id: context.configID,
-    filename: context.configFilename,
-    field: context.field,
-    ...(context.position === undefined ? {} : {position: context.position}),
-    expected_sha256: context.hash,
-    sha256: normalizeModelHash(candidate.sha256),
-    repository: candidate.repository,
-    repository_path: candidate.repository_path,
-    commit: candidate.commit,
-    ...(token ? {token} : {}),
-    confirm: true
-  });
-  state.downloads.modelHandoff = null;
-  state.downloads.finderMessage = `Config intentionally updated to ${candidate.repository_path}; loading model`;
-  renderDownloads();
-  await loadModelConfig({model: context.publicID});
-  state.downloads.finderMessage = `Config intentionally updated to ${candidate.repository_path} and loaded`;
-  renderDownloads();
-}
-
-export async function bindDownloadCandidate(index: number): Promise<void> {
-  const candidate = state.downloads.candidates[index];
-  const hash = normalizedExpectedHash();
-  if (!candidate || candidate.state !== "exact" || !state.downloads.nodeID) {
-    throw new Error("Only an exact verified candidate can be bound");
-  }
-  const token = downloadToken();
-  await bindModelAssetCandidate({
-    node_id: state.downloads.nodeID,
-    sha256: hash,
-    repository: candidate.repository,
-    repository_path: candidate.repository_path,
-    commit: candidate.commit,
-    ...(token ? {token} : {})
-  });
-  state.downloads.finderMessage = `Verified origin bound for ${candidate.repository_path}`;
-  renderDownloads();
-}
-
-export function debounceDownloadSearch(): void {
-  if (searchDebounce !== undefined) {
-    window.clearTimeout(searchDebounce);
-  }
-  searchDebounce = window.setTimeout(() => {
-    void searchDownloadRepositories(false).catch(() => undefined);
-  }, 300);
-}
-
-export function selectDownloadFilterTab(tab: string): void {
-  if (hfFilterCatalog[tab]) {
-    state.downloads.filterTab = tab;
-    renderDownloads();
-  }
-}
-
-export function toggleDownloadFilter(filter: string): void {
-  if (!allAvailableFilters().has(filter)) {
-    return;
-  }
-  state.downloads.filters = state.downloads.filters.includes(filter)
-    ? state.downloads.filters.filter(value => value !== filter)
-    : [...state.downloads.filters, filter];
-  renderDownloads();
-}
-
-export function toggleDownloadFilterGroup(groupID: string): void {
-  const key = `${state.downloads.filterTab}:${groupID}`;
-  state.downloads.expandedFilterGroups = state.downloads.expandedFilterGroups.includes(key)
-    ? state.downloads.expandedFilterGroups.filter(value => value !== key)
-    : [...state.downloads.expandedFilterGroups, key];
-  renderDownloads();
-}
-
-export function updateDownloadFilterSearch(): void {
-  renderDownloads();
-}
-
-export function clearDownloadFilter(filter: string): void {
-  state.downloads.filters = state.downloads.filters.filter(value => value !== filter);
-  renderDownloads();
-}
-
-export function clearAllDownloadFilters(): void {
-  state.downloads.filters = [];
-  renderDownloads();
-}
-
 export function setPlannedDownloadSelection(mode: "all" | "none" | "required"): void {
   const plan = state.downloads.plan;
   if (!plan) {
@@ -322,55 +121,6 @@ export function setPlannedDownloadSelection(mode: "all" | "none" | "required"): 
   }
   state.downloads.selectedPlanFiles = planSelectionForMode(plan, mode);
   renderDownloads();
-}
-
-async function runSpecialFinderMode(mode: string, query: string, token: string | undefined, signal: AbortSignal): Promise<void> {
-  state.downloads.search = [];
-  state.downloads.candidates = [];
-  state.downloads.nextCursor = "";
-  state.downloads.finderMessage = "";
-  if (mode === "url") {
-    const parsed = parseOfficialHFURL(query);
-    elements.downloadRepositoryInput.value = parsed.repository;
-    elements.downloadRevisionInput.value = parsed.revision;
-    if (parsed.file) {
-      elements.downloadFilesInput.value = parsed.file;
-    }
-    state.downloads.search = [{id: parsed.repository, downloads: 0, likes: 0}];
-    state.downloads.finderMessage = parsed.file ? "Official Hugging Face file URL parsed" : "Official Hugging Face repository URL parsed";
-    return;
-  }
-  if (mode === "hash") {
-    const hash = normalizeModelHash(query);
-    const result = await lookupModelAsset(hash, signal);
-    state.downloads.finderMessage = `${result.available ? `Available on ${(result.nodes || []).length} router node(s)` : "Not locally available"}${result.origin ? ` · learned origin ${result.origin}` : ""}`;
-    if (result.origin) {
-      const parsed = parseOfficialHFURL(result.origin);
-      elements.downloadRepositoryInput.value = parsed.repository;
-      elements.downloadRevisionInput.value = parsed.revision;
-      elements.downloadFilesInput.value = parsed.file;
-      state.downloads.search = [{id: parsed.repository, downloads: 0, likes: 0}];
-    }
-    return;
-  }
-  if (mode === "filename") {
-    if (!state.downloads.nodeID) {
-      throw new Error("Select a download node first");
-    }
-    if (!/^[^/\\\0]{1,255}$/.test(query) || query === "." || query === "..") {
-      throw new Error("Enter a safe exact filename");
-    }
-    const hash = normalizedExpectedHash();
-    state.downloads.candidates = await findModelAssetCandidates({node_id: state.downloads.nodeID, sha256: hash, filename: query, ...(token ? {token} : {})}, signal);
-    const exact = state.downloads.candidates.filter(candidate => candidate.state === "exact").length;
-    state.downloads.finderMessage = `${state.downloads.candidates.length} candidate file(s), ${exact} exact SHA-256 match${exact === 1 ? "" : "es"}`;
-    return;
-  }
-  throw new Error("Unsupported search mode");
-}
-
-function normalizedExpectedHash(): string {
-  return normalizeModelHash(elements.downloadExpectedHashInput.value.trim());
 }
 
 export async function previewDownloadPlan(): Promise<void> {
@@ -445,7 +195,7 @@ export function chooseDownloadSearchResult(repository: string): void {
 
 export function togglePlannedDownloadFile(path: string): void {
   const plan = state.downloads.plan;
-  if (!plan || !plan.files.some(file => file.path === path)) {
+  if (!plan?.files.some(file => file.path === path)) {
     return;
   }
   state.downloads.selectedPlanFiles = toggleDownloadPath(state.downloads.selectedPlanFiles, path);
@@ -469,10 +219,9 @@ export function renderDownloads(): void {
     return;
   }
   const nodes = enabledDownloadNodes(state.downloads.capabilities?.nodes || []);
-  setHTML(elements.downloadNodeSelect, html`${nodes.map(node => {
-    const status = downloadNodeStatus(node);
-    return html`<option value="${node.node_id}"${node.node_id === state.downloads.nodeID ? " selected" : ""}>${node.node_id} — ${status}</option>`;
-  })}`);
+  setHTML(elements.downloadNodeSelect, html`${nodes.map(node => optionElement(node.node_id, downloadNodeLabel(node), node.node_id === state.downloads.nodeID))}`);
+
+
   const node = nodes.find(value => value.node_id === state.downloads.nodeID);
   const working = node?.capability.working === true;
   const configuredToken = node?.capability.configured_token ? "configured fallback token is available" : "anonymous access unless a temporary token is entered";
@@ -490,50 +239,6 @@ export function renderDownloads(): void {
   syncDownloadJobPolling();
 }
 
-function renderSearchResults(): SafeHTML {
-  const finder = state.downloads.finderMessage ? html`<p class="action-status">${state.downloads.finderMessage}</p>` : emptyHTML;
-  const candidates = html`${state.downloads.candidates.map((candidate, index) => html`
-    <div class="download-entry candidate-${candidate.state}">
-      <strong>${candidate.repository} / ${candidate.repository_path}</strong>
-      <span>${candidate.state} · ${candidate.sha256 || "no verifiable LFS SHA-256"}</span>
-      ${candidate.state === "exact" ? html`<button type="button" data-download-candidate-bind="${index}">Bind verified origin</button>` : ""}
-      ${candidate.state === "mismatched" && state.downloads.modelHandoff && candidate.sha256 ? html`<button type="button" class="danger" data-download-candidate-replace="${index}">Replace expected model</button>` : ""}
-    </div>
-  `)}`;
-  const status = state.downloads.searchStatus;
-  let notice = emptyHTML;
-  if (status === "searching") {
-    notice = html`<p class="action-status">Searching Hugging Face…</p>`;
-  } else if (status === "error") {
-    notice = html`<p class="error-text">Search failed: ${state.downloads.searchError || "unknown error"}</p>`;
-  } else if (status === "empty") {
-    notice = html`<p class="muted">No models match ${state.downloads.searchQuery ? html`"${state.downloads.searchQuery}"` : "the current filters"}.</p>`;
-  }
-  const rows = html`${state.downloads.search.map(result => {
-    const meta = [`${result.downloads.toLocaleString()} downloads`, `${result.likes.toLocaleString()} likes`];
-    if (result.updated_at) {
-      meta.push(`updated ${formatSearchDate(result.updated_at)}`);
-    }
-    if (result.gated && result.gated !== "false") {
-      meta.push("gated");
-    }
-    const tags = (result.tags || []).filter(tag => !tag.includes(":") || /^(license|pipeline_tag|library):/.test(tag)).slice(0, 6);
-    const selected = state.downloads.selectedRepository === result.id ? " selected" : "";
-    return html`
-      <button class="download-entry${selected}" type="button" data-download-repository="${result.id}">
-        <strong>${result.id}</strong>
-        <span>${meta.join(" · ")}</span>
-        ${tags.length > 0 ? html`<span class="download-tags">${tags.map(tag => badge(tag, "neutral"))}</span>` : ""}
-      </button>`;
-  })}`;
-  return html`${finder}${notice}${rows}${candidates}`;
-}
-
-function formatSearchDate(value: string): string {
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? value : parsed.toISOString().slice(0, 10);
-}
-
 function setDownloadControlsWorking(working: boolean): void {
   elements.downloadPanel.querySelectorAll<HTMLButtonElement | HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>("button, input, select, textarea").forEach(control => {
     if (control !== elements.downloadNodeSelect) {
@@ -542,82 +247,6 @@ function setDownloadControlsWorking(working: boolean): void {
   });
 }
 
-function renderDownloadFilters(): void {
-  const activeTab = state.downloads.filterTab;
-  const query = elements.downloadFilterSearch.value.trim().toLocaleLowerCase();
-  const groups = [...(hfFilterCatalog[activeTab] || [])];
-  if (activeTab === "main" && state.downloads.observedFilters.length > 0) {
-    groups.push({id: "observed", label: "From current results", values: state.downloads.observedFilters});
-  }
-  setHTML(elements.downloadFilterTabs, html`${Object.keys(hfFilterCatalog).map(tab => html`<button type="button" data-download-filter-tab="${tab}"${tab === activeTab ? html` class="active"` : ""}>${tab}</button>`)}`);
-  elements.downloadFilterOptions.dataset.catalogVersion = String(hfFilterCatalogVersion);
-  const renderedGroups = groups.map(group => renderFilterGroup(activeTab, group.id, group.label, group.values, query)).filter(group => !group.isEmpty());
-  setHTML(elements.downloadFilterOptions, listOrFallback(renderedGroups, html`<span class="muted">No filters match.</span>`));
-  setHTML(elements.downloadFilterSummary, state.downloads.filters.length === 0
-    ? html`<span class="muted">No metadata filters selected.</span>`
-    : html`${state.downloads.filters.map(filter => html`<button type="button" class="badge tone-accent" data-download-filter-clear="${filter}">${filter} ×</button>`)}<button type="button" class="badge tone-neutral" data-download-filter-clear-all>Clear all</button>`);
-}
-
-function renderFilterGroup(activeTab: string, groupID: string, label: string, values: string[], query: string): SafeHTML {
-  const matching = values.filter(value => !query || value.toLocaleLowerCase().includes(query));
-  if (matching.length === 0) {
-    return emptyHTML;
-  }
-  const expanded = query.length > 0 || state.downloads.expandedFilterGroups.includes(`${activeTab}:${groupID}`);
-  const visible = expanded ? matching : matching.slice(0, 10);
-  const remaining = matching.length - visible.length;
-  const toggle = remaining > 0
-    ? html`<button type="button" class="filter-chip" data-download-filter-group="${groupID}">+${remaining} more</button>`
-    : expanded && matching.length > 10
-      ? html`<button type="button" class="filter-chip" data-download-filter-group="${groupID}">Show less</button>`
-      : "";
-  return html`<section class="filter-group"><h4>${label}</h4><div class="filter-group-options">${visible.map(filter => html`<button type="button" class="filter-chip${state.downloads.filters.includes(filter) ? " active" : ""}" data-download-filter="${filter}">${filterLabel(filter)}</button>`)}${toggle}</div></section>`;
-}
-
-function allAvailableFilters(): Set<string> {
-  return new Set([
-    ...Object.values(hfFilterCatalog).flatMap(groups => groups.flatMap(group => group.values)),
-    ...state.downloads.observedFilters
-  ]);
-}
-
-function validObservedFilter(value: string): boolean {
-  return value.length > 0 && value.length <= 128 && /^[\w.+:/-]+$/u.test(value);
-}
-
-function filterLabel(value: string): string {
-  return value.replace(/^(?:app|provider|dataset|library|language|license):/, "");
-}
-
-function renderPlan(plan: DownloadPlan): SafeHTML {
-  const selected = new Set(state.downloads.selectedPlanFiles);
-  const selectedBytes = selectedDownloadBytes(plan, state.downloads.selectedPlanFiles);
-  return html`
-    <div class="download-entry">
-      <strong>${plan.commit}</strong>
-      <span>${plan.destination} · ${formatBytes(selectedBytes)} selected of ${formatBytes(plan.total_bytes)}</span>
-      ${plan.unsafe_warning ? html`<p class="error-text">Hugging Face reports unsafe or pending security status. Starting requires confirmation.</p>` : ""}
-      ${plan.gated ? html`<p class="action-status">Gated repository: approve access on Hugging Face and use an authorized token.</p>` : ""}
-      ${(plan.skipped || []).length > 0 ? html`<p class="muted">Skipped: ${(plan.skipped || []).map(file => `${file.path} (${file.reason})`).join(", ")}</p>` : ""}
-      <div class="button-strip">
-        <button type="button" data-download-plan-select="all">Select all</button>
-        <button type="button" data-download-plan-select="none">Select none</button>
-        <button type="button" data-download-plan-select="required">Required only</button>
-      </div>
-      <ul class="plan-files">${plan.files.map(file => html`<li><label class="toggle-row"><input type="checkbox" data-download-plan-file="${file.path}"${selected.has(file.path) ? " checked" : ""}><code>${file.path}</code><span class="muted">${formatBytes(file.size)} · ${file.reason}</span>${file.required ? badge("required", "accent") : ""}</label></li>`)}</ul>
-    </div>
-  `;
-}
-
-function requestedFiles(): string[] {
-  return elements.downloadFilesInput.value.split(/\r?\n/).map(value => value.trim()).filter(Boolean);
-}
-
-function downloadToken(): string | undefined {
-  const token = elements.downloadTokenInput.value.trim();
-  return token || undefined;
-}
-
-function parameterRange(): string | undefined {
-  return normalizeParameterRange(elements.downloadParameterMin.value.trim(), elements.downloadParameterMax.value.trim());
+function downloadNodeLabel(node: Parameters<typeof downloadNodeStatus>[0]): string {
+  return `${node.node_id} — ${downloadNodeStatus(node)}`;
 }

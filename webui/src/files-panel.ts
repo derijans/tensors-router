@@ -1,3 +1,5 @@
+import { inventoryScanNotices } from "./inventory-scan-notices";
+import { optionElement } from "./markup-primitives";
 import { SafeHTML, html, setHTML } from "./safe-html";
 import { elements } from "./elements";
 import { fileExtensionOptions, fileRoleOptions, filterInventoryFiles } from "./model-inventory-data";
@@ -16,7 +18,7 @@ export function renderFilesPanel(files: FileRecord[], nodes: NodeInventory[]): v
     hash: state.models.fileHashFilter
   });
   elements.filesRowCount.textContent = `${filtered.length} of ${files.length} files`;
-  setHTML(elements.filesScanNotices, scanNotices(nodes));
+  setHTML(elements.filesScanNotices, inventoryScanNotices(nodes));
   setHTML(elements.filesTable, filtered.length > 0 ? html`${filtered.map(fileRow)}` : html`<tr><td class="empty-state" colspan="6">No files match the current filters.</td></tr>`);
 }
 
@@ -45,9 +47,5 @@ function fileHashCell(nodeID: string, path: string, hash: string): SafeHTML {
 }
 
 function renderSelect(select: HTMLSelectElement, allLabel: string, values: string[], selected: string): void {
-  setHTML(select, html`<option value="">${allLabel}</option>${values.map(value => html`<option value="${value}"${value === selected ? " selected" : ""}>${value}</option>`)}`);
-}
-
-function scanNotices(nodes: NodeInventory[]): SafeHTML {
-  return html`${nodes.filter(node => node.error).map(node => html`<div class="inventory-notice error-text">${node.node_id || node.node_url || "unknown node"}: ${node.error || "scan failed"}</div>`)}`;
+  setHTML(select, html`<option value="">${allLabel}</option>${values.map(value => optionElement(value, value, value === selected))}`);
 }

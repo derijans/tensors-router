@@ -30,7 +30,7 @@ func webUIInferencePath(definition webUIDefinition, path string) bool {
 	switch definition.kind {
 	case "llama":
 		return path == "/completion" || path == "/chat" || path == "/infill" ||
-			path == "/embedding" || path == "/embeddings" || path == "/rerank"
+			path == "/embedding" || path == "/embeddings" || path == pathRerank
 	case "whispercpp":
 		return path == "/inference"
 	case "kobold-music":

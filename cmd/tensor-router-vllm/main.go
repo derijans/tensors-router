@@ -5,8 +5,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"strconv"
-	"strings"
 
 	"tensors-router/internal/buildinfo"
 	routerupdate "tensors-router/internal/update"
@@ -88,94 +86,6 @@ func run(arguments []string, input io.Reader, output io.Writer) error {
 		return err
 	}
 	return vllm.ServeWorker(manager, input, output)
-}
-
-func parseWorkerConfig(arguments []string) (vllm.ClientConfig, error) {
-	configuration := vllm.ClientConfig{DefaultProfile: "auto"}
-	for index := 0; index < len(arguments); index++ {
-		name := arguments[index]
-		if index+1 >= len(arguments) {
-			return vllm.ClientConfig{}, fmt.Errorf("%s requires a value", name)
-		}
-		value := strings.TrimSpace(arguments[index+1])
-		index++
-		switch name {
-		case "--data-dir":
-			configuration.DataDir = value
-		case "--profile":
-			configuration.DefaultProfile = value
-		case "--manifest":
-			configuration.ManifestPath = value
-		case "--manifest-size":
-			size, err := strconv.ParseInt(value, 10, 64)
-			if err != nil || size <= 0 {
-				return vllm.ClientConfig{}, fmt.Errorf("--manifest-size must be a positive integer")
-			}
-			configuration.ManifestSize = size
-		case "--manifest-sha256":
-			configuration.ManifestSHA256 = value
-		case "--tuf-repository-url":
-			configuration.TUFRepositoryURL = value
-		case "--tuf-root":
-			configuration.TUFRootPath = value
-		case "--allow-trust-remote-code":
-			parsed, err := strconv.ParseBool(value)
-			if err != nil {
-				return vllm.ClientConfig{}, fmt.Errorf("%s must be true or false", name)
-			}
-			configuration.AllowTrustRemoteCode = parsed
-		case "--allow-external-tools":
-			parsed, err := strconv.ParseBool(value)
-			if err != nil {
-				return vllm.ClientConfig{}, fmt.Errorf("%s must be true or false", name)
-			}
-			configuration.AllowExternalTools = parsed
-		case "--allow-dynamic-lora":
-			parsed, err := strconv.ParseBool(value)
-			if err != nil {
-				return vllm.ClientConfig{}, fmt.Errorf("%s must be true or false", name)
-			}
-			configuration.AllowDynamicLoRA = parsed
-		case "--oci-run-as-image-user":
-			parsed, err := strconv.ParseBool(value)
-			if err != nil {
-				return vllm.ClientConfig{}, fmt.Errorf("%s must be true or false", name)
-			}
-			configuration.OCIRunAsImageUser = parsed
-		case "--allow-unverified-install":
-			parsed, err := strconv.ParseBool(value)
-			if err != nil {
-				return vllm.ClientConfig{}, fmt.Errorf("%s must be true or false", name)
-			}
-			configuration.AllowUnverifiedInstall = parsed
-		case "--unverified-vllm-version":
-			configuration.UnverifiedVLLMVersion = value
-		case "--unverified-python-version":
-			configuration.UnverifiedPythonVersion = value
-		case "--unverified-index-url":
-			configuration.UnverifiedIndexURL = value
-		case "--unverified-extra-index-url":
-			configuration.UnverifiedExtraIndexURL = value
-		default:
-			return vllm.ClientConfig{}, fmt.Errorf("unknown worker option %q", name)
-		}
-	}
-	if configuration.DataDir == "" {
-		return vllm.ClientConfig{}, fmt.Errorf("worker requires --data-dir")
-	}
-	switch {
-	case configuration.TUFRepositoryURL != "":
-		if configuration.ManifestPath == "" {
-			return vllm.ClientConfig{}, fmt.Errorf("worker requires --manifest when --tuf-repository-url is set")
-		}
-	case configuration.ManifestPath != "":
-		if configuration.ManifestSize <= 0 || configuration.ManifestSHA256 == "" {
-			return vllm.ClientConfig{}, fmt.Errorf("worker requires --manifest-size and --manifest-sha256 when --manifest is set without --tuf-repository-url")
-		}
-	case !configuration.AllowUnverifiedInstall:
-		return vllm.ClientConfig{}, fmt.Errorf("worker requires --tuf-repository-url, --manifest with --manifest-size and --manifest-sha256, or --allow-unverified-install")
-	}
-	return configuration, nil
 }
 
 func usage(output io.Writer) error {

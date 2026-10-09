@@ -1,5 +1,7 @@
 * {
   box-sizing: border-box;
+  scrollbar-color: var(--border-strong) transparent;
+  scrollbar-width: thin;
 }
 
 [hidden] {
@@ -176,10 +178,6 @@ button.danger:hover {
   background: rgb(255 79 163 / .35);
 }
 
-* {
-  scrollbar-color: var(--border-strong) transparent;
-  scrollbar-width: thin;
-}
 
 .icon {
   width: 18px;

@@ -165,7 +165,7 @@ export function defaultFieldValue(definition: OptionDefinition | undefined): Jso
 }
 
 export function cloneValue(value: Options | undefined): Options {
-  return JSON.parse(JSON.stringify(value || {})) as Options;
+  return structuredClone(value ?? {});
 }
 
 export function nodeLabel(node: NodeInventory): string {
@@ -270,53 +270,32 @@ function roleMatchesDefinition(roles: string[], role: string): boolean {
   return true;
 }
 
+const modelPathReaders = new Map<string, (model: Model) => Array<string | undefined>>(Object.entries({
+  llm: model => [typeof model.filename === "string" ? model.filename : undefined],
+  image: model => [model.capabilities?.image?.model],
+  embeddings: model => [model.capabilities?.embeddings?.model],
+  multimodal: model => [model.capabilities?.multimodal?.projector],
+  vae: model => [model.capabilities?.image?.vae],
+  clip: model => {
+    const image = model.capabilities?.image;
+    return [image?.clip1, image?.clip2, image?.clip_l, image?.clip_g];
+  },
+  t5: model => [model.capabilities?.image?.t5xxl],
+  upscaler: model => [model.capabilities?.image?.upscaler],
+  lora: model => model.capabilities?.image?.lora ?? [],
+  voice: model => {
+    const voice = model.capabilities?.voice;
+    return [voice?.whisper_model, voice?.tts_model, voice?.wav_tokenizer, voice?.directory];
+  },
+  music: model => {
+    const music = model.capabilities?.music;
+    return [music?.llm, music?.embeddings, music?.diffusion, music?.vae];
+  }
+}));
+
 function modelPathsForRole(model: Model, role: string): string[] {
-  const capabilities = model.capabilities ?? {};
-  const values: Array<string | undefined> = [];
-  if (role === "llm" && typeof model.filename === "string") {
-    values.push(model.filename);
-  }
-  if (role === "image" && capabilities.image?.model) {
-    values.push(capabilities.image.model);
-  }
-  if (role === "embeddings" && capabilities.embeddings?.model) {
-    values.push(capabilities.embeddings.model);
-  }
-  if (role === "multimodal" && capabilities.multimodal?.projector) {
-    values.push(capabilities.multimodal.projector);
-  }
-  if (role === "vae" && capabilities.image?.vae) {
-    values.push(capabilities.image.vae);
-  }
-  if (role === "clip") {
-    values.push(capabilities.image?.clip1, capabilities.image?.clip2, capabilities.image?.clip_l, capabilities.image?.clip_g);
-  }
-  if (role === "t5" && capabilities.image?.t5xxl) {
-    values.push(capabilities.image.t5xxl);
-  }
-  if (role === "upscaler" && capabilities.image?.upscaler) {
-    values.push(capabilities.image.upscaler);
-  }
-  if (role === "lora") {
-    values.push(...(capabilities.image?.lora ?? []));
-  }
-  if (role === "voice") {
-    values.push(
-      capabilities.voice?.whisper_model,
-      capabilities.voice?.tts_model,
-      capabilities.voice?.wav_tokenizer,
-      capabilities.voice?.directory
-    );
-  }
-  if (role === "music") {
-    values.push(
-      capabilities.music?.llm,
-      capabilities.music?.embeddings,
-      capabilities.music?.diffusion,
-      capabilities.music?.vae
-    );
-  }
-  return values.filter((value): value is string => Boolean(value));
+  const readPaths = modelPathReaders.get(role);
+  return (readPaths ? readPaths(model) : []).filter((value): value is string => Boolean(value));
 }
 
 function inputChoiceValue(value: string, definition: OptionDefinition | undefined): string {

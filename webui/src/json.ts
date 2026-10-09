@@ -28,5 +28,5 @@ export function jsonRecord(value: unknown): Record<string, unknown> | null {
 }
 
 export function cloneJsonObject<T extends JsonValue>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
+  return structuredClone(value);
 }

@@ -25,125 +25,58 @@ type backendRetryResult struct {
 	header      http.Header
 }
 
-func (service *Service) forwardWithFallback(ctx context.Context, original *http.Request, body []byte, modelID string, configFilename string, hasModel bool, readiness backendReadiness, mode string) (*http.Response, error) {
-	response, _, err := service.forwardWithFallbackObserved(ctx, original, body, modelID, configFilename, hasModel, readiness, mode)
+type backendForwardTarget struct {
+	modelID        string
+	configFilename string
+	hasModel       bool
+	readiness      backendReadiness
+	mode           string
+}
+
+func (service *Service) forwardWithFallback(ctx context.Context, original *http.Request, body []byte, target backendForwardTarget) (*http.Response, error) {
+	response, _, err := service.forwardWithFallbackObserved(ctx, original, body, target)
 	return response, err
 }
 
-func (service *Service) forwardWithFallbackObserved(ctx context.Context, original *http.Request, body []byte, modelID string, configFilename string, hasModel bool, readiness backendReadiness, mode string) (*http.Response, routeranalytics.EventFinalizer, error) {
-	if _, err := service.runtimeForBackendMode(mode, readiness); err != nil {
+func (service *Service) forwardWithFallbackObserved(ctx context.Context, original *http.Request, body []byte, target backendForwardTarget) (*http.Response, routeranalytics.EventFinalizer, error) {
+	if _, err := service.runtimeForBackendMode(target.mode, target.readiness); err != nil {
 		return nil, nil, err
 	}
-	var runtime *backendRuntime
-	var err error
-	loadedFresh := false
-	modelContext := ctx
-	releaseModel := func() {}
-	var workFinalizer routeranalytics.EventFinalizer
-	if hasModel {
-		var cancelModelContext context.CancelFunc
-		modelContext, cancelModelContext = context.WithTimeout(context.WithoutCancel(ctx), modelOperationTimeout)
-		defer cancelModelContext()
-
-		var acquireErr error
-		runtime, releaseModel, loadedFresh, acquireErr = service.acquireModelConfigForBackendMode(mode, modelContext, modelID, configFilename, readiness, false)
-		if acquireErr != nil {
-			return nil, nil, acquireErr
-		}
-		workFinalizer = service.analytics.beginWork(runtime)
-	} else {
-		if err := service.ensureBackendFamily(ctx, mode); err != nil {
-			return nil, nil, err
-		}
-		runtime, err = service.runtimeForBackendMode(mode, readiness)
-		if err != nil {
-			return nil, nil, err
-		}
+	if !target.hasModel {
+		return service.forwardToBackendFamily(ctx, original, body, target)
 	}
+	modelContext, cancelModelContext := context.WithTimeout(context.WithoutCancel(ctx), modelOperationTimeout)
+	defer cancelModelContext()
 
+	runtime, releaseModel, loadedFresh, err := service.acquireModelConfigForBackendMode(target.mode, modelContext, target.modelID, target.configFilename, target.readiness, false)
+	if err != nil {
+		return nil, nil, err
+	}
+	workFinalizer := service.analytics.beginWork(runtime)
+	session := &backendRetrySession{
+		service:      service,
+		runtime:      runtime,
+		ctx:          ctx,
+		modelContext: modelContext,
+		original:     original,
+		body:         body,
+		target:       target,
+		releaseModel: releaseModel,
+	}
+	response, err := session.forward(loadedFresh)
+	return response, workFinalizer, err
+}
+
+func (service *Service) forwardToBackendFamily(ctx context.Context, original *http.Request, body []byte, target backendForwardTarget) (*http.Response, routeranalytics.EventFinalizer, error) {
+	if err := service.ensureBackendFamily(ctx, target.mode); err != nil {
+		return nil, nil, err
+	}
+	runtime, err := service.runtimeForBackendMode(target.mode, target.readiness)
+	if err != nil {
+		return nil, nil, err
+	}
 	response, err := service.forward(runtime, ctx, original, body)
-	if !hasModel {
-		return response, stampLoadedModel(runtime), err
-	}
-	recoveredBackend := false
-	retryResult := service.backendRetryResult(response, err, original.URL.Path)
-	if !retryResult.retry {
-		return responseWithRelease(response, releaseModel), workFinalizer, nil
-	}
-
-	lastStatus := retryResult.status
-	lastErr := retryResult.err
-	lastBody := retryResult.body
-	service.logRetryableBackendResult(original.URL.Path, modelID, configFilename, 0, lastStatus, lastErr, lastBody)
-
-	if service.shouldRecoverBackend(runtime, ctx, retryResult) {
-		var recoveryErr error
-		releaseModel, recoveryErr = service.recoverBackendForModel(runtime, modelContext, releaseModel, modelID, configFilename, readiness, original.URL.Path, retryResult.err)
-		if recoveryErr != nil {
-			return nil, workFinalizer, recoveryErr
-		}
-		recoveredBackend = true
-	} else if !loadedFresh && !isBackendWaitingResponse(lastStatus, lastBody) {
-		service.logger.Printf("backend returned a retryable response; retrying without reload model=%q config=%q status=%d", modelID, configFilename, lastStatus)
-	} else if !loadedFresh {
-		service.logger.Printf("backend unavailable while config already active; retrying without reload model=%q config=%q", modelID, configFilename)
-	} else {
-		service.logger.Printf("backend retry after fresh config load model=%q config=%q", modelID, configFilename)
-	}
-
-	retryDelay := service.backendRetryDelay
-	skipRetryDelay := false
-	if retryResult.inactive {
-		if err := service.waitForInactiveBackend(runtime, modelContext, readiness, modelID, configFilename, original.URL.Path); err != nil {
-			releaseModel()
-			return nil, workFinalizer, err
-		}
-		skipRetryDelay = true
-	}
-	for attempt := 1; attempt <= service.inferenceRetryAttempts(retryResult); attempt++ {
-		if attempt > 1 && !skipRetryDelay {
-			if err := waitForRetry(ctx, retryDelay); err != nil {
-				releaseModel()
-				return nil, workFinalizer, err
-			}
-			retryDelay = nextRetryDelay(retryDelay, service.backendRetryMaxDelay)
-		}
-		skipRetryDelay = false
-
-		response, err = service.forward(runtime, ctx, original, body)
-		retryResult = service.backendRetryResult(response, err, original.URL.Path)
-		if !retryResult.retry {
-			return responseWithRelease(response, releaseModel), workFinalizer, nil
-		}
-
-		lastStatus = retryResult.status
-		lastErr = retryResult.err
-		lastBody = retryResult.body
-		service.logRetryableBackendResult(original.URL.Path, modelID, configFilename, attempt, lastStatus, lastErr, lastBody)
-
-		if !recoveredBackend && service.shouldRecoverBackend(runtime, ctx, retryResult) {
-			var recoveryErr error
-			releaseModel, recoveryErr = service.recoverBackendForModel(runtime, modelContext, releaseModel, modelID, configFilename, readiness, original.URL.Path, retryResult.err)
-			if recoveryErr != nil {
-				return nil, workFinalizer, recoveryErr
-			}
-			recoveredBackend = true
-		}
-		if retryResult.inactive {
-			if err := service.waitForInactiveBackend(runtime, modelContext, readiness, modelID, configFilename, original.URL.Path); err != nil {
-				releaseModel()
-				return nil, workFinalizer, err
-			}
-			skipRetryDelay = true
-		}
-	}
-
-	service.logger.Printf("backend retry exhausted path=%s model=%q config=%q attempts=%d status=%d error=%v body=%q", original.URL.Path, modelID, configFilename, service.inferenceRetryAttempts(retryResult), lastStatus, lastErr, lastBody)
-	if retryResult.emptyOutput {
-		return responseWithRelease(emptyOutputResponse(retryResult), releaseModel), workFinalizer, nil
-	}
-	releaseModel()
-	return nil, workFinalizer, backendRetryExhaustedError(lastStatus, lastErr, lastBody)
+	return response, stampLoadedModel(runtime), err
 }
 
 // inferenceRetryAttempts sizes the retry budget for a request that is being re-run. A
@@ -167,7 +100,7 @@ func emptyOutputResponse(result backendRetryResult) *http.Response {
 	header := result.header
 	if header == nil {
 		header = http.Header{}
-		header.Set("Content-Type", "application/json")
+		header.Set(headerContentType, mediaTypeJSON)
 	}
 	status := result.status
 	if status == 0 {
@@ -175,7 +108,7 @@ func emptyOutputResponse(result backendRetryResult) *http.Response {
 	}
 	body := []byte(result.body)
 	header = header.Clone()
-	header.Del("Content-Length")
+	header.Del(headerContentLength)
 	return &http.Response{
 		StatusCode:    status,
 		Header:        header,
@@ -192,16 +125,6 @@ func (service *Service) shouldRecoverBackend(runtime *backendRuntime, ctx contex
 		return false
 	}
 	return !runtime.backend.Healthy(ctx)
-}
-
-func (service *Service) recoverBackendForModel(runtime *backendRuntime, ctx context.Context, releaseModel func(), modelID string, configFilename string, readiness backendReadiness, path string, cause error) (func(), error) {
-	service.logger.Printf("backend transport recovery attempt path=%s model=%q config=%q error=%v", path, modelID, configFilename, cause)
-	if err := service.reloadHeldModelConfig(runtime, ctx, modelID, configFilename, readiness); err != nil {
-		releaseModel()
-		return nil, err
-	}
-	service.logger.Printf("backend transport recovery succeeded path=%s model=%q config=%q reloaded=true", path, modelID, configFilename)
-	return releaseModel, nil
 }
 
 func (service *Service) waitForInactiveBackend(runtime *backendRuntime, ctx context.Context, readiness backendReadiness, modelID string, configFilename string, path string) error {

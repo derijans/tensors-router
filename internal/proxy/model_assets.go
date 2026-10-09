@@ -29,7 +29,7 @@ func (assets *assetManager) handleSiteModelAssetExport(w http.ResponseWriter, r 
 		return
 	}
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", response.Filename))
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, mediaTypeJSON)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(response.Content)
 }

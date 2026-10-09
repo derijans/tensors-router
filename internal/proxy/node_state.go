@@ -62,7 +62,7 @@ func copyStringMap(values map[string]string) map[string]string {
 
 func (service *Service) handleSiteNodeState(w http.ResponseWriter, r *http.Request) {
 	if !service.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	nodeID := strings.TrimSpace(r.URL.Query().Get("node_id"))
@@ -84,7 +84,7 @@ func (service *Service) handleNodeState(w http.ResponseWriter, r *http.Request) 
 
 func (service *Service) handleSiteNodeUnload(w http.ResponseWriter, r *http.Request) {
 	if !service.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	request, ok := decodeNodeUnloadRequest(w, r)
@@ -106,7 +106,7 @@ func (service *Service) handleNodeStateUnload(w http.ResponseWriter, r *http.Req
 		return
 	}
 	if request.NodeID != "" && request.NodeID != service.nodeID {
-		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "node_id does not match this node")
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", messageNodeIDMismatch)
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.Context()), modelOperationTimeout)
@@ -120,7 +120,7 @@ func (service *Service) handleNodeStateUnload(w http.ResponseWriter, r *http.Req
 
 func (service *Service) handleSiteBackendInitialization(w http.ResponseWriter, r *http.Request) {
 	if !service.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	request, ok := decodeBackendInitializationRequest(w, r)
@@ -137,7 +137,7 @@ func (service *Service) handleSiteBackendInitialization(w http.ResponseWriter, r
 
 func (service *Service) handleSiteBackendInitializationCancel(w http.ResponseWriter, r *http.Request) {
 	if !service.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	request, ok := decodeBackendInitializationRequest(w, r)
@@ -158,7 +158,7 @@ func (service *Service) handleNodeBackendInitialization(w http.ResponseWriter, r
 		return
 	}
 	if request.NodeID != service.nodeID {
-		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "node_id does not match this node")
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", messageNodeIDMismatch)
 		return
 	}
 	job, err := service.initializeLocalBackend(r.Context(), request)
@@ -175,7 +175,7 @@ func (service *Service) handleNodeBackendInitializationCancel(w http.ResponseWri
 		return
 	}
 	if request.NodeID != service.nodeID {
-		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "node_id does not match this node")
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", messageNodeIDMismatch)
 		return
 	}
 	job, err := service.cancelLocalBackendInitialization(r.Context(), request)
@@ -360,66 +360,6 @@ func (service *Service) remoteNodeURL(nodeID string) (string, bool) {
 	return nodeURL, ok && strings.TrimSpace(nodeURL) != ""
 }
 
-func (service *Service) localNodeState(ctx context.Context) siteapi.NodeState {
-	bindings := service.runtimeBindings()
-	rowsByBackend := make(map[string][]siteapi.NodeStateModelRow)
-	requests := make([]activeRequestSnapshot, 0)
-	seenRuntimes := make(map[*backendRuntime]struct{})
-	for _, binding := range bindings {
-		if binding.runtime == nil {
-			continue
-		}
-		state := binding.runtime.state
-		state.mu.Lock()
-		if state.modelID != "" {
-			rowsByBackend[binding.backendID] = append(rowsByBackend[binding.backendID], siteapi.NodeStateModelRow{
-				ModelID: state.modelID, Lane: binding.lane, RuntimeID: binding.runtime.name, Generation: state.generation,
-				MemoryEstimateMB: state.memoryLoadedMB, Borrowed: state.borrowedUsers > 0,
-			})
-		}
-		if _, seen := seenRuntimes[binding.runtime]; !seen {
-			for tag, modelID := range state.leases {
-				requests = append(requests, activeRequestSnapshot{tag: tag, modelID: modelID})
-			}
-			seenRuntimes[binding.runtime] = struct{}{}
-		}
-		state.mu.Unlock()
-	}
-	backends := make([]siteapi.NodeStateBackend, 0, len(nodeBackendDefinitions))
-	for _, definition := range nodeBackendDefinitions {
-		if definition.id != backendIDVLLM && !regularFile(service.backendBinaryPaths[definition.id]) {
-			continue
-		}
-		rows := rowsByBackend[definition.id]
-		if rows == nil {
-			rows = []siteapi.NodeStateModelRow{}
-		}
-		backend := siteapi.NodeStateBackend{
-			ID: definition.id, DisplayName: definition.displayName, Mode: definition.mode, LoadedModels: rows,
-		}
-		if definition.id == backendIDVLLM {
-			backend = service.vllmNodeState(backend)
-		}
-		backends = append(backends, backend)
-	}
-	sort.Slice(requests, func(left, right int) bool { return requests[left].tag < requests[right].tag })
-	activeRequests := make([]string, 0, len(requests))
-	for _, request := range requests {
-		if request.modelID != "" {
-			activeRequests = append(activeRequests, request.modelID)
-		}
-	}
-	return siteapi.NodeState{
-		NodeID:          service.nodeID,
-		Backends:        backends,
-		ActiveRequests:  activeRequests,
-		HeldRequests:    service.scheduler.heldRequests(time.Now()),
-		FFmpegAvailable: service.ffmpeg.Available(),
-		FFmpegPath:      service.ffmpeg.Path(),
-		Memory:          service.nodeMemoryReading(ctx),
-	}
-}
-
 func (service *Service) nodeMemoryReading(ctx context.Context) *siteapi.NodeMemory {
 	if service.nodeMemory == nil {
 		return nil
@@ -553,4 +493,81 @@ func (service *Service) writeNodeStateError(w http.ResponseWriter, err error) {
 		return
 	}
 	service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
+}
+
+type runtimeSnapshot struct {
+	rowsByBackend map[string][]siteapi.NodeStateModelRow
+	requests      []activeRequestSnapshot
+	seenRuntimes  map[*backendRuntime]struct{}
+}
+
+func (service *Service) localNodeState(ctx context.Context) siteapi.NodeState {
+	snapshot := runtimeSnapshot{
+		rowsByBackend: make(map[string][]siteapi.NodeStateModelRow),
+		requests:      make([]activeRequestSnapshot, 0),
+		seenRuntimes:  make(map[*backendRuntime]struct{}),
+	}
+	for _, binding := range service.runtimeBindings() {
+		if binding.runtime != nil {
+			snapshot.record(binding)
+		}
+	}
+	return siteapi.NodeState{
+		NodeID:          service.nodeID,
+		Backends:        service.nodeStateBackends(snapshot.rowsByBackend),
+		ActiveRequests:  snapshot.activeRequestModels(),
+		HeldRequests:    service.scheduler.heldRequests(time.Now()),
+		FFmpegAvailable: service.ffmpeg.Available(),
+		FFmpegPath:      service.ffmpeg.Path(),
+		Memory:          service.nodeMemoryReading(ctx),
+	}
+}
+
+func (snapshot *runtimeSnapshot) record(binding runtimeBinding) {
+	state := binding.runtime.state
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	if state.modelID != "" {
+		snapshot.rowsByBackend[binding.backendID] = append(snapshot.rowsByBackend[binding.backendID], siteapi.NodeStateModelRow{
+			ModelID: state.modelID, Lane: binding.lane, RuntimeID: binding.runtime.name, Generation: state.generation,
+			MemoryEstimateMB: state.memoryLoadedMB, Borrowed: state.borrowedUsers > 0,
+		})
+	}
+	if _, seen := snapshot.seenRuntimes[binding.runtime]; seen {
+		return
+	}
+	for tag, modelID := range state.leases {
+		snapshot.requests = append(snapshot.requests, activeRequestSnapshot{tag: tag, modelID: modelID})
+	}
+	snapshot.seenRuntimes[binding.runtime] = struct{}{}
+}
+
+func (snapshot *runtimeSnapshot) activeRequestModels() []string {
+	sort.Slice(snapshot.requests, func(left, right int) bool { return snapshot.requests[left].tag < snapshot.requests[right].tag })
+	activeRequests := make([]string, 0, len(snapshot.requests))
+	for _, request := range snapshot.requests {
+		if request.modelID != "" {
+			activeRequests = append(activeRequests, request.modelID)
+		}
+	}
+	return activeRequests
+}
+
+func (service *Service) nodeStateBackends(rowsByBackend map[string][]siteapi.NodeStateModelRow) []siteapi.NodeStateBackend {
+	backends := make([]siteapi.NodeStateBackend, 0, len(nodeBackendDefinitions))
+	for _, definition := range nodeBackendDefinitions {
+		if definition.id != backendIDVLLM && !regularFile(service.backendBinaryPaths[definition.id]) {
+			continue
+		}
+		rows := rowsByBackend[definition.id]
+		if rows == nil {
+			rows = []siteapi.NodeStateModelRow{}
+		}
+		backend := siteapi.NodeStateBackend{ID: definition.id, DisplayName: definition.displayName, Mode: definition.mode, LoadedModels: rows}
+		if definition.id == backendIDVLLM {
+			backend = service.vllmNodeState(backend)
+		}
+		backends = append(backends, backend)
+	}
+	return backends
 }

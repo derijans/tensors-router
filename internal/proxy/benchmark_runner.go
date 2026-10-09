@@ -131,7 +131,7 @@ func (runner *benchmarkRunner) benchmarkMetrics(ctx context.Context, request rou
 		if !model.HasEmbeddings && (model.BackendMode == BackendModeVLLM || !model.HasLLM) {
 			return []routerbenchmark.Metric{skippedMetric(section, "model has no embedding lane")}
 		}
-		return runner.requestBenchmarkMetrics(ctx, "/v1/embeddings", embeddingsBenchmarkBody(model.ID), request.Iterations)
+		return runner.requestBenchmarkMetrics(ctx, pathEmbeddings, embeddingsBenchmarkBody(model.ID), request.Iterations)
 	case routerbenchmark.SectionImage:
 		if !model.HasImage {
 			return []routerbenchmark.Metric{skippedMetric(section, "model has no image lane")}
@@ -146,7 +146,7 @@ func (runner *benchmarkRunner) benchmarkMetrics(ctx context.Context, request rou
 			if err != nil {
 				return []routerbenchmark.Metric{failedMetric(section, err.Error(), 0)}
 			}
-			return runner.requestBenchmarkMetricsWithContentType(ctx, "/v1/audio/transcriptions", body, contentType, request.Iterations)
+			return runner.requestBenchmarkMetricsWithContentType(ctx, pathAudioTranscriptions, body, contentType, request.Iterations)
 		}
 		return runner.requestBenchmarkMetrics(ctx, "/v1/audio/speech", voiceBenchmarkBody(model.ID), request.Iterations)
 	case routerbenchmark.SectionMusic:
@@ -170,7 +170,7 @@ func (runner *benchmarkRunner) runtimeBenchmarkMetric(ctx context.Context, model
 }
 
 func (runner *benchmarkRunner) requestBenchmarkMetrics(ctx context.Context, path string, body string, iterations int) []routerbenchmark.Metric {
-	return runner.requestBenchmarkMetricsWithContentType(ctx, path, body, "application/json", iterations)
+	return runner.requestBenchmarkMetricsWithContentType(ctx, path, body, mediaTypeJSON, iterations)
 }
 
 func (runner *benchmarkRunner) requestBenchmarkMetricsWithContentType(ctx context.Context, path string, body string, contentType string, iterations int) []routerbenchmark.Metric {

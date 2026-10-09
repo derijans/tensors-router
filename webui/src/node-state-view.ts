@@ -21,7 +21,14 @@ export function renderNodeStateSnapshot(nodeID: string, snapshot: NodeState, pen
 }
 
 function renderActiveRequests(activeRequests: string[]): SafeHTML {
-  return activeRequests.length > 0 ? html`<ul>${activeRequests.map(modelID => html`<li>${modelID}</li>`)}</ul>` : html`<p class="muted node-state-empty">No active requests.</p>`;
+  if (activeRequests.length === 0) {
+    return html`<p class="muted node-state-empty">No active requests.</p>`;
+  }
+  return html`<ul>${activeRequests.map(listItem)}</ul>`;
+}
+
+function listItem(value: string): SafeHTML {
+  return html`<li>${value}</li>`;
 }
 
 function renderHeldRequests(heldRequests: NodeHeldRequest[] | null | undefined): SafeHTML {
@@ -117,11 +124,27 @@ function renderBackendLifecycle(nodeID: string, backend: NodeStateBackend, lifec
   return html`
     ${renderRuntimeIdentity(backend)}
     <div class="node-backend-lifecycle">
-      ${reason ? html`<p class="${lifecycleState === "failed" ? "error-text" : "muted"} node-state-message">${reason}</p>` : ""}
-      ${initializationAction ? html`<button class="badge tone-warning node-backend-init-action" type="button" data-node-backend-init data-node-id="${nodeID}" data-backend-id="${backend.id}"${backend.selected_profile ? html` data-profile="${backend.selected_profile}"` : ""}>backend needs init</button>` : ""}
+      ${lifecycleMessage(reason, lifecycleState)}
+      ${initializationAction ? initializationButton(nodeID, backend) : emptyHTML}
     </div>
     ${renderLaunchOptions(nodeID, backend)}
   `;
+}
+
+function lifecycleMessage(reason: string, lifecycleState: string): SafeHTML {
+  if (!reason) {
+    return emptyHTML;
+  }
+  const tone = lifecycleState === "failed" ? "error-text" : "muted";
+  return html`<p class="${tone} node-state-message">${reason}</p>`;
+}
+
+function initializationButton(nodeID: string, backend: NodeStateBackend): SafeHTML {
+  return html`<button class="badge tone-warning node-backend-init-action" type="button" data-node-backend-init data-node-id="${nodeID}" data-backend-id="${backend.id}"${profileAttribute(backend.selected_profile)}>backend needs init</button>`;
+}
+
+function profileAttribute(profile: string | undefined): SafeHTML {
+  return profile ? html` data-profile="${profile}"` : emptyHTML;
 }
 
 const launchOptionFields: {key: keyof BackendLaunchOptions; label: string}[] = [
@@ -158,7 +181,7 @@ function renderRuntimeIdentity(backend: NodeStateBackend): SafeHTML {
     backend.detected_profile && backend.detected_profile !== backend.selected_profile ? `Detected: ${backend.detected_profile}` : "",
     backend.manifest_trust && backend.manifest_trust !== "tuf" && backend.manifest_trust !== "unverified" ? `Manifest trust: ${backend.manifest_trust}` : ""
   ].filter(Boolean);
-  const identity = rows.length > 0 ? html`<div class="muted node-backend-runtime">${rows.map(value => html`<span>${value}</span>`)}</div>` : "";
+  const identity = rows.length > 0 ? html`<div class="muted node-backend-runtime">${rows.map(identitySpan)}</div>` : "";
   // Unlike every other trust tier, "unverified" pins nothing at all - it is called
   // out on its own line, not folded into the muted identity row, so it cannot be
   // mistaken for routine metadata.
@@ -166,7 +189,12 @@ function renderRuntimeIdentity(backend: NodeStateBackend): SafeHTML {
   return html`${identity}${unverifiedWarning}`;
 }
 
-function renderInitializationProgress(backend: NodeStateBackend): SafeHTML {
+function identitySpan(value: string): SafeHTML {
+  return html`<span>${value}</span>`;
+}
+
+function renderInitializationProgress(
+backend: NodeStateBackend): SafeHTML {
   const completedBytes = positiveBytes(backend.initialization_bytes);
   const totalBytes = positiveBytes(backend.initialization_total_bytes);
   if (totalBytes === 0) {

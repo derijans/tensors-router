@@ -27,7 +27,7 @@ type lendingSummaryResponse struct {
 
 func (service *Service) handleSiteLendingSummary(w http.ResponseWriter, r *http.Request) {
 	if !service.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	selected, err := service.selectedLoadCaptureNodes(nil)

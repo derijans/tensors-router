@@ -1,11 +1,9 @@
-type ElementConstructor<T extends Element> = {
-  new (): T;
-};
+type ElementConstructor<T extends Element> = new () => T;
 
 export function getRequiredElement<T extends Element>(id: string, constructor: ElementConstructor<T>): T {
   const element = document.getElementById(id);
   if (!(element instanceof constructor)) {
-    throw new Error(`Expected #${id} to be ${constructor.name}`);
+    throw new TypeError(`Expected #${id} to be ${constructor.name}`);
   }
   return element;
 }

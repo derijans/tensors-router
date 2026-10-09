@@ -1,3 +1,5 @@
+import { inventoryScanNotices } from "./inventory-scan-notices";
+import { pluralSuffix } from "./utils";
 import { SafeHTML, html, setHTML, setOuterHTML } from "./safe-html";
 import { applyNodeBackendLaunchOptions, cancelNodeBackendInitialization, getNodeState, initializeNodeBackend, unloadNodeRuntime } from "./api";
 import { closestElement, holdsOpenPopover } from "./dom";
@@ -14,7 +16,7 @@ const reportedNodeScanErrors = new Set<string>();
 export function renderNodesPanel(): void {
   const nodes = state.inventory?.nodes ?? [];
   reconcileNodeStateSelection(nodes);
-  elements.nodeCount.textContent = `${nodes.length} node${nodes.length === 1 ? "" : "s"}`;
+  elements.nodeCount.textContent = `${nodes.length} node${pluralSuffix(nodes.length)}`;
   setHTML(elements.nodesScanNotices, scanNotices(nodes));
   const buildVersion = clusterBuildVersion(nodes);
   setHTML(elements.nodesGrid, html`${nodes.map(node => nodesTabCard(node, buildVersion))}`);
@@ -38,8 +40,7 @@ function scanNotices(nodes: NodeInventory[]): SafeHTML {
       reportErrorToConsole(`node scan ${node.node_id || node.node_url || "unknown"}`, new Error(node.error || "scan failed"));
     }
   }
-  return html`${failing
-    .map(node => html`<div class="inventory-notice error-text">${node.node_id || node.node_url || "unknown node"}: ${node.error || "scan failed"}</div>`)}`;
+  return inventoryScanNotices(failing);
 }
 
 export function handleNodesClick(event: Event): void {
@@ -240,7 +241,7 @@ export async function unloadSelectedRuntime(nodeID: string, backendID: string, r
     }
   } finally {
     const after = slice(nodeID);
-    if (after && after.pendingUnload === pendingUnload) {
+    if (after?.pendingUnload === pendingUnload) {
       after.pendingUnload = "";
       if (state.activeTab === "nodes" && state.nodes.expanded.includes(nodeID)) {
         renderNodePanel(nodeID);
@@ -300,7 +301,7 @@ async function applySelectedLaunchOptions(button: HTMLButtonElement): Promise<vo
     }
   } finally {
     const after = slice(nodeID);
-    if (after && after.pendingBackendAction === pendingAction) {
+    if (after?.pendingBackendAction === pendingAction) {
       after.pendingBackendAction = "";
       if (state.activeTab === "nodes" && state.nodes.expanded.includes(nodeID)) {
         renderNodePanel(nodeID);
@@ -343,7 +344,7 @@ async function runBackendInitializationAction(action: "init" | "cancel", nodeID:
     }
   } finally {
     const after = slice(nodeID);
-    if (after && after.pendingBackendAction === pendingAction) {
+    if (after?.pendingBackendAction === pendingAction) {
       after.pendingBackendAction = "";
       if (state.activeTab === "nodes" && state.nodes.expanded.includes(nodeID)) {
         renderNodePanel(nodeID);
@@ -357,7 +358,7 @@ async function runBackendInitializationAction(action: "init" | "cancel", nodeID:
 
 function applyBackendInitializationJob(nodeID: string, job: BackendInitializationJob): void {
   const current = slice(nodeID);
-  if (!current?.snapshot || current.snapshot.node_id !== nodeID) {
+  if (current?.snapshot?.node_id !== nodeID) {
     return;
   }
   const backend = current.snapshot.backends.find(candidate => candidate.id === job.backend_id);
@@ -424,8 +425,7 @@ function invalidateAllPolling(): void {
 
 function pollingCurrent(nodeID: string, generation: number): boolean {
   const current = slice(nodeID);
-  return current !== undefined &&
-    generation === current.pollGeneration &&
+  return generation === current?.pollGeneration &&
     nodeID !== "" &&
     state.nodes.expanded.includes(nodeID) &&
     state.activeTab === "nodes";

@@ -1,6 +1,7 @@
+import { jinjaKwargsPrecedenceOptions } from "./jinja-precedence-options";
 import { SafeHTML, html, listOrFallback, setHTML } from "./safe-html";
 import { elements } from "./elements";
-import { backendModeKey, backendModeLabels, backendModes, compareOptionKeys, isLaneKind, jinjaKwargsKey, jinjaKwargsPrecedenceKey, jinjaKwargsPrecedenceLabels, laneKinds, laneMetadata, type BackendMode } from "./constants";
+import { backendModeKey, backendModeLabels, backendModes, compareOptionKeys, isLaneKind, jinjaKwargsKey, jinjaKwargsPrecedenceKey, laneKinds, laneMetadata, type BackendMode } from "./constants";
 import { requiresOptionAssignment } from "./constructor-field-data";
 import { emptyLaneOptions, emptyLanes, emptyLaneTargets, state } from "./state";
 import { openFieldEditor, renderFieldEditor } from "./constructor-field-editor";
@@ -15,7 +16,7 @@ import {
 } from "./data";
 import { localValidation } from "./constructor-data";
 import { clearConstructorConversions, clearConversionScope, discardConversion, invalidateAcceptedConversions, recordConversion } from "./conversions";
-import { badge, laneAccent } from "./markup-primitives";
+import { badge, laneAccent, optionElement } from "./markup-primitives";
 import {
   optionInputValue,
   optionValueLabel,
@@ -159,10 +160,7 @@ export function updateConstructorBackendMode(value: string): void {
 
 function renderBackendSelector(): void {
   const value = constructorBackendModeValue();
-  setHTML(elements.advancedBackendSelect, html`${backendModes.map(mode => {
-    const selected = mode === value ? " selected" : "";
-    return html`<option value="${mode}"${selected}>${backendModeLabels[mode]}</option>`;
-  })}`);
+  setHTML(elements.advancedBackendSelect, html`${backendModes.map(mode => optionElement(mode, backendModeLabels[mode], mode === value))}`);
   elements.advancedBackendSelect.classList.toggle("virtual-backend-select", !state.constructor.backendTouched);
 }
 
@@ -320,7 +318,7 @@ function optionEditorRow(key: string, value: JsonValue | undefined): SafeHTML {
     return html`
       <div class="option-editor">
         <span>${key}</span>
-        <select data-option-input="${key}">${Object.entries(jinjaKwargsPrecedenceLabels).map(([precedence, label]) => html`<option value="${precedence}"${precedence === selectedValue ? " selected" : ""}>${label}</option>`)}</select>
+        <select data-option-input="${key}">${jinjaKwargsPrecedenceOptions(selectedValue)}</select>
         <button type="button" data-remove-option="${key}">Remove</button>
       </div>
     `;
@@ -367,10 +365,8 @@ function targetNodeOptions(lane: LaneKind, selected: PaletteComponentPayload): S
   if (!state.constructor.targetNodes[lane]) {
     state.constructor.targetNodes[lane] = current;
   }
-  return html`${nodes.map(node => {
-    const selectedAttribute = node.node_id === current ? " selected" : "";
-    return html`<option value="${node.node_id}"${selectedAttribute}>${node.node_id || "node"}</option>`;
-  })}`;
+  return html`${nodes.map(node => optionElement(node.node_id, node.node_id || "node", node.node_id === current))}`;
+
 }
 
 function constructorBackendModeValue(): string {

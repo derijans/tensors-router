@@ -1,5 +1,4 @@
 import { state } from "./state";
-import type { LoadCaptureDetailResponse, LoadCaptureListResponse, LoadCaptureOutputResponse, LoadCaptureQuery, LoadErrorListResponse } from "./types";
 import { jsonRecord } from "./json";
 import { reportErrorToConsole } from "./console-report";
 import type {
@@ -38,7 +37,12 @@ import type {
   DownloadCapabilitiesResponse,
   DownloadLibraryResponse,
   DownloadPlan,
-  DownloadJob
+  DownloadJob,
+  LoadCaptureDetailResponse,
+  LoadCaptureListResponse,
+  LoadCaptureOutputResponse,
+  LoadCaptureQuery,
+  LoadErrorListResponse
 } from "./types";
 
 export type WebError = Error & { data: unknown };

@@ -35,7 +35,7 @@ func (service *Service) handleSiteConfigFileApply(w http.ResponseWriter, r *http
 
 func (service *Service) handleSiteConfigFileSave(w http.ResponseWriter, r *http.Request, dryRun bool) {
 	if !service.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	var request siteapi.ConfigFileRequest
@@ -54,7 +54,7 @@ func (service *Service) handleSiteConfigFileSave(w http.ResponseWriter, r *http.
 
 func (service *Service) handleSiteConfigFileDelete(w http.ResponseWriter, r *http.Request) {
 	if !service.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	var request siteapi.ConfigFileRequest
@@ -177,61 +177,6 @@ func (service *Service) deleteConfigFile(ctx context.Context, request siteapi.Co
 		return siteapi.ConfigFileResponse{}, err
 	}
 	return result, nil
-}
-
-func (service *Service) saveLocalConfigFile(request siteapi.ConfigFileRequest, dryRun bool) (siteapi.ConfigFileResponse, error) {
-	options, err := cook.NormalizedOptions(request.Options)
-	if err != nil {
-		return siteapi.ConfigFileResponse{}, err
-	}
-	if options == nil {
-		options = cook.Options{}
-	}
-	id, filename, err := configFileIdentity(request)
-	if err != nil {
-		return siteapi.ConfigFileResponse{}, err
-	}
-	target, err := service.localConfigFileTarget(filename)
-	if err != nil {
-		return siteapi.ConfigFileResponse{}, err
-	}
-	exists := false
-	if _, err := os.Stat(target); err == nil {
-		exists = true
-	} else if !os.IsNotExist(err) {
-		return siteapi.ConfigFileResponse{}, err
-	}
-	if exists && !request.Overwrite {
-		return siteapi.ConfigFileResponse{}, fmt.Errorf("config %q already exists", filename)
-	}
-	content, err := json.MarshalIndent(options, "", "  ")
-	if err != nil {
-		return siteapi.ConfigFileResponse{}, err
-	}
-	if err := mcp.Validate(content, service.backendMode); err != nil {
-		return siteapi.ConfigFileResponse{}, err
-	}
-	if !dryRun {
-		if err := os.MkdirAll(service.configDir, 0o755); err != nil {
-			return siteapi.ConfigFileResponse{}, err
-		}
-		if err := atomicfile.Write(target, content, 0o600); err != nil {
-			return siteapi.ConfigFileResponse{}, err
-		}
-		if service.mcpReconciler != nil {
-			if _, err := service.mcpReconciler.Reconcile(filename, service.backendMode); err != nil {
-				return siteapi.ConfigFileResponse{}, err
-			}
-		}
-	}
-	return siteapi.ConfigFileResponse{
-		NodeID:         service.nodeID,
-		NodeURL:        service.nodeURL,
-		ID:             id,
-		Filename:       filename,
-		WouldOverwrite: exists,
-		Options:        options,
-	}, nil
 }
 
 func (service *Service) deleteLocalConfigFile(request siteapi.ConfigFileRequest) (siteapi.ConfigFileResponse, error) {
@@ -376,4 +321,74 @@ func configPathInsideRoot(root string, path string) bool {
 		return false
 	}
 	return relative == "." || (!strings.HasPrefix(relative, ".."+string(filepath.Separator)) && relative != ".." && !filepath.IsAbs(relative))
+}
+
+func (service *Service) saveLocalConfigFile(request siteapi.ConfigFileRequest, dryRun bool) (siteapi.ConfigFileResponse, error) {
+	options, err := cook.NormalizedOptions(request.Options)
+	if err != nil {
+		return siteapi.ConfigFileResponse{}, err
+	}
+	if options == nil {
+		options = cook.Options{}
+	}
+	id, filename, err := configFileIdentity(request)
+	if err != nil {
+		return siteapi.ConfigFileResponse{}, err
+	}
+	target, err := service.localConfigFileTarget(filename)
+	if err != nil {
+		return siteapi.ConfigFileResponse{}, err
+	}
+	exists, err := fileExists(target)
+	if err != nil {
+		return siteapi.ConfigFileResponse{}, err
+	}
+	if exists && !request.Overwrite {
+		return siteapi.ConfigFileResponse{}, fmt.Errorf("config %q already exists", filename)
+	}
+	content, err := json.MarshalIndent(options, "", "  ")
+	if err != nil {
+		return siteapi.ConfigFileResponse{}, err
+	}
+	if err := mcp.Validate(content, service.backendMode); err != nil {
+		return siteapi.ConfigFileResponse{}, err
+	}
+	if !dryRun {
+		if err := service.writeLocalConfigFile(target, filename, content); err != nil {
+			return siteapi.ConfigFileResponse{}, err
+		}
+	}
+	return siteapi.ConfigFileResponse{
+		NodeID:         service.nodeID,
+		NodeURL:        service.nodeURL,
+		ID:             id,
+		Filename:       filename,
+		WouldOverwrite: exists,
+		Options:        options,
+	}, nil
+}
+
+func fileExists(path string) (bool, error) {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true, nil
+	}
+	if os.IsNotExist(err) {
+		return false, nil
+	}
+	return false, err
+}
+
+func (service *Service) writeLocalConfigFile(target string, filename string, content []byte) error {
+	if err := os.MkdirAll(service.configDir, 0o755); err != nil {
+		return err
+	}
+	if err := atomicfile.Write(target, content, 0o600); err != nil {
+		return err
+	}
+	if service.mcpReconciler == nil {
+		return nil
+	}
+	_, err := service.mcpReconciler.Reconcile(filename, service.backendMode)
+	return err
 }

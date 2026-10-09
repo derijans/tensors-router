@@ -179,7 +179,7 @@ func (session *webUISession) apply(entries []WebUIEntry) {
 
 func (webUI *webUIProxy) handleSiteWebUIs(w http.ResponseWriter, r *http.Request) {
 	if !webUI.deps.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	response, err := webUI.siteWebUIs(r.Context())
@@ -201,7 +201,7 @@ func (webUI *webUIProxy) handleNodeSiteWebUIs(w http.ResponseWriter, r *http.Req
 
 func (webUI *webUIProxy) handleSiteWebUISession(w http.ResponseWriter, r *http.Request) {
 	if !webUI.deps.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	var request webUISessionRequest
@@ -230,7 +230,7 @@ func (webUI *webUIProxy) handleSiteWebUISession(w http.ResponseWriter, r *http.R
 
 func (webUI *webUIProxy) handleSiteWebUILoad(w http.ResponseWriter, r *http.Request) {
 	if !webUI.deps.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	if webUI.deps.rejectModelLoadWhileDraining(w) {

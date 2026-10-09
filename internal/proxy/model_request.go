@@ -33,65 +33,6 @@ func (service *Service) handleModels(w http.ResponseWriter) {
 	openai.WriteJSON(w, http.StatusOK, openai.ModelsResponseFromCatalog(visible))
 }
 
-func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Request, requireModel bool) {
-	body, ok := service.readRequestBody(w, r)
-	if !ok {
-		return
-	}
-	defer r.Body.Close()
-
-	modelID, hasModel, err := modelFromRequest(body, r)
-	if err != nil {
-		service.logger.Printf("model parse failed path=%s remote=%s error=%v", r.URL.Path, r.RemoteAddr, err)
-		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
-		return
-	}
-	insertModel := false
-	if !hasModel && isEmbeddingsPath(r.URL.Path) {
-		if target, selected := service.acquireSelectorlessEmbeddingTarget(r.URL.Path, r.Context()); selected {
-			if service.registry != nil {
-				service.handleAcquiredRegistryModelRequest(w, r, body, target.publicID, target.clusterModel, target.clusterRoute, target.release, true, requestWorkHint{})
-				return
-			}
-			modelID = target.publicID
-			hasModel = true
-			insertModel = true
-		}
-	}
-	if !hasModel && !isEmbeddingsPath(r.URL.Path) && selectorlessVLLMPath(r.URL.Path) {
-		modelID, err = service.selectSelectorlessVLLMModel(r.URL.Path)
-		if err != nil {
-			writeTransportRouteError(w, err)
-			return
-		}
-		hasModel = true
-	}
-	if requireModel && !hasModel {
-		service.logger.Printf("model missing path=%s remote=%s", r.URL.Path, r.RemoteAddr)
-		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "model is required")
-		return
-	}
-
-	if hasModel && service.handleRecipeModelRequest(w, r, body, modelID) {
-		return
-	}
-
-	if hasModel && service.registry != nil && service.registryHasModelForOpenAIPath(modelID, r.URL.Path) {
-		service.handleRegistryModelRequest(w, r, body, modelID)
-		return
-	}
-
-	target, ok := service.resolveLocalModelTarget(w, r, modelID, hasModel)
-	if !ok {
-		return
-	}
-	if target.backendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
-		return
-	}
-	service.forwardLocalModelRequest(w, r, body, modelID, target, insertModel)
-}
-
 type localModelTarget struct {
 	model          catalog.Model
 	hasModel       bool
@@ -177,7 +118,7 @@ func (service *Service) forwardLocalModelRequest(w http.ResponseWriter, r *http.
 	started := time.Now()
 	analyticsEvent := service.analytics.newEvent(started, r, requestBody, target.backendModelID, textAnalyticsSection(r.URL.Path), target.backendMode)
 	analyticsEvent.PromptBytes = int64(len(body))
-	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, target.backendModelID, target.configFilename, target.hasModel, readiness, target.backendMode)
+	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, requestBody, backendForwardTarget{modelID: target.backendModelID, configFilename: target.configFilename, hasModel: target.hasModel, readiness: readiness, mode: target.backendMode})
 	if err != nil {
 		if observed {
 			service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
@@ -234,4 +175,89 @@ func (service *Service) clusterRouteBackendMode(route cluster.Route, model clust
 		return service.resolveBackendMode(route.BackendMode)
 	}
 	return service.clusterModelBackendMode(model)
+}
+
+type requestModelSelection struct {
+	modelID     string
+	hasModel    bool
+	insertModel bool
+}
+
+func (service *Service) handleModelRequest(w http.ResponseWriter, r *http.Request, requireModel bool) {
+	body, ok := service.readRequestBody(w, r)
+	if !ok {
+		return
+	}
+	defer r.Body.Close()
+
+	selection, proceed := service.selectRequestModel(w, r, body)
+	if !proceed {
+		return
+	}
+	if requireModel && !selection.hasModel {
+		service.logger.Printf("model missing path=%s remote=%s", r.URL.Path, r.RemoteAddr)
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "model is required")
+		return
+	}
+	if selection.hasModel && service.routeNamedModelRequest(w, r, body, selection.modelID) {
+		return
+	}
+	target, ok := service.resolveLocalModelTarget(w, r, selection.modelID, selection.hasModel)
+	if !ok {
+		return
+	}
+	if target.backendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path) {
+		openai.WriteEndpointNotFound(w)
+		return
+	}
+	service.forwardLocalModelRequest(w, r, body, selection.modelID, target, selection.insertModel)
+}
+
+func (service *Service) selectRequestModel(w http.ResponseWriter, r *http.Request, body []byte) (requestModelSelection, bool) {
+	modelID, hasModel, err := modelFromRequest(body, r)
+	if err != nil {
+		service.logger.Printf("model parse failed path=%s remote=%s error=%v", r.URL.Path, r.RemoteAddr, err)
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return requestModelSelection{}, false
+	}
+	selection := requestModelSelection{modelID: modelID, hasModel: hasModel}
+	switch {
+	case hasModel:
+		return selection, true
+	case isEmbeddingsPath(r.URL.Path):
+		return service.selectSelectorlessEmbeddingModel(w, r, body, selection)
+	case selectorlessVLLMPath(r.URL.Path):
+		modelID, err := service.selectSelectorlessVLLMModel(r.URL.Path)
+		if err != nil {
+			writeTransportRouteError(w, err)
+			return requestModelSelection{}, false
+		}
+		return requestModelSelection{modelID: modelID, hasModel: true}, true
+	default:
+		return selection, true
+	}
+}
+
+func (service *Service) selectSelectorlessEmbeddingModel(w http.ResponseWriter, r *http.Request, body []byte, selection requestModelSelection) (requestModelSelection, bool) {
+	target, selected := service.acquireSelectorlessEmbeddingTarget(r.URL.Path, r.Context())
+	if !selected {
+		return selection, true
+	}
+	if service.registry != nil {
+		acquired := acquiredRegistryRoute{publicID: target.publicID, model: target.clusterModel, route: target.clusterRoute, release: target.release}
+		service.handleAcquiredRegistryModelRequest(w, r, body, acquired, true, requestWorkHint{})
+		return requestModelSelection{}, false
+	}
+	return requestModelSelection{modelID: target.publicID, hasModel: true, insertModel: true}, true
+}
+
+func (service *Service) routeNamedModelRequest(w http.ResponseWriter, r *http.Request, body []byte, modelID string) bool {
+	if service.handleRecipeModelRequest(w, r, body, modelID) {
+		return true
+	}
+	if service.registry != nil && service.registryHasModelForOpenAIPath(modelID, r.URL.Path) {
+		service.handleRegistryModelRequest(w, r, body, modelID)
+		return true
+	}
+	return false
 }

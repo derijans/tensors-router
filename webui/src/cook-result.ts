@@ -2,7 +2,9 @@ import { SafeHTML, emptyHTML, html } from "./safe-html";
 import { fact } from "./markup-primitives";
 import type { ConfigFileResponse, CookResponse, ErrorResponse } from "./types";
 
-export function cookResultHTML(value: CookResponse | ConfigFileResponse | ErrorResponse): SafeHTML {
+type CookResultValue = CookResponse | ConfigFileResponse | ErrorResponse;
+
+export function cookResultHTML(value: CookResultValue): SafeHTML {
   if (isCookResponse(value)) {
     const configs = value.plan.configs ?? [];
     const validation = value.validation ?? [];
@@ -14,8 +16,8 @@ export function cookResultHTML(value: CookResponse | ConfigFileResponse | ErrorR
         ["Configs", String(configs.length)],
         ["Master recipe", value.plan.requires_master_recipe ? "required" : "not required"]
       ],
-      html`${configs.map(config => html`<li>${config.node_id} / ${config.filename} / ${config.kinds.join(", ")}${config.would_overwrite ? " / overwrite" : ""}</li>`)}`,
-      html`${validation.map(issue => html`<li>${issue.severity} / ${issue.field || issue.code} / ${issue.message}</li>`)}`,
+      html`${configs.map(plannedConfigItem)}`,
+      html`${validation.map(validationIssueItem)}`,
       value
     );
   }
@@ -34,14 +36,30 @@ export function cookResultHTML(value: CookResponse | ConfigFileResponse | ErrorR
     );
   }
   const error = typeof value.error === "string" ? value.error : value.error?.message || "Operation failed";
-  return resultShell("Operation failed", [["Error", error]], emptyHTML, html`${(value.validation ?? []).map(issue => html`<li>${issue.message}</li>`)}`, value);
+  return resultShell("Operation failed", [["Error", error]], emptyHTML, html`${(value.validation ?? []).map(issueMessageItem)}`, value);
 }
 
-function isCookResponse(value: CookResponse | ConfigFileResponse | ErrorResponse): value is CookResponse {
+type PlannedConfig = NonNullable<CookResponse["plan"]["configs"]>[number];
+type ValidationIssueItem = NonNullable<CookResponse["validation"]>[number];
+
+function plannedConfigItem(config: PlannedConfig): SafeHTML {
+  return html`<li>${config.node_id} / ${config.filename} / ${config.kinds.join(", ")}${config.would_overwrite ? " / overwrite" : ""}</li>`;
+}
+
+function validationIssueItem(issue: ValidationIssueItem): SafeHTML {
+  return html`<li>${issue.severity} / ${issue.field || issue.code} / ${issue.message}</li>`;
+}
+
+function issueMessageItem(issue: { message: string }): SafeHTML {
+  return html`<li>${issue.message}</li>`;
+}
+
+
+function isCookResponse(value: CookResultValue): value is CookResponse {
   return "plan" in value;
 }
 
-function isConfigFileResponse(value: CookResponse | ConfigFileResponse | ErrorResponse): value is ConfigFileResponse {
+function isConfigFileResponse(value: CookResultValue): value is ConfigFileResponse {
   return "id" in value && "filename" in value;
 }
 

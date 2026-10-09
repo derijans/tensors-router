@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/textproto"
@@ -17,107 +16,13 @@ import (
 	"tensors-router/internal/transportbody"
 )
 
-func (service *Service) adaptBufferedWhisperRequest(request *http.Request, body []byte) ([]byte, error) {
-	if request.URL.Path == "/api/extra/transcribe" && transportRequestIsJSON(request) {
-		return adaptKoboldTranscriptionRequest(request, body)
-	}
-	mediaType, params, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
-	if err != nil || !strings.HasPrefix(strings.ToLower(mediaType), "multipart/") || params["boundary"] == "" {
-		return nil, fmt.Errorf("transcription request must be multipart/form-data")
-	}
-	reader := multipart.NewReader(bytes.NewReader(body), params["boundary"])
-	var output bytes.Buffer
-	writer := multipart.NewWriter(&output)
-	format := "json"
-	hasFile := false
-	writtenFormat := false
-	writtenTranslate := false
-	for {
-		part, partErr := reader.NextPart()
-		if partErr == io.EOF {
-			break
-		}
-		if partErr != nil {
-			return nil, partErr
-		}
-		name := part.FormName()
-		if name == "model" {
-			_ = part.Close()
-			continue
-		}
-		if name == "response_format" {
-			value, readErr := io.ReadAll(io.LimitReader(part, 65))
-			_ = part.Close()
-			if readErr != nil {
-				return nil, readErr
-			}
-			format = strings.TrimSpace(string(value))
-			if !validWhisperResponseFormat(format) {
-				return nil, fmt.Errorf("unsupported transcription response format %q", format)
-			}
-			if err := writer.WriteField("response_format", "verbose_json"); err != nil {
-				return nil, err
-			}
-			writtenFormat = true
-			continue
-		}
-		if name == "translate" {
-			_ = part.Close()
-			if err := writer.WriteField("translate", strconv.FormatBool(request.URL.Path == "/v1/audio/translations")); err != nil {
-				return nil, err
-			}
-			writtenTranslate = true
-			continue
-		}
-		if name == "file" {
-			if err := service.writeWhisperFilePart(request, writer, part); err != nil {
-				_ = part.Close()
-				return nil, err
-			}
-			hasFile = true
-			_ = part.Close()
-			continue
-		}
-		target, createErr := writer.CreatePart(part.Header)
-		if createErr != nil {
-			_ = part.Close()
-			return nil, createErr
-		}
-		if _, err := transportbody.Copy(target, part); err != nil {
-			_ = part.Close()
-			return nil, err
-		}
-		_ = part.Close()
-	}
-	if !hasFile {
-		return nil, fmt.Errorf("transcription file is required")
-	}
-	if !writtenFormat {
-		if err := writer.WriteField("response_format", "verbose_json"); err != nil {
-			return nil, err
-		}
-	}
-	if !writtenTranslate {
-		if err := writer.WriteField("translate", strconv.FormatBool(request.URL.Path == "/v1/audio/translations")); err != nil {
-			return nil, err
-		}
-	}
-	if err := writer.Close(); err != nil {
-		return nil, err
-	}
-	request.Header.Set("Content-Type", writer.FormDataContentType())
-	request.Header.Set("X-Tensors-Whisper-Response-Format", format)
-	request.ContentLength = int64(output.Len())
-	return output.Bytes(), nil
-}
-
 // writeWhisperFilePart copies a native WAV file part unchanged. A non-WAV
 // part is converted with ffmpeg when available; whisper.cpp's transcription
 // endpoint only ever accepts WAV, and ffmpeg conversion is only available on
 // this buffered path — the streaming (large-body) whisper path still
 // requires native WAV input.
 func (service *Service) writeWhisperFilePart(request *http.Request, writer *multipart.Writer, part *multipart.Part) error {
-	header := make([]byte, 12)
+	header := make([]byte, wavHeaderLength)
 	read, readErr := io.ReadFull(part, header)
 	if readErr != nil && readErr != io.ErrUnexpectedEOF {
 		return readErr
@@ -158,7 +63,7 @@ func wavPartHeader(original textproto.MIMEHeader) textproto.MIMEHeader {
 	for key, values := range original {
 		cloned[key] = append([]string{}, values...)
 	}
-	cloned.Set("Content-Type", "audio/wav")
+	cloned.Set(headerContentType, "audio/wav")
 	return cloned
 }
 
@@ -178,7 +83,7 @@ func adaptKoboldTranscriptionRequest(request *http.Request, body []byte) ([]byte
 		encoded = value
 	}
 	decoder := base64.NewDecoder(base64.StdEncoding, strings.NewReader(encoded))
-	header := make([]byte, 12)
+	header := make([]byte, wavHeaderLength)
 	read, err := io.ReadFull(decoder, header)
 	if err != nil && err != io.ErrUnexpectedEOF {
 		return nil, fmt.Errorf("audio_data is not valid base64: %w", err)
@@ -215,7 +120,7 @@ func adaptKoboldTranscriptionRequest(request *http.Request, body []byte) ([]byte
 	if err := writer.Close(); err != nil {
 		return nil, err
 	}
-	request.Header.Set("Content-Type", writer.FormDataContentType())
+	request.Header.Set(headerContentType, writer.FormDataContentType())
 	request.Header.Set("X-Tensors-Whisper-Response-Format", "json")
 	request.ContentLength = int64(output.Len())
 	return output.Bytes(), nil
@@ -231,7 +136,7 @@ func validWhisperResponseFormat(format string) bool {
 }
 
 func isWAVHeader(header []byte) bool {
-	return len(header) >= 12 && string(header[:4]) == "RIFF" && string(header[8:12]) == "WAVE"
+	return len(header) >= wavHeaderLength && string(header[:4]) == "RIFF" && string(header[8:12]) == "WAVE"
 }
 
 type whisperVerboseResponse struct {
@@ -271,7 +176,7 @@ func adaptWhisperResponse(response *http.Response, format string) (*http.Respons
 	response.Header.Set("X-Tensors-Audio-Task", verbose.Task)
 	response.Header.Set("X-Tensors-Audio-Duration", strconv.FormatFloat(verbose.Duration, 'f', -1, 64))
 	var rendered []byte
-	contentType := "application/json"
+	contentType := mediaTypeJSON
 	switch format {
 	case "verbose_json":
 		rendered = body
@@ -292,8 +197,8 @@ func adaptWhisperResponse(response *http.Response, format string) (*http.Respons
 	}
 	response.Body = io.NopCloser(bytes.NewReader(rendered))
 	response.ContentLength = int64(len(rendered))
-	response.Header.Set("Content-Type", contentType)
-	response.Header.Set("Content-Length", strconv.Itoa(len(rendered)))
+	response.Header.Set(headerContentType, contentType)
+	response.Header.Set(headerContentLength, strconv.Itoa(len(rendered)))
 	return response, nil
 }
 

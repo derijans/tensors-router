@@ -68,7 +68,7 @@ func (runner *benchmarkRunner) textBenchmarkMetrics(ctx context.Context, path st
 
 func extractTextBenchmarkStats(body string, duration time.Duration) textBenchmarkStats {
 	event := routeranalytics.Event{DurationMS: duration.Milliseconds()}
-	routeranalytics.ApplyResponse(&event, "application/json", []byte(body))
+	routeranalytics.ApplyResponse(&event, mediaTypeJSON, []byte(body))
 	routeranalytics.DeriveTotals(&event)
 	return textBenchmarkStats{
 		promptTokens:          float64(event.InputTokens),

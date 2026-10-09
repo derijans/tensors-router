@@ -67,66 +67,6 @@ type ResolveResult struct {
 	Fields  []FieldResult `json:"fields"`
 }
 
-func Export(content []byte, hashFile HashFile, findOrigin FindOrigin) ([]byte, error) {
-	if hashFile == nil {
-		return nil, fmt.Errorf("model hash function is required")
-	}
-	config, err := decodeConfig(content)
-	if err != nil {
-		return nil, err
-	}
-	if err := validateForms(config); err != nil {
-		return nil, err
-	}
-	for key, value := range config {
-		if !isModelField(key) {
-			continue
-		}
-		if value == nil {
-			continue
-		}
-		paths, array, ok := pathValues(value)
-		if !ok {
-			return nil, fmt.Errorf("model field %q must be a string or string array", key)
-		}
-		if len(paths) == 0 || (!array && strings.TrimSpace(paths[0]) == "") {
-			continue
-		}
-		hashes := make([]string, len(paths))
-		filenames := make([]string, len(paths))
-		hfs := make([]any, len(paths))
-		for index, path := range paths {
-			if strings.TrimSpace(path) == "" {
-				return nil, fmt.Errorf("model field %q contains an empty path", key)
-			}
-			hash, hashErr := hashFile(path)
-			if hashErr != nil || !validHash(hash) {
-				return nil, fmt.Errorf("model field %q could not be hashed", key)
-			}
-			filename := filepath.Base(path)
-			if !safeFilename(filename) {
-				return nil, fmt.Errorf("model field %q has an unsafe filename", key)
-			}
-			hashes[index] = hash
-			filenames[index] = filename
-			if findOrigin != nil {
-				if origin, found := findOrigin(hash); found {
-					if uri := origin.URI(); uri != "" {
-						hfs[index] = uri
-					}
-				}
-			}
-		}
-		delete(config, key)
-		config[key+"_hash"] = scalarOrArray(hashes, array)
-		config[key+"_filename"] = scalarOrArray(filenames, array)
-		if anyNonNil(hfs) {
-			config[key+"_hf"] = scalarOrArray(hfs, array)
-		}
-	}
-	return json.MarshalIndent(config, "", "  ")
-}
-
 func Resolve(content []byte, findPath FindPath) (ResolveResult, error) {
 	if findPath == nil {
 		return ResolveResult{}, fmt.Errorf("asset lookup function is required")
@@ -142,62 +82,6 @@ func ResolveWith(content []byte, findPath ResolveReference) (ResolveResult, erro
 		path, found := findPath(reference)
 		return Resolution{Path: path}, found
 	})
-}
-
-func ResolveDetailed(content []byte, findPath ResolveReferenceDetailed) (ResolveResult, error) {
-	if findPath == nil {
-		return ResolveResult{}, fmt.Errorf("asset lookup function is required")
-	}
-	config, err := decodeConfig(content)
-	if err != nil {
-		return ResolveResult{}, err
-	}
-	if err := validateForms(config); err != nil {
-		return ResolveResult{}, err
-	}
-	result := ResolveResult{}
-	hashKeys := make([]string, 0)
-	for key := range config {
-		if strings.HasSuffix(key, "_hash") {
-			hashKeys = append(hashKeys, key)
-		}
-	}
-	for _, key := range hashKeys {
-		base := strings.TrimSuffix(key, "_hash")
-		hashes, array, _ := pathValues(config[key])
-		filenames, filenameArray, _ := pathValues(config[base+"_filename"])
-		hfValues := make([]string, len(hashes))
-		if value, exists := config[base+"_hf"]; exists {
-			hfValues, _, _ = nullableStringValues(value)
-		}
-		if array != filenameArray {
-			return ResolveResult{}, fmt.Errorf("model field %q has mismatched portable forms", base)
-		}
-		resolved := make([]string, len(hashes))
-		allResolved := true
-		for index, hash := range hashes {
-			fieldName := base
-			if array {
-				fieldName = fmt.Sprintf("%s[%d]", base, index)
-			}
-			resolution, found := findPath(Reference{Hash: hash, Filename: filenames[index], HF: hfValues[index]})
-			if !found {
-				result.Fields = append(result.Fields, FieldResult{Field: fieldName, Hash: hash, Failure: "asset unavailable"})
-				allResolved = false
-				continue
-			}
-			resolved[index] = resolution.Path
-			result.Fields = append(result.Fields, FieldResult{Field: fieldName, Hash: hash, Resolved: true, Source: resolution.Source, Verification: resolution.Verification, Commit: resolution.Commit})
-		}
-		if allResolved {
-			config[base] = scalarOrArray(resolved, array)
-			delete(config, base+"_hash")
-			delete(config, base+"_filename")
-			delete(config, base+"_hf")
-		}
-	}
-	result.Content, err = json.MarshalIndent(config, "", "  ")
-	return result, err
 }
 
 func HashBytes(content []byte) string {
@@ -293,53 +177,6 @@ func decodeConfig(content []byte) (map[string]any, error) {
 		return nil, fmt.Errorf("KCPPS config must be an object")
 	}
 	return config, nil
-}
-
-func validateForms(config map[string]any) error {
-	for key := range config {
-		base, suffix, portable := portableKey(key)
-		if !portable {
-			continue
-		}
-		if !isModelField(base) {
-			return fmt.Errorf("unknown portable model field %q", base)
-		}
-		if _, exists := config[base]; exists {
-			return fmt.Errorf("model field %q contains both path and hash forms", base)
-		}
-		if suffix == "_hash" {
-			hashes, array, ok := pathValues(config[key])
-			if !ok || len(hashes) == 0 {
-				return fmt.Errorf("model field %q has an invalid hash form", base)
-			}
-			filenames, filenameArray, ok := pathValues(config[base+"_filename"])
-			if !ok || array != filenameArray || len(filenames) != len(hashes) {
-				return fmt.Errorf("model field %q has mismatched hash and filename forms", base)
-			}
-			for index := range hashes {
-				if !validHash(hashes[index]) || !safeFilename(filenames[index]) {
-					return fmt.Errorf("model field %q has invalid portable metadata", base)
-				}
-			}
-			if hf, exists := config[base+"_hf"]; exists {
-				values, hfArray, ok := nullableStringValues(hf)
-				if !ok || hfArray != array || len(values) != len(hashes) {
-					return fmt.Errorf("model field %q has mismatched Hugging Face form", base)
-				}
-				for _, value := range values {
-					if value != "" && !safeHFURI(value) {
-						return fmt.Errorf("model field %q has an unsafe Hugging Face URI", base)
-					}
-				}
-			}
-		}
-		if suffix != "_hash" {
-			if _, exists := config[base+"_hash"]; !exists {
-				return fmt.Errorf("model field %q has portable metadata without a hash", base)
-			}
-		}
-	}
-	return nil
 }
 
 func portableKey(key string) (string, string, bool) {

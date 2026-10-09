@@ -7,6 +7,12 @@ import (
 	"tensors-router/internal/routerstore"
 )
 
+const (
+	emptyTextColumn   = "TEXT NOT NULL DEFAULT ''"
+	zeroIntegerColumn = "INTEGER NOT NULL DEFAULT 0"
+	zeroRealColumn    = "REAL NOT NULL DEFAULT 0"
+)
+
 type SchemaModule struct{}
 
 var _ routerstore.Module = SchemaModule{}
@@ -162,38 +168,38 @@ type migrationColumn struct {
 func migrationColumns() []migrationColumn {
 	return []migrationColumn{
 		{"analytics_events", "event_type", "TEXT NOT NULL DEFAULT 'request'"},
-		{"analytics_events", "config_filename", "TEXT NOT NULL DEFAULT ''"},
-		{"analytics_events", "request_bytes", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_events", "prompt_bytes", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_events", "response_bytes", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_events", "image_steps", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_events", "audio_language", "TEXT NOT NULL DEFAULT ''"},
-		{"analytics_events", "audio_task", "TEXT NOT NULL DEFAULT ''"},
-		{"analytics_events", "load_vram_before_mb", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_events", "load_vram_after_mb", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_events", "load_vram_delta_mb", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_events", "work_vram_start_mb", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_events", "work_vram_max_mb", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_events", "work_vram_end_mb", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_events", "model_vram_estimate_mb", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_events", "vram_total_mb", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_events", "vram_peak_percent", "REAL NOT NULL DEFAULT 0"},
-		{"analytics_events", "ttft_ms", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_events", "decode_ms", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_events", "max_gap_ms", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_events", "finish_reason", "TEXT NOT NULL DEFAULT ''"},
-		{"analytics_events", "aborted", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_events", "embedding_count", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_events", "router_version", "TEXT NOT NULL DEFAULT ''"},
-		{"analytics_events", "prompt_tokens_per_second", "REAL NOT NULL DEFAULT 0"},
-		{"analytics_rollups", "load_count", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_rollups", "load_duration_ms_total", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_rollups", "vram_peak_mb", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_rollups", "vram_peak_percent", "REAL NOT NULL DEFAULT 0"},
-		{"analytics_rollups", "vram_total_mb", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_rollups", "model_vram_estimate_mb", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_rollups", "embedding_count", "INTEGER NOT NULL DEFAULT 0"},
-		{"analytics_rollups", "prompt_tokens_per_second_sum", "REAL NOT NULL DEFAULT 0"},
-		{"analytics_rollups", "prompt_tokens_per_second_count", "INTEGER NOT NULL DEFAULT 0"},
+		{"analytics_events", "config_filename", emptyTextColumn},
+		{"analytics_events", "request_bytes", zeroIntegerColumn},
+		{"analytics_events", "prompt_bytes", zeroIntegerColumn},
+		{"analytics_events", "response_bytes", zeroIntegerColumn},
+		{"analytics_events", "image_steps", zeroIntegerColumn},
+		{"analytics_events", "audio_language", emptyTextColumn},
+		{"analytics_events", "audio_task", emptyTextColumn},
+		{"analytics_events", "load_vram_before_mb", zeroIntegerColumn},
+		{"analytics_events", "load_vram_after_mb", zeroIntegerColumn},
+		{"analytics_events", "load_vram_delta_mb", zeroIntegerColumn},
+		{"analytics_events", "work_vram_start_mb", zeroIntegerColumn},
+		{"analytics_events", "work_vram_max_mb", zeroIntegerColumn},
+		{"analytics_events", "work_vram_end_mb", zeroIntegerColumn},
+		{"analytics_events", "model_vram_estimate_mb", zeroIntegerColumn},
+		{"analytics_events", "vram_total_mb", zeroIntegerColumn},
+		{"analytics_events", "vram_peak_percent", zeroRealColumn},
+		{"analytics_events", "ttft_ms", zeroIntegerColumn},
+		{"analytics_events", "decode_ms", zeroIntegerColumn},
+		{"analytics_events", "max_gap_ms", zeroIntegerColumn},
+		{"analytics_events", "finish_reason", emptyTextColumn},
+		{"analytics_events", "aborted", zeroIntegerColumn},
+		{"analytics_events", "embedding_count", zeroIntegerColumn},
+		{"analytics_events", "router_version", emptyTextColumn},
+		{"analytics_events", "prompt_tokens_per_second", zeroRealColumn},
+		{"analytics_rollups", "load_count", zeroIntegerColumn},
+		{"analytics_rollups", "load_duration_ms_total", zeroIntegerColumn},
+		{"analytics_rollups", "vram_peak_mb", zeroIntegerColumn},
+		{"analytics_rollups", "vram_peak_percent", zeroRealColumn},
+		{"analytics_rollups", "vram_total_mb", zeroIntegerColumn},
+		{"analytics_rollups", "model_vram_estimate_mb", zeroIntegerColumn},
+		{"analytics_rollups", "embedding_count", zeroIntegerColumn},
+		{"analytics_rollups", "prompt_tokens_per_second_sum", zeroRealColumn},
+		{"analytics_rollups", "prompt_tokens_per_second_count", zeroIntegerColumn},
 	}
 }

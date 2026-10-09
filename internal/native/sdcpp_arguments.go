@@ -57,7 +57,7 @@ func appendSDCPPPlacementArguments(args *[]string, metadata catalog.RuntimeConfi
 	appendStringListArg(args, "--rpc-servers", metadata.SDRPCServers)
 	appendStringArg(args, "--max-vram", nativeSingleString(metadata.SDMaxVRAM))
 	appendOnOffArg(args, "--auto-fit", metadata.SDAutoFit)
-	appendStringArg(args, "--split-mode", metadata.SDSplitMode)
+	appendStringArg(args, splitModeFlag, metadata.SDSplitMode)
 	appendStringListArg(args, "--tensor-type-rules", metadata.SDTensorTypeRules)
 	appendStringArg(args, "--vae-format", metadata.SDVAEFormat)
 	appendStringArg(args, "--lora-model-dir", metadata.SDLoRAModelDir)

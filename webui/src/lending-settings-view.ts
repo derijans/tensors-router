@@ -1,6 +1,6 @@
 import { SafeHTML, emptyHTML, html } from "./safe-html";
 import type { LendingSettingEntry, LendingSettingSource, Tone } from "./types";
-import { badge } from "./markup-primitives";
+import { badge, optionElement } from "./markup-primitives";
 
 const sourceTones: Record<LendingSettingSource, Tone> = {default: "neutral", config: "info", db: "warning"};
 const sourceLabels: Record<LendingSettingSource, string> = {default: "default", config: "config file", db: "database"};
@@ -43,7 +43,8 @@ function renderTextInput(entry: LendingSettingEntry, valueWithoutOverride: strin
 function renderBooleanInput(entry: LendingSettingEntry, valueWithoutOverride: string, editable: boolean): SafeHTML {
   const options: [string, string][] = [["", `not set (${valueWithoutOverride})`], ["true", "true"], ["false", "false"]];
   return html`<select class="lending-setting-input" data-lending-setting-input="${entry.key}" aria-label="Database value for ${entry.key}"${disabledUnless(editable)}>
-    ${options.map(([value, label]) => html`<option value="${value}"${value === (entry.override ?? "") ? html` selected` : emptyHTML}>${label}</option>`)}
+    ${options.map(([value, label]) => optionElement(value, label, value === (entry.override ?? "")))}
+
   </select>`;
 }
 

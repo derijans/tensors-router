@@ -36,156 +36,6 @@ func (service *Service) handleImageModels(w http.ResponseWriter) {
 	openai.WriteJSON(w, http.StatusOK, clusterImageModelObjects(cluster.LocalModelsWithBackendMode(models, service.nodeID, service.nodeURL, service.localSource(), service.backendMode), service.imageCatalogConfigSelector()))
 }
 
-func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Request) {
-	switch r.Method {
-	case http.MethodGet:
-		model, err := service.activeImageModel(r)
-		if err != nil {
-			if lookupErr, ok := err.(imageModelLookupError); ok && lookupErr.status == http.StatusBadRequest {
-				openai.WriteJSON(w, http.StatusOK, map[string]any{
-					"sd_model_checkpoint": "",
-				})
-				return
-			}
-			service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
-			return
-		}
-		openai.WriteJSON(w, http.StatusOK, map[string]any{
-			"sd_model_checkpoint": model.ImageID,
-		})
-	case http.MethodPost:
-		body, ok := service.readRequestBody(w, r)
-		if !ok {
-			return
-		}
-		defer r.Body.Close()
-
-		modelID, hasModel, err := imageModelFromRequest(body, r)
-		if err != nil {
-			service.logger.Printf("image model parse failed path=%s remote=%s error=%v", r.URL.Path, r.RemoteAddr, err)
-			openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
-			return
-		}
-		if hasModel {
-			if service.handleRecipeImageRequest(w, r, body, modelID) {
-				return
-			}
-			if service.registry != nil && service.handleRegistryImageOptions(w, r, body, modelID) {
-				return
-			}
-			model, err := service.resolveImageModel(r, modelID)
-			if err != nil {
-				writeImageModelError(service, w, r, modelID, err)
-				return
-			}
-			modelBackendMode, err := service.catalogModelBackendMode(model)
-			if err != nil {
-				openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
-				return
-			}
-			if modelBackendMode == BackendModeLlamaSDCPP && modelNeedsPrimaryTextRuntime(model) {
-				if err := service.loadLocalRuntimeForRequest(r.Context(), modelBackendMode, model.ID, model.Filename, readinessText); err != nil {
-					service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
-					return
-				}
-			}
-			modelContext, cancelModelContext := context.WithTimeout(context.WithoutCancel(r.Context()), modelOperationTimeout)
-			defer cancelModelContext()
-			_, release, _, err := service.acquireModelConfigForBackendMode(modelBackendMode, modelContext, model.ImageID, model.Filename, readinessImage, false)
-			if err != nil {
-				service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
-				return
-			}
-			release()
-		}
-		openai.WriteJSON(w, http.StatusOK, map[string]any{})
-	default:
-		openai.WriteError(w, http.StatusMethodNotAllowed, "invalid_request_error", "method not allowed")
-	}
-}
-
-func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Request) {
-	body, ok := service.readRequestBody(w, r)
-	if !ok {
-		return
-	}
-	defer r.Body.Close()
-
-	modelID, hasModel, err := imageModelFromRequest(body, r)
-	if err != nil {
-		service.logger.Printf("image model parse failed path=%s remote=%s error=%v", r.URL.Path, r.RemoteAddr, err)
-		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
-		return
-	}
-
-	if !hasModel {
-		if target, ok := service.sdcppJobs.routeForPath(r.URL.Path); ok {
-			service.forwardTrackedSdcppJob(w, r, body, target)
-			return
-		}
-		if isImageDiscoveryPath(r.URL.Path) {
-			service.forwardImageDiscovery(w, r, body)
-			return
-		}
-	}
-
-	var model catalog.Model
-	if hasModel {
-		if service.handleRecipeImageRequest(w, r, body, modelID) {
-			return
-		}
-		if service.registry != nil && service.handleRegistryImageRequest(w, r, body, modelID) {
-			return
-		}
-		model, err = service.resolveImageModel(r, modelID)
-		if err != nil {
-			writeImageModelError(service, w, r, modelID, err)
-			return
-		}
-	} else {
-		model, err = service.activeImageModel(r)
-		if err != nil {
-			writeImageModelError(service, w, r, modelID, err)
-			return
-		}
-		hasModel = true
-	}
-	modelBackendMode, err := service.catalogModelBackendMode(model)
-	if err != nil {
-		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
-		return
-	}
-
-	if modelBackendMode == BackendModeLlamaSDCPP && modelNeedsPrimaryTextRuntime(model) {
-		if err := service.loadLocalRuntimeForRequest(r.Context(), modelBackendMode, model.ID, model.Filename, readinessText); err != nil {
-			service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
-			return
-		}
-	}
-
-	started := time.Now()
-	analyticsEvent := service.analytics.newEvent(started, r, body, model.ImageID, routeranalytics.SectionImage, modelBackendMode)
-	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, model.ImageID, model.Filename, hasModel, readinessImage, modelBackendMode)
-	if err != nil {
-		service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
-		service.writeBackendFailure(w, err)
-		return
-	}
-
-	if isSdcppJobSubmissionPath(r.URL.Path) {
-		response = service.responseWithSdcppJobTracking(response, sdcppJobTarget{
-			publicImageID:  model.ImageID,
-			configFilename: model.Filename,
-			backendMode:    modelBackendMode,
-		})
-	}
-	response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
-
-	if err := service.writeProxyResponse(w, response, model.ImageID, hasModel); err != nil {
-		return
-	}
-}
-
 func (service *Service) forwardTrackedSdcppJob(w http.ResponseWriter, r *http.Request, body []byte, target sdcppJobTarget) {
 	if target.remote {
 		response, err := service.forwardRemote(r.Context(), r, body, cluster.Route{NodeURL: target.nodeURL, Remote: true})
@@ -200,7 +50,7 @@ func (service *Service) forwardTrackedSdcppJob(w http.ResponseWriter, r *http.Re
 	}
 	started := time.Now()
 	analyticsEvent := service.analytics.newEvent(started, r, body, target.publicImageID, routeranalytics.SectionImage, target.backendMode)
-	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, target.publicImageID, target.configFilename, true, readinessImage, target.backendMode)
+	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, backendForwardTarget{modelID: target.publicImageID, configFilename: target.configFilename, hasModel: true, readiness: readinessImage, mode: target.backendMode})
 	if err != nil {
 		service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
 		service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
@@ -218,7 +68,7 @@ func (service *Service) forwardImageDiscovery(w http.ResponseWriter, r *http.Req
 		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
-	response, err := service.forwardWithFallback(r.Context(), r, body, "", "", false, readinessImage, backendMode)
+	response, err := service.forwardWithFallback(r.Context(), r, body, backendForwardTarget{readiness: readinessImage, mode: backendMode})
 	if err != nil {
 		service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
 		return
@@ -340,4 +190,172 @@ func writeImageModelError(service *Service, w http.ResponseWriter, r *http.Reque
 	}
 	service.logger.Printf("image model lookup failed path=%s model=%q error=%v", r.URL.Path, modelID, err)
 	service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
+}
+
+func (service *Service) handleImageOptions(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		service.writeActiveImageCheckpoint(w, r)
+	case http.MethodPost:
+		service.applyImageOptions(w, r)
+	default:
+		openai.WriteError(w, http.StatusMethodNotAllowed, "invalid_request_error", "method not allowed")
+	}
+}
+
+func (service *Service) writeActiveImageCheckpoint(w http.ResponseWriter, r *http.Request) {
+	model, err := service.activeImageModel(r)
+	if err == nil {
+		openai.WriteJSON(w, http.StatusOK, map[string]any{"sd_model_checkpoint": model.ImageID})
+		return
+	}
+	if lookupErr, ok := err.(imageModelLookupError); ok && lookupErr.status == http.StatusBadRequest {
+		openai.WriteJSON(w, http.StatusOK, map[string]any{"sd_model_checkpoint": ""})
+		return
+	}
+	service.writeClientError(w, http.StatusInternalServerError, "catalog_error", err)
+}
+
+func (service *Service) applyImageOptions(w http.ResponseWriter, r *http.Request) {
+	body, ok := service.readRequestBody(w, r)
+	if !ok {
+		return
+	}
+	defer r.Body.Close()
+	modelID, hasModel, ok := service.parseImageModelSelector(w, r, body)
+	if !ok {
+		return
+	}
+	if hasModel && !service.loadImageOptionsModel(w, r, body, modelID) {
+		return
+	}
+	openai.WriteJSON(w, http.StatusOK, map[string]any{})
+}
+
+func (service *Service) loadImageOptionsModel(w http.ResponseWriter, r *http.Request, body []byte, modelID string) bool {
+	if service.handleRecipeImageRequest(w, r, body, modelID) {
+		return false
+	}
+	if service.registry != nil && service.handleRegistryImageOptions(w, r, body, modelID) {
+		return false
+	}
+	model, err := service.resolveImageModel(r, modelID)
+	if err != nil {
+		writeImageModelError(service, w, r, modelID, err)
+		return false
+	}
+	modelBackendMode, ok := service.prepareLocalImageModel(w, r, model)
+	if !ok {
+		return false
+	}
+	modelContext, cancelModelContext := context.WithTimeout(context.WithoutCancel(r.Context()), modelOperationTimeout)
+	defer cancelModelContext()
+	_, release, _, err := service.acquireModelConfigForBackendMode(modelBackendMode, modelContext, model.ImageID, model.Filename, readinessImage, false)
+	if err != nil {
+		service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
+		return false
+	}
+	release()
+	return true
+}
+
+func (service *Service) parseImageModelSelector(w http.ResponseWriter, r *http.Request, body []byte) (string, bool, bool) {
+	modelID, hasModel, err := imageModelFromRequest(body, r)
+	if err != nil {
+		service.logger.Printf("image model parse failed path=%s remote=%s error=%v", r.URL.Path, r.RemoteAddr, err)
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return "", false, false
+	}
+	return modelID, hasModel, true
+}
+
+func (service *Service) prepareLocalImageModel(w http.ResponseWriter, r *http.Request, model catalog.Model) (string, bool) {
+	modelBackendMode, err := service.catalogModelBackendMode(model)
+	if err != nil {
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return "", false
+	}
+	if modelBackendMode == BackendModeLlamaSDCPP && modelNeedsPrimaryTextRuntime(model) {
+		if err := service.loadLocalRuntimeForRequest(r.Context(), modelBackendMode, model.ID, model.Filename, readinessText); err != nil {
+			service.writeClientError(w, http.StatusBadGateway, "backend_error", err)
+			return "", false
+		}
+	}
+	return modelBackendMode, true
+}
+
+func (service *Service) handleImageRequest(w http.ResponseWriter, r *http.Request) {
+	body, ok := service.readRequestBody(w, r)
+	if !ok {
+		return
+	}
+	defer r.Body.Close()
+	modelID, hasModel, ok := service.parseImageModelSelector(w, r, body)
+	if !ok || !hasModel && service.forwardSelectorlessImageRequest(w, r, body) {
+		return
+	}
+	model, ok := service.requestedImageModel(w, r, body, modelID, hasModel)
+	if !ok {
+		return
+	}
+	modelBackendMode, ok := service.prepareLocalImageModel(w, r, model)
+	if !ok {
+		return
+	}
+	service.forwardLocalImageRequest(w, r, body, model, modelBackendMode)
+}
+
+func (service *Service) forwardSelectorlessImageRequest(w http.ResponseWriter, r *http.Request, body []byte) bool {
+	if target, ok := service.sdcppJobs.routeForPath(r.URL.Path); ok {
+		service.forwardTrackedSdcppJob(w, r, body, target)
+		return true
+	}
+	if isImageDiscoveryPath(r.URL.Path) {
+		service.forwardImageDiscovery(w, r, body)
+		return true
+	}
+	return false
+}
+
+func (service *Service) requestedImageModel(w http.ResponseWriter, r *http.Request, body []byte, modelID string, hasModel bool) (catalog.Model, bool) {
+	if !hasModel {
+		model, err := service.activeImageModel(r)
+		if err != nil {
+			writeImageModelError(service, w, r, modelID, err)
+			return catalog.Model{}, false
+		}
+		return model, true
+	}
+	if service.handleRecipeImageRequest(w, r, body, modelID) {
+		return catalog.Model{}, false
+	}
+	if service.registry != nil && service.handleRegistryImageRequest(w, r, body, modelID) {
+		return catalog.Model{}, false
+	}
+	model, err := service.resolveImageModel(r, modelID)
+	if err != nil {
+		writeImageModelError(service, w, r, modelID, err)
+		return catalog.Model{}, false
+	}
+	return model, true
+}
+
+func (service *Service) forwardLocalImageRequest(w http.ResponseWriter, r *http.Request, body []byte, model catalog.Model, modelBackendMode string) {
+	analyticsEvent := service.analytics.newEvent(time.Now(), r, body, model.ImageID, routeranalytics.SectionImage, modelBackendMode)
+	target := backendForwardTarget{modelID: model.ImageID, configFilename: model.Filename, hasModel: true, readiness: readinessImage, mode: modelBackendMode}
+	response, workFinalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, target)
+	if err != nil {
+		service.analytics.recordForwardFailure(r.Context(), analyticsEvent, err, workFinalizer)
+		service.writeBackendFailure(w, err)
+		return
+	}
+	if isSdcppJobSubmissionPath(r.URL.Path) {
+		response = service.responseWithSdcppJobTracking(response, sdcppJobTarget{
+			publicImageID:  model.ImageID,
+			configFilename: model.Filename,
+			backendMode:    modelBackendMode,
+		})
+	}
+	response = service.analytics.withResponse(response, analyticsEvent, workFinalizer)
+	_ = service.writeProxyResponse(w, response, model.ImageID, true)
 }

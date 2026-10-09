@@ -126,8 +126,8 @@ func writeJSONResponseWithVirtualModel(w http.ResponseWriter, response *http.Res
 	body = rewriteJSONModel(body, virtualModelID)
 	body = htmlEscapeJSON(body)
 	copyResponseHeaders(w.Header(), response.Header)
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Del("Content-Length")
+	w.Header().Set(headerContentType, mediaTypeJSON)
+	w.Header().Del(headerContentLength)
 	w.WriteHeader(response.StatusCode)
 	_, err = w.Write(body)
 	return err
@@ -142,8 +142,8 @@ func streamJSONResponseWithVirtualModel(w http.ResponseWriter, response *http.Re
 	})
 	defer source.Close()
 	copyResponseHeaders(w.Header(), response.Header)
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Del("Content-Length")
+	w.Header().Set(headerContentType, mediaTypeJSON)
+	w.Header().Del(headerContentLength)
 	w.WriteHeader(response.StatusCode)
 	_, err := transportbody.CopyResponseFlushing(w, source, maxResponseBytes)
 	return err
@@ -151,7 +151,7 @@ func streamJSONResponseWithVirtualModel(w http.ResponseWriter, response *http.Re
 
 func writeEventStreamResponse(w http.ResponseWriter, response *http.Response, virtualModelID string) error {
 	copyResponseHeaders(w.Header(), response.Header)
-	w.Header().Del("Content-Length")
+	w.Header().Del(headerContentLength)
 	w.WriteHeader(response.StatusCode)
 
 	flusher, _ := w.(http.Flusher)
@@ -191,8 +191,8 @@ func writeEventStreamLine(w io.Writer, line string, virtualModelID string) error
 	case line == "":
 		_, err := io.WriteString(w, "\n")
 		return err
-	case strings.HasPrefix(line, "data: "):
-		return writeEventDataLine(w, strings.TrimPrefix(line, "data: "), virtualModelID)
+	case strings.HasPrefix(line, serverSentEventDataPrefix):
+		return writeEventDataLine(w, strings.TrimPrefix(line, serverSentEventDataPrefix), virtualModelID)
 	case strings.HasPrefix(line, "data:"):
 		return writeEventDataLine(w, strings.TrimPrefix(line, "data:"), virtualModelID)
 	case json.Valid([]byte(line)):
@@ -214,7 +214,7 @@ func writeEventDataLine(w io.Writer, data string, virtualModelID string) error {
 	if !ok {
 		return nil
 	}
-	_, err := io.WriteString(w, "data: "+string(rewritten)+"\n")
+	_, err := io.WriteString(w, serverSentEventDataPrefix+string(rewritten)+"\n")
 	return err
 }
 
@@ -253,11 +253,11 @@ func copyResponseHeaders(dst http.Header, src http.Header) {
 }
 
 func isJSONResponse(header http.Header) bool {
-	return strings.Contains(strings.ToLower(header.Get("Content-Type")), "application/json")
+	return strings.Contains(strings.ToLower(header.Get(headerContentType)), mediaTypeJSON)
 }
 
 func isEventStream(header http.Header) bool {
-	return strings.Contains(strings.ToLower(header.Get("Content-Type")), "text/event-stream")
+	return strings.Contains(strings.ToLower(header.Get(headerContentType)), "text/event-stream")
 }
 
 type readerReadCloser struct {

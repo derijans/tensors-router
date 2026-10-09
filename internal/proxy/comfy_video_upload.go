@@ -50,7 +50,7 @@ func (service *Service) handleComfyUploadImage(w http.ResponseWriter, r *http.Re
 	if !service.ffmpeg.Available() || r.ContentLength > maxComfyUploadRequestBytes {
 		return false
 	}
-	contentType := r.Header.Get("Content-Type")
+	contentType := r.Header.Get(headerContentType)
 	if !strings.HasPrefix(strings.ToLower(strings.TrimSpace(contentType)), "multipart/form-data") {
 		return false
 	}
@@ -113,7 +113,7 @@ func (service *Service) keepComfyUploadWithoutBackend(w http.ResponseWriter, upl
 }
 
 func (service *Service) teeComfyUploadToBackend(w http.ResponseWriter, r *http.Request, body []byte, model catalog.Model, backendMode string, upload comfyUploadPart) {
-	response, finalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, model.ImageID, model.Filename, true, readinessImage, backendMode)
+	response, finalizer, err := service.forwardWithFallbackObserved(r.Context(), r, body, backendForwardTarget{modelID: model.ImageID, configFilename: model.Filename, hasModel: true, readiness: readinessImage, mode: backendMode})
 	finishVRAMWork(finalizer)
 	if err != nil {
 		service.writeBackendFailure(w, err)
@@ -162,7 +162,7 @@ func comfyUploadMediaPart(body []byte, contentType string) (comfyUploadPart, boo
 		}
 		content, err := io.ReadAll(io.LimitReader(part, maxComfyVideoUploadBytes+1))
 		filename := strings.TrimSpace(part.FileName())
-		partType := comfyUploadContentType(part.Header.Get("Content-Type"), filename)
+		partType := comfyUploadContentType(part.Header.Get(headerContentType), filename)
 		_ = part.Close()
 		if err != nil || len(content) == 0 || len(content) > maxComfyVideoUploadBytes {
 			return comfyUploadPart{}, false

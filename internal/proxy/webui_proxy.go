@@ -144,28 +144,6 @@ func (webUI *webUIProxy) localActiveWebUIRoutes(ctx context.Context, definition 
 	return webUIRoutesFromEntry(definition, entry, false), nil
 }
 
-func (webUI *webUIProxy) remoteActiveWebUIRoutes(ctx context.Context, definition webUIDefinition) []cluster.Route {
-	routes := []cluster.Route{}
-	for _, nodeURL := range webUI.deps.remoteInventoryURLs() {
-		var remote WebUICatalogResponse
-		if err := webUI.identity().client.JSON(ctx, http.MethodGet, nodeURL, "/router/v1/node/site/webuis", nil, &remote); err != nil {
-			continue
-		}
-		for _, entry := range remote.Data {
-			if entry.ID != definition.kind || !entry.Active {
-				continue
-			}
-			for index := range entry.CompatibleModels {
-				if entry.CompatibleModels[index].NodeURL == "" {
-					entry.CompatibleModels[index].NodeURL = firstNonEmpty(entry.NodeURL, nodeURL)
-				}
-			}
-			routes = append(routes, webUIRoutesFromEntry(definition, entry, true)...)
-		}
-	}
-	return routes
-}
-
 func webUIRoutesFromEntry(definition webUIDefinition, entry WebUIEntry, remote bool) []cluster.Route {
 	routes := []cluster.Route{}
 	for _, model := range entry.CompatibleModels {
@@ -390,12 +368,12 @@ func webUIBackendAPIPath(definition webUIDefinition, path string) bool {
 		return webUIPathHasPrefix(path, "/sdcpp/v1/", "/sdapi/v1/", "/v1/images/") || path == "/v1/models"
 	case "llama":
 		return webUIPathHasPrefix(path, "/v1/", "/api/v1/") ||
-			webUIPathIs(path, "/completion", "/chat", "/infill", "/embedding", "/embeddings", "/rerank", "/tokenize", "/detokenize", "/props", "/slots", "/metrics", "/health")
+			webUIPathIs(path, "/completion", "/chat", "/infill", "/embedding", "/embeddings", pathRerank, "/tokenize", "/detokenize", "/props", "/slots", "/metrics", "/health")
 	case "whispercpp":
 		return webUIPathIs(path, "/health", "/inference")
 	case "kobold-lite", "kobold-lcpp":
 		return webUIPathHasPrefix(path, "/v1/", "/api/v1/", "/api/extra/") ||
-			webUIPathIs(path, "/api/generate", "/api/chat", "/api/show", "/api/tags", "/api/ps", "/api/version")
+			webUIPathIs(path, pathOllamaGenerate, pathOllamaChat, "/api/show", "/api/tags", "/api/ps", "/api/version")
 	case "kobold-sd":
 		return webUIPathHasPrefix(path, "/sdapi/v1/", "/v1/images/", "/history/", "/view/", "/object_info/", "/upload/image") ||
 			webUIPathIs(path, "/prompt", "/queue", "/history", "/view", "/object_info", "/system_stats", "/interrupt")
@@ -435,4 +413,29 @@ func nodeWebUIProxyURL(definition webUIDefinition, strippedPath string) string {
 func webUIProxyURL(prefix string, definition webUIDefinition, strippedPath string) string {
 	path := strings.TrimRight(prefix, "/") + "/" + definition.kind + "/"
 	return path + strings.TrimLeft(strippedPath, "/")
+}
+
+func (webUI *webUIProxy) remoteActiveWebUIRoutes(ctx context.Context, definition webUIDefinition) []cluster.Route {
+	routes := []cluster.Route{}
+	for _, nodeURL := range webUI.deps.remoteInventoryURLs() {
+		var remote WebUICatalogResponse
+		if err := webUI.identity().client.JSON(ctx, http.MethodGet, nodeURL, "/router/v1/node/site/webuis", nil, &remote); err != nil {
+			continue
+		}
+		for _, entry := range remote.Data {
+			if entry.ID == definition.kind && entry.Active {
+				routes = append(routes, webUIRoutesFromEntry(definition, withCompatibleModelNodeURLs(entry, nodeURL), true)...)
+			}
+		}
+	}
+	return routes
+}
+
+func withCompatibleModelNodeURLs(entry WebUIEntry, nodeURL string) WebUIEntry {
+	for index := range entry.CompatibleModels {
+		if entry.CompatibleModels[index].NodeURL == "" {
+			entry.CompatibleModels[index].NodeURL = firstNonEmpty(entry.NodeURL, nodeURL)
+		}
+	}
+	return entry
 }

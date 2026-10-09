@@ -11,7 +11,7 @@ import (
 const benchmarkPreviewLimit = 2048
 
 func (runner *benchmarkRunner) performBenchmarkRequest(ctx context.Context, path string, body string) (int, string, error) {
-	return runner.performBenchmarkRequestWithContentType(ctx, path, body, "application/json")
+	return runner.performBenchmarkRequestWithContentType(ctx, path, body, mediaTypeJSON)
 }
 
 func (runner *benchmarkRunner) performBenchmarkRequestWithContentType(ctx context.Context, path string, body string, contentType string) (int, string, error) {
@@ -19,8 +19,8 @@ func (runner *benchmarkRunner) performBenchmarkRequestWithContentType(ctx contex
 	if err != nil {
 		return 0, "", err
 	}
-	request.Header.Set("Content-Type", contentType)
-	request.Header.Set("Accept", "application/json")
+	request.Header.Set(headerContentType, contentType)
+	request.Header.Set("Accept", mediaTypeJSON)
 	recorder := newBenchmarkResponseWriter()
 	runner.deps.ServeHTTP(recorder, request)
 	return recorder.statusCode(), recorder.preview.String(), nil

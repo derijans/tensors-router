@@ -7,14 +7,26 @@ import type { AnalyticsRecentEvent, Tone } from "../types";
 import type { AttentionItem, OverviewKpi } from "./overview-data";
 
 export function renderKpis(kpis: readonly OverviewKpi[]): SafeHTML {
-  return html`${kpis.map((kpi, index) => html`
+  return html`${kpis.map((kpi, index) => kpiCard(kpi, index))}`;
+}
+
+function kpiCard(kpi: OverviewKpi, index: number): SafeHTML {
+  return html`
     <article class="kpi kpi-${index + 1}">
       <p class="kpi-label">${kpi.label}</p>
-      <p class="kpi-value">${kpi.value}${kpi.unit ? html`<small>${kpi.unit}</small>` : emptyHTML}</p>
+      <p class="kpi-value">${kpi.value}${kpiUnit(kpi.unit)}</p>
       <p class="kpi-detail tone-${kpi.detailTone}">${kpi.detail}</p>
-      ${sparkline(kpi.trend, `${kpi.label} trend`)}
+      ${sparkline(kpi.trend, kpiTrendLabel(kpi))}
     </article>
-  `)}`;
+  `;
+}
+
+function kpiUnit(unit: string): SafeHTML {
+  return unit ? html`<small>${unit}</small>` : emptyHTML;
+}
+
+function kpiTrendLabel(kpi: OverviewKpi): string {
+  return `${kpi.label} trend`;
 }
 
 export function renderLaneChart(series: LaneSeries, granularity: string): SafeHTML {
@@ -33,7 +45,12 @@ export function renderAttention(items: readonly AttentionItem[]): SafeHTML {
   if (items.length === 0) {
     return html`<li class="attention-clear"><span class="status-dot tone-success">All clear</span><p class="muted">No failed loads, down nodes or build drift.</p></li>`;
   }
-  return html`${items.map((item, index) => html`
+  return html`${items.map((item, index) => attentionEntry(item, index))}`;
+
+}
+
+function attentionEntry(item: AttentionItem, index: number): SafeHTML {
+  return html`
     <li class="attention-item tone-${item.tone}">
       <span class="attention-icon"><svg class="icon"><use href="#${attentionIcon(item.tone)}"/></svg></span>
       <div class="attention-text">
@@ -42,7 +59,7 @@ export function renderAttention(items: readonly AttentionItem[]): SafeHTML {
       </div>
       <button class="link-button" type="button" data-attention-index="${index}">${item.actionLabel}</button>
     </li>
-  `)}`;
+  `;
 }
 
 function attentionIcon(tone: Tone): string {
@@ -53,7 +70,11 @@ export function renderRecentRequests(events: readonly AnalyticsRecentEvent[]): S
   if (events.length === 0) {
     return html`<tr><td colspan="7" class="empty-state">No requests recorded in this period.</td></tr>`;
   }
-  return html`${events.map(event => html`
+  return html`${events.map(recentRequestRow)}`;
+}
+
+function recentRequestRow(event: AnalyticsRecentEvent): SafeHTML {
+  return html`
     <tr>
       <td class="numeric-cell">${new Date(event.started_at).toLocaleTimeString("en-GB")}</td>
       <td><span class="lane-cell"><span class="lane-dot ${laneAccent(event.section)}"></span>${event.model_id || "unknown"}</span></td>
@@ -63,8 +84,9 @@ export function renderRecentRequests(events: readonly AnalyticsRecentEvent[]): S
       <td class="numeric">${event.total_tokens ? formatCount(event.total_tokens) : "—"}</td>
       <td class="numeric">${formatDecimal(event.duration_ms / 1000, 1)} s</td>
     </tr>
-  `)}`;
+  `;
 }
+
 
 function statusTone(statusCode: number, success: boolean): Tone {
   if (success) {

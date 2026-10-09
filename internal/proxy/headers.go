@@ -41,8 +41,8 @@ func copyBackendHeaders(destination http.Header, source http.Header) {
 
 func copyClusterRequestHeaders(destination http.Header, source http.Header) {
 	copyBackendHeaders(destination, source)
-	if value := strings.TrimSpace(source.Get("X-Tensors-Model")); value != "" {
-		destination.Set("X-Tensors-Model", value)
+	if value := strings.TrimSpace(source.Get(headerTensorsModel)); value != "" {
+		destination.Set(headerTensorsModel, value)
 	}
 }
 

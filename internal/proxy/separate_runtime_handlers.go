@@ -21,7 +21,7 @@ const nodeSeparateRuntimesPath = "/router/v1/node/separate-runtimes"
 
 func (service *Service) handleSiteSeparateRuntimes(w http.ResponseWriter, r *http.Request) {
 	if !service.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	switch r.Method {

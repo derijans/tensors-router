@@ -325,3 +325,22 @@ func newTestServiceWithBackendSetup(t *testing.T, backendHandler http.Handler, l
 	})
 	return service, backend
 }
+
+func modelJSONRequest(path string, body string, modelHeader string) *http.Request {
+	request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	if modelHeader != "" {
+		request.Header.Set("X-Tensors-Model", modelHeader)
+	}
+	return request
+}
+
+func expectProxyStatus(t *testing.T, service *Service, request *http.Request, status int, label string) *httptest.ResponseRecorder {
+	t.Helper()
+	recorder := httptest.NewRecorder()
+	service.ServeHTTP(recorder, request)
+	if recorder.Code != status {
+		t.Fatalf("unexpected %s status %d body %s", label, recorder.Code, recorder.Body.String())
+	}
+	return recorder
+}

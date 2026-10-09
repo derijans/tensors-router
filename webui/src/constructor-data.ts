@@ -34,8 +34,8 @@ export function advancedCookRequest(): CookRequest {
 }
 
 export function localValidation(): ValidationIssue[] {
-  const issues: ValidationIssue[] = [];
   const request = advancedCookRequest();
+  const issues: ValidationIssue[] = [];
   if (!request.id) {
     issues.push(issue("warning", "id_missing", "Config id is empty.", "id"));
   }
@@ -43,44 +43,68 @@ export function localValidation(): ValidationIssue[] {
     issues.push(issue("warning", "empty_constructor", "No lanes selected.", ""));
   }
   for (const [nodeID, components] of groupComponentsByNode(request.components)) {
-    const node = nodeByID(nodeID);
-    const selected = selectedOptionsForNode(nodeID, components, request.options ?? {});
-    const backend = backendModeForOptions(selected, node?.backend_mode || "kobold");
-    if (backend === "kobold" && hasKind(components, "image") && hasKind(components, "embeddings")) {
-      issues.push(issue("error", "kobold_image_embeddings_mix", "Kobold cannot cook image and embeddings into the same config.", nodeID));
-    }
-    const maxThreads = node?.hardware?.max_threads || 0;
-    for (const field of selectedThreadFieldsForNode(nodeID, components, request.options ?? {})) {
-      if (maxThreads > 0 && field.value > maxThreads) {
-        issues.push(issue("error", "thread_budget_exceeded", `${field.key} uses ${field.value} threads on a node with ${maxThreads} logical CPUs.`, field.key));
-      }
-    }
-    if (node?.hardware?.gpu_backend === "rocm") {
-      for (const [key, value] of Object.entries(selected)) {
-        if (optionDefinition(key)?.cuda_only && truthy(value)) {
-          issues.push(issue("error", "cuda_on_rocm", `${key} is CUDA-only on a ROCm node.`, key));
-        }
-      }
-    }
-    if (!node?.hardware?.gpu_backend || node.hardware.gpu_backend === "unknown") {
-      for (const [key, value] of Object.entries(selected)) {
-        if (gpuOptionKey(key) && truthy(value)) {
-          issues.push(issue("warning", "gpu_backend_unknown", "GPU backend could not be inferred.", nodeID));
-          break;
-        }
-      }
-    }
-    for (const [key] of Object.entries(selected)) {
-      const definition = optionDefinition(key);
-      if (!definition?.known) {
-        continue;
-      }
-      if ((definition.backends?.length ?? 0) > 0 && !(definition.backends ?? []).includes(backend)) {
-        issues.push(issue("warning", "unsupported_option", `${key} is not marked as supported by ${backend}.`, key));
-      }
-    }
+    issues.push(...nodeValidationIssues(nodeID, components, request.options ?? {}));
   }
   return issues;
+}
+
+function nodeValidationIssues(nodeID: string, components: CookComponent[], requestOptions: Options): ValidationIssue[] {
+  const node = nodeByID(nodeID);
+  const selected = selectedOptionsForNode(nodeID, components, requestOptions);
+  const backend = backendModeForOptions(selected, node?.backend_mode || "kobold");
+  const gpuBackend = node?.hardware?.gpu_backend;
+  return [
+    ...mixedLaneIssues(nodeID, components, backend),
+    ...threadBudgetIssues(nodeID, components, requestOptions, node?.hardware?.max_threads || 0),
+    ...cudaOnROCmIssues(selected, gpuBackend),
+    ...unknownGPUBackendIssues(nodeID, selected, gpuBackend),
+    ...unsupportedOptionIssues(selected, backend)
+  ];
+}
+
+function mixedLaneIssues(nodeID: string, components: CookComponent[], backend: string): ValidationIssue[] {
+  if (backend !== "kobold" || !hasKind(components, "image") || !hasKind(components, "embeddings")) {
+    return [];
+  }
+  return [issue("error", "kobold_image_embeddings_mix", "Kobold cannot cook image and embeddings into the same config.", nodeID)];
+}
+
+function threadBudgetIssues(nodeID: string, components: CookComponent[], requestOptions: Options, maxThreads: number): ValidationIssue[] {
+  if (maxThreads <= 0) {
+    return [];
+  }
+  return selectedThreadFieldsForNode(nodeID, components, requestOptions)
+    .filter(field => field.value > maxThreads)
+    .map(field => issue("error", "thread_budget_exceeded", `${field.key} uses ${field.value} threads on a node with ${maxThreads} logical CPUs.`, field.key));
+}
+
+function cudaOnROCmIssues(selected: Options, gpuBackend: string | undefined): ValidationIssue[] {
+  if (gpuBackend !== "rocm") {
+    return [];
+  }
+  return Object.entries(selected)
+    .filter(([key, value]) => optionDefinition(key)?.cuda_only && truthy(value))
+    .map(([key]) => issue("error", "cuda_on_rocm", `${key} is CUDA-only on a ROCm node.`, key));
+}
+
+function unknownGPUBackendIssues(nodeID: string, selected: Options, gpuBackend: string | undefined): ValidationIssue[] {
+  if (gpuBackend && gpuBackend !== "unknown") {
+    return [];
+  }
+  const usesGPU = Object.entries(selected).some(([key, value]) => gpuOptionKey(key) && truthy(value));
+  return usesGPU ? [issue("warning", "gpu_backend_unknown", "GPU backend could not be inferred.", nodeID)] : [];
+}
+
+function unsupportedOptionIssues(selected: Options, backend: string): ValidationIssue[] {
+  return Object.keys(selected)
+    .filter(key => optionSupportExcludesBackend(key, backend))
+    .map(key => issue("warning", "unsupported_option", `${key} is not marked as supported by ${backend}.`, key));
+}
+
+function optionSupportExcludesBackend(key: string, backend: string): boolean {
+  const definition = optionDefinition(key);
+  const backends = definition?.backends ?? [];
+  return Boolean(definition?.known) && backends.length > 0 && !backends.includes(backend);
 }
 
 function backendModeForOptions(options: Options, fallback: string): string {

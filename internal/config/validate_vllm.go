@@ -41,33 +41,43 @@ func validVLLMProfile(value string) bool {
 // operator-pinned local manifest. An empty repository URL selects the pinned mode, which
 // still requires an explicit digest and length so the manifest bytes remain authorized.
 func validateVLLMManifestSource(cfg VLLMConfig) error {
-	tufConfigured := strings.TrimSpace(cfg.TUFRepositoryURL) != ""
-	pinConfigured := strings.TrimSpace(cfg.ManifestSHA256) != "" || cfg.ManifestSize != 0
-	if !cfg.AllowUnverifiedInstall {
-		if strings.TrimSpace(cfg.UnverifiedVLLMVersion) != "" || strings.TrimSpace(cfg.UnverifiedPythonVersion) != "" || strings.TrimSpace(cfg.UnverifiedIndexURL) != "" || strings.TrimSpace(cfg.UnverifiedExtraIndexURL) != "" {
-			return fmt.Errorf("vllm.unverified_* options are only valid when vllm.allow_unverified_install is true")
-		}
+	if !cfg.AllowUnverifiedInstall && unverifiedInstallOptionsSet(cfg) {
+		return fmt.Errorf("vllm.unverified_* options are only valid when vllm.allow_unverified_install is true")
 	}
-	if !tufConfigured {
-		if pinConfigured {
-			if !validSHA256Hex(cfg.ManifestSHA256) {
-				return fmt.Errorf("vllm.manifest_sha256 must be a 64-character hex digest when vllm.tuf_repository_url is empty")
-			}
-			if cfg.ManifestSize <= 0 {
-				return fmt.Errorf("vllm.manifest_size must be a positive byte count when vllm.tuf_repository_url is empty")
-			}
-			return nil
-		}
-		if cfg.AllowUnverifiedInstall {
-			return nil
-		}
-		return fmt.Errorf("vllm.manifest_sha256 and vllm.manifest_size are required when vllm.tuf_repository_url is empty and vllm.allow_unverified_install is false")
+	pinConfigured := strings.TrimSpace(cfg.ManifestSHA256) != "" || cfg.ManifestSize != 0
+	if strings.TrimSpace(cfg.TUFRepositoryURL) == "" {
+		return validatePinnedVLLMManifest(cfg, pinConfigured)
 	}
 	if pinConfigured {
 		return fmt.Errorf("vllm.manifest_sha256 and vllm.manifest_size are only valid when vllm.tuf_repository_url is empty")
 	}
 	if err := validateTUFRepositoryURL(cfg.TUFRepositoryURL); err != nil {
 		return fmt.Errorf("vllm.tuf_repository_url is invalid: %w", err)
+	}
+	return nil
+}
+
+func unverifiedInstallOptionsSet(cfg VLLMConfig) bool {
+	for _, value := range []string{cfg.UnverifiedVLLMVersion, cfg.UnverifiedPythonVersion, cfg.UnverifiedIndexURL, cfg.UnverifiedExtraIndexURL} {
+		if strings.TrimSpace(value) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func validatePinnedVLLMManifest(cfg VLLMConfig, pinConfigured bool) error {
+	if !pinConfigured {
+		if cfg.AllowUnverifiedInstall {
+			return nil
+		}
+		return fmt.Errorf("vllm.manifest_sha256 and vllm.manifest_size are required when vllm.tuf_repository_url is empty and vllm.allow_unverified_install is false")
+	}
+	if !validSHA256Hex(cfg.ManifestSHA256) {
+		return fmt.Errorf("vllm.manifest_sha256 must be a 64-character hex digest when vllm.tuf_repository_url is empty")
+	}
+	if cfg.ManifestSize <= 0 {
+		return fmt.Errorf("vllm.manifest_size must be a positive byte count when vllm.tuf_repository_url is empty")
 	}
 	return nil
 }

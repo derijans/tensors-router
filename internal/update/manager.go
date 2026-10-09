@@ -128,7 +128,7 @@ func (manager *Manager) targets() []downloadTarget {
 	if manager.config.Backend.Mode == "llama_sdcpp" {
 		return []downloadTarget{
 			{
-				Name:         "llama-server",
+				Name:         backendLlamaServer,
 				URL:          manager.config.Updates.LlamaBinaryURL,
 				URLField:     "llama_binary_url",
 				SHA256:       manager.config.Updates.LlamaSHA256,
@@ -139,7 +139,7 @@ func (manager *Manager) targets() []downloadTarget {
 				MetadataName: "llama-server-update.json",
 			},
 			{
-				Name:         "sd-server",
+				Name:         backendSDServer,
 				URL:          manager.config.Updates.SDCPPBinaryURL,
 				URLField:     "sdcpp_binary_url",
 				SHA256:       manager.config.Updates.SDCPPSHA256,
@@ -150,7 +150,7 @@ func (manager *Manager) targets() []downloadTarget {
 				MetadataName: "sd-server-update.json",
 			},
 			{
-				Name:         "whisper-server",
+				Name:         backendWhisperServer,
 				URL:          manager.config.Updates.WhisperCPPBinaryURL,
 				URLField:     "whispercpp_binary_url",
 				SHA256:       manager.config.Updates.WhisperCPPSHA256,
@@ -804,34 +804,6 @@ func normalizedArchiveMode(mode os.FileMode) os.FileMode {
 		return mode | 0o755
 	}
 	return mode | 0o644
-}
-
-func binaryArchiveNames(target downloadTarget) []string {
-	values := make([]string, 0, 4)
-	appendBinaryArchiveName := func(value string) {
-		value = strings.TrimSpace(filepath.Base(value))
-		if value == "" {
-			return
-		}
-		for _, existing := range values {
-			if strings.EqualFold(existing, value) {
-				return
-			}
-		}
-		values = append(values, value)
-		if filepath.Ext(value) == "" {
-			executableValue := value + ".exe"
-			for _, existing := range values {
-				if strings.EqualFold(existing, executableValue) {
-					return
-				}
-			}
-			values = append(values, executableValue)
-		}
-	}
-	appendBinaryArchiveName(target.BinaryPath)
-	appendBinaryArchiveName(target.Name)
-	return values
 }
 
 func validateTarget(target downloadTarget) ([]byte, error) {

@@ -19,7 +19,7 @@ var errModelStateNotFound = errors.New("model state target was not found")
 
 func (service *Service) handleSiteModelState(w http.ResponseWriter, r *http.Request) {
 	if !service.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	var request siteapi.ModelStateRequest

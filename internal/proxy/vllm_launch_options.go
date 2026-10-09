@@ -17,7 +17,7 @@ import (
 
 func (service *Service) handleSiteBackendLaunchOptions(w http.ResponseWriter, r *http.Request) {
 	if !service.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	request, ok := decodeBackendLaunchOptionsRequest(w, r)
@@ -38,7 +38,7 @@ func (service *Service) handleNodeBackendLaunchOptions(w http.ResponseWriter, r 
 		return
 	}
 	if request.NodeID != service.nodeID {
-		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", "node_id does not match this node")
+		openai.WriteError(w, http.StatusBadRequest, "invalid_request_error", messageNodeIDMismatch)
 		return
 	}
 	options, err := service.localBackendLaunchOptions(r.Context(), request, r.Method == http.MethodPost)

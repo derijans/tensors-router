@@ -16,7 +16,7 @@ import (
 
 func (assets *assetManager) handleSiteModelFileHash(w http.ResponseWriter, r *http.Request) {
 	if !assets.deps.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	request, ok := decodeModelFileHashRequest(w, r)

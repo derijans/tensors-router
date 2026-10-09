@@ -3,6 +3,7 @@ package vllm
 import (
 	"fmt"
 	"sort"
+	"strings"
 )
 
 var requiredReleaseProfiles = map[string][]string{
@@ -11,47 +12,63 @@ var requiredReleaseProfiles = map[string][]string{
 	"darwin-arm64": {"metal", "cpu"},
 }
 
+type releaseMatrixCheck struct {
+	release string
+	version string
+}
+
 func ValidateReleaseProfileMatrix(manifests map[string]Manifest) error {
 	platforms := make([]string, 0, len(requiredReleaseProfiles))
 	for platform := range requiredReleaseProfiles {
 		platforms = append(platforms, platform)
 	}
 	sort.Strings(platforms)
-	release := ""
-	version := ""
+	var check releaseMatrixCheck
 	for _, platform := range platforms {
 		manifest, found := manifests[platform]
 		if !found {
 			return fmt.Errorf("vLLM release matrix is missing %s", platform)
 		}
-		if err := ValidateManifest(manifest); err != nil {
-			return fmt.Errorf("vLLM release matrix %s: %w", platform, err)
+		if err := check.platform(platform, manifest); err != nil {
+			return err
 		}
-		if release == "" {
-			release = manifest.Release
-		} else if manifest.Release != release {
-			return fmt.Errorf("vLLM release matrix mixes release %q with %q", release, manifest.Release)
+	}
+	return nil
+}
+
+func (check *releaseMatrixCheck) platform(platform string, manifest Manifest) error {
+	if err := ValidateManifest(manifest); err != nil {
+		return fmt.Errorf("vLLM release matrix %s: %w", platform, err)
+	}
+	if check.release == "" {
+		check.release = manifest.Release
+	} else if manifest.Release != check.release {
+		return fmt.Errorf("vLLM release matrix mixes release %q with %q", check.release, manifest.Release)
+	}
+	operatingSystem, architecture, _ := strings.Cut(platform, "-")
+	for _, device := range requiredReleaseProfiles[platform] {
+		profile, found := releaseProfileForDevice(manifest, operatingSystem, architecture, device)
+		if !found {
+			return fmt.Errorf("vLLM release matrix %s is missing %s profile", platform, device)
 		}
-		operatingSystem, architecture := platform[:len(platform)-len("-amd64")], "amd64"
-		if platform == "linux-arm64" || platform == "darwin-arm64" {
-			operatingSystem, architecture = platform[:len(platform)-len("-arm64")], "arm64"
+		if err := check.deviceProfile(platform, device, profile); err != nil {
+			return err
 		}
-		for _, device := range requiredReleaseProfiles[platform] {
-			profile, found := releaseProfileForDevice(manifest, operatingSystem, architecture, device)
-			if !found {
-				return fmt.Errorf("vLLM release matrix %s is missing %s profile", platform, device)
-			}
-			if version == "" {
-				version = profile.VLLMVersion
-			} else if profile.VLLMVersion != version {
-				return fmt.Errorf("vLLM release matrix mixes vLLM version %q with %q", version, profile.VLLMVersion)
-			}
-			if device == "metal" {
-				if _, found := profile.PluginVersions["vllm-metal"]; !found {
-					return fmt.Errorf("vLLM release matrix %s Metal profile must pin vllm-metal", platform)
-				}
-			}
-		}
+	}
+	return nil
+}
+
+func (check *releaseMatrixCheck) deviceProfile(platform string, device string, profile Profile) error {
+	if check.version == "" {
+		check.version = profile.VLLMVersion
+	} else if profile.VLLMVersion != check.version {
+		return fmt.Errorf("vLLM release matrix mixes vLLM version %q with %q", check.version, profile.VLLMVersion)
+	}
+	if device != "metal" {
+		return nil
+	}
+	if _, found := profile.PluginVersions["vllm-metal"]; !found {
+		return fmt.Errorf("vLLM release matrix %s Metal profile must pin vllm-metal", platform)
 	}
 	return nil
 }

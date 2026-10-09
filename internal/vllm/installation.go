@@ -13,6 +13,8 @@ import (
 	"time"
 )
 
+const pythonFlag = "--python"
+
 type UVEnvironmentInstaller struct {
 	Runner          CommandRunner
 	Logs            io.Writer
@@ -99,7 +101,7 @@ func (installer UVEnvironmentInstaller) Install(ctx context.Context, profile Pro
 	// --allow-existing: the staged environment already holds the smoke model and the
 	// bootstrap directory, and uv refuses to create a virtual environment in a
 	// non-empty directory without it. It preserves what is already there.
-	if err := runner.Run(ctx, uvPath, []string{"venv", "--python", pythonPath, "--no-project", "--allow-existing", environmentPath}, environment, environmentPath, logs); err != nil {
+	if err := runner.Run(ctx, uvPath, []string{"venv", pythonFlag, pythonPath, "--no-project", "--allow-existing", environmentPath}, environment, environmentPath, logs); err != nil {
 		return fmt.Errorf("create isolated Python environment: %w", err)
 	}
 	if err := phase("installing_packages"); err != nil {
@@ -109,7 +111,7 @@ func (installer UVEnvironmentInstaller) Install(ctx context.Context, profile Pro
 	if len(packageArtifacts) == 0 {
 		return fmt.Errorf("vLLM profile contains no package artifacts")
 	}
-	arguments := []string{"pip", "install", "--python", environmentPythonPath(environmentPath), "--offline", "--no-index", "--no-deps"}
+	arguments := []string{"pip", "install", pythonFlag, environmentPythonPath(environmentPath), "--offline", "--no-index", "--no-deps"}
 	for _, directory := range artifactDirectories(packageArtifacts) {
 		arguments = append(arguments, "--find-links", directory)
 	}
@@ -202,7 +204,7 @@ func (installer UVEnvironmentInstaller) installFromPyPI(ctx context.Context, pro
 	if err := phase("creating_environment"); err != nil {
 		return err
 	}
-	if err := runner.Run(ctx, uvPath, []string{"venv", "--python", profile.PythonVersion, "--no-project", "--allow-existing", environmentPath}, environment, environmentPath, output); err != nil {
+	if err := runner.Run(ctx, uvPath, []string{"venv", pythonFlag, profile.PythonVersion, "--no-project", "--allow-existing", environmentPath}, environment, environmentPath, output); err != nil {
 		return failure("create isolated Python environment", err)
 	}
 	if err := phase("installing_packages"); err != nil {
@@ -217,7 +219,7 @@ func (installer UVEnvironmentInstaller) installFromPyPI(ctx context.Context, pro
 	// release that has no wheel for the platform, downloads gigabytes of
 	// dependencies, and only then fails inside a source build. Requiring a wheel
 	// fails fast and honestly instead.
-	arguments := []string{"pip", "install", "--python", environmentPythonPath(environmentPath), "--only-binary", "vllm"}
+	arguments := []string{"pip", "install", pythonFlag, environmentPythonPath(environmentPath), "--only-binary", "vllm"}
 	if installer.IndexURL != "" {
 		arguments = append(arguments, "--index-url", installer.IndexURL)
 	}

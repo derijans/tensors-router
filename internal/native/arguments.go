@@ -8,6 +8,8 @@ import (
 	"tensors-router/internal/catalog"
 )
 
+const loopbackHost = "127.0.0.1"
+
 type launchTarget struct {
 	modelID        string
 	host           string
@@ -144,11 +146,11 @@ func firstNonEmpty(values ...string) string {
 func RuntimeArgumentsForTest(metadata catalog.RuntimeConfig, kind string) ([]string, error) {
 	switch kind {
 	case "llama":
-		return llamaArguments(metadata, launchTarget{modelID: "model", host: "127.0.0.1", port: "5002"})
+		return llamaArguments(metadata, launchTarget{modelID: "model", host: loopbackHost, port: "5002"})
 	case "sdcpp":
-		return sdcppArguments(metadata, launchTarget{modelID: "model", host: "127.0.0.1", port: "7860"})
+		return sdcppArguments(metadata, launchTarget{modelID: "model", host: loopbackHost, port: "7860"})
 	case "whispercpp":
-		return whisperCPPArguments(metadata, launchTarget{modelID: "model", host: "127.0.0.1", port: "5003"})
+		return whisperCPPArguments(metadata, launchTarget{modelID: "model", host: loopbackHost, port: "5003"})
 	default:
 		return nil, fmt.Errorf("unknown native server kind %q", kind)
 	}

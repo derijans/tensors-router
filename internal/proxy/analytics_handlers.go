@@ -14,7 +14,7 @@ import (
 
 func (service *Service) handleSiteAnalytics(w http.ResponseWriter, r *http.Request) {
 	if !service.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	query, err := routeranalytics.QueryFromValues(r.URL.Query(), time.Now())
@@ -28,7 +28,7 @@ func (service *Service) handleSiteAnalytics(w http.ResponseWriter, r *http.Reque
 
 func (service *Service) handleSiteAnalyticsFlush(w http.ResponseWriter, r *http.Request) {
 	if !service.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	response := service.localAnalyticsFlush(r)

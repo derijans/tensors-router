@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const nvidiaSMICommand = "nvidia-smi"
+
 const (
 	GPUBackendCUDA    = "cuda"
 	GPUBackendROCm    = "rocm"
@@ -114,11 +116,11 @@ func Detect(ctx context.Context, detector Detector) Info {
 	if detector.LookPath == nil || detector.Run == nil {
 		detector = defaultDetector()
 	}
-	if output, ok := probeCommand(ctx, detector, "nvidia-smi", "-L"); ok {
+	if output, ok := probeCommand(ctx, detector, nvidiaSMICommand, "-L"); ok {
 		info.GPUBackend = GPUBackendCUDA
 		info.GPUCount = countNonEmptyLines(output)
 		info.Devices = detectCUDADevices(ctx, detector)
-		if versionOutput, versionOK := probeCommand(ctx, detector, "nvidia-smi"); versionOK {
+		if versionOutput, versionOK := probeCommand(ctx, detector, nvidiaSMICommand); versionOK {
 			info.CUDAVersion = detectedRuntimeVersion(string(versionOutput), "CUDA Version:")
 		}
 		return normalize(info)
@@ -157,7 +159,7 @@ func detectedRuntimeVersion(output string, marker string) string {
 }
 
 func detectCUDADevices(ctx context.Context, detector Detector) []GPUDevice {
-	output, ok := probeCommand(ctx, detector, "nvidia-smi", "--query-gpu=index,name,memory.total,compute_cap", "--format=csv,noheader,nounits")
+	output, ok := probeCommand(ctx, detector, nvidiaSMICommand, "--query-gpu=index,name,memory.total,compute_cap", "--format=csv,noheader,nounits")
 	if !ok {
 		return nil
 	}

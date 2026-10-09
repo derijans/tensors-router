@@ -1,3 +1,4 @@
+import { pluralSuffix } from "../utils";
 import { formatCount, formatDecimal, promptSpeedPrefix } from "../analytics-data";
 import { clusterBuildVersion, nodeDisplayName } from "../node-card-view";
 import { formatGigabytes, gigabyteFigure } from "../node-memory-data";
@@ -74,7 +75,7 @@ export function overviewKpis(analytics: AnalyticsResponse | null, snapshots: rea
       label: "Failures",
       value: summary ? formatCount(summary.failure_count) : "—",
       unit: "",
-      detail: loadErrorCount > 0 ? `${formatCount(loadErrorCount)} load error${loadErrorCount === 1 ? "" : "s"}` : "No load errors",
+      detail: loadErrorDetail(loadErrorCount),
       detailTone: loadErrorCount > 0 || (summary?.failure_count ?? 0) > 0 ? "danger" : "success",
       trend: trend(bucket => bucket.failure_count ?? 0)
     }
@@ -103,7 +104,7 @@ function memoryKpi(snapshots: readonly NodeState[], trend: number[]): OverviewKp
     return {label: "Memory in use", value: "—", unit: "", detail: "No node reports memory", detailTone: "neutral", trend};
   }
   const kinds = new Set(readings.map(reading => reading.kind));
-  const label = kinds.size > 1 ? "Memory in use" : kinds.has("vram") ? "VRAM in use" : "RAM in use";
+  const label = memoryKpiLabel(kinds);
   const used = readings.reduce((sum, reading) => sum + reading.used_mb, 0);
   const total = readings.reduce((sum, reading) => sum + reading.total_mb, 0);
   const lent = snapshots
@@ -114,7 +115,7 @@ function memoryKpi(snapshots: readonly NodeState[], trend: number[]): OverviewKp
     label,
     value: gigabyteFigure(used),
     unit: `/ ${formatGigabytes(total)}`,
-    detail: lent > 0 ? `${formatGigabytes(lent)} running lent work` : `${readings.length} node${readings.length === 1 ? "" : "s"} reporting`,
+    detail: memoryKpiDetail(lent, readings.length),
     detailTone: "neutral",
     trend
   };
@@ -147,14 +148,48 @@ function loadErrorItems(sources: AttentionSources): AttentionItem[] {
     .map(record => ({
       key: `load-error-${record.id}`,
       tone: record.severity === "error" ? "danger" : "warning",
-      title: `${record.model_id || record.config_name || record.phase} ${record.severity === "error" ? "failed" : "warned"}${record.node_id ? ` on ${record.node_id}` : ""}`,
-      detail: `${record.message}${record.occurrences > 1 ? ` · ${formatCount(record.occurrences)}×` : ""}`,
+      title: loadErrorTitle(record),
+      detail: loadErrorRecordDetail(record),
       actionLabel: "Inspect",
       target: {kind: "load-error", id: record.id}
     }));
 }
 
+function loadErrorTitle(record: LoadErrorRecord): string {
+  const subject = record.model_id || record.config_name || record.phase;
+  const outcome = record.severity === "error" ? "failed" : "warned";
+  const location = record.node_id ? ` on ${record.node_id}` : "";
+  return `${subject} ${outcome}${location}`;
+}
+
+function loadErrorRecordDetail(record: LoadErrorRecord): string {
+  const repeats = record.occurrences > 1 ? ` · ${formatCount(record.occurrences)}×` : "";
+  return `${record.message}${repeats}`;
+}
+
+function loadErrorDetail(loadErrorCount: number): string {
+  if (loadErrorCount === 0) {
+    return "No load errors";
+  }
+  return `${formatCount(loadErrorCount)} load error${pluralSuffix(loadErrorCount)}`;
+}
+
+function memoryKpiLabel(kinds: Set<string>): string {
+  if (kinds.size > 1) {
+    return "Memory in use";
+  }
+  return kinds.has("vram") ? "VRAM in use" : "RAM in use";
+}
+
+function memoryKpiDetail(lentMegabytes: number, reportingNodes: number): string {
+  if (lentMegabytes > 0) {
+    return `${formatGigabytes(lentMegabytes)} running lent work`;
+  }
+  return `${reportingNodes} node${pluralSuffix(reportingNodes)} reporting`;
+}
+
 function severityRank(severity: string): number {
+
   return severity === "error" ? 0 : 1;
 }
 

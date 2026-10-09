@@ -36,7 +36,7 @@ export function changedDraftValues(draft: Options, source: Options): Options {
 }
 
 export function cloneOptions(options: Options | undefined): Options {
-  return JSON.parse(JSON.stringify(options || {})) as Options;
+  return structuredClone(options ?? {});
 }
 
 export function fieldPresetID(preset: FieldPreset): string {

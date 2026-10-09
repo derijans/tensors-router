@@ -20,7 +20,7 @@ import (
 
 func (handlers *Handlers) SiteCapabilities(w http.ResponseWriter, r *http.Request) {
 	if !handlers.deps.SiteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	response := siteapi.DownloadCapabilitiesResponse{Nodes: []siteapi.DownloadCapability{handlers.localDownloadCapability(r.Context())}}
@@ -73,7 +73,7 @@ func firstHardwareVersion(info hardware.Info) string {
 
 func (handlers *Handlers) SiteSearch(w http.ResponseWriter, r *http.Request) {
 	if !handlers.deps.SiteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	var request siteapi.DownloadSearchRequest
@@ -107,7 +107,7 @@ func (handlers *Handlers) NodeSearch(w http.ResponseWriter, r *http.Request) {
 
 func (handlers *Handlers) SiteSearchPage(w http.ResponseWriter, r *http.Request) {
 	if !handlers.deps.SiteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	var request siteapi.DownloadSearchRequest
@@ -141,7 +141,7 @@ func (handlers *Handlers) NodeSearchPage(w http.ResponseWriter, r *http.Request)
 
 func (handlers *Handlers) SiteRepository(w http.ResponseWriter, r *http.Request) {
 	if !handlers.deps.SiteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	var request siteapi.DownloadRepositoryRequest
@@ -175,7 +175,7 @@ func (handlers *Handlers) NodeRepository(w http.ResponseWriter, r *http.Request)
 
 func (handlers *Handlers) SitePlan(w http.ResponseWriter, r *http.Request) {
 	if !handlers.deps.SiteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	var request siteapi.DownloadPlanRequest
@@ -209,7 +209,7 @@ func (handlers *Handlers) NodePlan(w http.ResponseWriter, r *http.Request) {
 
 func (handlers *Handlers) SiteCreateJob(w http.ResponseWriter, r *http.Request) {
 	if !handlers.deps.SiteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	var request siteapi.DownloadCreateJobRequest
@@ -243,12 +243,12 @@ func (handlers *Handlers) NodeCreateJob(w http.ResponseWriter, r *http.Request) 
 
 func (handlers *Handlers) SiteJob(w http.ResponseWriter, r *http.Request) {
 	if !handlers.deps.SiteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	jobID, ok := downloadJobID(r.URL.Path, "", "")
 	if !ok {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	if response, err := handlers.downloadJob(r.Context(), r.URL.Query().Get("node_id"), jobID); err != nil {
@@ -262,7 +262,7 @@ func (handlers *Handlers) SiteJob(w http.ResponseWriter, r *http.Request) {
 func (handlers *Handlers) NodeJob(w http.ResponseWriter, r *http.Request) {
 	jobID, ok := downloadJobID(r.URL.Path, "", "")
 	if !ok {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	if handlers.downloader == nil {
@@ -302,12 +302,12 @@ func (handlers *Handlers) NodeCancel(w http.ResponseWriter, r *http.Request) {
 
 func (handlers *Handlers) siteJobAction(w http.ResponseWriter, r *http.Request, action string) {
 	if !handlers.deps.SiteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	jobID, ok := downloadJobID(r.URL.Path, "/"+action, "")
 	if !ok {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	if response, err := handlers.downloadJobAction(r.Context(), r.URL.Query().Get("node_id"), jobID, action); err != nil {
@@ -321,7 +321,7 @@ func (handlers *Handlers) siteJobAction(w http.ResponseWriter, r *http.Request, 
 func (handlers *Handlers) nodeJobAction(w http.ResponseWriter, r *http.Request, action string) {
 	jobID, ok := downloadJobID(r.URL.Path, "/"+action, "")
 	if !ok {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	if handlers.downloader == nil {
@@ -347,7 +347,7 @@ func (handlers *Handlers) nodeJobAction(w http.ResponseWriter, r *http.Request, 
 
 func (handlers *Handlers) SiteLibrary(w http.ResponseWriter, r *http.Request) {
 	if !handlers.deps.SiteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	if response, err := handlers.downloadLibrary(r.Context(), r.URL.Query().Get("node_id")); err != nil {
@@ -373,7 +373,7 @@ func (handlers *Handlers) NodeLibrary(w http.ResponseWriter, r *http.Request) {
 
 func (handlers *Handlers) SiteRescan(w http.ResponseWriter, r *http.Request) {
 	if !handlers.deps.SiteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	if response, err := handlers.downloadRescan(r.Context(), r.URL.Query().Get("node_id")); err != nil {
@@ -407,8 +407,8 @@ func decodeDownloadRequest(w http.ResponseWriter, r *http.Request, target any) b
 
 func downloadJobID(value string, suffix string, prefix string) (string, bool) {
 	value = strings.TrimSuffix(value, suffix)
-	value = strings.TrimPrefix(value, "/router/v1/site/download/jobs/")
-	value = strings.TrimPrefix(value, "/router/v1/node/site/download/jobs/")
+	value = strings.TrimPrefix(value, siteDownloadJobsPrefix)
+	value = strings.TrimPrefix(value, nodeDownloadJobsPrefix)
 	value = strings.TrimPrefix(value, prefix)
 	if len(value) != 32 {
 		return "", false

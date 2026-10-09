@@ -11,6 +11,12 @@ import (
 )
 
 const (
+	modelFlag    = "--model"
+	loadModeFlag = "--load-mode"
+	specTypeFlag = "--spec-type"
+)
+
+const (
 	LaneCommon     = "common"
 	LaneRuntime    = "runtime"
 	LaneText       = KindText
@@ -99,7 +105,7 @@ var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option("rpcdevice", "RPC Device", LaneRuntime, ValueString, "", false, "kobold", "llama_sdcpp"),
 	option("rpctargets", "RPC Targets", LaneRuntime, ValueString, "--rpc", false, "kobold", "llama_sdcpp"),
 	option("model", "Model", LaneText, ValueJSON, "", false, "kobold", "llama_sdcpp"),
-	option("model_param", "Model Path", LaneText, ValueString, "--model", false, "kobold", "llama_sdcpp"),
+	option("model_param", "Model Path", LaneText, ValueString, modelFlag, false, "kobold", "llama_sdcpp"),
 	option("nomodel", "No Model", LaneText, ValueBool, "", false, "kobold", "llama_sdcpp"),
 	option("contextsize", "Context Size", LaneText, ValueNumber, "--ctx-size", false, "kobold", "llama_sdcpp"),
 	option("threads", "Threads", LaneText, ValueNumber, "--threads", false, "kobold", "llama_sdcpp"),
@@ -109,10 +115,10 @@ var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option("splitmode", "Split Mode", LaneText, ValueString, "--split-mode", false, "kobold", "llama_sdcpp"),
 	option("tensor_split", "Tensor Split", LaneText, ValueJSON, "--tensor-split", false, "kobold", "llama_sdcpp"),
 	option("maingpu", "Main GPU", LaneText, ValueNumber, "--main-gpu", false, "kobold", "llama_sdcpp"),
-	option("usemmap", "Use MMap", LaneText, ValueBool, "--load-mode", false, "kobold", "llama_sdcpp"),
-	option("usemlock", "Use MLock", LaneText, ValueBool, "--load-mode", false, "kobold", "llama_sdcpp"),
+	option("usemmap", "Use MMap", LaneText, ValueBool, loadModeFlag, false, "kobold", "llama_sdcpp"),
+	option("usemlock", "Use MLock", LaneText, ValueBool, loadModeFlag, false, "kobold", "llama_sdcpp"),
 	option("usedirectio", "Use Direct I/O", LaneText, ValueBool, "", false, "kobold"),
-	option("load_mode", "Load Mode", LaneText, ValueString, "--load-mode", false, "llama_sdcpp"),
+	option("load_mode", "Load Mode", LaneText, ValueString, loadModeFlag, false, "llama_sdcpp"),
 	option("lazy_mode", "Lazy Tensor Reads", LaneText, ValueString, "--lazy-mode", false, "llama_sdcpp"),
 	option("reasoning_preserve", "Reasoning Preserve", LaneText, ValueBool, "--reasoning-preserve", false, "llama_sdcpp"),
 	option("quantkv", "KV Cache Quant", LaneText, ValueString, "--cache-type-k", false, "kobold", "llama_sdcpp"),
@@ -163,9 +169,9 @@ var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option("draftamount", "Draft Amount", LaneText, ValueNumber, "--spec-draft-n-max", false, "kobold", "llama_sdcpp"),
 	option("draftgpulayers", "Draft GPU Layers", LaneText, ValueNumber, "--spec-draft-ngl", false, "kobold", "llama_sdcpp"),
 	option("draftgpusplit", "Draft GPU Split", LaneText, ValueJSON, "", false, "kobold"),
-	option("draft_dflash", "Draft DFlash", LaneText, ValueBool, "--spec-type", false, "llama_sdcpp"),
-	option("draft_dspark", "Draft DSpark", LaneText, ValueBool, "--spec-type", false, "llama_sdcpp"),
-	option("spec_type", "Speculative Type", LaneText, ValueString, "--spec-type", false, "llama_sdcpp"),
+	option("draft_dflash", "Draft DFlash", LaneText, ValueBool, specTypeFlag, false, "llama_sdcpp"),
+	option("draft_dspark", "Draft DSpark", LaneText, ValueBool, specTypeFlag, false, "llama_sdcpp"),
+	option("spec_type", "Speculative Type", LaneText, ValueString, specTypeFlag, false, "llama_sdcpp"),
 	option("spec_draft_type_k", "Draft Cache Type K", LaneText, ValueString, "--spec-draft-type-k", false, "llama_sdcpp"),
 	option("spec_draft_type_v", "Draft Cache Type V", LaneText, ValueString, "--spec-draft-type-v", false, "llama_sdcpp"),
 	option("spec_draft_p_min", "Draft Minimum Probability", LaneText, ValueNumber, "--spec-draft-p-min", false, "llama_sdcpp"),
@@ -184,7 +190,7 @@ var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option("visionmaxtokens", "Vision Max Tokens", LaneMultimodal, ValueNumber, "--image-max-tokens", false, "kobold", "llama_sdcpp"),
 	option("video_fps", "Video Frame Rate", LaneMultimodal, ValueNumber, "--video-fps", false, "llama_sdcpp"),
 	option("video_timestamp_interval", "Video Timestamp Interval", LaneMultimodal, ValueNumber, "--video-timestamp-interval", false, "llama_sdcpp"),
-	option("embeddingsmodel", "Embeddings Model", LaneEmbeddings, ValueString, "--model", false, "kobold", "llama_sdcpp"),
+	option("embeddingsmodel", "Embeddings Model", LaneEmbeddings, ValueString, modelFlag, false, "kobold", "llama_sdcpp"),
 	option("embeddingsmaxctx", "Embeddings Max Context", LaneEmbeddings, ValueNumber, "", false, "kobold", "llama_sdcpp"),
 	option("embeddingsgpu", "Embeddings GPU", LaneEmbeddings, ValueBool, "", false, "kobold", "llama_sdcpp"),
 	option("run_embed_separate", "Run Embeddings Separately", LaneEmbeddings, ValueBool, "", false, "kobold", "llama_sdcpp"),
@@ -199,7 +205,7 @@ var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option("models_max", "Max Loaded Models", LaneRuntime, ValueNumber, "--models-max", false, "llama_sdcpp"),
 	option("models_autoload", "Models Autoload", LaneRuntime, ValueBool, "--models-autoload", false, "llama_sdcpp"),
 	option("sse_ping_interval", "SSE Ping Interval", LaneRuntime, ValueNumber, "--sse-ping-interval", false, "llama_sdcpp"),
-	option("sdmodel", "Image Model", LaneImage, ValueString, "--model", false, "kobold", "llama_sdcpp"),
+	option("sdmodel", "Image Model", LaneImage, ValueString, modelFlag, false, "kobold", "llama_sdcpp"),
 	option("sddiffusionmodel", "Diffusion Model", LaneImage, ValueString, "--diffusion-model", false, "llama_sdcpp"),
 	option("sdhighnoisediffusionmodel", "High Noise Diffusion Model", LaneImage, ValueString, "--high-noise-diffusion-model", false, "llama_sdcpp"),
 	option("sdunconddiffusionmodel", "Unconditional Diffusion Model", LaneImage, ValueString, "--uncond-diffusion-model", false, "llama_sdcpp"),
@@ -283,8 +289,8 @@ var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option("lora_apply_mode", "LoRA Apply Mode", LaneImage, ValueString, "--lora-apply-mode", false, "llama_sdcpp"),
 	option("cache_mode", "Cache Mode", LaneImage, ValueString, "--cache-mode", false, "llama_sdcpp"),
 	option("cache_option", "Cache Option", LaneImage, ValueString, "--cache-option", false, "llama_sdcpp"),
-	option("whispermodel", "Whisper Model", LaneVoice, ValueString, "--model", false, "kobold", "llama_sdcpp"),
-	option("ttsmodel", "TTS Model", LaneVoice, ValueString, "--model", false, "kobold"),
+	option("whispermodel", "Whisper Model", LaneVoice, ValueString, modelFlag, false, "kobold", "llama_sdcpp"),
+	option("ttsmodel", "TTS Model", LaneVoice, ValueString, modelFlag, false, "kobold"),
 	option("ttswavtokenizer", "TTS WAV Tokenizer", LaneVoice, ValueString, "", false, "kobold"),
 	option("talkermodel", "Talker Model", LaneVoice, ValueString, "", false, "kobold"),
 	option("code2wavmodel", "Code2WAV Model", LaneVoice, ValueString, "", false, "kobold"),

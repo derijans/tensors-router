@@ -50,7 +50,7 @@ type loadCaptureCursor struct {
 
 func (service *Service) handleSiteLoadCaptures(w http.ResponseWriter, r *http.Request) {
 	if !service.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	query, cursor, err := parseLoadCaptureQuery(r.URL.Query())
@@ -173,7 +173,7 @@ func (service *Service) localLoadCaptureList(ctx context.Context, query loadcapt
 
 func (service *Service) handleSiteLoadCaptureRecord(w http.ResponseWriter, r *http.Request) {
 	if !service.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	nodeID := strings.TrimSpace(r.URL.Query().Get("node_id"))
@@ -187,7 +187,7 @@ func (service *Service) handleSiteLoadCaptureRecord(w http.ResponseWriter, r *ht
 	}
 	attemptID, output, ok := loadCaptureRecordPath(r.URL.Path, "/router/v1/site/load-captures/")
 	if !ok {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "capture not found")
+		openai.WriteError(w, http.StatusNotFound, "not_found", messageCaptureNotFound)
 		return
 	}
 	if nodes[0].NodeID == service.nodeID {
@@ -196,7 +196,7 @@ func (service *Service) handleSiteLoadCaptureRecord(w http.ResponseWriter, r *ht
 	}
 	targetPath := "/router/v1/node/load-captures/" + url.PathEscape(attemptID)
 	if output {
-		targetPath += "/output"
+		targetPath += pathSuffixOutput
 	}
 	forwarded := cloneQueryWithout(r.URL.Query(), "node_id")
 	if encoded := forwarded.Encode(); encoded != "" {
@@ -208,7 +208,7 @@ func (service *Service) handleSiteLoadCaptureRecord(w http.ResponseWriter, r *ht
 		return
 	}
 	defer response.Body.Close()
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set(headerContentType, mediaTypeJSON)
 	w.WriteHeader(response.StatusCode)
 	_, _ = io.Copy(w, response.Body)
 }
@@ -216,7 +216,7 @@ func (service *Service) handleSiteLoadCaptureRecord(w http.ResponseWriter, r *ht
 func (service *Service) handleNodeLoadCaptureRecord(w http.ResponseWriter, r *http.Request) {
 	attemptID, output, ok := loadCaptureRecordPath(r.URL.Path, "/router/v1/node/load-captures/")
 	if !ok {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "capture not found")
+		openai.WriteError(w, http.StatusNotFound, "not_found", messageCaptureNotFound)
 		return
 	}
 	service.writeLocalLoadCaptureRecord(w, r, attemptID, output)
@@ -236,7 +236,7 @@ func (service *Service) writeLocalLoadCaptureRecord(w http.ResponseWriter, r *ht
 		page, err := service.loadCaptureStore.Output(r.Context(), attemptID, after, 16)
 		if err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
-				openai.WriteError(w, http.StatusNotFound, "not_found", "capture not found")
+				openai.WriteError(w, http.StatusNotFound, "not_found", messageCaptureNotFound)
 				return
 			}
 			openai.WriteError(w, http.StatusInternalServerError, "server_error", err.Error())
@@ -247,7 +247,7 @@ func (service *Service) writeLocalLoadCaptureRecord(w http.ResponseWriter, r *ht
 	}
 	detail, err := service.loadCaptureStore.Detail(r.Context(), attemptID)
 	if err != nil {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "capture not found")
+		openai.WriteError(w, http.StatusNotFound, "not_found", messageCaptureNotFound)
 		return
 	}
 	openai.WriteJSON(w, http.StatusOK, loadCaptureDetailResponse{Attempt: detail.Attempt, SnapshotSHA256: detail.Snapshot.SHA256, KCPPS: json.RawMessage(detail.Snapshot.JSON), Assets: detail.Assets})
@@ -315,9 +315,9 @@ func loadCaptureRecordPath(path string, prefix string) (string, bool, bool) {
 	if remainder == path || remainder == "" {
 		return "", false, false
 	}
-	output := strings.HasSuffix(remainder, "/output")
+	output := strings.HasSuffix(remainder, pathSuffixOutput)
 	if output {
-		remainder = strings.TrimSuffix(remainder, "/output")
+		remainder = strings.TrimSuffix(remainder, pathSuffixOutput)
 	}
 	attemptID, err := url.PathUnescape(remainder)
 	return attemptID, output, err == nil && attemptID != "" && !strings.Contains(attemptID, "/")

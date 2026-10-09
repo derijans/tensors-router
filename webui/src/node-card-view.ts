@@ -117,9 +117,9 @@ function renderRuntime(nodeID: string, runtime: LoadedRuntime, activeRequests: r
       <span class="lane-dot ${row.borrowed ? "lane-lent" : laneAccent(row.lane)}"></span>
       <div class="runtime-name">
         <code>${row.model_id}</code>
-        <small>${row.lane} · ${row.runtime_id}${(row.memory_estimate_mb ?? 0) > 0 ? ` · ~${formatGigabytes(row.memory_estimate_mb ?? 0)} est.` : ""}</small>
+        <small>${row.lane} · ${row.runtime_id}${memoryEstimateSuffix(row)}</small>
       </div>
-      ${row.borrowed ? badge("lent", "warning") : active > 0 ? badge(`${active} active`, "info") : badge("idle", "neutral")}
+      ${runtimeActivityBadge(row, active)}
       <button class="icon-button" type="button" popovertarget="${menuID}" aria-label="Actions for ${row.model_id}"><svg class="icon"><use href="#icon-more"/></svg></button>
       <div id="${menuID}" class="menu" popover>
         <button type="button" data-runtime-action="unload" data-node-id="${nodeID}" data-backend-id="${backendID}" data-runtime-id="${row.runtime_id}" data-generation="${row.generation}">Unload</button>
@@ -129,6 +129,18 @@ function renderRuntime(nodeID: string, runtime: LoadedRuntime, activeRequests: r
       </div>
     </li>
   `;
+}
+
+function memoryEstimateSuffix(row: NodeStateModelRow): string {
+  const estimate = row.memory_estimate_mb ?? 0;
+  return estimate > 0 ? ` · ~${formatGigabytes(estimate)} est.` : "";
+}
+
+function runtimeActivityBadge(row: NodeStateModelRow, active: number): SafeHTML {
+  if (row.borrowed) {
+    return badge("lent", "warning");
+  }
+  return active > 0 ? badge(`${active} active`, "info") : badge("idle", "neutral");
 }
 
 function renderCardFooter(nodeID: string, context: NodeCardContext): SafeHTML {
@@ -143,7 +155,14 @@ function renderCardFooter(nodeID: string, context: NodeCardContext): SafeHTML {
 }
 
 function runtimeMenuID(placement: NodeCardPlacement, nodeID: string, backendID: string, runtimeID: string): string {
-  return `runtime-menu-${placement}-${Array.from(`${nodeID}-${backendID}-${runtimeID}`)
-    .map(character => /[A-Za-z0-9_-]/.test(character) ? character : `_${character.codePointAt(0)?.toString(16) ?? ""}`)
-    .join("")}`;
+  const runtimeKey = [nodeID, backendID, runtimeID].join("-");
+  return `runtime-menu-${placement}-${Array.from(runtimeKey).map(menuIDCharacter).join("")}`;
 }
+
+function menuIDCharacter(character: string): string {
+  if (/[A-Za-z0-9_-]/.test(character)) {
+    return character;
+  }
+  return `_${character.codePointAt(0)?.toString(16) ?? ""}`;
+}
+

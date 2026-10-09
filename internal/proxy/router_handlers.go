@@ -28,7 +28,7 @@ type modelControlRequest struct {
 func (service *Service) handleNodeInference(w http.ResponseWriter, r *http.Request) {
 	path, ok := nodeInferencePath(r.URL.Path)
 	if !ok {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	forwarded := r.Clone(r.Context())
@@ -327,74 +327,6 @@ func (service *Service) loadLocalModel(ctx context.Context, publicID string, loc
 	return nil
 }
 
-func modelLoadReadinesses(mode string, model catalog.Model) []backendReadiness {
-	if mode == BackendModeVLLM {
-		return []backendReadiness{modelControlReadiness(mode, model.HasEmbeddings, model.HasVoice, model.VLLMTask)}
-	}
-	separateEmbeddings := model.Capabilities.Embeddings != nil && model.Capabilities.Embeddings.Separate
-	if mode != BackendModeLlamaSDCPP {
-		readinesses := make([]backendReadiness, 0, 4)
-		if modelHasExplicitTextAsset(model) || model.HasMultimodal || model.HasEmbeddings && !separateEmbeddings {
-			readinesses = append(readinesses, readinessText)
-		}
-		if model.HasImage {
-			readinesses = append(readinesses, readinessImage)
-		}
-		if model.HasVoice {
-			readinesses = append(readinesses, readinessForVoiceModel(model, mode))
-		}
-		if model.HasMusic {
-			readinesses = append(readinesses, readinessMusic)
-		}
-		if separateEmbeddings {
-			readinesses = append(readinesses, readinessEmbeddings)
-		}
-		if len(readinesses) == 0 {
-			return []backendReadiness{readinessText}
-		}
-		return readinesses
-	}
-
-	readinesses := make([]backendReadiness, 0, 3)
-	if modelNeedsPrimaryTextRuntime(model) {
-		readinesses = append(readinesses, readinessText)
-	}
-	if model.HasImage {
-		readinesses = append(readinesses, readinessImage)
-	}
-	if separateEmbeddings {
-		readinesses = append(readinesses, readinessEmbeddings)
-	}
-	if len(readinesses) == 0 {
-		return []backendReadiness{readinessText}
-	}
-	return readinesses
-}
-
-func modelHasExplicitTextAsset(model catalog.Model) bool {
-	for _, key := range []string{"model", "model_param", "draftmodel", "model_hash", "model_param_hash", "draftmodel_hash"} {
-		value, found := model.Options[key]
-		if !found {
-			continue
-		}
-		var decoded any
-		if json.Unmarshal(value, &decoded) != nil {
-			continue
-		}
-		switch typed := decoded.(type) {
-		case string:
-			if strings.TrimSpace(typed) != "" {
-				return true
-			}
-		case []any:
-			if len(typed) > 0 {
-				return true
-			}
-		}
-	}
-	return false
-}
-
 func modelControlReadiness(mode string, hasEmbeddings bool, hasVoice bool, task string) backendReadiness {
 	if mode != BackendModeVLLM {
 		if hasVoice {
@@ -504,4 +436,85 @@ func (service *Service) requireClusterToken(w http.ResponseWriter, r *http.Reque
 		return false
 	}
 	return true
+}
+
+func modelLoadReadinesses(mode string, model catalog.Model) []backendReadiness {
+	var readinesses []backendReadiness
+	switch mode {
+	case BackendModeVLLM:
+		return []backendReadiness{modelControlReadiness(mode, model.HasEmbeddings, model.HasVoice, model.VLLMTask)}
+	case BackendModeLlamaSDCPP:
+		readinesses = splitBackendLoadReadinesses(model)
+	default:
+		readinesses = combinedBackendLoadReadinesses(mode, model)
+	}
+	if len(readinesses) == 0 {
+		return []backendReadiness{readinessText}
+	}
+	return readinesses
+}
+
+func modelHasSeparateEmbeddings(model catalog.Model) bool {
+	return model.Capabilities.Embeddings != nil && model.Capabilities.Embeddings.Separate
+}
+
+func combinedBackendLoadReadinesses(mode string, model catalog.Model) []backendReadiness {
+	separateEmbeddings := modelHasSeparateEmbeddings(model)
+	readinesses := make([]backendReadiness, 0, 4)
+	if modelHasExplicitTextAsset(model) || model.HasMultimodal || model.HasEmbeddings && !separateEmbeddings {
+		readinesses = append(readinesses, readinessText)
+	}
+	if model.HasImage {
+		readinesses = append(readinesses, readinessImage)
+	}
+	if model.HasVoice {
+		readinesses = append(readinesses, readinessForVoiceModel(model, mode))
+	}
+	if model.HasMusic {
+		readinesses = append(readinesses, readinessMusic)
+	}
+	if separateEmbeddings {
+		readinesses = append(readinesses, readinessEmbeddings)
+	}
+	return readinesses
+}
+
+func splitBackendLoadReadinesses(model catalog.Model) []backendReadiness {
+	readinesses := make([]backendReadiness, 0, 3)
+	if modelNeedsPrimaryTextRuntime(model) {
+		readinesses = append(readinesses, readinessText)
+	}
+	if model.HasImage {
+		readinesses = append(readinesses, readinessImage)
+	}
+	if modelHasSeparateEmbeddings(model) {
+		readinesses = append(readinesses, readinessEmbeddings)
+	}
+	return readinesses
+}
+
+var explicitTextAssetOptionKeys = []string{"model", "model_param", "draftmodel", "model_hash", "model_param_hash", "draftmodel_hash"}
+
+func modelHasExplicitTextAsset(model catalog.Model) bool {
+	for _, key := range explicitTextAssetOptionKeys {
+		if value, found := model.Options[key]; found && jsonOptionNonEmpty(value) {
+			return true
+		}
+	}
+	return false
+}
+
+func jsonOptionNonEmpty(value json.RawMessage) bool {
+	var decoded any
+	if json.Unmarshal(value, &decoded) != nil {
+		return false
+	}
+	switch typed := decoded.(type) {
+	case string:
+		return strings.TrimSpace(typed) != ""
+	case []any:
+		return len(typed) > 0
+	default:
+		return false
+	}
 }

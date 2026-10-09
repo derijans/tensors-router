@@ -10,7 +10,7 @@ import (
 
 func (runner *benchmarkRunner) handleBenchmarkRun(w http.ResponseWriter, r *http.Request) {
 	if !runner.deps.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	if runner.deps.rejectModelLoadWhileDraining(w) {
@@ -48,7 +48,7 @@ func (runner *benchmarkRunner) handleNodeBenchmarkRun(w http.ResponseWriter, r *
 
 func (runner *benchmarkRunner) handleBenchmarks(w http.ResponseWriter, r *http.Request) {
 	if !runner.deps.siteControlAllowed() {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "endpoint not found")
+		openai.WriteEndpointNotFound(w)
 		return
 	}
 	record, err := runner.benchmarkRecord(r.Context(), r.URL.Query(), false)

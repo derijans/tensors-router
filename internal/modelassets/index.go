@@ -4,7 +4,6 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -228,106 +227,6 @@ func (index *Index) indexFile(path string) (Asset, error) {
 	return asset, nil
 }
 
-func (index *Index) IndexRoots(roots []string) error {
-	paths := make([]string, 0)
-	for _, root := range roots {
-		root = strings.TrimSpace(root)
-		if root == "" {
-			continue
-		}
-		if _, err := os.Stat(root); os.IsNotExist(err) {
-			continue
-		} else if err != nil {
-			return err
-		}
-		err := filepath.WalkDir(root, func(path string, entry os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if entry.Type()&os.ModeSymlink != 0 {
-				if entry.IsDir() {
-					return filepath.SkipDir
-				}
-				return nil
-			}
-			if entry.IsDir() || !entry.Type().IsRegular() {
-				return nil
-			}
-			paths = append(paths, path)
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-	}
-	jobs := make(chan string)
-	errors := make(chan error, index.hashWorkers)
-	var workers sync.WaitGroup
-	for worker := 0; worker < index.hashWorkers; worker++ {
-		workers.Add(1)
-		go func() {
-			defer workers.Done()
-			for path := range jobs {
-				if _, err := index.indexFile(path); err != nil {
-					select {
-					case errors <- err:
-					default:
-					}
-				}
-			}
-		}()
-	}
-	for _, path := range paths {
-		jobs <- path
-	}
-	close(jobs)
-	workers.Wait()
-	close(errors)
-	if err := <-errors; err != nil {
-		return err
-	}
-	return index.Save()
-}
-
-func (index *Index) IndexConfigReferences(configDir string) error {
-	if _, err := os.Stat(configDir); os.IsNotExist(err) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	return filepath.WalkDir(configDir, func(configPath string, entry os.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if entry.IsDir() || entry.Type()&os.ModeSymlink != 0 || !strings.EqualFold(filepath.Ext(entry.Name()), ".kcpps") {
-			return nil
-		}
-		file, err := os.Open(configPath)
-		if err != nil {
-			return nil
-		}
-		var config map[string]any
-		decodeErr := json.NewDecoder(io.LimitReader(file, 8<<20)).Decode(&config)
-		_ = file.Close()
-		if decodeErr != nil {
-			return nil
-		}
-		for field, value := range config {
-			if !isModelField(field) {
-				continue
-			}
-			paths, _, ok := pathValues(value)
-			if !ok {
-				continue
-			}
-			for _, modelPath := range paths {
-				_, _ = index.IndexFile(modelPath)
-			}
-		}
-		return nil
-	})
-}
-
 func (index *Index) BindOrigin(hash string, origin Origin) error {
 	if !validHash(hash) || origin.URI() == "" {
 		return fmt.Errorf("invalid asset origin")
@@ -399,60 +298,6 @@ func (index *Index) Find(hash string, filename string) (string, bool) {
 		return "", false
 	}
 	return absolute, true
-}
-
-func (index *Index) FindInRoots(hash string, filename string, roots []string) (string, bool, error) {
-	if path, found := index.Find(hash, filename); found {
-		return path, true, nil
-	}
-	if !validHash(hash) || !safeFilename(filename) {
-		return "", false, nil
-	}
-	candidates := make([]string, 0)
-	seenRoots := map[string]struct{}{}
-	for _, root := range append(append([]string{}, roots...), index.sharedDir) {
-		root = strings.TrimSpace(root)
-		if root == "" {
-			continue
-		}
-		absoluteRoot, err := filepath.Abs(root)
-		if err != nil {
-			return "", false, err
-		}
-		if _, seen := seenRoots[absoluteRoot]; seen {
-			continue
-		}
-		seenRoots[absoluteRoot] = struct{}{}
-		if _, err := os.Stat(absoluteRoot); os.IsNotExist(err) {
-			continue
-		} else if err != nil {
-			return "", false, err
-		}
-		if err := filepath.WalkDir(absoluteRoot, func(path string, entry os.DirEntry, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if entry.Type()&os.ModeSymlink != 0 {
-				return nil
-			}
-			if !entry.IsDir() && entry.Type().IsRegular() && entry.Name() == filename {
-				candidates = append(candidates, path)
-			}
-			return nil
-		}); err != nil {
-			return "", false, err
-		}
-	}
-	for _, candidate := range candidates {
-		asset, err := index.IndexFile(candidate)
-		if err != nil {
-			return "", false, err
-		}
-		if asset.SHA256 == hash {
-			return asset.Path, true, nil
-		}
-	}
-	return "", false, nil
 }
 
 func (index *Index) Assets() []Asset {

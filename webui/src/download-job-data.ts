@@ -30,7 +30,7 @@ export function trackDownloadProgress(previous: DownloadProgressTracking, jobs: 
   const bytesPerSecond = new Map<string, number>();
   for (const job of jobs.filter(candidate => candidate.state === "running")) {
     const earlier = previous.samples.get(job.id);
-    if (earlier && earlier.bytes === job.completed_bytes) {
+    if (earlier?.bytes === job.completed_bytes) {
       samples.set(job.id, earlier);
       const unchangedRate = previous.bytesPerSecond.get(job.id);
       if (unchangedRate !== undefined) {

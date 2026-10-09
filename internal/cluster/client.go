@@ -14,6 +14,8 @@ import (
 	"time"
 )
 
+const bearerPrefix = "Bearer "
+
 const maxClusterJSONBytes = int64(8 * 1024 * 1024)
 
 const DefaultControlTimeout = 30 * time.Second
@@ -162,7 +164,7 @@ func (client *Client) json(ctx context.Context, httpClient *http.Client, method 
 		request.Header.Set("Content-Type", "application/json")
 	}
 	if client.token != "" {
-		request.Header.Set("Authorization", "Bearer "+client.token)
+		request.Header.Set("Authorization", bearerPrefix+client.token)
 	}
 
 	response, err := httpClient.Do(request)
@@ -236,7 +238,7 @@ func (client *Client) stream(ctx context.Context, method string, baseURL string,
 		request.Header.Set("Range", rangeHeader)
 	}
 	if client.token != "" {
-		request.Header.Set("Authorization", "Bearer "+client.token)
+		request.Header.Set("Authorization", bearerPrefix+client.token)
 	}
 	streamClient := *client.client
 	streamClient.Timeout = 0
@@ -284,7 +286,7 @@ func (client *Client) checkRedirect(request *http.Request, previous []*http.Requ
 	}
 	request.Header.Del("Authorization")
 	if client.token != "" {
-		request.Header.Set("Authorization", "Bearer "+client.token)
+		request.Header.Set("Authorization", bearerPrefix+client.token)
 	}
 	return nil
 }

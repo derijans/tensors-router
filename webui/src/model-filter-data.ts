@@ -1,12 +1,10 @@
-export function defaultNodeSelection(localNodeID: string, nodeIDs: string[]): string[] {
-  void localNodeID;
-  void nodeIDs;
+export function defaultNodeSelection(): string[] {
   return ["*"];
 }
 
-export function retainedNodeSelection(selected: string[], localNodeID: string, nodeIDs: string[]): string[] {
+export function retainedNodeSelection(selected: string[], nodeIDs: string[]): string[] {
   const valid = selected.filter(value => value === "*" || nodeIDs.includes(value));
-  return valid.length > 0 ? valid : defaultNodeSelection(localNodeID, nodeIDs);
+  return valid.length > 0 ? valid : defaultNodeSelection();
 }
 
 export function changedNodeSelection(values: string[], previous: string[]): string[] {

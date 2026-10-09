@@ -161,47 +161,63 @@ type scannedContainer struct {
 var rootSelectorKeys = map[string]bool{PathModel: true, PathImageModel: true}
 var overrideSelectorKeys = map[string]bool{PathImageModel: true}
 
+type limitScanner struct {
+	limits processorLimits
+	stack  []scannedContainer
+}
+
 func scanLimitsAcrossDuplicateKeys(input []byte) processorLimits {
-	var limits processorLimits
+	var scanner limitScanner
 	decoder := json.NewDecoder(bytes.NewReader(input))
 	decoder.UseNumber()
-	var stack []scannedContainer
 	for {
 		token, err := decoder.Token()
 		if err != nil {
-			return limits
+			return scanner.limits
 		}
-		var parent *scannedContainer
-		if len(stack) > 0 {
-			parent = &stack[len(stack)-1]
-		}
-		if delimiter, isDelimiter := token.(json.Delim); isDelimiter && (delimiter == '}' || delimiter == ']') {
-			stack = stack[:len(stack)-1]
-			continue
-		}
-		if parent != nil && parent.object && parent.expectingKey {
-			parent.key, _ = token.(string)
-			parent.expectingKey = false
-			continue
-		}
-		if parent != nil && parent.object {
-			if _, isString := token.(string); parent.selectorKeys[parent.key] && !isString {
-				limits.nonStringSelector = true
-			}
-			parent.expectingKey = true
-		}
-		switch typed := token.(type) {
-		case json.Delim:
-			child := scannedContainer{object: typed == '{', expectingKey: typed == '{'}
-			if child.object && len(stack) == 0 {
-				child.selectorKeys = rootSelectorKeys
-			} else if child.object && len(stack) == 1 && parent.object && parent.key == "override_settings" {
-				child.selectorKeys = overrideSelectorKeys
-			}
-			stack = append(stack, child)
-			limits.depth = max(limits.depth, len(stack))
-		case json.Number:
-			limits.longestNumber = max(limits.longestNumber, len(typed))
-		}
+		scanner.consume(token)
 	}
+}
+
+func (scanner *limitScanner) consume(token json.Token) {
+	if delimiter, isDelimiter := token.(json.Delim); isDelimiter && (delimiter == '}' || delimiter == ']') {
+		scanner.stack = scanner.stack[:len(scanner.stack)-1]
+		return
+	}
+	parent := scanner.parent()
+	if parent != nil && parent.object && parent.expectingKey {
+		parent.key, _ = token.(string)
+		parent.expectingKey = false
+		return
+	}
+	if parent != nil && parent.object {
+		if _, isString := token.(string); parent.selectorKeys[parent.key] && !isString {
+			scanner.limits.nonStringSelector = true
+		}
+		parent.expectingKey = true
+	}
+	switch typed := token.(type) {
+	case json.Delim:
+		scanner.open(typed, parent)
+	case json.Number:
+		scanner.limits.longestNumber = max(scanner.limits.longestNumber, len(typed))
+	}
+}
+
+func (scanner *limitScanner) parent() *scannedContainer {
+	if len(scanner.stack) == 0 {
+		return nil
+	}
+	return &scanner.stack[len(scanner.stack)-1]
+}
+
+func (scanner *limitScanner) open(delimiter json.Delim, parent *scannedContainer) {
+	child := scannedContainer{object: delimiter == '{', expectingKey: delimiter == '{'}
+	if child.object && len(scanner.stack) == 0 {
+		child.selectorKeys = rootSelectorKeys
+	} else if child.object && len(scanner.stack) == 1 && parent.object && parent.key == "override_settings" {
+		child.selectorKeys = overrideSelectorKeys
+	}
+	scanner.stack = append(scanner.stack, child)
+	scanner.limits.depth = max(scanner.limits.depth, len(scanner.stack))
 }
