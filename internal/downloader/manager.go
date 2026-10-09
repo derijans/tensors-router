@@ -314,7 +314,11 @@ func (manager *Manager) removeStaging(jobID string) {
 	if !safeRepositoryPart(jobID) {
 		return
 	}
-	staging := filepath.Join(manager.config.Storage.StateDir, "staging", jobID)
+	staging, err := secureResolve(manager.config.Storage.StateDir, "staging", jobID)
+	if err != nil {
+		manager.logRuntime("download staging cleanup refused job=%s error=%q", jobID, err)
+		return
+	}
 	if err := os.RemoveAll(staging); err != nil {
 		manager.logRuntime("download staging cleanup failed job=%s error=%q", jobID, err)
 	}
