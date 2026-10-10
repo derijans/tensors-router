@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/ggml-org/llama.cpp",
+  "releases": [
+    {
+      "id": "408791365",
+      "tag": "b11541",
+      "published_at": "2026-10-10T08:02:57Z",
+      "prerelease": true,
+      "payloads": [
+        {
+          "name": "llama-b11541-bin-win-cpu-x64.zip",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11541/llama-b11541-bin-win-cpu-x64.zip",
+          "length": 19518702,
+          "sha256": "cdc0535d11038bb337dfba3c15682050eaa9c07aedd0f915b4c09e8a8e8c0a5c"
+        }
+      ]
+    }
+  ]
+}

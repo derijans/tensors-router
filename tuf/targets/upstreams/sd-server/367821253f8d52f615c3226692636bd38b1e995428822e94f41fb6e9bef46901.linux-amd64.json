@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "408329348",
+      "tag": "master-951-f89d9b1",
+      "published_at": "2026-10-09T20:41:56Z",
+      "payloads": [
+        {
+          "name": "sd-master-f89d9b1-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-951-f89d9b1/sd-master-f89d9b1-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 26122036,
+          "sha256": "2390e744f0c97f452df851581262c145218aa54157db795010c3244a46e07319"
+        }
+      ]
+    }
+  ]
+}
