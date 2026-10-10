@@ -42,6 +42,7 @@ import type {
   LoadCaptureListResponse,
   LoadCaptureOutputResponse,
   LoadCaptureQuery,
+  LoadErrorClearResponse,
   LoadErrorListResponse
 } from "./types";
 
@@ -310,6 +311,10 @@ export function getAnalytics(query: AnalyticsQuery): Promise<AnalyticsResponse> 
     params.set("section", query.section);
   }
   return api<AnalyticsResponse>(`/api/analytics?${params.toString()}`);
+}
+
+export function clearLoadErrors(): Promise<LoadErrorClearResponse> {
+  return api<LoadErrorClearResponse>("/api/load-errors", {method: "DELETE"});
 }
 
 export function flushAnalytics(): Promise<AnalyticsFlushResponse> {

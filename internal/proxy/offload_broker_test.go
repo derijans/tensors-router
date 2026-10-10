@@ -14,6 +14,8 @@ import (
 
 const testJobWork = 30 * 1024 * 1024
 
+const testHelperIdle = time.Hour
+
 var testPlanPolicy = planPolicyFor(offloadsettings.Defaults(), planTriggerTick)
 
 func costTableFor(t *testing.T, perJobMS map[string]float64, loadMS map[string]float64) *schedulingcost.Table {
@@ -73,6 +75,7 @@ func candidate(nodeID string, pendingCount int64, loaded bool) offloadCandidate 
 		Section:           analytics.SectionImage,
 		Loaded:            loaded,
 		AcceptingBorrowed: pendingCount == 0,
+		IdleFor:           testHelperIdle,
 		PendingCount:      pendingCount,
 		PendingWork:       work.Scaled(float64(pendingCount)),
 		BacklogCount:      backlogCount,
@@ -93,6 +96,7 @@ func textCandidateWithContextWindow(nodeID string, pendingCount int64, loaded bo
 		Section:           analytics.SectionLLM,
 		Loaded:            loaded,
 		AcceptingBorrowed: pendingCount == 0,
+		IdleFor:           testHelperIdle,
 		ContextCapacity:   contextCapacity,
 		PendingCount:      pendingCount,
 		PendingWork:       work.Scaled(float64(pendingCount)),
@@ -100,6 +104,11 @@ func textCandidateWithContextWindow(nodeID string, pendingCount int64, loaded bo
 		BacklogCount:      backlogCount,
 		BacklogWork:       work.Scaled(float64(backlogCount)),
 	}
+}
+
+func justServedOwnWork(helper offloadCandidate) offloadCandidate {
+	helper.IdleFor = 0
+	return helper
 }
 
 func linkedHelper(helper offloadCandidate) offloadHelperCandidate {
@@ -208,7 +217,7 @@ func TestLeaseIsRefusedWhenTheLoadCostsMoreThanTheBacklog(t *testing.T) {
 		map[string]float64{"node-b": 19000})
 
 	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
-		lendingTo(candidate("node-a", 1, true), candidate("node-b", 0, false)),
+		lendingTo(candidate("node-a", 1, true), justServedOwnWork(candidate("node-b", 0, false))),
 	}, costs, time.Now(), testPlanPolicy).leases
 
 	if len(leases) != 0 {
@@ -264,7 +273,7 @@ func TestHelperWithNoMeasuredLoadIsSkipped(t *testing.T) {
 		nil)
 
 	leases := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
-		lendingTo(candidate("node-a", 16, true), candidate("node-b", 0, false)),
+		lendingTo(candidate("node-a", 16, true), justServedOwnWork(candidate("node-b", 0, false))),
 	}, costs, time.Now(), testPlanPolicy).leases
 
 	if len(leases) != 0 {
@@ -336,7 +345,7 @@ func TestIdleHelperGetsAOneJobProbeWhenTheCostRuleSaysNo(t *testing.T) {
 		map[string]float64{"node-a": 8000, "node-b": 8000},
 		map[string]float64{"node-b": 19000})
 	helper := candidate("node-b", 0, false)
-	helper.IdleFor = 6 * time.Second
+	helper.IdleFor = 2 * time.Minute
 
 	plan := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
 		lendingTo(candidate("node-a", 1, true), helper),
@@ -633,7 +642,7 @@ func TestIdleTextHelperGetsAProbeWhenTheCostRuleSaysNo(t *testing.T) {
 		map[string]float64{"node-a": 8000, "node-b": 8000},
 		map[string]float64{"node-b": 60000})
 	helper := textCandidateWithContextWindow("node-b", 0, false, 8192)
-	helper.IdleFor = 10 * time.Second
+	helper.IdleFor = 2 * time.Minute
 
 	leases := planOffloadLeases(cluster.RouteLaneText, []lendingOwner{
 		lendingTo(textCandidateWithContextWindow("node-a", 1, true, 8192), helper),
@@ -716,6 +725,22 @@ func TestMeanWorkIsElementwise(t *testing.T) {
 
 func TestPlanSaysWhenAnIdleHelperWillBecomeDueForAProbe(t *testing.T) {
 	costs := costTableFor(t,
+		map[string]float64{"node-a": 8000, "node-b": 40000},
+		nil)
+	helper := candidate("node-b", 0, true)
+	helper.IdleFor = 3 * time.Second
+
+	plan := planOffloadLeases(cluster.RouteLaneImage, []lendingOwner{
+		lendingTo(candidate("node-a", 1, true), helper),
+	}, costs, time.Now(), testPlanPolicy)
+
+	if plan.nextProbeDue != 2*time.Second {
+		t.Fatalf("next probe due in %v, want the 2s left until the helper has idled 5s", plan.nextProbeDue)
+	}
+}
+
+func TestPlanWaitsLongerToProbeAHelperThatWouldHaveToSwitchModels(t *testing.T) {
+	costs := costTableFor(t,
 		map[string]float64{"node-a": 8000, "node-b": 8000},
 		map[string]float64{"node-b": 19000})
 	helper := candidate("node-b", 0, false)
@@ -725,8 +750,8 @@ func TestPlanSaysWhenAnIdleHelperWillBecomeDueForAProbe(t *testing.T) {
 		lendingTo(candidate("node-a", 1, true), helper),
 	}, costs, time.Now(), testPlanPolicy)
 
-	if plan.nextProbeDue != 2*time.Second {
-		t.Fatalf("next probe due in %v, want the 2s left until the helper has idled 5s", plan.nextProbeDue)
+	if want := testPlanPolicy.probeIdle*unloadedProbeIdleFactor - helper.IdleFor; plan.nextProbeDue != want {
+		t.Fatalf("next probe due in %v, want %v: a probe that swaps models needs far longer idle", plan.nextProbeDue, want)
 	}
 }
 

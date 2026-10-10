@@ -13,6 +13,7 @@ type lentRequest struct {
 	lentAt        time.Time
 	helperNodeID  string
 	helperModelID string
+	giveUpAfter   time.Duration
 }
 
 type lentRequestBook struct {
@@ -36,6 +37,12 @@ func (book *lentRequestBook) Remove(entry *offloadEntry) (lentRequest, bool) {
 	request, lent := book.byEntry[entry]
 	delete(book.byEntry, entry)
 	return request, lent
+}
+
+func (book *lentRequestBook) GiveUpAfter(entry *offloadEntry) time.Duration {
+	book.mu.Lock()
+	defer book.mu.Unlock()
+	return book.byEntry[entry].giveUpAfter
 }
 
 func (book *lentRequestBook) Count(lane string, modelID string) int {

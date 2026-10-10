@@ -86,6 +86,11 @@ func NewService(config ServiceConfig) *Service {
 	}
 	service.nodeMemory = config.MemorySource
 	service.analytics = newServiceAnalytics(config, service.loadAnalyticsSection)
+	service.storeDownload = &storeDownload{
+		snapshotter: config.RouterStore,
+		flush:       func(ctx context.Context) error { return service.analytics.store.Checkpoint(ctx) },
+		nodeID:      config.NodeID,
+	}
 	service.webUI = newWebUIProxy(service, service.analytics)
 	service.benchmarks = newBenchmarkRunner(service, config.BenchmarkStore, logger)
 	service.downloads = downloads.New(downloadDeps{service: service}, config.Downloader, config.DownloaderCapability)

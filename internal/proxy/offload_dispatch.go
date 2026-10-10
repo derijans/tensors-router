@@ -96,6 +96,7 @@ func (scheduler *scheduler) lendWithdrawn(lease offloadLease, entry *offloadEntr
 		lentAt:        time.Now(),
 		helperNodeID:  lease.HelperNodeID,
 		helperModelID: lease.HelperModelID,
+		giveUpAfter:   lease.giveUpAfter(),
 	})
 	scheduler.record(offloaddecisions.Record{
 		Kind:          offloaddecisions.KindDispatch,
@@ -149,12 +150,16 @@ func (service *Service) leasedHelperContextFits(helper routinggroups.Endpoint, r
 }
 
 func (service *Service) forwardOffloadedRequest(w http.ResponseWriter, original *http.Request, forwarded *http.Request, body []byte, lane string, entry *offloadEntry, acquired acquiredRegistryRoute) bool {
-	response, err := service.sendOffloadedRequest(original.Context(), lane, entry.modelID, forwarded, body)
+	sendContext, bound := service.scheduler.boundLentRequest(original.Context(), entry)
+	response, err := service.sendOffloadedRequest(sendContext, lane, entry.modelID, forwarded, body)
 	if err != nil {
+		bound.release()
 		service.scheduler.finishOffload(lane, entry.modelID, entry, true)
 		return false
 	}
+	bound.answered()
 	defer service.scheduler.finishOffload(lane, entry.modelID, entry, false)
+	response = responseWithRelease(response, bound.release)
 	response = responseWithRelease(response, acquired.release)
 	_ = service.writeProxyResponse(w, response, acquired.publicID, true)
 	return true

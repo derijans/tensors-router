@@ -262,7 +262,9 @@ The analytics tab has a **Flush to disk** button. It writes the in-memory event 
 
 Load captures are opt-in and independent from request analytics, VRAM analytics, and backend disk logging. Records are retained permanently until an operator removes the database. The capture database, WAL, and SHM files are owner-restricted; size grows with load attempts and reuse records.
 
-The diagnostics load-error store is separate again: identical rows are deduplicated by a phase, source, and normalized-message fingerprint, so a flapping backend rolls up into one row with an occurrence count rather than flooding the file. Rows carry the redacted message plus any captured child-process output. The `/router/v1/site/load-errors` endpoint and the WebUI Errors panel read it; a master fans out to every node and merges the results.
+The analytics tab has a **Download DB** button. It saves the router database of the selected node, or one file per live node when All nodes is selected, so a master and its slaves can be inspected offline with any SQLite tool.
+
+The diagnostics load-error store is separate again: identical rows are deduplicated by a phase, source, and normalized-message fingerprint, so a flapping backend rolls up into one row with an occurrence count rather than flooding the file. Rows carry the redacted message plus any captured child-process output. The `/router/v1/site/load-errors` endpoint and the WebUI Errors panel read it; a master fans out to every node and merges the results. Each row names the model and config that failed to load. **Clear all** on the Errors panel deletes every row on every reachable node after a confirmation.
 
 ### Request and memory limits
 

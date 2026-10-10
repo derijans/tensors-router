@@ -19,7 +19,7 @@ var _ routerstore.Module = SchemaModule{}
 
 func (SchemaModule) Name() string { return "analytics" }
 
-func (SchemaModule) Version() int { return 10 }
+func (SchemaModule) Version() int { return 11 }
 
 func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 	statements := []string{
@@ -68,7 +68,10 @@ func (SchemaModule) Migrate(ctx context.Context, db *sql.DB) error {
 			decode_ms INTEGER NOT NULL DEFAULT 0,
 			max_gap_ms INTEGER NOT NULL DEFAULT 0,
 			finish_reason TEXT NOT NULL DEFAULT '',
-			aborted INTEGER NOT NULL DEFAULT 0
+			aborted INTEGER NOT NULL DEFAULT 0,
+			error_message TEXT NOT NULL DEFAULT '',
+			upstream_status INTEGER NOT NULL DEFAULT 0,
+			queue_wait_ms INTEGER NOT NULL DEFAULT 0
 		)`,
 		`CREATE INDEX IF NOT EXISTS analytics_events_finished_at_idx ON analytics_events (finished_at)`,
 		`CREATE INDEX IF NOT EXISTS analytics_events_node_idx ON analytics_events (node_id, finished_at)`,
@@ -192,6 +195,9 @@ func migrationColumns() []migrationColumn {
 		{"analytics_events", "embedding_count", zeroIntegerColumn},
 		{"analytics_events", "router_version", emptyTextColumn},
 		{"analytics_events", "prompt_tokens_per_second", zeroRealColumn},
+		{"analytics_events", "error_message", emptyTextColumn},
+		{"analytics_events", "upstream_status", zeroIntegerColumn},
+		{"analytics_events", "queue_wait_ms", zeroIntegerColumn},
 		{"analytics_rollups", "load_count", zeroIntegerColumn},
 		{"analytics_rollups", "load_duration_ms_total", zeroIntegerColumn},
 		{"analytics_rollups", "vram_peak_mb", zeroIntegerColumn},

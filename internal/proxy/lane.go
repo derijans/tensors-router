@@ -110,16 +110,18 @@ func (service *Service) acquireModelConfigForBackendModeWithOptions(mode string,
 		return nil, nil, false, err
 	}
 	finishDiagnostic := beginBackendDiagnostic(runtime.backend)
-	if err := service.ensureBackendFamily(ctx, mode); err != nil {
-		return nil, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
+	releaseFamily, err := service.leaseBackendFamily(ctx, mode)
+	if err != nil {
+		return nil, nil, false, service.backendLoadDiagnosticError(err, runtime, modelID, configFilename, finishDiagnostic)
 	}
+	defer releaseFamily()
 	service.scheduler.noteBorrowRestoreActivity(ctx, runtime, mode, configFilename)
 	if err := service.enforceUnloadPolicy(ctx, mode, configFilename, readiness); err != nil {
-		return nil, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
+		return nil, nil, false, service.backendLoadDiagnosticError(err, runtime, modelID, configFilename, finishDiagnostic)
 	}
 	release, loadedFresh, err := service.acquireModelConfigWithOptions(runtime, ctx, modelID, configFilename, readiness, options)
 	if err != nil {
-		return runtime, nil, false, service.backendLoadDiagnosticError(err, runtime, finishDiagnostic)
+		return runtime, nil, false, service.backendLoadDiagnosticError(err, runtime, modelID, configFilename, finishDiagnostic)
 	}
 	service.applySeparateRuntimeTriggers(ctx, mode, configFilename, modelID)
 	finishDiagnostic(true)
@@ -279,7 +281,7 @@ func beginBackendDiagnostic(backend Backend) func(bool) backenddiagnostic.Diagno
 	return func(bool) backenddiagnostic.Diagnostic { return backenddiagnostic.Diagnostic{} }
 }
 
-func (service *Service) backendLoadDiagnosticError(err error, runtime *backendRuntime, finish func(bool) backenddiagnostic.Diagnostic) error {
+func (service *Service) backendLoadDiagnosticError(err error, runtime *backendRuntime, modelID string, configFilename string, finish func(bool) backenddiagnostic.Diagnostic) error {
 	diagnostic := finish(false)
 	diagnostic.NodeID = service.nodeID
 	diagnostic.Backend = runtime.name
@@ -288,6 +290,8 @@ func (service *Service) backendLoadDiagnosticError(err error, runtime *backendRu
 		Phase:       loaderrors.PhasePreload,
 		Severity:    loaderrors.SeverityError,
 		Source:      "proxy.backendLoadDiagnosticError",
+		ModelID:     modelID,
+		ConfigName:  configFilename,
 		Backend:     runtime.name,
 		BackendMode: runtime.mode,
 		Message:     err.Error(),

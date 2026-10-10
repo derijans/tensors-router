@@ -27,7 +27,7 @@ func TestNodeStateListsRequestsTheRouterHoldsBackFromTheBackend(t *testing.T) {
 			t.Fatalf("status %d, want 200", code)
 		}
 	}
-	if len(held) != 1 || held[0].State != siteapi.HeldRequestHeld || held[0].ModelID != lentModelID || held[0].Lane != cluster.RouteLaneImage {
+	if len(held) != 1 || held[0].State != siteapi.HeldRequestQueued || held[0].ModelID != lentModelID || held[0].Lane != cluster.RouteLaneImage {
 		t.Fatalf("held = %+v, want only the one request waiting behind the 2-deep backend pipe", held)
 	}
 }

@@ -26,62 +26,114 @@ type backendFamilySwitchState struct {
 	changed   chan struct{}
 	mode      string
 	switching bool
+	leases    int
 }
 
-func (service *Service) ensureBackendFamily(ctx context.Context, mode string) error {
+func (state *backendFamilySwitchState) broadcastLocked() {
+	close(state.changed)
+	state.changed = make(chan struct{})
+}
+
+func (state *backendFamilySwitchState) takeLeaseLocked() func() {
+	state.leases++
+	var once sync.Once
+	return func() {
+		once.Do(func() {
+			state.mu.Lock()
+			state.leases--
+			if state.leases == 0 {
+				state.broadcastLocked()
+			}
+			state.mu.Unlock()
+		})
+	}
+}
+
+func (service *Service) leaseBackendFamily(ctx context.Context, mode string) (func(), error) {
 	resolvedMode, err := service.resolveBackendMode(mode)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	family, ok := service.backendFamilies[resolvedMode]
 	if !ok || family == nil {
-		return fmt.Errorf("backend mode %q is not configured", resolvedMode)
+		return nil, fmt.Errorf("backend mode %q is not configured", resolvedMode)
 	}
 	state := service.backendSwitch
 	for {
 		state.mu.Lock()
 		if !state.switching && state.mode == resolvedMode {
+			release := state.takeLeaseLocked()
 			state.mu.Unlock()
-			return family.startBackend(ctx)
+			if err := family.startBackend(ctx); err != nil {
+				release()
+				return nil, err
+			}
+			return release, nil
 		}
 		if state.switching {
 			changed := state.changed
 			state.mu.Unlock()
 			if err := waitForActiveConfigChange(ctx, changed); err != nil {
-				return err
+				return nil, err
 			}
 			continue
 		}
 		oldMode := state.mode
 		state.switching = true
 		state.mu.Unlock()
-
-		nextMode := oldMode
-		if oldMode != "" && oldMode != resolvedMode {
-			if err := service.stopBackendFamily(ctx, oldMode); err != nil {
-				service.finishBackendFamilySwitch(nextMode)
-				return err
-			}
-			nextMode = ""
-		}
-		if err := family.startBackend(ctx); err != nil {
-			service.finishBackendFamilySwitch(nextMode)
-			return err
-		}
-		service.finishBackendFamilySwitch(resolvedMode)
-		return nil
+		return service.switchBackendFamily(ctx, family, oldMode, resolvedMode)
 	}
 }
 
-func (service *Service) finishBackendFamilySwitch(mode string) {
+func (service *Service) switchBackendFamily(ctx context.Context, family *backendFamily, oldMode string, resolvedMode string) (func(), error) {
+	nextMode := oldMode
+	if err := service.awaitBackendFamilyLeases(ctx); err != nil {
+		service.finishBackendFamilySwitch(nextMode, false)
+		return nil, err
+	}
+	if oldMode != "" && oldMode != resolvedMode {
+		if err := service.stopBackendFamily(ctx, oldMode); err != nil {
+			service.finishBackendFamilySwitch(nextMode, false)
+			return nil, err
+		}
+		nextMode = ""
+	}
+	if err := family.startBackend(ctx); err != nil {
+		service.finishBackendFamilySwitch(nextMode, false)
+		return nil, err
+	}
+	return service.finishBackendFamilySwitch(resolvedMode, true), nil
+}
+
+func (service *Service) awaitBackendFamilyLeases(ctx context.Context) error {
+	state := service.backendSwitch
+	state.mu.Lock()
+	defer state.mu.Unlock()
+	for state.leases > 0 {
+		changed := state.changed
+		state.mu.Unlock()
+		err := waitForActiveConfigChange(ctx, changed)
+		state.mu.Lock()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (service *Service) finishBackendFamilySwitch(mode string, leased bool) func() {
 	state := service.backendSwitch
 	state.mu.Lock()
 	state.mode = mode
 	state.switching = false
-	close(state.changed)
-	state.changed = make(chan struct{})
+	var release func()
+	if leased {
+		release = state.takeLeaseLocked()
+	}
+	state.broadcastLocked()
 	state.mu.Unlock()
 	service.onRuntimeChanged()
+	return release
 }
 
 func (service *Service) stopBackendFamily(ctx context.Context, mode string) error {

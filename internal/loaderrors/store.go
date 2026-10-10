@@ -159,6 +159,17 @@ func (store *Store) Get(ctx context.Context, id string) (Record, bool, error) {
 	return record, true, nil
 }
 
+func (store *Store) Clear(ctx context.Context) (int64, error) {
+	if store == nil {
+		return 0, nil
+	}
+	result, err := store.writer.ExecContext(ctx, `DELETE FROM load_errors`)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 func (store *Store) pruneExpired(ctx context.Context) {
 	if store.retention <= 0 {
 		return

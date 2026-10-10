@@ -3,6 +3,7 @@ package proxy
 import (
 	"context"
 	"net/http"
+	"slices"
 	"time"
 
 	"tensors-router/internal/cluster"
@@ -171,6 +172,7 @@ func offloadCandidateFor(lane string, endpoint routinggroups.Endpoint, models ma
 		BacklogCount:   stats.BacklogCount,
 		BacklogWork:    stats.BacklogWork,
 	}
+	candidate.DisplacedConfigs = displacedConfigsOf(model.Filename, status)
 	if lane == cluster.RouteLaneText {
 		candidate.Loaded = status.ActiveTextConfig == model.Filename
 		candidate.AcceptingBorrowed = status.AcceptingBorrowedText
@@ -181,6 +183,16 @@ func offloadCandidateFor(lane string, endpoint routinggroups.Endpoint, models ma
 		candidate.AcceptingBorrowed = status.AcceptingBorrowedImage
 	}
 	return candidate, true
+}
+
+func displacedConfigsOf(config string, status NodeRuntimeStatus) []string {
+	var displaced []string
+	for _, active := range []string{status.ActiveTextConfig, status.ActiveImageConfig} {
+		if active != "" && active != config && !slices.Contains(displaced, active) {
+			displaced = append(displaced, active)
+		}
+	}
+	return displaced
 }
 
 func (scheduler *scheduler) deliverOffloadLeases(ctx context.Context, identity clusterIdentity, leases []offloadLease, answeredInline queueEvent) {

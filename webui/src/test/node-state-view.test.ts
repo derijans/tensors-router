@@ -58,6 +58,19 @@ describe("node state view", () => {
     expect(html.match(/class="node-held-request"/g)).toHaveLength(2);
   });
 
+  it("tells a request held for a faster helper apart from one only queued for the backend", () => {
+    const state = snapshot();
+    state.held_requests = [
+      {lane: "image", model_id: "krea", state: "held", waiting_ms: 1000},
+      {lane: "image", model_id: "krea", state: "queued", waiting_ms: 500}
+    ];
+
+    const html = renderNodeStateSnapshot("node-a", state, "");
+
+    expect(html).toMatch(/badge[^>]*tone-warning[^>]*>held</);
+    expect(html).toMatch(/badge[^>]*tone-neutral[^>]*>queued</);
+  });
+
   it("says so when the router holds nothing back", () => {
     const html = renderNodeStateSnapshot("node-a", {...snapshot(), held_requests: []}, "");
 

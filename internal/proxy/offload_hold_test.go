@@ -30,6 +30,34 @@ func TestHoldConsultsOnlyForThePipeSlot(t *testing.T) {
 	mustBeAdmitted(t, waiting, "waiting once the owner would otherwise idle")
 }
 
+func TestSnapshotCallsARequestHeldOnlyWhileTheHoldKeepsItBack(t *testing.T) {
+	queue := newOffloadQueue(1)
+	queue.SetAdmissionHold(func(*offloadEntry, ownerPipeline) bool { return true })
+	enqueueNativeOnIdleNode(queue, "group", 10)
+	enqueueNativeOnIdleNode(queue, "group", 10)
+
+	if snapshot := queue.HeldSnapshot(); len(snapshot) != 1 || snapshot[0].holding {
+		t.Fatalf("snapshot = %+v, want one request merely queued behind a full pipe", snapshot)
+	}
+
+	queue.SetDepth(2)
+
+	if snapshot := queue.HeldSnapshot(); len(snapshot) != 1 || !snapshot[0].holding {
+		t.Fatalf("snapshot = %+v, want the request the hold is keeping back reported as held", snapshot)
+	}
+}
+
+func TestRequeuedRequestKeepsTheTimeItFirstArrived(t *testing.T) {
+	queue := newOffloadQueue(1)
+	firstArrived := time.Now().Add(-90 * time.Second)
+
+	returned := queue.Requeue("group", enqueueNativeOnIdleNode(newOffloadQueue(2), "group", 10).work, 0, firstArrived)
+
+	if !returned.arrived.Equal(firstArrived) {
+		t.Fatalf("arrived = %s, want the original %s so the wait shown to the operator does not restart", returned.arrived, firstArrived)
+	}
+}
+
 func TestHoldIsNeverAskedAboutPinnedOrReturnedRequests(t *testing.T) {
 	queue := newOffloadQueue(2)
 	queue.SetAdmissionHold(func(*offloadEntry, ownerPipeline) bool { return true })

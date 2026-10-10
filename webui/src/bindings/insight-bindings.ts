@@ -20,7 +20,8 @@ import {
 import { elementTarget } from "../dom";
 import { elements } from "../elements";
 import { loadLoadCaptures, loadMoreCaptureOutput, selectLoadCapture, updateLoadCaptureFilters } from "../load-captures";
-import { loadLoadErrors, selectLoadError } from "../load-errors";
+import { downloadAnalyticsDatabases } from "../analytics-download";
+import { clearAllLoadErrors, loadLoadErrors, selectLoadError } from "../load-errors";
 import { runTask } from "../tasks";
 
 export function bindBenchmarks(): void {
@@ -60,6 +61,7 @@ export function bindAnalytics(): void {
   });
   elements.analyticsRefreshButton.addEventListener("click", () => runTask(loadAnalytics, "analytics-refresh", "analytics", "Loading analytics…"));
   elements.analyticsFlushButton.addEventListener("click", () => runTask(flushAnalyticsToDisk, "analytics-flush", "analytics", "Flushing analytics…"));
+  elements.analyticsDownloadButton.addEventListener("click", () => runTask(downloadAnalyticsDatabases, "analytics-download", "analytics", "Downloading database…"));
 }
 
 export function bindLoadDiagnostics(): void {
@@ -78,6 +80,7 @@ export function bindLoadDiagnostics(): void {
     }
   });
   elements.loadErrorsRefreshButton.addEventListener("click", () => runTask(loadLoadErrors, "load-errors-refresh", "load-errors", "Loading errors…"));
+  elements.loadErrorsClearButton.addEventListener("click", () => runTask(clearAllLoadErrors, "load-errors-clear", "load-errors", "Clearing errors…"));
   elements.loadErrorPhaseSelect.addEventListener("change", () => runTask(loadLoadErrors, "load-errors-filter", "load-errors", "Loading errors…"));
   elements.loadErrorSeveritySelect.addEventListener("change", () => runTask(loadLoadErrors, "load-errors-filter", "load-errors", "Loading errors…"));
   elements.loadErrorRows.addEventListener("click", event => {

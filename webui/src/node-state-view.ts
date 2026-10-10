@@ -49,7 +49,7 @@ function renderHeldRequest(request: NodeHeldRequest): SafeHTML {
       ${badge(request.lane, laneAccent(request.lane))}
       <span>${request.model_id}</span>
       <span class="muted">${formatWaiting(request.waiting_ms)}</span>
-      ${request.state === "lent" ? html`${badge("lent", "success")}<span class="muted">→ ${request.helper_node_id || "?"}/${request.helper_model_id || "?"}</span>` : badge("held", "warning")}
+      ${request.state === "lent" ? html`${badge("lent", "success")}<span class="muted">→ ${request.helper_node_id || "?"}/${request.helper_model_id || "?"}</span>` : badge(request.state, request.state === "held" ? "warning" : "neutral")}
     </li>
   `;
 }

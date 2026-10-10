@@ -42,6 +42,7 @@ type scheduler struct {
 	leaseBook     *offloadLeaseBook
 	offloadLeases sync.Map
 	lent          *lentRequestBook
+	readmitAlarm  *readmitAlarm
 	dispatchMu    sync.Mutex
 	planMu        sync.Mutex
 	probeReplan   *time.Timer
@@ -70,6 +71,7 @@ func newScheduler(deps schedulerDeps, analytics *requestAnalytics, decisions dec
 		costSource:    newSchedulingCostSource(),
 		leaseBook:     newOffloadLeaseBook(),
 		lent:          newLentRequestBook(),
+		readmitAlarm:  newReadmitAlarm(),
 		intervalReset: make(chan struct{}, 1),
 	}
 	scheduler.settings.Store(&settings)
@@ -113,6 +115,7 @@ func (scheduler *scheduler) close(ctx context.Context) error {
 	scheduler.stopProbeReplan()
 	scheduler.eventReports.Close()
 	scheduler.stopBorrowRestores()
+	scheduler.readmitAlarm.stop()
 	return err
 }
 

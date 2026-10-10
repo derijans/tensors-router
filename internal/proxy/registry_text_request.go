@@ -212,7 +212,7 @@ func (service *Service) serveWithdrawnTextRequest(w http.ResponseWriter, r *http
 	} else if service.forwardOffloadedTextRequest(w, r, r, requestBody, entry, acquired) {
 		return nil, true
 	}
-	requeued := service.scheduler.textQueue.Requeue(modelID, workHint.Work, int64(workHint.RequiredContext), time.Now())
+	requeued := service.scheduler.textQueue.Requeue(modelID, workHint.Work, int64(workHint.RequiredContext), entry.arrived)
 	if outcome, waitErr := service.scheduler.textQueue.Await(r.Context(), requeued); waitErr != nil || outcome != offloadAdmitted {
 		openai.WriteError(w, http.StatusBadGateway, "backend_error", "returned request could not be re-queued")
 		return nil, true

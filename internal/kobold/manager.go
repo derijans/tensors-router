@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"tensors-router/internal/backenddiagnostic"
@@ -57,6 +58,7 @@ type Manager struct {
 	exitDone      <-chan error
 	exitErr       error
 	exitObserved  bool
+	reloadsActive atomic.Int32
 	capture       *backenddiagnostic.Capture
 	captureHub    *loadcapture.Hub
 	forceNoModel  bool
@@ -204,8 +206,13 @@ func (manager *Manager) Start(ctx context.Context) error {
 const maxPortAttempts = 3
 
 func (manager *Manager) startLocked(ctx context.Context) error {
-	if manager.cmd != nil && manager.cmd.Process != nil && manager.Healthy(ctx) {
-		return nil
+	if manager.cmd != nil && manager.cmd.Process != nil {
+		if manager.Healthy(ctx) {
+			return nil
+		}
+		if manager.reloadsActive.Load() > 0 {
+			return manager.waitHealthy(ctx, reloadHealthyTimeout, manager.exitDone)
+		}
 	}
 	if manager.cmd != nil {
 		if err := manager.stopLocked(ctx); err != nil {

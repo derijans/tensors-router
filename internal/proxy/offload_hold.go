@@ -28,6 +28,10 @@ func (scheduler *scheduler) holdForFasterHelper(lane string) admissionHold {
 		if len(lent) < lease.slots() {
 			return false
 		}
+		if lease.helperOverran(lent, now) {
+			return false
+		}
+		scheduler.readmitAlarm.ring(lane, lease.nextHoldRecheck(lent), scheduler.queueForLane(lane).Readmit)
 		ownerFinish := pipeline.nextJobFinish(now, lease.OwnerJobMS)
 		helperFinish := lease.nextJobFinishAfter(lent, now)
 		if !helperFinish.Before(ownerFinish) {
@@ -65,6 +69,43 @@ func (pipeline ownerPipeline) nextJobFinish(now time.Time, ownerJobMS float64) t
 	}
 	queuedBehind := time.Duration(pipeline.inFlight-1) * job
 	return generatingDone.Add(queuedBehind).Add(job)
+}
+
+const (
+	lentGiveUpFactor = 3
+	lentGiveUpFloor  = 30 * time.Second
+)
+
+func (lease offloadLease) giveUpAfter() time.Duration {
+	if !lease.knowsBothSpeeds() {
+		return 0
+	}
+	predicted := durationFromMilliseconds(lease.HelperSwitchMS + lease.HelperServiceMS)
+	return lentGiveUpFactor*predicted + lentGiveUpFloor
+}
+
+func (lease offloadLease) overrunsAt(request lentRequest) time.Time {
+	service := durationFromMilliseconds(lease.HelperServiceMS)
+	return request.lentAt.Add(durationFromMilliseconds(lease.HelperSwitchMS)).Add(2 * service)
+}
+
+func (lease offloadLease) helperOverran(lent []lentRequest, now time.Time) bool {
+	for _, request := range lent {
+		if now.After(lease.overrunsAt(request)) {
+			return true
+		}
+	}
+	return false
+}
+
+func (lease offloadLease) nextHoldRecheck(lent []lentRequest) time.Time {
+	recheck := lease.ExpiresAt
+	for _, request := range lent {
+		if overrun := lease.overrunsAt(request); overrun.Before(recheck) {
+			recheck = overrun
+		}
+	}
+	return recheck
 }
 
 func (lease offloadLease) nextJobFinishAfter(lent []lentRequest, now time.Time) time.Time {

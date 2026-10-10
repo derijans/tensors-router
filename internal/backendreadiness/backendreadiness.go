@@ -158,12 +158,21 @@ func koboldLoadLabel(lane Lane) (string, string) {
 	}
 }
 
+func koboldLoadStartPrefixes(lane Lane, label string) []string {
+	if lane == LaneImage {
+		return []string{"ImageGen Init - Load Model:", "Loading " + label + " Model:"}
+	}
+	return []string{"Loading " + label + " Model:"}
+}
+
 func (scanner *Scanner) classifyKobold(line string) (Result, bool) {
 	label, module := koboldLoadLabel(scanner.lane)
 
-	if strings.HasPrefix(line, "Loading "+label+" Model:") {
-		scanner.loading = true
-		return Result{}, false
+	for _, prefix := range koboldLoadStartPrefixes(scanner.lane, label) {
+		if strings.HasPrefix(line, prefix) {
+			scanner.loading = true
+			return Result{}, false
+		}
 	}
 
 	if prefix := "Load " + label + " Model OK: "; strings.HasPrefix(line, prefix) {

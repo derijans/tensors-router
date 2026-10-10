@@ -96,6 +96,7 @@ type ServiceConfig struct {
 	BenchmarkStore            *routerbenchmark.Store
 	ModelStateStore           *modelstate.Store
 	AnalyticsStore            *routeranalytics.Store
+	RouterStore               storeSnapshotter
 	RoutingGroups             *routinggroups.Store
 	LendingFileValues         offloadsettings.Values
 	LendingSettingsStore      *offloadsettings.Store
@@ -151,6 +152,7 @@ type Service struct {
 	modelStateMu              sync.Mutex
 	pendingModelUnloads       map[string]context.CancelFunc
 	analytics                 *requestAnalytics
+	storeDownload             *storeDownload
 	routingGroups             *routinggroups.Store
 	scheduler                 *scheduler
 	lending                   *lendingSettings

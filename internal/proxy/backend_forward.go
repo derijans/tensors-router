@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -68,9 +69,11 @@ func (service *Service) forwardWithFallbackObserved(ctx context.Context, origina
 }
 
 func (service *Service) forwardToBackendFamily(ctx context.Context, original *http.Request, body []byte, target backendForwardTarget) (*http.Response, routeranalytics.EventFinalizer, error) {
-	if err := service.ensureBackendFamily(ctx, target.mode); err != nil {
+	releaseFamily, err := service.leaseBackendFamily(ctx, target.mode)
+	if err != nil {
 		return nil, nil, err
 	}
+	releaseFamily()
 	runtime, err := service.runtimeForBackendMode(target.mode, target.readiness)
 	if err != nil {
 		return nil, nil, err
@@ -426,17 +429,37 @@ func nextRetryDelay(delay time.Duration, maxDelay time.Duration) time.Duration {
 	return next
 }
 
+type backendRetryExhausted struct {
+	status  int
+	cause   error
+	message string
+}
+
+func (exhausted *backendRetryExhausted) Error() string { return exhausted.message }
+
+func (exhausted *backendRetryExhausted) Unwrap() error { return exhausted.cause }
+
 func backendRetryExhaustedError(status int, err error, body string) error {
-	if err != nil {
-		return fmt.Errorf("backend unavailable after retries: %w", err)
+	exhausted := &backendRetryExhausted{status: status, cause: err}
+	switch {
+	case err != nil:
+		exhausted.message = fmt.Sprintf("backend unavailable after retries: %v", err)
+	case status > 0 && body != "":
+		exhausted.message = fmt.Sprintf("backend unavailable after retries: status %d: %s", status, body)
+	case status > 0:
+		exhausted.message = fmt.Sprintf("backend unavailable after retries: status %d", status)
+	default:
+		exhausted.message = "backend unavailable after retries"
 	}
-	if status > 0 && body != "" {
-		return fmt.Errorf("backend unavailable after retries: status %d: %s", status, body)
+	return exhausted
+}
+
+func upstreamStatusOf(err error) int {
+	var exhausted *backendRetryExhausted
+	if errors.As(err, &exhausted) {
+		return exhausted.status
 	}
-	if status > 0 {
-		return fmt.Errorf("backend unavailable after retries: status %d", status)
-	}
-	return fmt.Errorf("backend unavailable after retries")
+	return 0
 }
 
 func (service *Service) probeBackendEndpoint(runtime *backendRuntime, ctx context.Context, path string) (int, string, error) {
@@ -467,6 +490,7 @@ func (service *Service) forward(runtime *backendRuntime, ctx context.Context, or
 	}
 	target.RawQuery = original.URL.RawQuery
 
+	body, genkey := markKoboldGeneration(original.URL.Path, runtime.mode, body)
 	request, err := http.NewRequestWithContext(ctx, original.Method, target.String(), bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -477,14 +501,15 @@ func (service *Service) forward(runtime *backendRuntime, ctx context.Context, or
 	request.Host = target.Host
 
 	client := service.backendHTTPClient(runtime.backend)
+	abandonGuard := guardAbandonedKoboldGeneration(ctx, client, runtime.backend.URL(), genkey)
 	if report, ok := koboldStreamUsageReporterFor(original.URL.Path, runtime.mode, body); ok {
-		return forwardReportingKoboldStreamUsage(ctx, koboldPerfReader{client: client, backendURL: runtime.backend.URL()}, report, func() (*http.Response, error) {
+		return abandonGuard.disarmOnceDelivered(forwardReportingKoboldStreamUsage(ctx, koboldPerfReader{client: client, backendURL: runtime.backend.URL()}, report, func() (*http.Response, error) {
 			return client.Do(request)
-		})
+		}))
 	}
 	response, err := client.Do(request)
 	if err != nil || responseFormat == "" {
-		return response, err
+		return abandonGuard.disarmOnceDelivered(response, err)
 	}
 	return adaptWhisperResponse(response, responseFormat)
 }

@@ -237,6 +237,8 @@ func (store *Store) normalizeEvent(event Event) Event {
 	event.EventType = strings.TrimSpace(event.EventType)
 	event.Route = strings.TrimSpace(event.Route)
 	event.ConfigFilename = strings.TrimSpace(event.ConfigFilename)
+	event.ErrorMessage = clampErrorMessage(event.ErrorMessage)
+	event.QueueWaitMS = queueWaitMS(event)
 	event.ImageType = strings.TrimSpace(event.ImageType)
 	if event.EventType == "" {
 		event.EventType = EventTypeRequest
@@ -300,8 +302,8 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 		image_steps, image_type, audio_seconds, audio_tokens, audio_language, audio_task, load_vram_before_mb,
 		load_vram_after_mb, load_vram_delta_mb, work_vram_start_mb, work_vram_max_mb, work_vram_end_mb,
 		model_vram_estimate_mb, vram_total_mb, vram_peak_percent,
-		ttft_ms, decode_ms, max_gap_ms, finish_reason, aborted, router_version
-	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+		ttft_ms, decode_ms, max_gap_ms, finish_reason, aborted, router_version, error_message, upstream_status, queue_wait_ms
+	) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return err
 	}
@@ -361,6 +363,9 @@ func (store *Store) writeEvents(ctx context.Context, events []Event) error {
 			event.FinishReason,
 			boolInt(event.Aborted),
 			event.RouterVersion,
+			event.ErrorMessage,
+			event.UpstreamStatus,
+			event.QueueWaitMS,
 		); err != nil {
 			return err
 		}

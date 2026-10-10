@@ -111,7 +111,7 @@ func (wait *readinessWait) failure() error {
 	if err := wait.service.backendOutputFailure(wait.watch, wait.modelID, wait.configFilename); err != nil {
 		return err
 	}
-	if probeReportsNoModel(wait.lastStatus, wait.lastBody) {
+	if probeAnswersWithoutModel(wait.readiness, wait.lastStatus, wait.lastBody) {
 		return fmt.Errorf("%w: status %d body=%q", errBackendServingNoModel, wait.lastStatus, wait.lastBody)
 	}
 	return fmt.Errorf("backend model endpoint unavailable after retries: status %d error=%v body=%q", wait.lastStatus, wait.lastErr, wait.lastBody)

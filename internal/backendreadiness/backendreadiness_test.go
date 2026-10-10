@@ -105,6 +105,32 @@ func TestKoboldLaneIsolation(t *testing.T) {
 	}
 }
 
+const koboldImageLoraLoadTranscript = "ImageGen Init - Load Model: sha256:29de9543\n" +
+	"With LoRAs in apply mode at runtime:\n" +
+	"  sha256:673b59d9 at 1.000000 power\n" +
+	"Swap to Diffusion Model Path:sha256:29de9543\n" +
+	"  |#                    | 13/1022 - 0.00MB/s\x1b[K  |###        | 55/1022 - 3.34GB/s\x1b[K\r\n" +
+	"  applying 1 LoRAs...\n"
+
+func TestKoboldImageLoadIsAnnouncedByImageGenInit(t *testing.T) {
+	scanner := NewScanner(FamilyKobold, LaneImage)
+	scanner.Write([]byte(koboldImageLoraLoadTranscript))
+	if !scanner.Loading() {
+		t.Fatal("an image load that printed `ImageGen Init - Load Model:` was not seen as loading; the idle watchdog would cut it off")
+	}
+	if scanner.Result().Verdict != Undecided {
+		t.Fatalf("verdict = %v, want Undecided while the LoRAs are still applying", scanner.Result().Verdict)
+	}
+}
+
+func TestKoboldImageInitLineDoesNotMarkTextLaneLoading(t *testing.T) {
+	scanner := NewScanner(FamilyKobold, LaneText)
+	scanner.Write([]byte(koboldImageLoraLoadTranscript))
+	if scanner.Loading() {
+		t.Fatal("an image load announcement marked the text lane as loading")
+	}
+}
+
 func TestKoboldExplicitLoadFailure(t *testing.T) {
 	scanner := NewScanner(FamilyKobold, LaneText)
 	result := scanner.Write([]byte("Loading Text Model: x\nLoad Text Model OK: False\n"))

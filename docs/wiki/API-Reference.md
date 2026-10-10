@@ -199,7 +199,9 @@ Standalone and master routers expose administration routes in these groups:
 - `/router/v1/site/webuis/...`
 - `/router/v1/site/routing-groups` (image models) and `/router/v1/site/text-routing-groups` (LLM models): one-way lending links. `GET ?node_id=&model_id=` lists links and candidates for an anchor, `POST {"anchor":{...},"lends_to":[...],"borrows_from":[...]}` replaces every link of the anchor, `DELETE ?node_id=&model_id=` removes them. See [Cluster-Routing](Cluster-Routing.md#backlog-lending)
 - `/router/v1/site/analytics` and `POST /router/v1/site/analytics/flush`
+- `GET /router/v1/site/store/download?node_id={node_id}`: a consistent copy of that node's router database
 - `/router/v1/site/load-captures`
+- `GET /router/v1/site/load-errors` and `DELETE /router/v1/site/load-errors`
 - `/router/v1/site/cook/...` and `/router/v1/site/config-file/...`
 - `/router/v1/site/model-files/...` and `/router/v1/site/model-assets/...`
 
@@ -217,6 +219,12 @@ Details contain the sanitized KCPPS snapshot and asset hashes. Output payloads a
 A request whose client disconnected before the backend answered is recorded with status `499` and `aborted: true`, not as a `502` backend failure.
 
 `POST /router/v1/site/analytics/flush` writes the buffered analytics events out and folds the write-ahead log back into the database file. A master also asks every reachable slave over `/router/v1/node/analytics/flush`. The response lists the nodes that persisted their buffer and reports any node that could not.
+
+`GET /router/v1/site/store/download?node_id={node_id}` streams the router database of one node as `application/vnd.sqlite3`, named `analytics-{node_id}-{UTC time}.sqlite`. The copy is taken after the buffered analytics events are written out, from a single point in time while the router keeps serving, and holds every table of the store: analytics, load captures, load errors, routing groups and lending decisions. A master relays the download from a slave over `/router/v1/node/store/download`; the node is chosen by id from the cluster registry, never by address.
+
+`DELETE /router/v1/site/load-errors` removes every recorded load error. A master also clears every reachable slave over `DELETE /router/v1/node/load-errors`. The response gives the number of rows removed, the nodes that were cleared, and any node that could not be.
+
+Failed analytics events carry `error_message` (the router's reason, with the backend's answer when there was one, at most 512 bytes) and `upstream_status` (the last HTTP status the backend answered). Every event carries `queue_wait_ms`, the time between the request arriving and the start of backend work. No request or prompt content is stored.
 
 The WebUI catalog, session toggle, model load, and proxied browser routes are described in [Backend WebUI Interfaces](Backend-WebUI-Interfaces).
 

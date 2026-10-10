@@ -109,10 +109,12 @@ to its own as soon as it has one. Every successful load counts as load-cost data
 including loads that were never followed by a generation, so a helper that was
 only ever loaded still has a switch cost.
 
+A helper whose model is not loaded has to push out whatever it holds. The price of a lease then includes loading that displaced model again, so a helper is not displaced when getting its own model back costs more than the owner saves. If the displaced model has no measured load time, the helper is skipped (`restore_unpriced`). A helper that served its own request more recently than the switch and the way back would take is skipped too (`helper_recently_busy`), because its own traffic is likely to return before the lent work pays for the detour.
+
 ### Probes
 
 A helper that the cost rule does not choose still gets a one-request probe once
-it has been idle for `cluster.offload_probe_idle` (default `5s`), as long as it is
+it has been idle for `cluster.offload_probe_idle` (default `5s`). A helper that would have to switch models waits twelve times as long, since a probe has no price to weigh against its own traffic. This applies as long as it is
 accepting borrowed work, its link allows it to take the work, and, for text, its
 context window holds the work. Probes happen even when the owner is faster or
 neither side is priced yet, so every linked pair gradually gathers the samples its
@@ -177,8 +179,12 @@ variable of the decision. The same tab shows each node's build and whether it
 runs the master's settings, the live leases, and the settings below.
 
 The Nodes page lists each node's held requests: requests the router holds before
-passing them to a backend, and requests currently lent to a helper. Requests that
-go straight to a backend are listed only under active requests.
+passing them to a backend, and requests currently lent to a helper. Each is marked
+queued (waiting for a free backend slot), held (kept on purpose for a faster
+helper) or lent. A request that comes back from a helper keeps the time it first
+arrived. Requests that go straight to a backend are listed only under active requests.
+
+A request kept for a faster helper is released as soon as the helper has taken more than its predicted finish plus one job to answer, and the owner checks the clock itself, so the release does not wait for another queue event. A lent request whose helper has not started answering after three times the predicted switch and job time plus 30 seconds is cut off and served by the owner. Leases with no measured speeds, such as probes, have no such limit.
 
 ### Loading the helper model
 

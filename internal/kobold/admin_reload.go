@@ -29,6 +29,8 @@ func (manager *Manager) ReloadConfig(ctx context.Context, filename string) error
 	if err != nil {
 		return err
 	}
+	manager.reloadsActive.Add(1)
+	defer manager.reloadsActive.Add(-1)
 	if err := manager.postAdminReload(ctx, body, generatedPath); err != nil {
 		return err
 	}

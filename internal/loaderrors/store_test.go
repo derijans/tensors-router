@@ -49,6 +49,34 @@ func TestRecordDeduplicatesByFingerprintAndCountsOccurrences(t *testing.T) {
 	}
 }
 
+func TestClearRemovesEveryRecordAndReportsHowMany(t *testing.T) {
+	store := newTestStore(t, 0)
+	ctx := context.Background()
+	for _, message := range []string{"first failure", "second failure", "third failure"} {
+		if err := store.Record(ctx, RecordInput{Phase: PhasePreload, Source: "test", Message: message}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cleared, err := store.Clear(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared != 3 {
+		t.Fatalf("cleared = %d, want 3", cleared)
+	}
+	result, err := store.List(ctx, ListFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Records) != 0 {
+		t.Fatalf("%d records survived Clear", len(result.Records))
+	}
+	if err := store.Record(ctx, RecordInput{Phase: PhasePreload, Source: "test", Message: "first failure"}); err != nil {
+		t.Fatalf("a cleared failure could not be recorded again: %v", err)
+	}
+}
+
 func TestRecordFingerprintIgnoresVolatileNumbers(t *testing.T) {
 	store := newTestStore(t, 0)
 	ctx := context.Background()

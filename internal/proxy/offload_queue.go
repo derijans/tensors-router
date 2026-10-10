@@ -63,6 +63,7 @@ type offloadEntry struct {
 	sequence         uint64
 	admittedAt       time.Time
 	heldForHelper    bool
+	holdingNow       bool
 	returnedByHelper bool
 	result           chan offloadOutcome
 }
@@ -182,7 +183,7 @@ func (queue *offloadQueue) WithdrawNewest(modelID string, limit int) []*offloadE
 	return withdrawn
 }
 
-func (queue *offloadQueue) Requeue(modelID string, work schedulingcost.Work, requiredContext int64, now time.Time) *offloadEntry {
+func (queue *offloadQueue) Requeue(modelID string, work schedulingcost.Work, requiredContext int64, arrived time.Time) *offloadEntry {
 	queue.mu.Lock()
 	defer queue.mu.Unlock()
 
@@ -191,7 +192,7 @@ func (queue *offloadQueue) Requeue(modelID string, work schedulingcost.Work, req
 		modelID:          modelID,
 		work:             work,
 		requiredContext:  requiredContext,
-		arrived:          now,
+		arrived:          arrived,
 		returnedByHelper: true,
 		sequence:         queue.sequence,
 		result:           make(chan offloadOutcome, 1),
@@ -243,6 +244,7 @@ func (queue *offloadQueue) HoldsPendingWork(modelID string) bool {
 type heldRequest struct {
 	modelID string
 	arrived time.Time
+	holding bool
 }
 
 func (queue *offloadQueue) HeldSnapshot() []heldRequest {
@@ -251,7 +253,7 @@ func (queue *offloadQueue) HeldSnapshot() []heldRequest {
 	held := make([]heldRequest, 0, len(queue.pending))
 	for _, entry := range queue.pending {
 		if !entry.borrowed {
-			held = append(held, heldRequest{modelID: entry.modelID, arrived: entry.arrived})
+			held = append(held, heldRequest{modelID: entry.modelID, arrived: entry.arrived, holding: entry.holdingNow})
 		}
 	}
 	return held
@@ -345,9 +347,11 @@ func (queue *offloadQueue) heldForHelperLocked(next *offloadEntry) bool {
 	}
 	pipeline, sameModelOnly := queue.ownerPipelineLocked(next.modelID)
 	if !sameModelOnly || pipeline.inFlight == 0 {
+		next.holdingNow = false
 		return false
 	}
-	return queue.holdForHelper(next, pipeline)
+	next.holdingNow = queue.holdForHelper(next, pipeline)
+	return next.holdingNow
 }
 
 func (queue *offloadQueue) ownerPipelineLocked(modelID string) (ownerPipeline, bool) {

@@ -159,7 +159,7 @@ func (service *Service) serveImageThroughLendingQueue(w http.ResponseWriter, r *
 		if service.forwardOffloadedImageRequest(w, r, request, requestBody, admission.entry, acquired) {
 			return nil, true
 		}
-		requeued := service.scheduler.imageQueue.Requeue(modelID, imageWorkHint(r, body).Work, 0, time.Now())
+		requeued := service.scheduler.imageQueue.Requeue(modelID, imageWorkHint(r, body).Work, 0, admission.entry.arrived)
 		if outcome, waitErr := service.scheduler.imageQueue.Await(r.Context(), requeued); waitErr != nil || outcome != offloadAdmitted {
 			acquired.release()
 			openai.WriteError(w, http.StatusBadGateway, "backend_error", "returned request could not be re-queued")

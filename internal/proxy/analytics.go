@@ -75,6 +75,10 @@ func (analytics *requestAnalytics) recordForwardFailure(requestContext context.C
 		return
 	}
 	status, _, _ := backendFailureResponse(err)
+	if err != nil {
+		event.ErrorMessage = err.Error()
+		event.UpstreamStatus = upstreamStatusOf(err)
+	}
 	analytics.recordFailure(event, status, finalizers...)
 }
 

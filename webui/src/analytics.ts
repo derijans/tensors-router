@@ -13,6 +13,7 @@ import {
   normalizedAnalyticsQuery,
   promptSpeedPrefix
 } from "./analytics-data";
+import { failureDetail, queueWaitDetail } from "./analytics-failure-detail";
 import { elements } from "./elements";
 import { renderVersionRows } from "./analytics-versions-view";
 import { laneLegend } from "./chart-markup";
@@ -262,6 +263,10 @@ function recentStatusBadge(event: AnalyticsRecentEvent): SafeHTML {
 }
 
 function recentEventDetail(event: AnalyticsRecentEvent): string {
+  const failure = failureDetail(event);
+  if (failure) {
+    return failure;
+  }
   if (state.analytics.showDetails) {
     return streamDetail(event);
   }
@@ -288,6 +293,10 @@ function streamDetail(event: AnalyticsRecentEvent): string {
   const parts: string[] = [];
   if (event.section === "llm") {
     parts.push(tokenCounts(event));
+  }
+  const queued = queueWaitDetail(event);
+  if (queued) {
+    parts.push(queued);
   }
   if (event.ttft_ms) {
     parts.push(`TTFT ${formatDecimal(event.ttft_ms, 0)}ms`);

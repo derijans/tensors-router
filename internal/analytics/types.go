@@ -66,6 +66,9 @@ type Event struct {
 	FinishReason    string    `json:"finish_reason,omitempty"`
 	Aborted         bool      `json:"aborted,omitempty"`
 	RouterVersion   string    `json:"router_version,omitempty"`
+	ErrorMessage    string    `json:"error_message,omitempty"`
+	UpstreamStatus  int       `json:"upstream_status,omitempty"`
+	QueueWaitMS     int64     `json:"queue_wait_ms,omitempty"`
 }
 
 type Query struct {
@@ -242,6 +245,9 @@ type RecentEvent struct {
 	MaxGapMS        int64   `json:"max_gap_ms,omitempty"`
 	FinishReason    string  `json:"finish_reason,omitempty"`
 	Aborted         bool    `json:"aborted,omitempty"`
+	ErrorMessage    string  `json:"error_message,omitempty"`
+	UpstreamStatus  int     `json:"upstream_status,omitempty"`
+	QueueWaitMS     int64   `json:"queue_wait_ms,omitempty"`
 }
 
 type NodeError struct {

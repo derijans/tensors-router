@@ -75,6 +75,7 @@ func (runtime *serveRuntime) serviceConfig(fileRoots []string, shutdownRequested
 		LendingSettingsStore:      offloadsettings.NewStore(stores.handle.DB(), stores.handle.Reader()),
 		OffloadDecisionStore:      stores.offloadDecisions,
 		AnalyticsStore:            stores.analytics,
+		RouterStore:               stores.handle,
 		LoadCaptureStore:          stores.loadCaptures,
 		LoadErrorStore:            stores.loadErrors,
 		LoadCaptureMaxOutputBytes: cfg.Analytics.LoadCaptureMaxOutputMB * 1024 * 1024,

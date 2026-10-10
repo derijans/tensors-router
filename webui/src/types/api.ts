@@ -214,6 +214,9 @@ export interface AnalyticsRecentEvent {
   max_gap_ms?: number;
   finish_reason?: string;
   aborted?: boolean;
+  error_message?: string;
+  upstream_status?: number;
+  queue_wait_ms?: number;
 }
 
 export interface AnalyticsNodeError {
@@ -512,7 +515,7 @@ export interface BackendLaunchOptionsRequest {
   options: BackendLaunchOptions;
 }
 
-export type NodeHeldRequestState = "held" | "lent";
+export type NodeHeldRequestState = "queued" | "held" | "lent";
 
 export interface NodeHeldRequest {
   lane: string;
@@ -910,6 +913,12 @@ export interface LoadErrorRecord {
   exit_error?: string;
   output?: string;
   truncated?: boolean;
+}
+
+export interface LoadErrorClearResponse {
+  cleared: number;
+  cleared_nodes: string[];
+  node_errors?: {node_id: string; error: string}[];
 }
 
 export interface LoadErrorListResponse {

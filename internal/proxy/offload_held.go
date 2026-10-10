@@ -7,12 +7,19 @@ import (
 	"tensors-router/internal/siteapi"
 )
 
+func heldRequestState(held heldRequest) string {
+	if held.holding {
+		return siteapi.HeldRequestHeld
+	}
+	return siteapi.HeldRequestQueued
+}
+
 func (scheduler *scheduler) heldRequests(now time.Time) []siteapi.NodeHeldRequest {
 	requests := make([]siteapi.NodeHeldRequest, 0)
 	arrivals := make([]time.Time, 0)
 	for _, lane := range lendingLanes {
 		for _, held := range scheduler.queueForLane(lane).HeldSnapshot() {
-			requests = append(requests, siteapi.NodeHeldRequest{Lane: lane, ModelID: held.modelID, State: siteapi.HeldRequestHeld})
+			requests = append(requests, siteapi.NodeHeldRequest{Lane: lane, ModelID: held.modelID, State: heldRequestState(held)})
 			arrivals = append(arrivals, held.arrived)
 		}
 	}

@@ -13,6 +13,8 @@ const (
 	reasonLoadForbidden      = "load_forbidden"
 	reasonContextTooSmall    = "context_too_small"
 	reasonSwitchUnpriced     = "switch_unpriced"
+	reasonRestoreUnpriced    = "restore_unpriced"
+	reasonHelperRecentlyBusy = "helper_recently_busy"
 	reasonServiceUnpriced    = "service_unpriced"
 	reasonOwnerUnpriced      = "owner_unpriced"
 	reasonCostRejected       = "cost_rejected"
@@ -46,6 +48,7 @@ type helperEvaluation struct {
 	ineligible    string
 	unpriced      string
 	switchMS      float64
+	restoreMS     float64
 	serviceMS     float64
 	serviceSource string
 }
@@ -59,21 +62,46 @@ func (evaluation helperEvaluation) priced() bool {
 }
 
 func (evaluation helperEvaluation) totalMS() float64 {
-	return evaluation.switchMS + evaluation.serviceMS
+	return evaluation.switchMS + evaluation.restoreMS + evaluation.serviceMS
 }
 
 func evaluateHelper(helper offloadHelperCandidate, claimed map[string]bool, costs *schedulingcost.Table, demand ownerDemand) helperEvaluation {
 	evaluation := helperEvaluation{helper: helper, ineligible: helperIneligibility(helper, claimed, demand.meanContext)}
 	switchMS, switchPriced := offloadSwitchMS(helper.offloadCandidate, costs)
+	restoreMS, restorePriced := offloadRestoreMS(helper.offloadCandidate, costs)
 	serviceMS, serviceSource, servicePriced := helperServiceMS(helper.offloadCandidate, costs, demand)
-	evaluation.switchMS, evaluation.serviceMS, evaluation.serviceSource = switchMS, serviceMS, serviceSource
+	evaluation.switchMS, evaluation.restoreMS, evaluation.serviceMS, evaluation.serviceSource = switchMS, restoreMS, serviceMS, serviceSource
 	switch {
 	case !switchPriced:
 		evaluation.unpriced = reasonSwitchUnpriced
+	case !restorePriced:
+		evaluation.unpriced = reasonRestoreUnpriced
 	case !servicePriced:
 		evaluation.unpriced = reasonServiceUnpriced
 	}
+	if evaluation.priced() && helperStillNeedsItsOwnModel(helper.offloadCandidate, switchMS+restoreMS) {
+		evaluation.ineligible = reasonHelperRecentlyBusy
+	}
 	return evaluation
+}
+
+func helperStillNeedsItsOwnModel(helper offloadCandidate, detour float64) bool {
+	return !helper.Loaded && helper.IdleFor < durationFromMilliseconds(detour)
+}
+
+func offloadRestoreMS(helper offloadCandidate, costs *schedulingcost.Table) (float64, bool) {
+	if helper.Loaded {
+		return 0, true
+	}
+	var total float64
+	for _, displaced := range helper.DisplacedConfigs {
+		loadMS, priced := costs.LoadMS(schedulingcost.LoadKey{NodeID: helper.NodeID, ConfigFilename: displaced})
+		if !priced {
+			return 0, false
+		}
+		total += loadMS
+	}
+	return total, true
 }
 
 func helperIneligibility(helper offloadHelperCandidate, claimed map[string]bool, meanContext int) string {
@@ -142,7 +170,7 @@ func longestIdleHelper(evaluations []helperEvaluation, probeIdle time.Duration) 
 		return best
 	}
 	for index, evaluation := range evaluations {
-		if !evaluation.mayServe() || evaluation.helper.IdleFor < probeIdle {
+		if !evaluation.mayServe() || evaluation.helper.IdleFor < probeIdleBar(evaluation.helper.offloadCandidate, probeIdle) {
 			continue
 		}
 		if best < 0 || evaluation.helper.IdleFor > evaluations[best].helper.IdleFor ||
@@ -153,13 +181,23 @@ func longestIdleHelper(evaluations []helperEvaluation, probeIdle time.Duration) 
 	return best
 }
 
+const unloadedProbeIdleFactor = 12
+
+func probeIdleBar(helper offloadCandidate, probeIdle time.Duration) time.Duration {
+	if helper.Loaded {
+		return probeIdle
+	}
+	return probeIdle * unloadedProbeIdleFactor
+}
+
 func soonestProbeFor(helpers []offloadHelperCandidate, claimed map[string]bool, meanContext int, probeIdle time.Duration) time.Duration {
 	var soonest time.Duration
 	for _, helper := range helpers {
-		if helperIneligibility(helper, claimed, meanContext) != "" || helper.IdleFor >= probeIdle {
+		bar := probeIdleBar(helper.offloadCandidate, probeIdle)
+		if helperIneligibility(helper, claimed, meanContext) != "" || helper.IdleFor >= bar {
 			continue
 		}
-		if wait := probeIdle - helper.IdleFor; soonest == 0 || wait < soonest {
+		if wait := bar - helper.IdleFor; soonest == 0 || wait < soonest {
 			soonest = wait
 		}
 	}

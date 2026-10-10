@@ -20,6 +20,11 @@
     <td><a href="docs/images/webui-live/cook.png"><img src="docs/images/webui-live/cook.png" alt="Cook tab" width="320"></a></td>
     <td><a href="docs/images/webui-live/recipes.png"><img src="docs/images/webui-live/recipes.png" alt="Recipes tab" width="320"></a></td>
   </tr>
+  <tr>
+    <td><a href="docs/images/webui-live/captures.png"><img src="docs/images/webui-live/captures.png" alt="Captures tab" width="320"></a></td>
+    <td><a href="docs/images/webui-live/errors.png"><img src="docs/images/webui-live/errors.png" alt="Errors tab" width="320"></a></td>
+    <td></td>
+  </tr>
 </table>
 
 ## Run topologies

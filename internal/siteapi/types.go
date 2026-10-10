@@ -102,8 +102,9 @@ type NodeMemory struct {
 }
 
 const (
-	HeldRequestHeld = "held"
-	HeldRequestLent = "lent"
+	HeldRequestQueued = "queued"
+	HeldRequestHeld   = "held"
+	HeldRequestLent   = "lent"
 )
 
 type NodeHeldRequest struct {

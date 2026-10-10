@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -255,28 +256,38 @@ func TestImageReadinessGivesUpOnAConfigWithNoImageModel(t *testing.T) {
 	if err == nil {
 		t.Fatal("a backend listing no image model must not be reported ready")
 	}
+	if !errors.Is(err, errBackendServingNoModel) {
+		t.Fatalf("an empty image list is a lost reload and must say so, so the load is re-issued; got %v", err)
+	}
 	if probes.Load() >= int32(service.backendRetryAttempts) {
 		t.Fatalf("probed %d times: an empty image list with no load in progress burned the whole retry budget", probes.Load())
 	}
 }
 
 func TestImageReadinessWaitsOutAnAnnouncedImageLoad(t *testing.T) {
-	const probesWellPastTheIdleLimit = 30
-	service, backend, _ := newImageReadinessService(t, true, func(probe int32) string {
-		if probe > probesWellPastTheIdleLimit {
-			return `[{"model_name":"ready"}]`
-		}
-		return `[]`
-	})
-	runtime, err := service.runtimeForBackendMode(BackendModeKobold, readinessImage)
-	if err != nil {
-		t.Fatal(err)
-	}
-	watch := service.watchBackendReadiness(runtime, readinessImage)
-	defer watch.close()
-	backend.emit("Loading Image Model: image.safetensors\n")
+	for _, announcement := range []string{
+		"Loading Image Model: image.safetensors\n",
+		"ImageGen Init - Load Model: sha256:29de9543\n",
+	} {
+		t.Run(strings.TrimSpace(announcement), func(t *testing.T) {
+			const probesWellPastTheIdleLimit = 30
+			service, backend, _ := newImageReadinessService(t, true, func(probe int32) string {
+				if probe > probesWellPastTheIdleLimit {
+					return `[{"model_name":"ready"}]`
+				}
+				return `[]`
+			})
+			runtime, err := service.runtimeForBackendMode(BackendModeKobold, readinessImage)
+			if err != nil {
+				t.Fatal(err)
+			}
+			watch := service.watchBackendReadiness(runtime, readinessImage)
+			defer watch.close()
+			backend.emit(announcement)
 
-	if err := service.waitForBackendEndpointWatching(runtime, context.Background(), readinessImage, "image", "image.kcpps", watch); err != nil {
-		t.Fatalf("an image load the backend announced must be waited out past the idle limit, got %v", err)
+			if err := service.waitForBackendEndpointWatching(runtime, context.Background(), readinessImage, "image", "image.kcpps", watch); err != nil {
+				t.Fatalf("an image load the backend announced must be waited out past the idle limit, got %v", err)
+			}
+		})
 	}
 }

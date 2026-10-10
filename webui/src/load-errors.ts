@@ -1,5 +1,6 @@
 import { SafeHTML, emptyHTML, html, setHTML } from "./safe-html";
-import { getLoadErrors } from "./api";
+import { clearLoadErrors, getLoadErrors } from "./api";
+import { confirmDestructive } from "./dialogs";
 import { elements } from "./elements";
 import { state } from "./state";
 import { stripTerminalControls } from "./terminal-output";
@@ -35,6 +36,23 @@ export async function loadLoadErrors(): Promise<void> {
   } finally {
     state.loadErrors.loading = false;
     renderLoadErrors();
+  }
+}
+
+export async function clearAllLoadErrors(): Promise<void> {
+  const confirmed = await confirmDestructive(
+    "Clear all errors",
+    "Every recorded error on every node is deleted. Nothing else keeps a copy.",
+    "Clear all"
+  );
+  if (!confirmed) {
+    return;
+  }
+  const response = await clearLoadErrors();
+  const failures = response.node_errors ?? [];
+  await loadLoadErrors();
+  if (failures.length > 0) {
+    throw new Error(failures.map(failure => `${failure.node_id}: ${failure.error}`).join("; "));
   }
 }
 

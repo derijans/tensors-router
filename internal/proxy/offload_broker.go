@@ -16,6 +16,7 @@ type offloadCandidate struct {
 	ConfigFilename    string
 	Section           string
 	Loaded            bool
+	DisplacedConfigs  []string
 	AcceptingBorrowed bool
 	IdleFor           time.Duration
 	ContextCapacity   int
