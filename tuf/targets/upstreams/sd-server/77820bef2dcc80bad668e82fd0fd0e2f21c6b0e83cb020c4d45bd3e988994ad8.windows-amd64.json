@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "409195109",
+      "tag": "master-956-1b0ba10",
+      "published_at": "2026-10-10T20:43:23Z",
+      "payloads": [
+        {
+          "name": "sd-master-1b0ba10-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-956-1b0ba10/sd-master-1b0ba10-bin-win-cpu-x64.zip",
+          "length": 17543461,
+          "sha256": "39c2ea1cc03f697864c858ad0b22b9b8ce62f945ba428e8596a814527e6db6fb"
+        }
+      ]
+    }
+  ]
+}

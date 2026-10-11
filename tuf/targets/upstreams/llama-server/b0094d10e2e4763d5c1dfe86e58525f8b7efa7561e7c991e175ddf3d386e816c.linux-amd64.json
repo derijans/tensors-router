@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/ggml-org/llama.cpp",
+  "releases": [
+    {
+      "id": "409169656",
+      "tag": "b11552",
+      "published_at": "2026-10-10T19:52:01Z",
+      "prerelease": true,
+      "payloads": [
+        {
+          "name": "llama-b11552-bin-ubuntu-x64.tar.gz",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11552/llama-b11552-bin-ubuntu-x64.tar.gz",
+          "length": 17824766,
+          "sha256": "a45a6afda05d08028bd37998072ab602c96799bccde126835941623cb99bb727"
+        }
+      ]
+    }
+  ]
+}

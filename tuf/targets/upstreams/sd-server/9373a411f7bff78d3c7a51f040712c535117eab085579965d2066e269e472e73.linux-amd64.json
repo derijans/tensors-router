@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "409195109",
+      "tag": "master-956-1b0ba10",
+      "published_at": "2026-10-10T20:43:23Z",
+      "payloads": [
+        {
+          "name": "sd-master-1b0ba10-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-956-1b0ba10/sd-master-1b0ba10-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 26130308,
+          "sha256": "4f6b7e110b641c311f7537b143aae33a3e17b532ead690e391deff972b567da2"
+        }
+      ]
+    }
+  ]
+}
