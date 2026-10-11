@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Tensors Router</title>
   <link rel="icon" type="image/svg+xml" href="/logo.svg">
-  <script type="module" crossorigin src="/assets/index-DULIFkBZ.js"></script>
-  <link rel="stylesheet" crossorigin href="/assets/index-sFZ5Fynj.css">
+  <script type="module" crossorigin src="/assets/index-C6VzTOLk.js"></script>
+  <link rel="stylesheet" crossorigin href="/assets/index-_zvsUUi7.css">
 </head>
 <body>
   <svg class="icon-sprite" aria-hidden="true">
@@ -494,6 +494,21 @@
               <table class="data-table lending-settings-table">
                 <thead><tr><th>Setting</th><th>Default</th><th>Config file</th><th>Database</th><th>Effective</th><th></th></tr></thead>
                 <tbody id="lendingSettingsRows"></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="card" aria-label="Guardian models">
+            <header class="card-head">
+              <div>
+                <h3>Guardian models</h3>
+                <p class="muted">A multimodal model that answers image requests aimed at a text-only model. The most specific setting wins: model, then node, then cluster. The text-only model is loaded back afterwards.</p>
+              </div>
+            </header>
+            <div id="guardianStatus"></div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead><tr><th>Applies to</th><th>Guardian</th><th>Effect</th></tr></thead>
+                <tbody id="guardianRows"></tbody>
               </table>
             </div>
           </section>

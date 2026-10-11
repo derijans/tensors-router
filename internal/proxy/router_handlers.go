@@ -44,7 +44,7 @@ func (service *Service) handleNodeInference(w http.ResponseWriter, r *http.Reque
 	loadAllowed := strings.TrimSpace(forwarded.Header.Get(offloadLoadHeader)) != ""
 	forwarded.Header.Del(offloadLoadHeader)
 	if borrowed {
-		forwarded = markBorrowedRequest(forwarded)
+		forwarded = withBorrowedPreemption(markBorrowedRequest(forwarded))
 		if restoreRequested {
 			forwarded = markBorrowRestoreRequested(forwarded)
 		}

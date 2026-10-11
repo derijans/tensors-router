@@ -209,6 +209,20 @@ pending restore instead of competing with it, and a run of consecutive borrowed
 requests restores whatever was loaded before the run started, not an intermediate
 model.
 
+### Borrowed work yields to the helper's own requests
+
+A borrowed request is handed back (`409 offload_returned`) when the helper receives
+a request of its own, but only until the borrowed request claims the runtime. While
+it is still waiting for a free runtime or for the helper model to load, it can be
+taken back and the owner serves it itself. Once it holds the runtime and is
+generating, it always finishes. A request handed back is never lent again.
+
+If a helper shows no change in the requests lent to it for
+`cluster.offload_lent_stall_timeout` (default `3m`), the master asks the helper
+whether it still runs borrowed work. A helper that does keeps its large requests. A
+helper that does not loses every request lent to it at once, and their owners serve
+them. A helper running a build from before this check is treated as busy.
+
 ### Linking models that are not identical
 
 A link asserts that the helper can answer for the owner. The router cannot verify
@@ -260,6 +274,25 @@ can never be handed to another node mid-flight.
 
 A model with no text link is completely unaffected by any of this: no queue, no
 gate, no lending.
+
+## Guardian models
+
+A text-only model cannot read images. A **guardian** is a multimodal model that
+answers such requests instead. It is set in the Lending tab, per model, per node or
+for the whole cluster. The most specific setting wins: model, then node, then
+cluster. A guardian must be a multimodal text model.
+
+The router reads the structure of the request body, never its text: an `image_url`,
+`input_image` or `image` content part, or an Ollama `images` list. A request with
+an image addressed to a text-only model is sent to its guardian before any backend
+sees it. If a backend still refuses an image (HTTP 400 or 500 with a "not
+supported" message), the request goes to the guardian instead of being retried.
+
+The guardian shares the node's runtime. It waits for requests already running on
+the text-only model to finish, loads, answers, and the text-only model is loaded
+back after `cluster.offload_restore_delay` once the node is quiet. A guardian on
+another node answers the request, but that node does not load its own model back.
+A request with an image is never lent to a helper without vision.
 
 ## Model identity
 

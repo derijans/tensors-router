@@ -1,7 +1,22 @@
 package proxy
 
+import "time"
+
+type runtimeLease struct {
+	modelID  string
+	borrowed bool
+	since    time.Time
+}
+
+type waitingRequest struct {
+	modelID  string
+	borrowed bool
+	arrived  time.Time
+}
+
 type switchWaiter struct {
 	satisfiedBy func(*activeConfigState) bool
+	request     waitingRequest
 }
 
 type switchQueue struct {
@@ -19,11 +34,11 @@ func (state *activeConfigState) takeTicketLocked() uint64 {
 	return state.queue.lastTicket
 }
 
-func (state *activeConfigState) joinQueueLocked(ticket uint64, satisfiedBy func(*activeConfigState) bool) {
+func (state *activeConfigState) joinQueueLocked(ticket uint64, satisfiedBy func(*activeConfigState) bool, request waitingRequest) {
 	if state.queue.waiters == nil {
 		state.queue.waiters = map[uint64]switchWaiter{}
 	}
-	state.queue.waiters[ticket] = switchWaiter{satisfiedBy: satisfiedBy}
+	state.queue.waiters[ticket] = switchWaiter{satisfiedBy: satisfiedBy, request: request}
 }
 
 func (state *activeConfigState) leaveQueueLocked(ticket uint64) {
@@ -36,6 +51,16 @@ func (state *activeConfigState) leaveQueueLocked(ticket uint64) {
 
 func (state *activeConfigState) queuedWaitersLocked() int {
 	return len(state.queue.waiters)
+}
+
+func (state *activeConfigState) waitingRequestsLocked() []waitingRequest {
+	requests := make([]waitingRequest, 0, len(state.queue.waiters))
+	for _, waiter := range state.queue.waiters {
+		if waiter.request.modelID != "" {
+			requests = append(requests, waiter.request)
+		}
+	}
+	return requests
 }
 
 func (state *activeConfigState) openLeaseWindowLocked() {

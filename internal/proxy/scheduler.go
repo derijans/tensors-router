@@ -17,12 +17,15 @@ type schedulerDeps interface {
 	routingLinkIndex() *routingLinkIndex
 	installStoredRoutingLinks(ctx context.Context) (routingLinkSnapshot, bool)
 	publishRoutingLinks(ctx context.Context, snapshot routingLinkSnapshot)
+	publishGuardianModels(ctx context.Context)
 	publishLendingSettings(ctx context.Context)
 	remoteRuntimeStatuses(ctx context.Context) map[string]NodeRuntimeStatus
 	localRuntimeStatus() NodeRuntimeStatus
 	requestsRunningOnEveryBackendFamily() int
 	ownWorkIdleSince() (time.Time, bool)
+	runtimesSwitching() bool
 	acquireModelConfigForBackendMode(mode string, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, force bool) (*backendRuntime, func(), bool, error)
+	helperRunsBorrowedWork(ctx context.Context, helperNodeID string) bool
 }
 
 type decisionRecorder interface {
@@ -42,6 +45,7 @@ type scheduler struct {
 	leaseBook     *offloadLeaseBook
 	offloadLeases sync.Map
 	lent          *lentRequestBook
+	relayStall    *relayStallWatch
 	readmitAlarm  *readmitAlarm
 	dispatchMu    sync.Mutex
 	planMu        sync.Mutex
@@ -75,6 +79,11 @@ func newScheduler(deps schedulerDeps, analytics *requestAnalytics, decisions dec
 		intervalReset: make(chan struct{}, 1),
 	}
 	scheduler.settings.Store(&settings)
+	scheduler.relayStall = newRelayStallWatch(
+		func() time.Duration { return scheduler.currentSettings().LentStallTimeout },
+		deps.helperRunsBorrowedWork,
+		scheduler.logStalledHelper,
+	)
 	scheduler.eventReports = newQueueEventCoalescer(scheduler.decideOnQueueEvent)
 	scheduler.installAdmissionHolds()
 	return scheduler

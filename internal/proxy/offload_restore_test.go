@@ -214,3 +214,60 @@ func TestCloseStopsAPendingBorrowRestore(t *testing.T) {
 		t.Fatalf("loaded model = %q, want b.kcpps: the restore timer fired after Close", filename)
 	}
 }
+
+func TestGuardianRedirectReloadsTheModelItDisplaced(t *testing.T) {
+	service := newBorrowRestoreTestService(t)
+	mode := service.currentBackendMode()
+
+	if err := service.loadLocalConfig(context.Background(), mode, "a", "a.kcpps", readinessText); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.loadLocalConfig(markGuardianRedirect(context.Background()), mode, "b", "b.kcpps", readinessText); err != nil {
+		t.Fatal(err)
+	}
+	if _, filename := defaultFamilyRuntime(t, service, readinessText).state.loadedModel(); filename != "b.kcpps" {
+		t.Fatalf("loaded model = %q, want the guardian b.kcpps right after the redirect", filename)
+	}
+
+	waitForLoadedModel(t, service, "a.kcpps")
+}
+
+func TestBorrowRestoreWaitsOutAGuardianLoadStillInProgress(t *testing.T) {
+	gate := make(chan struct{})
+	entered := make(chan struct{}, 4)
+	var gated atomic.Bool
+	service, backend := newTestServiceWithModels(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}), "a", "b")
+	backend.onReload = func(string) {
+		if gated.Load() {
+			entered <- struct{}{}
+			<-gate
+		}
+	}
+	tuneScheduler(service.scheduler, func(settings *offloadsettings.Settings) { settings.RestoreDelay = 20 * time.Millisecond })
+	mode := service.currentBackendMode()
+	if err := service.loadLocalConfig(context.Background(), mode, "a", "a.kcpps", readinessText); err != nil {
+		t.Fatal(err)
+	}
+	gated.Store(true)
+	loaded := make(chan error, 1)
+	go func() {
+		loaded <- service.loadLocalConfig(markGuardianRedirect(context.Background()), mode, "b", "b.kcpps", readinessText)
+	}()
+	<-entered
+
+	time.Sleep(5 * service.scheduler.currentSettings().RestoreDelay)
+
+	state := defaultFamilyRuntime(t, service, readinessText).state
+	state.mu.Lock()
+	queued := state.queuedWaitersLocked()
+	state.mu.Unlock()
+	close(gate)
+	if err := <-loaded; err != nil {
+		t.Fatal(err)
+	}
+	if queued != 0 {
+		t.Fatalf("restore queued %d acquire(s) behind the guardian load still in progress, want it to wait", queued)
+	}
+}

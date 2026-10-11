@@ -71,6 +71,7 @@ func (runtime *serveRuntime) serviceConfig(fileRoots []string, shutdownRequested
 		BenchmarkStore:            stores.benchmarks,
 		ModelStateStore:           stores.modelState,
 		RoutingGroups:             stores.routingGroups,
+		GuardianModels:            stores.guardianModels,
 		LendingFileValues:         cfg.Cluster.LendingFileValues,
 		LendingSettingsStore:      offloadsettings.NewStore(stores.handle.DB(), stores.handle.Reader()),
 		OffloadDecisionStore:      stores.offloadDecisions,

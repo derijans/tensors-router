@@ -21,7 +21,7 @@ func (service *Service) addRuntimeLeaseLocked(state *activeConfigState, modelID 
 		state.borrowedUsers++
 	}
 	leaseTag := service.nextRuntimeLease.Add(1)
-	state.leases[leaseTag] = modelID
+	state.leases[leaseTag] = runtimeLease{modelID: modelID, borrowed: borrowed, since: time.Now()}
 	return releaseActiveConfigLeaseOnce(state, leaseTag, borrowed)
 }
 

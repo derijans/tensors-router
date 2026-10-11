@@ -39,6 +39,7 @@ type queuedRequest struct {
 	requiredContext int64
 	origin          requestOrigin
 	withdrawal      withdrawability
+	preemption      *borrowedPreemption
 }
 
 type nodeActivity bool
@@ -65,6 +66,7 @@ type offloadEntry struct {
 	heldForHelper    bool
 	holdingNow       bool
 	returnedByHelper bool
+	preemption       *borrowedPreemption
 	result           chan offloadOutcome
 }
 
@@ -123,6 +125,7 @@ func (queue *offloadQueue) Enqueue(request queuedRequest, node nodeActivity, now
 		arrived:         now,
 		borrowed:        borrowed,
 		pinned:          request.withdrawal == pinnedToThisNode,
+		preemption:      request.preemption,
 		sequence:        queue.sequence,
 		result:          make(chan offloadOutcome, 1),
 	}
@@ -137,9 +140,18 @@ func (queue *offloadQueue) Enqueue(request queuedRequest, node nodeActivity, now
 	queue.pending = append(queue.pending, entry)
 	if !borrowed {
 		queue.returnPendingBorrowedLocked()
+		queue.preemptBorrowedBeforeStartLocked()
 	}
 	queue.admitLocked()
 	return entry
+}
+
+func (queue *offloadQueue) preemptBorrowedBeforeStartLocked() {
+	for entry := range queue.admitted {
+		if entry.borrowed {
+			entry.preemption.preemptUnlessStarted()
+		}
+	}
 }
 
 func (queue *offloadQueue) Await(ctx context.Context, entry *offloadEntry) (offloadOutcome, error) {
@@ -162,7 +174,7 @@ func (queue *offloadQueue) Complete(entry *offloadEntry) {
 	queue.admitLocked()
 }
 
-func (queue *offloadQueue) WithdrawNewest(modelID string, limit int) []*offloadEntry {
+func (queue *offloadQueue) WithdrawNewest(modelID string, limit int, registerWithdrawn func(*offloadEntry)) []*offloadEntry {
 	if limit <= 0 {
 		return nil
 	}
@@ -176,6 +188,9 @@ func (queue *offloadQueue) WithdrawNewest(modelID string, limit int) []*offloadE
 			continue
 		}
 		queue.pending = append(queue.pending[:index], queue.pending[index+1:]...)
+		if registerWithdrawn != nil {
+			registerWithdrawn(entry)
+		}
 		entry.result <- offloadWithdrawn
 		withdrawn = append(withdrawn, entry)
 	}
@@ -194,6 +209,7 @@ func (queue *offloadQueue) Requeue(modelID string, work schedulingcost.Work, req
 		requiredContext:  requiredContext,
 		arrived:          arrived,
 		returnedByHelper: true,
+		pinned:           true,
 		sequence:         queue.sequence,
 		result:           make(chan offloadOutcome, 1),
 	}

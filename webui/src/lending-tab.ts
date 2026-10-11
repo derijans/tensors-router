@@ -6,6 +6,7 @@ import { decisionMatchesSearch, renderDecisionDetail, renderDecisionRows } from 
 import { pendingSettingChanges, renderLendingSettingRows } from "./lending-settings-view";
 import { renderLendingSummary } from "./lending-summary-view";
 import { reportErrorToConsole } from "./console-report";
+import { bindGuardianPanel, loadGuardians } from "./guardian-panel";
 import { elementTarget } from "./dom";
 import type { LendingDecision, LendingNodeError, LendingSettingsResponse, LendingSummaryResponse } from "./types";
 
@@ -34,7 +35,7 @@ const view: LendingView = {
 };
 
 export async function loadLending(): Promise<void> {
-  await refresh(true);
+  await Promise.all([refresh(true), loadGuardians()]);
 }
 
 export function setLendingTabActive(active: boolean): void {
@@ -49,6 +50,7 @@ export function setLendingTabActive(active: boolean): void {
 
 export function bindLendingTab(run: TaskRunner): void {
   const reload = (): void => run(loadLending, "lending-refresh", "Loading lending…");
+  bindGuardianPanel(run);
   elements.lendingRefreshButton.addEventListener("click", reload);
   for (const filter of [elements.lendingWindowSelect, elements.lendingLaneSelect, elements.lendingOutcomeSelect]) {
     filter.addEventListener("change", () => run(refreshKeepingTypedSettings, "lending-filter", "Loading lending…"));

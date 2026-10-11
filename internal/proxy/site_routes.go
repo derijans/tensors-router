@@ -18,6 +18,7 @@ func (service *Service) siteRoutes() []routing.Route {
 		routing.Exact(http.MethodPost, "/router/v1/site/models/state", service.handleSiteModelState),
 		routing.Exact(routing.AnyMethod, "/router/v1/site/routing-groups", service.handleSiteImageRoutingLinks),
 		routing.Exact(routing.AnyMethod, "/router/v1/site/text-routing-groups", service.handleSiteTextRoutingLinks),
+		routing.Exact(routing.AnyMethod, "/router/v1/site/guardian-models", service.handleSiteGuardianModels),
 		routing.Exact(routing.AnyMethod, "/router/v1/site/separate-runtimes", service.handleSiteSeparateRuntimes),
 		routing.Exact(routing.AnyMethod, "/router/v1/site/offload/settings", service.handleSiteLendingSettings),
 		routing.Exact(http.MethodGet, "/router/v1/site/offload/decisions", service.handleSiteLendingDecisions),

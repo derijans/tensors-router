@@ -8,6 +8,7 @@ import (
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/offloaddecisions"
 	"tensors-router/internal/openai"
+	"tensors-router/internal/requestmedia"
 	"tensors-router/internal/routinggroups"
 	"tensors-router/internal/schedulingcost"
 )
@@ -30,6 +31,10 @@ func (scheduler *scheduler) enterQueue(ctx context.Context, lane string, modelID
 	if pinned {
 		withdrawal = pinnedToThisNode
 	}
+	var preemption *borrowedPreemption
+	if borrowed {
+		preemption = contextBorrowedPreemption(ctx)
+	}
 	queue := scheduler.queueForLane(lane)
 	entry := queue.Enqueue(queuedRequest{
 		modelID:         modelID,
@@ -37,10 +42,12 @@ func (scheduler *scheduler) enterQueue(ctx context.Context, lane string, modelID
 		requiredContext: requiredContext,
 		origin:          origin,
 		withdrawal:      withdrawal,
+		preemption:      preemption,
 	}, scheduler.nodeActivity(), time.Now())
 	scheduler.reportQueueEvent(lane, modelID, queueEventEnqueued)
 	outcome, err := queue.Await(ctx, entry)
 	if err != nil {
+		scheduler.releaseAbandonedLend(lane, modelID, entry)
 		return queueAdmission{}, err
 	}
 	scheduler.recordHelperQueueOutcome(lane, entry, outcome)
@@ -79,25 +86,34 @@ func (scheduler *scheduler) maybeOffload(lane string, modelID string) {
 		return
 	}
 	queue := scheduler.queueForLane(lane)
+	registerLent := func(entry *offloadEntry) {
+		scheduler.lent.Add(entry, lentRequest{
+			lane:          lease.Lane,
+			ownerNodeID:   lease.OwnerNodeID,
+			modelID:       lease.OwnerModelID,
+			arrived:       entry.arrived,
+			lentAt:        time.Now(),
+			helperNodeID:  lease.HelperNodeID,
+			helperModelID: lease.HelperModelID,
+			giveUpAfter:   lease.giveUpAfter(),
+		})
+	}
 	for scheduler.lent.Count(lane, modelID) < lease.slots() {
-		withdrawn := queue.WithdrawNewest(modelID, 1)
+		withdrawn := queue.WithdrawNewest(modelID, 1, registerLent)
 		if len(withdrawn) == 0 {
 			return
 		}
-		scheduler.lendWithdrawn(lease, withdrawn[0])
+		scheduler.recordLent(lease, withdrawn[0])
 	}
 }
 
-func (scheduler *scheduler) lendWithdrawn(lease offloadLease, entry *offloadEntry) {
-	scheduler.lent.Add(entry, lentRequest{
-		lane:          lease.Lane,
-		modelID:       lease.OwnerModelID,
-		arrived:       entry.arrived,
-		lentAt:        time.Now(),
-		helperNodeID:  lease.HelperNodeID,
-		helperModelID: lease.HelperModelID,
-		giveUpAfter:   lease.giveUpAfter(),
-	})
+func (scheduler *scheduler) releaseAbandonedLend(lane string, modelID string, entry *offloadEntry) {
+	if _, lent := scheduler.lent.Remove(entry); lent {
+		scheduler.reportQueueEvent(lane, modelID, queueEventBorrowedCompleted)
+	}
+}
+
+func (scheduler *scheduler) recordLent(lease offloadLease, entry *offloadEntry) {
 	scheduler.record(offloaddecisions.Record{
 		Kind:          offloaddecisions.KindDispatch,
 		Lane:          lease.Lane,
@@ -118,6 +134,7 @@ func (scheduler *scheduler) finishOffload(lane string, modelID string, entry *of
 		scheduler.record(offloaddecisions.Record{
 			Kind:          offloaddecisions.KindDispatch,
 			Lane:          lane,
+			OwnerNodeID:   request.ownerNodeID,
 			OwnerModelID:  modelID,
 			HelperNodeID:  request.helperNodeID,
 			HelperModelID: request.helperModelID,
@@ -129,12 +146,29 @@ func (scheduler *scheduler) finishOffload(lane string, modelID string, entry *of
 }
 
 func writeOffloadReturned(w http.ResponseWriter) {
-	openai.WriteError(w, http.StatusConflict, offloadReturnedCode, "node has work of its own and returned this borrowed request")
+	status, code, message := backendFailureResponse(errOffloadReturned)
+	openai.WriteError(w, status, code, message)
 }
 
-func (service *Service) lentTextRequestFitsHelper(modelID string, entry *offloadEntry) bool {
+func (service *Service) lentTextRequestFitsHelper(modelID string, entry *offloadEntry, requestBody []byte) bool {
 	lease, leased := service.scheduler.activeOffloadLease(cluster.RouteLaneText, modelID, time.Now())
-	return leased && service.leasedHelperContextFits(routinggroups.Endpoint{NodeID: lease.HelperNodeID, ModelID: lease.HelperModelID}, entry.requiredContext)
+	if !leased {
+		return false
+	}
+	helper := routinggroups.Endpoint{NodeID: lease.HelperNodeID, ModelID: lease.HelperModelID}
+	return service.leasedHelperContextFits(helper, entry.requiredContext) && service.leasedHelperReadsImages(helper, requestBody)
+}
+
+func (service *Service) leasedHelperReadsImages(helper routinggroups.Endpoint, requestBody []byte) bool {
+	if !requestmedia.HasImageInput(requestBody) {
+		return true
+	}
+	for _, model := range service.registry.Models() {
+		if model.NodeID == helper.NodeID && model.LocalID == helper.ModelID {
+			return model.HasMultimodal
+		}
+	}
+	return false
 }
 
 func (service *Service) leasedHelperContextFits(helper routinggroups.Endpoint, requiredContext int64) bool {

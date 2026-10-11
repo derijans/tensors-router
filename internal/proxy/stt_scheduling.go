@@ -21,6 +21,7 @@ type NodeRuntimeStatus struct {
 	ActiveSTTBackendMode    string `json:"active_stt_backend_mode,omitempty"`
 	ActiveRequests          int    `json:"active_requests"`
 	QueuedRequests          int    `json:"queued_requests"`
+	BorrowedInFlight        *int   `json:"borrowed_in_flight,omitempty"`
 
 	AcceptingBorrowedImage bool                     `json:"accepting_borrowed"`
 	ImageQueue             []offloadModelStats      `json:"image_queue,omitempty"`
@@ -46,6 +47,8 @@ func (service *Service) localRuntimeStatus() NodeRuntimeStatus {
 	mode := service.currentBackendMode()
 	status := NodeRuntimeStatus{NodeID: service.nodeID, BackendMode: mode}
 	service.scheduler.applyQueueStatus(&status)
+	borrowedInFlight := service.scheduler.requestsBorrowedFromPeersInFlight()
+	status.BorrowedInFlight = &borrowedInFlight
 	status.ActiveImageConfig = service.activeImageConfigFilename()
 	status.ActiveTextConfig = service.activeTextConfigFilename()
 	family := service.backendFamilies[mode]

@@ -101,11 +101,14 @@ func (service *Service) handleNodeOffloadRequest(w http.ResponseWriter, r *http.
 		service.refuseOffloadRelay(w, lease, relayRefusedHelperUnreachable, "helper node is not reachable")
 		return
 	}
-	response, err := service.forwardBorrowedRequest(r.Context(), nodeURL, path, relayed, relayedBody, lease)
+	watched, lentRequest := service.scheduler.relayStall.Begin(r.Context(), lease.HelperNodeID)
+	defer lentRequest.End()
+	response, err := service.forwardBorrowedRequest(watched, nodeURL, path, relayed, relayedBody, lease)
 	if err != nil {
-		service.refuseOffloadRelay(w, lease, relayRefusedForwardFailed, err.Error())
+		service.refuseOffloadRelay(w, lease, relayRefusalReason(watched), err.Error())
 		return
 	}
+	lentRequest.Answered()
 	if err := service.writeProxyResponse(w, response, "", false); err != nil {
 		service.logger.Printf("offload relay response failed path=%s owner=%q error=%v", path, ownerNodeID, err)
 	}

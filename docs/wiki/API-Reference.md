@@ -198,6 +198,7 @@ Standalone and master routers expose administration routes in these groups:
 - `/router/v1/site/download/...`
 - `/router/v1/site/webuis/...`
 - `/router/v1/site/routing-groups` (image models) and `/router/v1/site/text-routing-groups` (LLM models): one-way lending links. `GET ?node_id=&model_id=` lists links and candidates for an anchor, `POST {"anchor":{...},"lends_to":[...],"borrows_from":[...]}` replaces every link of the anchor, `DELETE ?node_id=&model_id=` removes them. See [Cluster-Routing](Cluster-Routing.md#backlog-lending)
+- `/router/v1/site/guardian-models`: multimodal models that answer image requests for text-only models. `GET` lists assignments and candidates, `POST {"scope":"cluster|node|model","node_id":"","model_id":"","guardian":{"node_id":"","model_id":""}}` sets one, `DELETE ?scope=&node_id=&model_id=` clears one. See [Cluster-Routing](Cluster-Routing.md#guardian-models)
 - `/router/v1/site/analytics` and `POST /router/v1/site/analytics/flush`
 - `GET /router/v1/site/store/download?node_id={node_id}`: a consistent copy of that node's router database
 - `/router/v1/site/load-captures`

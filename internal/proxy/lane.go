@@ -48,11 +48,11 @@ type activeConfigState struct {
 	memoryLoadedMB       int64
 	modelID              string
 	generation           uint64
-	leases               map[uint64]string
+	leases               map[uint64]runtimeLease
 }
 
 func newActiveConfigState() *activeConfigState {
-	return &activeConfigState{changed: make(chan struct{}), leases: map[uint64]string{}}
+	return &activeConfigState{changed: make(chan struct{}), leases: map[uint64]runtimeLease{}}
 }
 
 func (state *activeConfigState) loadedModel() (string, string) {
@@ -213,7 +213,7 @@ func (service *Service) reloadHeldModelConfig(runtime *backendRuntime, ctx conte
 	profile := service.chatTemplateProfileForConfig(configFilename)
 	state.mu.Lock()
 	ticket := state.takeTicketLocked()
-	state.joinQueueLocked(ticket, neverSatisfied)
+	state.joinQueueLocked(ticket, neverSatisfied, waitingRequest{})
 	for {
 		// Our own lease is the one user we expect; anything more means another request is
 		// still on the backend and must finish first.
@@ -347,7 +347,7 @@ func runtimeAlwaysUnloadable(*activeConfigState) error {
 func claimIdleRuntime(ctx context.Context, state *activeConfigState, stillUnloadable func(*activeConfigState) error) error {
 	state.mu.Lock()
 	ticket := state.takeTicketLocked()
-	state.joinQueueLocked(ticket, neverSatisfied)
+	state.joinQueueLocked(ticket, neverSatisfied, waitingRequest{})
 	for {
 		if err := stillUnloadable(state); err != nil {
 			state.leaveQueueLocked(ticket)

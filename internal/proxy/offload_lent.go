@@ -8,6 +8,7 @@ import (
 
 type lentRequest struct {
 	lane          string
+	ownerNodeID   string
 	modelID       string
 	arrived       time.Time
 	lentAt        time.Time

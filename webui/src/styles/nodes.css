@@ -245,7 +245,8 @@
 }
 
 .node-active-requests ul,
-.node-held-requests ul {
+.node-held-requests ul,
+.node-requests ul {
   display: grid;
   gap: 4px;
   margin-top: 6px;
@@ -255,7 +256,8 @@
   font: 13px var(--mono);
 }
 
-.node-held-request {
+.node-held-request,
+.node-request-group {
   display: flex;
   flex-wrap: wrap;
   align-items: center;

@@ -40,7 +40,7 @@ func TestLocalNodeStateDetectsRegularBinariesAndRedactsPaths(t *testing.T) {
 	state.filename = "shared.kcpps"
 	state.generation = 9
 	state.users = 2
-	state.leases = map[uint64]string{11: "shared-model", 12: "shared-model"}
+	state.leases = map[uint64]runtimeLease{11: {modelID: "shared-model"}, 12: {modelID: "shared-model"}}
 	state.mu.Unlock()
 
 	snapshot := service.localNodeState(context.Background())
@@ -72,7 +72,7 @@ func TestGenerationCheckedUnloadDrainsLeasesAndRejectsStaleState(t *testing.T) {
 	state.modelID = "model"
 	state.generation = 3
 	state.users = 1
-	state.leases = map[uint64]string{41: "model"}
+	state.leases = map[uint64]runtimeLease{41: {modelID: "model"}}
 	state.mu.Unlock()
 
 	result := make(chan error, 1)
@@ -289,4 +289,50 @@ func waitForRuntimeUnloadWaiter(t *testing.T, state *activeConfigState) {
 		time.Sleep(time.Millisecond)
 	}
 	t.Fatal("runtime unload never began waiting")
+}
+
+func TestNodeStateListsEveryRequestNotOnlyThoseOfTheLoadedModel(t *testing.T) {
+	service := newBorrowRestoreTestService(t)
+	mode := service.currentBackendMode()
+	_, releaseRunning, _, err := service.acquireModelConfigForBackendMode(mode, context.Background(), "a", "a.kcpps", readinessText, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer releaseRunning()
+	finished := make(chan struct{})
+	go func() {
+		defer close(finished)
+		if _, release, _, acquireErr := service.acquireModelConfigForBackendMode(mode, context.Background(), "b", "b.kcpps", readinessText, false); acquireErr == nil {
+			release()
+		}
+	}()
+	waitForQueuedLaneRequest(t, service)
+
+	requests := service.localNodeState(context.Background()).Requests
+
+	releaseRunning()
+	<-finished
+	states := map[string]string{}
+	for _, request := range requests {
+		states[request.ModelID] = request.State
+	}
+	if states["a"] != siteapi.RequestRunning || states["b"] != siteapi.RequestWaitingForRuntime || len(requests) != 2 {
+		t.Fatalf("requests = %+v, want a running and b waiting for the runtime", requests)
+	}
+}
+
+func TestNodeStateMarksBorrowedWorkRunningForAPeer(t *testing.T) {
+	service := newBorrowRestoreTestService(t)
+	mode := service.currentBackendMode()
+	_, release, _, err := service.acquireModelConfigForBackendMode(mode, borrowedContext(), "a", "a.kcpps", readinessText, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer release()
+
+	requests := service.localNodeState(context.Background()).Requests
+
+	if len(requests) != 1 || requests[0].State != siteapi.RequestBorrowed {
+		t.Fatalf("requests = %+v, want one borrowed request", requests)
+	}
 }

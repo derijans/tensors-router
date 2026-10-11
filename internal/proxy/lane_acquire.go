@@ -2,6 +2,7 @@ package proxy
 
 import (
 	"context"
+	"time"
 
 	"tensors-router/internal/catalog"
 )
@@ -13,9 +14,21 @@ type configAcquisition struct {
 	readiness      backendReadiness
 	profile        catalog.ChatTemplateProfile
 	borrowed       bool
+	preemption     *borrowedPreemption
 }
 
 func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, options modelConfigAcquireOptions) (func(), bool, error) {
+	preemption := contextBorrowedPreemption(ctx)
+	ctx, stopWatchingPreemption := contextEndingWhenPreempted(ctx, preemption)
+	defer stopWatchingPreemption()
+	release, loadedFresh, err := service.acquireUnlessPreempted(runtime, ctx, modelID, configFilename, readiness, options)
+	if err != nil && preemption.wasPreempted() {
+		err = errOffloadReturned
+	}
+	return release, loadedFresh, err
+}
+
+func (service *Service) acquireUnlessPreempted(runtime *backendRuntime, ctx context.Context, modelID string, configFilename string, readiness backendReadiness, options modelConfigAcquireOptions) (func(), bool, error) {
 	request := configAcquisition{
 		runtime:        runtime,
 		modelID:        modelID,
@@ -23,6 +36,7 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 		readiness:      readiness,
 		profile:        service.chatTemplateProfileForConfig(configFilename),
 		borrowed:       contextIsBorrowed(ctx),
+		preemption:     contextBorrowedPreemption(ctx),
 	}
 	state := runtime.state
 	satisfiedBy := func(current *activeConfigState) bool {
@@ -33,10 +47,15 @@ func (service *Service) acquireModelConfigWithOptions(runtime *backendRuntime, c
 	queued := false
 	for {
 		if satisfiedBy(state) && !state.switching && state.admitsLeaseLocked(ticket) {
+			if !request.preemption.claimStart() {
+				state.leaveQueueLocked(ticket)
+				state.mu.Unlock()
+				return nil, false, errOffloadReturned
+			}
 			return service.reuseActiveConfigLocked(state, ticket, request), false, nil
 		}
 		if !queued {
-			state.joinQueueLocked(ticket, satisfiedBy)
+			state.joinQueueLocked(ticket, satisfiedBy, waitingRequest{modelID: modelID, borrowed: request.borrowed, arrived: time.Now()})
 			queued = true
 		}
 		if satisfiedBy(state) || state.switching || state.users > 0 || !state.maySwitchLocked(ticket) {
@@ -100,6 +119,7 @@ func (service *Service) switchRuntimeConfig(ctx context.Context, request configA
 		return nil, false, err
 	}
 
+	startClaimed := request.preemption.claimStart()
 	state.mu.Lock()
 	endRuntimeSwitchLocked(state)
 	clearPendingConfigLocked(state)
@@ -113,11 +133,17 @@ func (service *Service) switchRuntimeConfig(ctx context.Context, request configA
 	applyPhysicalLoadProfileLocked(state, request.configFilename, request.profile, request.readiness)
 	applyLoadMeasurementLocked(state, loadMeasurement)
 	state.openLeaseWindowLocked()
-	release := service.addRuntimeLeaseLocked(state, request.modelID, request.borrowed)
+	var release func()
+	if startClaimed {
+		release = service.addRuntimeLeaseLocked(state, request.modelID, request.borrowed)
+	}
 	notifyActiveConfigLocked(state)
 	state.mu.Unlock()
 	service.analytics.recordLoad(request.modelID, request.configFilename, request.readiness, runtime.mode, loadMeasurement.analytics)
 	service.onRuntimeChanged()
+	if !startClaimed {
+		return nil, true, errOffloadReturned
+	}
 	return release, true, nil
 }
 

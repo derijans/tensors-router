@@ -14,6 +14,7 @@ type Settings struct {
 	GrantTTL            time.Duration
 	ContextReserve      int
 	RestoreDelay        time.Duration
+	LentStallTimeout    time.Duration
 	ProbeIdle           time.Duration
 	FasterHelperSlots   int
 	SlowerHelperSlots   int

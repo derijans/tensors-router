@@ -109,6 +109,8 @@ func NewService(config ServiceConfig) *Service {
 	service.lending = newLendingSettings(config.LendingFileValues, lendingOverrideStoreOrNil(config.LendingSettingsStore), service.applyLendingSettings)
 	service.scheduler = newScheduler(service, service.analytics, decisionRecorderOrNil(config.OffloadDecisionStore), service.lending.snapshot().Settings, logger)
 	service.installStoredRoutingLinks(context.Background())
+	service.guardians = newGuardianDirectory(config.GuardianModels)
+	service.installStoredGuardianModels(context.Background())
 	service.reloadLendingSettings(context.Background())
 	service.routes = newRouteTable(service.requireClusterToken, service.controlRoutes(), service.siteRoutes(), service.nodeRoutes(), service.downloads.Routes(), service.benchmarks.routes(), service.assets.routes(), service.webUI.routes())
 	return service

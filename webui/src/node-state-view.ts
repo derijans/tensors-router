@@ -2,6 +2,7 @@ import { SafeHTML, emptyHTML, html } from "./safe-html";
 import type { BackendLaunchOptions, NodeHeldRequest, NodeState, NodeStateBackend, NodeStateModelRow, Tone } from "./types";
 import { formatBytes } from "./utils";
 import { badge, laneAccent } from "./markup-primitives";
+import { renderNodeRequests } from "./node-requests-view";
 
 const backendOrder = ["koboldcpp", "llama-server", "vllm", "sd-server", "whisper-server"];
 
@@ -11,12 +12,21 @@ export function renderNodeStateSnapshot(nodeID: string, snapshot: NodeState, pen
     <div class="node-state-backends">
       ${backends.length > 0 ? html`${backends.map(backend => renderBackend(nodeID, backend, pendingUnload, pendingBackendAction))}` : html`<p class="muted node-state-empty">No backend binaries detected.</p>`}
     </div>
+    ${renderRequestSections(snapshot)}
+    ${renderFFmpegAvailability(snapshot)}
+  `;
+}
+
+function renderRequestSections(snapshot: NodeState): SafeHTML {
+  if (snapshot.requests != null) {
+    return renderNodeRequests(snapshot.requests);
+  }
+  return html`
     <section class="node-active-requests" aria-label="Active requests">
       <h4>Active requests</h4>
       ${renderActiveRequests(snapshot.active_requests ?? [])}
     </section>
     ${renderHeldRequests(snapshot.held_requests)}
-    ${renderFFmpegAvailability(snapshot)}
   `;
 }
 

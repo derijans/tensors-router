@@ -255,3 +255,30 @@ function renderVLLMBackend(lifecycleState: BackendLifecycleState, values: Partia
     active_requests: []
   }, "");
 }
+
+describe("node state view requests", () => {
+  it("lists requests of every model with their states instead of the legacy sections", () => {
+    const state = snapshot();
+    state.requests = [
+      {lane: "text", model_id: "model <one>", state: "running", age_ms: 3000},
+      {lane: "text", model_id: "waiting <two>", state: "waiting_for_runtime", age_ms: 12400},
+      {lane: "text", model_id: "gemma", state: "lent", age_ms: 1000, helper_node_id: "master", helper_model_id: "gemma <b>"}
+    ];
+
+    const html = renderNodeStateSnapshot("node-a", state, "");
+
+    expect(html).toContain("waiting &lt;two&gt;");
+    expect(html).toContain("1 waiting for runtime");
+    expect(html).toContain("1 running");
+    expect(html).toContain("→ master/gemma &lt;b&gt;");
+    expect(html).not.toContain("Active requests");
+    expect(html.match(/class="node-request-group"/g)).toHaveLength(3);
+  });
+
+  it("falls back to the legacy sections for a node that does not report requests", () => {
+    const html = renderNodeStateSnapshot("node-a", snapshot(), "");
+
+    expect(html).toContain("Active requests");
+    expect(html).not.toContain("node-request-group");
+  });
+});

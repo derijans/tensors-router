@@ -95,3 +95,31 @@ describe("node card", () => {
     expect(html).not.toContain("memory-bar");
   });
 });
+
+describe("node card requests", () => {
+  it("shows requests waiting for a model that is not loaded", () => {
+    const state = snapshotWithRuntime();
+    state.requests = [
+      {lane: "text", model_id: "qwen", state: "running", age_ms: 1000},
+      {lane: "text", model_id: "gemma <big>", state: "waiting_for_runtime", age_ms: 5000}
+    ];
+
+    const html = renderNodeCard(node, context({snapshot: state}));
+
+    expect(html).toContain("gemma &lt;big&gt;");
+    expect(html).toContain("not loaded");
+    expect(html).toContain("1 waiting for runtime");
+    expect(html).toContain("1 active");
+  });
+
+  it("shows waiting requests even when nothing is loaded", () => {
+    const state = snapshotWithRuntime();
+    state.backends = state.backends.map(backend => ({...backend, loaded_models: []}));
+    state.requests = [{lane: "text", model_id: "gemma", state: "waiting_for_runtime", age_ms: 5000}];
+
+    const html = renderNodeCard(node, context({snapshot: state}));
+
+    expect(html).not.toContain("Nothing loaded.");
+    expect(html).toContain("gemma");
+  });
+});

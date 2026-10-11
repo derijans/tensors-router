@@ -42,6 +42,8 @@ var fields = []Field{
 		func(settings *Settings) *int { return &settings.ContextReserve }),
 	durationField("offload_restore_delay", "Idle time before a helper reloads the model it had before borrowing.", "1.5s",
 		func(settings *Settings) *time.Duration { return &settings.RestoreDelay }),
+	durationField("offload_lent_stall_timeout", "How long a helper may show no change in the requests lent to it, and report no borrowed work running, before they are all taken back by their owners.", "3m",
+		func(settings *Settings) *time.Duration { return &settings.LentStallTimeout }),
 	durationField("offload_probe_idle", "Idle time after which an unpriced helper is probed with one borrowed request.", "5s",
 		func(settings *Settings) *time.Duration { return &settings.ProbeIdle }),
 	integerField("offload_faster_helper_slots", "Requests lent at once to a helper predicted to be at least as fast as the owner.", 2, 1, maximumSlotsOrDepth,

@@ -82,7 +82,7 @@ func TestWithdrawTakesNewestFirstAndOnlyPendingEntries(t *testing.T) {
 	newest := enqueueNativeOnIdleNode(queue, "group", 40)
 	mustBeAdmitted(t, running, "running")
 
-	withdrawn := queue.WithdrawNewest("group", 2)
+	withdrawn := queue.WithdrawNewest("group", 2, nil)
 	if len(withdrawn) != 2 {
 		t.Fatalf("withdrew %d, want 2", len(withdrawn))
 	}
@@ -103,7 +103,7 @@ func TestWithdrawNeverTakesTheRunningRequest(t *testing.T) {
 	running := enqueueNativeOnIdleNode(queue, "group", 10)
 	mustBeAdmitted(t, running, "running")
 
-	if withdrawn := queue.WithdrawNewest("group", 5); len(withdrawn) != 0 {
+	if withdrawn := queue.WithdrawNewest("group", 5, nil); len(withdrawn) != 0 {
 		t.Fatalf("withdrew %d admitted entries, want 0", len(withdrawn))
 	}
 }
@@ -115,7 +115,7 @@ func TestWithdrawIgnoresOtherGroupsAndBorrowedWork(t *testing.T) {
 	other := enqueueNativeOnIdleNode(queue, "other-group", 10)
 	mine := enqueueNativeOnIdleNode(queue, "group", 10)
 
-	withdrawn := queue.WithdrawNewest("group", 5)
+	withdrawn := queue.WithdrawNewest("group", 5, nil)
 	if len(withdrawn) != 1 || withdrawn[0] != mine {
 		t.Fatalf("withdrew %d entries, want only the one in the named group", len(withdrawn))
 	}
@@ -313,7 +313,7 @@ func TestPinnedEntryCountsTowardBacklogButIsNeverWithdrawn(t *testing.T) {
 	pinned := queue.Enqueue(queuedRequest{modelID: "group", work: schedulingcost.TextWork(100, 20), requiredContext: 2048, origin: nativeRequest, withdrawal: pinnedToThisNode}, nodeActivity(true), time.Now())
 	mustBeAdmitted(t, pinned, "pinned")
 
-	if withdrawn := queue.WithdrawNewest("group", 5); len(withdrawn) != 0 {
+	if withdrawn := queue.WithdrawNewest("group", 5, nil); len(withdrawn) != 0 {
 		t.Fatalf("withdrew %d entries, want none when every entry is admitted or pinned", len(withdrawn))
 	}
 

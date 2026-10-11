@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 
@@ -8,6 +9,9 @@ import (
 )
 
 func backendFailureResponse(err error) (int, string, string) {
+	if errors.Is(err, errOffloadReturned) {
+		return http.StatusConflict, offloadReturnedCode, "node has work of its own and returned this borrowed request"
+	}
 	if err != nil && strings.Contains(err.Error(), "backend_not_initialized") {
 		return http.StatusServiceUnavailable, "backend_not_initialized", "vLLM backend is not initialized"
 	}

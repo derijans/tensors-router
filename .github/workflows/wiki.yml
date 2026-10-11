@@ -69,7 +69,13 @@ jobs:
             }
           done < <(grep -RhoE '\]\([A-Za-z0-9-]+\)' docs/wiki | sed -E 's/^\]\(|\)$//g' | sort -u)
 
-          test "$(find docs/images/webui-live -maxdepth 1 -type f -name '*.png' | wc -l)" -eq 9
+          while IFS= read -r image; do
+            test -s "$image" || {
+              echo "missing screenshot referenced by documentation: $image" >&2
+              exit 1
+            }
+          done < <(grep -RhoE 'docs/images/webui-live/[A-Za-z0-9_.-]+\.png' README.md docs/wiki | sort -u)
+
           git diff --check HEAD^
 
   publish:

@@ -252,6 +252,10 @@ func (service *Service) selectSelectorlessEmbeddingModel(w http.ResponseWriter, 
 }
 
 func (service *Service) routeNamedModelRequest(w http.ResponseWriter, r *http.Request, body []byte, modelID string) bool {
+	if guardian, redirected := service.guardianBeforeSend(r, body, modelID); redirected {
+		service.handleGuardianTakeover(w, r, body, guardian)
+		return true
+	}
 	if service.handleRecipeModelRequest(w, r, body, modelID) {
 		return true
 	}

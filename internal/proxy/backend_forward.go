@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strings"
 	routeranalytics "tensors-router/internal/analytics"
+	"tensors-router/internal/requestmedia"
 	"time"
 )
 
@@ -146,10 +147,15 @@ func (service *Service) backendRetryResult(response *http.Response, err error, p
 		return backendRetryResult{retry: true, status: response.StatusCode, err: errMissingBackendResponse}
 	}
 	if response.StatusCode >= 500 {
+		preview := drainResponseBodyPreview(response)
+		if requestmedia.IsNoVisionRejection(response.StatusCode, []byte(preview)) {
+			response.Body = io.NopCloser(strings.NewReader(preview))
+			return backendRetryResult{status: response.StatusCode}
+		}
 		return backendRetryResult{
 			retry:  true,
 			status: response.StatusCode,
-			body:   drainResponseBodyPreview(response),
+			body:   preview,
 		}
 	}
 	if response.StatusCode >= 200 && response.StatusCode < 300 {

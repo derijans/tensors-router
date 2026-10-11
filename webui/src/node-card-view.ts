@@ -3,7 +3,9 @@ import { badge, laneAccent } from "./markup-primitives";
 import { memoryBar } from "./chart-markup";
 import { formatGigabytes, memoryKindLabel, nodeMemorySummary } from "./node-memory-data";
 import { webUIForRuntime } from "./webui-data";
-import type { NodeInventory, NodeState, NodeStateModelRow, Tone, WebUIEntry } from "./types";
+import { requestsForUnloadedModels, runningRequestCount } from "./node-requests-data";
+import { renderRequestStateBadges } from "./node-requests-view";
+import type { NodeInventory, NodeRequest, NodeState, NodeStateModelRow, Tone, WebUIEntry } from "./types";
 
 export type NodeCardPlacement = "overview" | "nodes";
 
@@ -100,16 +102,37 @@ function renderRuntimes(nodeID: string, context: NodeCardContext): SafeHTML {
     return context.placement === "overview" ? html`<p class="muted runtime-empty">Waiting for runtime state…</p>` : emptyHTML;
   }
   const runtimes: LoadedRuntime[] = context.snapshot.backends.flatMap(backend => backend.loaded_models.map(row => ({backendID: backend.id, row})));
-  if (runtimes.length === 0) {
+  const requests = context.snapshot.requests ?? null;
+  const activeRequests = context.snapshot.active_requests ?? [];
+  const loadedModelIDs = new Set(runtimes.map(runtime => runtime.row.model_id));
+  const unloadedModelRows = requests === null ? emptyHTML : renderUnloadedModelRequests(requests, loadedModelIDs);
+  if (runtimes.length === 0 && (requests === null || requests.length === 0)) {
     return html`<p class="muted runtime-empty">Nothing loaded.</p>`;
   }
-  const activeRequests = context.snapshot.active_requests ?? [];
-  return html`<ul class="runtime-list">${runtimes.map(runtime => renderRuntime(nodeID, runtime, activeRequests, context))}</ul>`;
+  const loadedRows = html`${runtimes.map(runtime => renderRuntime(nodeID, runtime, activeCount(runtime.row.model_id, requests, activeRequests), context))}`;
+  return html`<ul class="runtime-list">${loadedRows}${unloadedModelRows}</ul>`;
 }
 
-function renderRuntime(nodeID: string, runtime: LoadedRuntime, activeRequests: readonly string[], context: NodeCardContext): SafeHTML {
+function activeCount(modelID: string, requests: readonly NodeRequest[] | null, activeRequests: readonly string[]): number {
+  return requests === null ? activeRequests.filter(activeModelID => activeModelID === modelID).length : runningRequestCount(requests, modelID);
+}
+
+function renderUnloadedModelRequests(requests: readonly NodeRequest[], loadedModelIDs: ReadonlySet<string>): SafeHTML {
+  const groups = requestsForUnloadedModels(requests, loadedModelIDs);
+  return html`${groups.map(group => html`
+    <li class="runtime-row">
+      <span class="lane-dot ${laneAccent(group.lane)}"></span>
+      <div class="runtime-name">
+        <code>${group.modelID}</code>
+        <small>${group.lane} · not loaded</small>
+      </div>
+      ${renderRequestStateBadges(group)}
+    </li>
+  `)}`;
+}
+
+function renderRuntime(nodeID: string, runtime: LoadedRuntime, active: number, context: NodeCardContext): SafeHTML {
   const {row, backendID} = runtime;
-  const active = activeRequests.filter(modelID => modelID === row.model_id).length;
   const menuID = runtimeMenuID(context.placement, nodeID, backendID, row.runtime_id);
   const webui = webUIForRuntime(context.webuis, nodeID, row.model_id);
   return html`

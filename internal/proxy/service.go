@@ -17,6 +17,7 @@ import (
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/downloader"
 	"tensors-router/internal/ffmpeg"
+	"tensors-router/internal/guardianmodels"
 	"tensors-router/internal/hardware"
 	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/loaderrors"
@@ -98,6 +99,7 @@ type ServiceConfig struct {
 	AnalyticsStore            *routeranalytics.Store
 	RouterStore               storeSnapshotter
 	RoutingGroups             *routinggroups.Store
+	GuardianModels            *guardianmodels.Store
 	LendingFileValues         offloadsettings.Values
 	LendingSettingsStore      *offloadsettings.Store
 	OffloadDecisionStore      *offloaddecisions.Store
@@ -154,6 +156,7 @@ type Service struct {
 	analytics                 *requestAnalytics
 	storeDownload             *storeDownload
 	routingGroups             *routinggroups.Store
+	guardians                 *guardianDirectory
 	scheduler                 *scheduler
 	lending                   *lendingSettings
 	offloadDecisions          *offloaddecisions.Store

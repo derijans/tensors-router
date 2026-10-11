@@ -25,11 +25,11 @@ func (scheduler *scheduler) borrowRestoreStateFor(runtime *backendRuntime) *borr
 }
 
 func (scheduler *scheduler) noteBorrowRestoreActivity(ctx context.Context, runtime *backendRuntime, mode string, incomingFilename string) {
-	if !contextIsBorrowed(ctx) {
+	if !contextLoadsTemporarily(ctx) {
 		scheduler.clearBorrowRestore(runtime)
 		return
 	}
-	if contextBorrowRestoreRequested(ctx) {
+	if contextRestoresDisplacedModel(ctx) {
 		if modelID, filename, loadedReadiness := runtime.state.loadedModelWithReadiness(); filename != "" && filename != incomingFilename {
 			scheduler.recordFirstDisplacement(runtime, mode, modelID, filename, loadedReadiness)
 		}
@@ -89,7 +89,7 @@ func stopBorrowRestoreLocked(state *borrowRestoreState) {
 // nodeActivity().idle() alone can be true with a borrowed request still running, since
 // idleForBorrowedWork nets that activity out; the borrowed in-flight count catches it.
 func (scheduler *scheduler) borrowRestoreQuiet() bool {
-	return scheduler.requestsBorrowedFromPeersInFlight() == 0 && scheduler.nodeActivity().idle()
+	return scheduler.requestsBorrowedFromPeersInFlight() == 0 && scheduler.nodeActivity().idle() && !scheduler.deps.runtimesSwitching()
 }
 
 func (scheduler *scheduler) fireBorrowRestore(runtime *backendRuntime, state *borrowRestoreState) {
@@ -134,6 +134,14 @@ func (scheduler *scheduler) retryBorrowRestoreLater(runtime *backendRuntime, sta
 func contextIsBorrowed(ctx context.Context) bool {
 	borrowed, _ := ctx.Value(offloadContextKey{}).(bool)
 	return borrowed
+}
+
+func contextLoadsTemporarily(ctx context.Context) bool {
+	return contextIsBorrowed(ctx) || contextIsGuardianRedirect(ctx)
+}
+
+func contextRestoresDisplacedModel(ctx context.Context) bool {
+	return contextBorrowRestoreRequested(ctx) || contextIsGuardianRedirect(ctx)
 }
 
 func contextBorrowRestoreRequested(ctx context.Context) bool {

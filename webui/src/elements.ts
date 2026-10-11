@@ -153,6 +153,8 @@ export const elements = {
   lendingSearchInput: getRequiredElement("lendingSearchInput", HTMLInputElement),
   lendingDecisionRows: getRequiredElement("lendingDecisionRows", HTMLTableSectionElement),
   lendingDecisionDetail: getRequiredElement("lendingDecisionDetail", HTMLElement),
+  guardianStatus: getRequiredElement("guardianStatus", HTMLElement),
+  guardianRows: getRequiredElement("guardianRows", HTMLTableSectionElement),
   cookForm: getRequiredElement("cookForm", HTMLFormElement),
   cookIdInput: getRequiredElement("cookIdInput", HTMLInputElement),
   overwriteInput: getRequiredElement("overwriteInput", HTMLInputElement),

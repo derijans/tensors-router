@@ -240,3 +240,25 @@ func TestRuntimeStatusReportsTextQueueAndBorrowingState(t *testing.T) {
 	}
 	waitForCondition(t, func() bool { return service.localRuntimeStatus().AcceptingBorrowedText })
 }
+
+func TestLeasedHelperWithoutVisionIsNotGivenImages(t *testing.T) {
+	service := newLinkedTextService(t, nil, true)
+	blind := testClusterModel("llama-70b-alt", "slave-a", "weights", "config-b", cluster.SourceSlave)
+	sighted := testClusterModel("llama-vision-alt", "slave-a", "vision-weights", "config-c", cluster.SourceSlave)
+	sighted.HasMultimodal = true
+	if err := service.registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: "slave-a", NodeURL: "http://slave-a", Models: []cluster.Model{blind, sighted}}); err != nil {
+		t.Fatal(err)
+	}
+	withImage := []byte(imageChatBody)
+	textOnly := []byte(textChatBody)
+
+	if service.leasedHelperReadsImages(routinggroups.Endpoint{NodeID: "slave-a", ModelID: "llama-70b-alt"}, withImage) {
+		t.Fatal("a request with an image was lent to a helper without vision")
+	}
+	if !service.leasedHelperReadsImages(routinggroups.Endpoint{NodeID: "slave-a", ModelID: "llama-vision-alt"}, withImage) {
+		t.Fatal("a request with an image was kept from a helper with vision")
+	}
+	if !service.leasedHelperReadsImages(routinggroups.Endpoint{NodeID: "slave-a", ModelID: "llama-70b-alt"}, textOnly) {
+		t.Fatal("a request without images was kept from a helper without vision")
+	}
+}

@@ -43,6 +43,7 @@ var apiRoutes = []apiRoute{
 	proxied("/api/models/state", "/router/v1/site/models/state", http.MethodPost),
 	proxied("/api/routing-groups", "/router/v1/site/routing-groups", http.MethodGet, http.MethodPost, http.MethodDelete),
 	proxied("/api/text-routing-groups", "/router/v1/site/text-routing-groups", http.MethodGet, http.MethodPost, http.MethodDelete),
+	proxied("/api/guardian-models", "/router/v1/site/guardian-models", http.MethodGet, http.MethodPost, http.MethodDelete),
 	proxied("/api/separate-runtimes", "/router/v1/site/separate-runtimes", http.MethodGet, http.MethodPost),
 	proxied("/api/download/capabilities", "/router/v1/site/download/capabilities", http.MethodGet),
 	proxied("/api/download/search", "/router/v1/site/download/search", http.MethodPost),

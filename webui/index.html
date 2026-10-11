@@ -496,6 +496,21 @@
               </table>
             </div>
           </section>
+          <section class="card" aria-label="Guardian models">
+            <header class="card-head">
+              <div>
+                <h3>Guardian models</h3>
+                <p class="muted">A multimodal model that answers image requests aimed at a text-only model. The most specific setting wins: model, then node, then cluster. The text-only model is loaded back afterwards.</p>
+              </div>
+            </header>
+            <div id="guardianStatus"></div>
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead><tr><th>Applies to</th><th>Guardian</th><th>Effect</th></tr></thead>
+                <tbody id="guardianRows"></tbody>
+              </table>
+            </div>
+          </section>
           <section class="card" aria-label="Lending decisions">
             <header class="card-head"><h3>Decision log</h3></header>
             <div class="filter-bar">

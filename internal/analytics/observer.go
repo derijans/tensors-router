@@ -179,6 +179,7 @@ func (observer *ResponseObserver) applyBufferedResponse() {
 		return
 	}
 	ApplyResponse(&observer.event, observer.contentType, observer.bodyBuffer.Bytes())
+	applyUpstreamError(&observer.event, observer.bodyBuffer.Bytes())
 	producesAudio := observer.event.Section == SectionVoice || observer.event.Section == SectionMusic
 	if producesAudio && observer.event.AudioSeconds == 0 {
 		observer.event.AudioSeconds = waveDurationSeconds(observer.bodyBuffer.Bytes(), observer.event.ResponseBytes)

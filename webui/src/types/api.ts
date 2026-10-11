@@ -526,11 +526,48 @@ export interface NodeHeldRequest {
   helper_model_id?: string;
 }
 
+export type GuardianScope = "cluster" | "node" | "model";
+
+export interface GuardianEndpoint {
+  node_id: string;
+  model_id: string;
+}
+
+export interface GuardianAssignment {
+  scope: GuardianScope;
+  node_id?: string;
+  model_id?: string;
+  guardian: GuardianEndpoint;
+}
+
+export interface GuardianCandidate {
+  node_id: string;
+  model_id: string;
+  filename: string;
+}
+
+export interface GuardianModelsResponse {
+  assignments: GuardianAssignment[];
+  candidates: GuardianCandidate[];
+}
+
+export type NodeRequestState = "running" | "borrowed" | "waiting_for_runtime" | NodeHeldRequestState;
+
+export interface NodeRequest {
+  lane: string;
+  model_id: string;
+  state: NodeRequestState;
+  age_ms: number;
+  helper_node_id?: string;
+  helper_model_id?: string;
+}
+
 export interface NodeState {
   node_id: string;
   backends: NodeStateBackend[];
   active_requests: string[] | null;
   held_requests?: NodeHeldRequest[] | null;
+  requests?: NodeRequest[] | null;
   // Absent when the node runs a build from before ffmpeg was reported, which
   // a cluster can contain part-way through a rolling upgrade.
   ffmpeg_available?: boolean;

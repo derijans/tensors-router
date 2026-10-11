@@ -14,6 +14,20 @@ func (service *Service) requestsRunningOnEveryBackendFamily() int {
 	return active
 }
 
+func (service *Service) runtimesSwitching() bool {
+	for _, family := range service.backendFamilies {
+		for _, runtime := range uniqueBackendRuntimes(family) {
+			runtime.state.mu.Lock()
+			switching := runtime.state.switching
+			runtime.state.mu.Unlock()
+			if switching {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func (service *Service) ownWorkIdleSince() (time.Time, bool) {
 	var latest time.Time
 	for _, family := range service.backendFamilies {

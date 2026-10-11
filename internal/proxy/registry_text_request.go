@@ -49,17 +49,27 @@ func (service *Service) handleRegistryModelRequest(w http.ResponseWriter, r *htt
 }
 
 func (service *Service) handleAcquiredRegistryModelRequest(w http.ResponseWriter, r *http.Request, body []byte, acquired acquiredRegistryRoute, insertModel bool, workHint requestWorkHint) {
+	if guardian, refused := service.serveAcquiredRegistryModelRequest(w, r, body, acquired, insertModel, workHint); refused {
+		service.handleGuardianTakeover(w, r, body, guardian)
+	}
+}
+
+func (service *Service) serveAcquiredRegistryModelRequest(w http.ResponseWriter, r *http.Request, body []byte, acquired acquiredRegistryRoute, insertModel bool, workHint requestWorkHint) (guardian string, refused bool) {
 	defer acquired.release()
 	plan, ok := service.prepareRegistryTextRequest(w, r, body, acquired, insertModel)
 	if !ok {
-		return
+		return "", false
 	}
 	forwarded, ok := service.forwardRegistryTextRequest(w, r, body, acquired, plan, workHint)
 	defer forwarded.complete()
 	if !ok {
-		return
+		return "", false
+	}
+	if guardian, refused := service.guardianAfterRefusal(r, body, acquired, &forwarded); refused {
+		return guardian, true
 	}
 	service.writeRegistryTextResponse(w, r, forwarded, acquired, plan)
+	return "", false
 }
 
 func (service *Service) prepareRegistryTextRequest(w http.ResponseWriter, r *http.Request, body []byte, acquired acquiredRegistryRoute, insertModel bool) (registryTextPlan, bool) {
@@ -207,7 +217,7 @@ func (service *Service) serveTextThroughLendingQueue(w http.ResponseWriter, r *h
 
 func (service *Service) serveWithdrawnTextRequest(w http.ResponseWriter, r *http.Request, requestBody []byte, acquired acquiredRegistryRoute, entry *offloadEntry, workHint requestWorkHint) (complete func(), handled bool) {
 	modelID := acquired.route.LocalID
-	if !service.lentTextRequestFitsHelper(modelID, entry) {
+	if !service.lentTextRequestFitsHelper(modelID, entry, requestBody) {
 		service.scheduler.finishOffload(cluster.RouteLaneText, modelID, entry, true)
 	} else if service.forwardOffloadedTextRequest(w, r, r, requestBody, entry, acquired) {
 		return nil, true

@@ -18,6 +18,7 @@ func (scheduler *scheduler) refreshOffloadPlan(ctx context.Context) {
 	if identity.role != cluster.RoleMaster || identity.registry == nil {
 		return
 	}
+	scheduler.deps.publishGuardianModels(ctx)
 	snapshot, loaded := scheduler.deps.installStoredRoutingLinks(ctx)
 	if !loaded {
 		return

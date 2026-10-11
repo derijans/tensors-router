@@ -219,6 +219,7 @@ When updates are enabled, each selected backend needs either a direct binary URL
 | `cluster.offload_probe_idle` | Positive duration string | `5s` | How long a helper must be idle from its own work (its own requests and its own model loads; borrowed work does not count) before it gets a one-request probe even when the cost rule would not lend to it. |
 | `cluster.scheduling_context_reserve` | Integer, at least 0 | `256` | Tokens kept free for the answer when a text request states no limit. |
 | `cluster.offload_restore_delay` | Positive duration string | `1.5s` | Idle time before a helper reloads the model it held before borrowing, when the link asks for it. |
+| `cluster.offload_lent_stall_timeout` | Positive duration string | `3m` | How long a helper may show no change in the requests lent to it, and report no borrowed work running, before they are all taken back by their owners. |
 | `cluster.offload_faster_helper_slots` | Integer, `1`–`64` | `2` | Requests lent at once to a helper predicted to be at least as fast as the owner. |
 | `cluster.offload_slower_helper_slots` | Integer, `1`–`64` | `1` | Requests lent at once to a helper that pays off but is slower than the owner. |
 | `cluster.offload_probe_helper_slots` | Integer, `1`–`64` | `1` | Requests lent at once while probing an unpriced pair. |

@@ -89,6 +89,7 @@ type NodeState struct {
 	Backends        []NodeStateBackend `json:"backends"`
 	ActiveRequests  []string           `json:"active_requests"`
 	HeldRequests    []NodeHeldRequest  `json:"held_requests"`
+	Requests        []NodeRequest      `json:"requests"`
 	FFmpegAvailable bool               `json:"ffmpeg_available"`
 	FFmpegPath      string             `json:"ffmpeg_path,omitempty"`
 	Memory          *NodeMemory        `json:"memory,omitempty"`
@@ -112,6 +113,21 @@ type NodeHeldRequest struct {
 	ModelID       string `json:"model_id"`
 	State         string `json:"state"`
 	WaitingMS     int64  `json:"waiting_ms"`
+	HelperNodeID  string `json:"helper_node_id,omitempty"`
+	HelperModelID string `json:"helper_model_id,omitempty"`
+}
+
+const (
+	RequestRunning           = "running"
+	RequestBorrowed          = "borrowed"
+	RequestWaitingForRuntime = "waiting_for_runtime"
+)
+
+type NodeRequest struct {
+	Lane          string `json:"lane"`
+	ModelID       string `json:"model_id"`
+	State         string `json:"state"`
+	AgeMS         int64  `json:"age_ms"`
 	HelperNodeID  string `json:"helper_node_id,omitempty"`
 	HelperModelID string `json:"helper_model_id,omitempty"`
 }

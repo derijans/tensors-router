@@ -10,6 +10,7 @@ import (
 	routerbenchmark "tensors-router/internal/benchmark"
 	"tensors-router/internal/buildinfo"
 	"tensors-router/internal/config"
+	"tensors-router/internal/guardianmodels"
 	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/loaderrors"
 	"tensors-router/internal/modelstate"
@@ -25,6 +26,7 @@ type serveStores struct {
 	benchmarks       *routerbenchmark.Store
 	modelState       *modelstate.Store
 	routingGroups    *routinggroups.Store
+	guardianModels   *guardianmodels.Store
 	offloadDecisions *offloaddecisions.Store
 	analytics        *routeranalytics.Store
 	loadCaptures     *loadcapture.Store
@@ -42,6 +44,7 @@ func (stores *serveStores) open(ctx context.Context, cfg config.Config, logger *
 			loadcapture.SchemaModule{},
 			loaderrors.SchemaModule{},
 			routinggroups.SchemaModule{},
+			guardianmodels.SchemaModule{},
 			offloaddecisions.SchemaModule{},
 			offloadsettings.SchemaModule{},
 		},
@@ -58,6 +61,7 @@ func (stores *serveStores) open(ctx context.Context, cfg config.Config, logger *
 		return err
 	}
 	stores.routingGroups = routinggroups.NewStore(stores.handle.DB(), stores.handle.Reader())
+	stores.guardianModels = guardianmodels.NewStore(stores.handle.DB(), stores.handle.Reader())
 	stores.offloadDecisions, err = offloaddecisions.NewStore(offloaddecisions.StoreConfig{
 		NodeID:        cfg.Cluster.NodeID,
 		RouterVersion: buildinfo.Current().Version,

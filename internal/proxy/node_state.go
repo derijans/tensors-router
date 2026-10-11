@@ -338,6 +338,9 @@ func withEmptyRequestListsForOlderNodes(state siteapi.NodeState) siteapi.NodeSta
 	if state.HeldRequests == nil {
 		state.HeldRequests = []siteapi.NodeHeldRequest{}
 	}
+	if state.Requests == nil {
+		state.Requests = []siteapi.NodeRequest{}
+	}
 	return state
 }
 
@@ -498,10 +501,12 @@ func (service *Service) writeNodeStateError(w http.ResponseWriter, err error) {
 type runtimeSnapshot struct {
 	rowsByBackend map[string][]siteapi.NodeStateModelRow
 	requests      []activeRequestSnapshot
+	inFlight      []siteapi.NodeRequest
 	seenRuntimes  map[*backendRuntime]struct{}
 }
 
 func (service *Service) localNodeState(ctx context.Context) siteapi.NodeState {
+	now := time.Now()
 	snapshot := runtimeSnapshot{
 		rowsByBackend: make(map[string][]siteapi.NodeStateModelRow),
 		requests:      make([]activeRequestSnapshot, 0),
@@ -509,21 +514,23 @@ func (service *Service) localNodeState(ctx context.Context) siteapi.NodeState {
 	}
 	for _, binding := range service.runtimeBindings() {
 		if binding.runtime != nil {
-			snapshot.record(binding)
+			snapshot.record(binding, now)
 		}
 	}
+	heldRequests := service.scheduler.heldRequests(now)
 	return siteapi.NodeState{
 		NodeID:          service.nodeID,
 		Backends:        service.nodeStateBackends(snapshot.rowsByBackend),
 		ActiveRequests:  snapshot.activeRequestModels(),
-		HeldRequests:    service.scheduler.heldRequests(time.Now()),
+		HeldRequests:    heldRequests,
+		Requests:        snapshot.allRequests(heldRequests),
 		FFmpegAvailable: service.ffmpeg.Available(),
 		FFmpegPath:      service.ffmpeg.Path(),
 		Memory:          service.nodeMemoryReading(ctx),
 	}
 }
 
-func (snapshot *runtimeSnapshot) record(binding runtimeBinding) {
+func (snapshot *runtimeSnapshot) record(binding runtimeBinding, now time.Time) {
 	state := binding.runtime.state
 	state.mu.Lock()
 	defer state.mu.Unlock()
@@ -536,10 +543,35 @@ func (snapshot *runtimeSnapshot) record(binding runtimeBinding) {
 	if _, seen := snapshot.seenRuntimes[binding.runtime]; seen {
 		return
 	}
-	for tag, modelID := range state.leases {
-		snapshot.requests = append(snapshot.requests, activeRequestSnapshot{tag: tag, modelID: modelID})
+	for tag, lease := range state.leases {
+		snapshot.requests = append(snapshot.requests, activeRequestSnapshot{tag: tag, modelID: lease.modelID})
+		if lease.modelID != "" {
+			snapshot.inFlight = append(snapshot.inFlight, siteapi.NodeRequest{Lane: binding.lane, ModelID: lease.modelID, State: leaseRequestState(lease), AgeMS: now.Sub(lease.since).Milliseconds()})
+		}
+	}
+	for _, waiting := range state.waitingRequestsLocked() {
+		snapshot.inFlight = append(snapshot.inFlight, siteapi.NodeRequest{Lane: binding.lane, ModelID: waiting.modelID, State: siteapi.RequestWaitingForRuntime, AgeMS: now.Sub(waiting.arrived).Milliseconds()})
 	}
 	snapshot.seenRuntimes[binding.runtime] = struct{}{}
+}
+
+func leaseRequestState(lease runtimeLease) string {
+	if lease.borrowed {
+		return siteapi.RequestBorrowed
+	}
+	return siteapi.RequestRunning
+}
+
+func (snapshot *runtimeSnapshot) allRequests(held []siteapi.NodeHeldRequest) []siteapi.NodeRequest {
+	requests := append([]siteapi.NodeRequest{}, snapshot.inFlight...)
+	for _, request := range held {
+		requests = append(requests, siteapi.NodeRequest{
+			Lane: request.Lane, ModelID: request.ModelID, State: request.State, AgeMS: request.WaitingMS,
+			HelperNodeID: request.HelperNodeID, HelperModelID: request.HelperModelID,
+		})
+	}
+	sort.SliceStable(requests, func(left, right int) bool { return requests[left].AgeMS > requests[right].AgeMS })
+	return requests
 }
 
 func (snapshot *runtimeSnapshot) activeRequestModels() []string {
