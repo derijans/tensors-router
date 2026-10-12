@@ -90,19 +90,19 @@ func textCandidateWithContextWindow(nodeID string, pendingCount int64, loaded bo
 	}
 	work := schedulingcost.TextWork(0, testTextDecodeTokens)
 	return offloadCandidate{
-		NodeID:            nodeID,
-		ModelID:           "llm-" + nodeID,
-		ConfigFilename:    nodeID + ".kcpps",
-		Section:           analytics.SectionLLM,
-		Loaded:            loaded,
-		AcceptingBorrowed: pendingCount == 0,
-		IdleFor:           testHelperIdle,
-		ContextCapacity:   contextCapacity,
-		PendingCount:      pendingCount,
-		PendingWork:       work.Scaled(float64(pendingCount)),
-		PendingContext:    int64(contextCapacity) * pendingCount,
-		BacklogCount:      backlogCount,
-		BacklogWork:       work.Scaled(float64(backlogCount)),
+		NodeID:                nodeID,
+		ModelID:               "llm-" + nodeID,
+		ConfigFilename:        nodeID + ".kcpps",
+		Section:               analytics.SectionLLM,
+		Loaded:                loaded,
+		AcceptingBorrowed:     pendingCount == 0,
+		IdleFor:               testHelperIdle,
+		ContextCapacity:       contextCapacity,
+		PendingCount:          pendingCount,
+		PendingWork:           work.Scaled(float64(pendingCount)),
+		PendingLargestContext: int64(contextCapacity),
+		BacklogCount:          backlogCount,
+		BacklogWork:           work.Scaled(float64(backlogCount)),
 	}
 }
 
@@ -655,7 +655,7 @@ func TestIdleTextHelperGetsAProbeWhenTheCostRuleSaysNo(t *testing.T) {
 
 func TestTextProbeStillRequiresTheHelperWindowToHoldTheContext(t *testing.T) {
 	owner := textCandidateWithContextWindow("node-a", 4, true, 32768)
-	owner.PendingContext = 6000 * owner.PendingCount
+	owner.PendingLargestContext = 6000
 	helper := textCandidateWithContextWindow("node-b", 0, true, 4096)
 	helper.IdleFor = time.Minute
 
@@ -675,7 +675,7 @@ func TestTextOffloadHelperMustHoldTheOwnersMeanContext(t *testing.T) {
 		map[string]float64{"node-b": 100})
 
 	owner := textCandidateWithContextWindow("node-a", 16, true, 32768)
-	owner.PendingContext = 6000 * owner.PendingCount
+	owner.PendingLargestContext = 6000
 	helper := textCandidateWithContextWindow("node-b", 0, false, 4096)
 
 	leases := planOffloadLeases(cluster.RouteLaneText, []lendingOwner{lendingTo(owner, helper)}, costs, time.Now(), testPlanPolicy).leases
@@ -691,7 +691,7 @@ func TestTextOffloadGrantsWhenTheHelperCanHoldTheContext(t *testing.T) {
 		map[string]float64{"node-b": 100})
 
 	owner := textCandidateWithContextWindow("node-a", 16, true, 32768)
-	owner.PendingContext = 6000 * owner.PendingCount
+	owner.PendingLargestContext = 6000
 	helper := textCandidateWithContextWindow("node-b", 0, false, 8192)
 
 	leases := planOffloadLeases(cluster.RouteLaneText, []lendingOwner{lendingTo(owner, helper)}, costs, time.Now(), testPlanPolicy).leases

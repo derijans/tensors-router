@@ -217,8 +217,8 @@ func (service *Service) serveTextThroughLendingQueue(w http.ResponseWriter, r *h
 
 func (service *Service) serveWithdrawnTextRequest(w http.ResponseWriter, r *http.Request, requestBody []byte, acquired acquiredRegistryRoute, entry *offloadEntry, workHint requestWorkHint) (complete func(), handled bool) {
 	modelID := acquired.route.LocalID
-	if !service.lentTextRequestFitsHelper(modelID, entry, requestBody) {
-		service.scheduler.finishOffload(cluster.RouteLaneText, modelID, entry, true)
+	if misfit := service.lentTextRequestMisfit(modelID, entry, requestBody); misfit != "" {
+		service.scheduler.finishOffloadBecause(cluster.RouteLaneText, modelID, entry, true, misfit)
 	} else if service.forwardOffloadedTextRequest(w, r, r, requestBody, entry, acquired) {
 		return nil, true
 	}

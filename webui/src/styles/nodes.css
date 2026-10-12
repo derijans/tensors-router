@@ -257,7 +257,7 @@
 }
 
 .node-held-request,
-.node-request-group {
+.node-request {
   display: flex;
   flex-wrap: wrap;
   align-items: center;

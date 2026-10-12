@@ -129,6 +129,10 @@ func (scheduler *scheduler) recordLent(lease offloadLease, entry *offloadEntry) 
 }
 
 func (scheduler *scheduler) finishOffload(lane string, modelID string, entry *offloadEntry, returned bool) {
+	scheduler.finishOffloadBecause(lane, modelID, entry, returned, "")
+}
+
+func (scheduler *scheduler) finishOffloadBecause(lane string, modelID string, entry *offloadEntry, returned bool, reason string) {
 	request, lent := scheduler.lent.Remove(entry)
 	if lent && returned {
 		scheduler.record(offloaddecisions.Record{
@@ -139,6 +143,7 @@ func (scheduler *scheduler) finishOffload(lane string, modelID string, entry *of
 			HelperNodeID:  request.helperNodeID,
 			HelperModelID: request.helperModelID,
 			Outcome:       offloaddecisions.OutcomeReturned,
+			Reason:        reason,
 			LentOut:       scheduler.lent.Count(lane, modelID),
 		})
 	}
@@ -150,13 +155,19 @@ func writeOffloadReturned(w http.ResponseWriter) {
 	openai.WriteError(w, status, code, message)
 }
 
-func (service *Service) lentTextRequestFitsHelper(modelID string, entry *offloadEntry, requestBody []byte) bool {
+func (service *Service) lentTextRequestMisfit(modelID string, entry *offloadEntry, requestBody []byte) string {
 	lease, leased := service.scheduler.activeOffloadLease(cluster.RouteLaneText, modelID, time.Now())
 	if !leased {
-		return false
+		return reasonLeaseExpired
 	}
 	helper := routinggroups.Endpoint{NodeID: lease.HelperNodeID, ModelID: lease.HelperModelID}
-	return service.leasedHelperContextFits(helper, entry.requiredContext) && service.leasedHelperReadsImages(helper, requestBody)
+	if !service.leasedHelperContextFits(helper, entry.requiredContext) {
+		return reasonContextTooSmall
+	}
+	if !service.leasedHelperReadsImages(helper, requestBody) {
+		return reasonHelperCannotSeeImages
+	}
+	return ""
 }
 
 func (service *Service) leasedHelperReadsImages(helper routinggroups.Endpoint, requestBody []byte) bool {

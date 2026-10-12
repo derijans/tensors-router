@@ -48,6 +48,16 @@ func (source *schedulingCostSource) TokenProfile(nodeID string, modelID string) 
 	return source.table.TokenProfile(schedulingcost.ProfileKey{NodeID: nodeID, ModelID: modelID})
 }
 
+func (scheduler *scheduler) warnWhenRetentionStarvesCostFit(sampleWindow time.Duration) {
+	retention := scheduler.analytics.store.RawRetention()
+	if retention >= sampleWindow {
+		return
+	}
+	scheduler.retentionWarning.Do(func() {
+		scheduler.logger.Printf("analytics.raw_retention %s is shorter than cluster.scheduling_sample_window %s: lending cannot be priced from history that is already deleted", retention, sampleWindow)
+	})
+}
+
 // fitLocalCosts refits this node from its own analytics database. Raw request
 // rows never leave the node that recorded them, so each node fits itself and
 // publishes only the coefficients.
@@ -57,6 +67,7 @@ func (scheduler *scheduler) fitLocalCosts(ctx context.Context) schedulingcost.No
 	}
 	settings := scheduler.currentSettings()
 	minSamples := int64(settings.MinSamples)
+	scheduler.warnWhenRetentionStarvesCostFit(settings.SampleWindow)
 
 	imageSamples, loadSamples, err := scheduler.analytics.store.CostSamples(ctx, routeranalytics.SectionImage, settings.SampleWindow, time.Now())
 	if err != nil {

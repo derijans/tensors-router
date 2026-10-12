@@ -268,17 +268,32 @@ describe("node state view requests", () => {
     const html = renderNodeStateSnapshot("node-a", state, "");
 
     expect(html).toContain("waiting &lt;two&gt;");
-    expect(html).toContain("1 waiting for runtime");
-    expect(html).toContain("1 running");
+    expect(html).toContain("waiting for runtime");
+    expect(html).toContain("12.4s");
     expect(html).toContain("→ master/gemma &lt;b&gt;");
     expect(html).not.toContain("Active requests");
-    expect(html.match(/class="node-request-group"/g)).toHaveLength(3);
+    expect(html.match(/class="node-request"/g)).toHaveLength(3);
+  });
+
+  it("keeps requests of one model apart, each with its own time, oldest first", () => {
+    const state = snapshot();
+    state.requests = [
+      {lane: "text", model_id: "qwen", state: "running", age_ms: 1000},
+      {lane: "text", model_id: "qwen", state: "queued", age_ms: 7500},
+      {lane: "text", model_id: "qwen", state: "running", age_ms: 4000}
+    ];
+
+    const html = renderNodeStateSnapshot("node-a", state, "");
+
+    expect(html.match(/class="node-request"/g)).toHaveLength(3);
+    expect(html.indexOf("7.5s")).toBeLessThan(html.indexOf("4.0s"));
+    expect(html.indexOf("4.0s")).toBeLessThan(html.indexOf("1.0s"));
   });
 
   it("falls back to the legacy sections for a node that does not report requests", () => {
     const html = renderNodeStateSnapshot("node-a", snapshot(), "");
 
     expect(html).toContain("Active requests");
-    expect(html).not.toContain("node-request-group");
+    expect(html).not.toContain('class="node-request"');
   });
 });

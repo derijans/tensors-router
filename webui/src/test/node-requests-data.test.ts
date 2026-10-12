@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupRequestsByModel, requestsForUnloadedModels, runningRequestCount } from "../node-requests-data";
+import { groupRequestsByModel, requestsForUnloadedModels, requestsOldestFirst, runningRequestCount } from "../node-requests-data";
 import type { NodeRequest } from "../types";
 
 const requests: NodeRequest[] = [
@@ -29,6 +29,13 @@ describe("node request grouping", () => {
     ]);
 
     expect(groups).toHaveLength(2);
+  });
+
+  it("orders single requests oldest first without merging them", () => {
+    const ordered = requestsOldestFirst(requests);
+
+    expect(ordered).toHaveLength(requests.length);
+    expect(ordered.map(request => request.age_ms)).toEqual([9000, 4000, 2000, 1000, 500, 300]);
   });
 
   it("counts running and borrowed requests as active for a loaded model", () => {

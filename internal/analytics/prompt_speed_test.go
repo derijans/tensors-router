@@ -179,3 +179,12 @@ func TestMergeWeighsTimelinePromptSpeedBySamples(t *testing.T) {
 		t.Fatalf("unexpected merged prompt speed %#v", merged.Timeline)
 	}
 }
+
+func TestApplyResponseRejectsAGenerationSpeedNoHardwareReaches(t *testing.T) {
+	event := Event{}
+	ApplyResponse(&event, "application/json", []byte(`{"usage":{"prompt_tokens":20,"completion_tokens":300,"tokens_per_second":333333.3}}`))
+
+	if event.TokensPerSecond >= fastestCredibleGenerationRate {
+		t.Fatalf("an implausible reported generation speed was kept: %.1f", event.TokensPerSecond)
+	}
+}

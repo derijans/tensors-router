@@ -11,20 +11,20 @@ import (
 )
 
 type offloadCandidate struct {
-	NodeID            string
-	ModelID           string
-	ConfigFilename    string
-	Section           string
-	Loaded            bool
-	DisplacedConfigs  []string
-	AcceptingBorrowed bool
-	IdleFor           time.Duration
-	ContextCapacity   int
-	PendingCount      int64
-	PendingWork       schedulingcost.Work
-	PendingContext    int64
-	BacklogCount      int64
-	BacklogWork       schedulingcost.Work
+	NodeID                string
+	ModelID               string
+	ConfigFilename        string
+	Section               string
+	Loaded                bool
+	DisplacedConfigs      []string
+	AcceptingBorrowed     bool
+	IdleFor               time.Duration
+	ContextCapacity       int
+	PendingCount          int64
+	PendingWork           schedulingcost.Work
+	PendingLargestContext int64
+	BacklogCount          int64
+	BacklogWork           schedulingcost.Work
 }
 
 type offloadHelperCandidate struct {
@@ -124,7 +124,7 @@ func planOffloadLeases(lane string, owners []lendingOwner, costs *schedulingcost
 			plan.leases = append(plan.leases, lease)
 			continue
 		}
-		plan.probeDueIn(soonestProbeFor(candidate.helpers, claimed, ownerDemandFor(candidate.owner, costs).meanContext, policy.probeIdle))
+		plan.probeDueIn(soonestProbeFor(candidate.helpers, claimed, ownerDemandFor(candidate.owner, costs).largestContext, policy.probeIdle))
 	}
 	return plan
 }

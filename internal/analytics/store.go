@@ -125,6 +125,13 @@ func (store *Store) pruneRawEvents(ctx context.Context, now time.Time) error {
 	return err
 }
 
+func (store *Store) RawRetention() time.Duration {
+	if store == nil {
+		return 0
+	}
+	return store.rawRetention
+}
+
 func (store *Store) rawRetentionCutoff(now time.Time) int64 {
 	if store == nil || store.rawRetention <= 0 {
 		return 0

@@ -178,7 +178,7 @@ func offloadCandidateFor(lane string, endpoint routinggroups.Endpoint, models ma
 		candidate.Loaded = status.ActiveTextConfig == model.Filename
 		candidate.AcceptingBorrowed = status.AcceptingBorrowedText
 		candidate.ContextCapacity = model.Capabilities.Context
-		candidate.PendingContext = stats.PendingContext
+		candidate.PendingLargestContext = stats.PendingLargestContext
 	} else {
 		candidate.Loaded = status.ActiveImageConfig == model.Filename
 		candidate.AcceptingBorrowed = status.AcceptingBorrowedImage

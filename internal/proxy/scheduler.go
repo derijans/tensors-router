@@ -58,6 +58,8 @@ type scheduler struct {
 	refreshCancel context.CancelFunc
 	refreshDone   chan struct{}
 	intervalReset chan struct{}
+
+	retentionWarning sync.Once
 }
 
 func newScheduler(deps schedulerDeps, analytics *requestAnalytics, decisions decisionRecorder, settings offloadsettings.Settings, logger *log.Logger) *scheduler {

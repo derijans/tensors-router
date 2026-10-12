@@ -262,3 +262,33 @@ func TestLeasedHelperWithoutVisionIsNotGivenImages(t *testing.T) {
 		t.Fatal("a request without images was kept from a helper without vision")
 	}
 }
+
+func leaseTextHelper(service *Service, helperModelID string) {
+	lease := offloadLease{Lane: cluster.RouteLaneText, OwnerNodeID: service.nodeID, OwnerModelID: "llama-70b", HelperNodeID: "slave-a", HelperModelID: helperModelID, ExpiresAt: time.Now().Add(time.Minute)}
+	service.scheduler.offloadLeases.Store(laneModelKey(cluster.RouteLaneText, "llama-70b"), lease)
+}
+
+func TestLentTextRequestNamesWhyTheHelperCannotTakeIt(t *testing.T) {
+	service := newLinkedTextService(t, nil, true)
+	small := testClusterModel("llama-70b-alt", "slave-a", "weights", "config-b", cluster.SourceSlave)
+	small.Capabilities.Context = 100
+	if err := service.registry.UpdateNode(cluster.Snapshot{ProtocolVersion: cluster.ProtocolVersion, NodeID: "slave-a", NodeURL: "http://slave-a", Models: []cluster.Model{small}}); err != nil {
+		t.Fatal(err)
+	}
+	oversized := &offloadEntry{requiredContext: 6000}
+	fitting := &offloadEntry{requiredContext: 50}
+
+	if reason := service.lentTextRequestMisfit("llama-70b", fitting, []byte(textChatBody)); reason != reasonLeaseExpired {
+		t.Fatalf("reason %q without a lease, want %q", reason, reasonLeaseExpired)
+	}
+	leaseTextHelper(service, "llama-70b-alt")
+	if reason := service.lentTextRequestMisfit("llama-70b", oversized, []byte(textChatBody)); reason != reasonContextTooSmall {
+		t.Fatalf("reason %q for an oversized request, want %q", reason, reasonContextTooSmall)
+	}
+	if reason := service.lentTextRequestMisfit("llama-70b", fitting, []byte(imageChatBody)); reason != reasonHelperCannotSeeImages {
+		t.Fatalf("reason %q for an image request, want %q", reason, reasonHelperCannotSeeImages)
+	}
+	if reason := service.lentTextRequestMisfit("llama-70b", fitting, []byte(textChatBody)); reason != "" {
+		t.Fatalf("reason %q for a request the helper can take, want none", reason)
+	}
+}

@@ -1,6 +1,6 @@
 import { SafeHTML, emptyHTML, html } from "./safe-html";
 import { badge, laneAccent } from "./markup-primitives";
-import { groupRequestsByModel, type ModelRequestGroup } from "./node-requests-data";
+import { requestsOldestFirst, type ModelRequestGroup } from "./node-requests-data";
 import type { NodeRequest, NodeRequestState, Tone } from "./types";
 
 const stateLabels: Record<NodeRequestState, string> = {
@@ -22,30 +22,30 @@ const stateTones: Record<NodeRequestState, Tone> = {
 };
 
 export function renderNodeRequests(requests: readonly NodeRequest[]): SafeHTML {
-  const groups = groupRequestsByModel(requests);
   return html`
     <section class="node-requests" aria-label="Requests">
       <h4>Requests</h4>
-      ${groups.length > 0 ? html`<ul>${groups.map(renderRequestGroup)}</ul>` : html`<p class="muted node-state-empty">No requests.</p>`}
+      ${requests.length > 0 ? html`<ul>${requestsOldestFirst(requests).map(renderRequest)}</ul>` : html`<p class="muted node-state-empty">No requests.</p>`}
     </section>
+  `;
+}
+
+function renderRequest(request: NodeRequest): SafeHTML {
+  const helper = request.state === "lent" ? `${request.helper_node_id || "?"}/${request.helper_model_id || "?"}` : "";
+  return html`
+    <li class="node-request">
+      ${badge(request.lane, laneAccent(request.lane))}
+      <span>${request.model_id}</span>
+      ${badge(stateLabels[request.state] ?? request.state, stateTones[request.state] ?? "neutral")}
+      <span class="muted">${formatAge(request.age_ms)}</span>
+      ${helper !== "" ? html`<span class="muted">→ ${helper}</span>` : emptyHTML}
+    </li>
   `;
 }
 
 export function renderRequestStateBadges(group: ModelRequestGroup): SafeHTML {
   const states = [...group.counts.entries()].map(([state, count]) => badge(`${count} ${stateLabels[state] ?? state}`, stateTones[state] ?? "neutral"));
   return html`${states}`;
-}
-
-function renderRequestGroup(group: ModelRequestGroup): SafeHTML {
-  return html`
-    <li class="node-request-group">
-      ${badge(group.lane, laneAccent(group.lane))}
-      <span>${group.modelID}</span>
-      ${renderRequestStateBadges(group)}
-      <span class="muted">${formatAge(group.oldestAgeMS)}</span>
-      ${group.helpers.length > 0 ? html`<span class="muted">→ ${group.helpers.join(", ")}</span>` : emptyHTML}
-    </li>
-  `;
 }
 
 function formatAge(milliseconds: number): string {

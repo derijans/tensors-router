@@ -19,23 +19,26 @@ const (
 	reasonOwnerUnpriced      = "owner_unpriced"
 	reasonCostRejected       = "cost_rejected"
 	reasonOutranked          = "outranked"
+
+	reasonLeaseExpired          = "lease_expired"
+	reasonHelperCannotSeeImages = "helper_cannot_see_images"
 )
 
 type ownerDemand struct {
-	owner       offloadCandidate
-	meanWork    schedulingcost.Work
-	meanContext int
-	keepMS      float64
-	jobMS       float64
-	priced      bool
+	owner          offloadCandidate
+	meanWork       schedulingcost.Work
+	largestContext int
+	keepMS         float64
+	jobMS          float64
+	priced         bool
 }
 
 func ownerDemandFor(owner offloadCandidate, costs *schedulingcost.Table) ownerDemand {
 	key := offloadModelKey(owner)
 	demand := ownerDemand{
-		owner:       owner,
-		meanWork:    owner.PendingWork.Mean(owner.PendingCount),
-		meanContext: int(owner.PendingContext / owner.PendingCount),
+		owner:          owner,
+		meanWork:       owner.PendingWork.Mean(owner.PendingCount),
+		largestContext: int(owner.PendingLargestContext),
 	}
 	keepMS, keepPriced := costs.PredictQueueMS(key, owner.BacklogCount, owner.BacklogWork)
 	jobMS, jobPriced := costs.PredictMS(key, demand.meanWork)
@@ -66,7 +69,7 @@ func (evaluation helperEvaluation) totalMS() float64 {
 }
 
 func evaluateHelper(helper offloadHelperCandidate, claimed map[string]bool, costs *schedulingcost.Table, demand ownerDemand) helperEvaluation {
-	evaluation := helperEvaluation{helper: helper, ineligible: helperIneligibility(helper, claimed, demand.meanContext)}
+	evaluation := helperEvaluation{helper: helper, ineligible: helperIneligibility(helper, claimed, demand.largestContext)}
 	switchMS, switchPriced := offloadSwitchMS(helper.offloadCandidate, costs)
 	restoreMS, restorePriced := offloadRestoreMS(helper.offloadCandidate, costs)
 	serviceMS, serviceSource, servicePriced := helperServiceMS(helper.offloadCandidate, costs, demand)
@@ -104,7 +107,7 @@ func offloadRestoreMS(helper offloadCandidate, costs *schedulingcost.Table) (flo
 	return total, true
 }
 
-func helperIneligibility(helper offloadHelperCandidate, claimed map[string]bool, meanContext int) string {
+func helperIneligibility(helper offloadHelperCandidate, claimed map[string]bool, largestContext int) string {
 	switch {
 	case !helper.AcceptingBorrowed:
 		return reasonHelperNotAccepting
@@ -112,15 +115,15 @@ func helperIneligibility(helper offloadHelperCandidate, claimed map[string]bool,
 		return reasonHelperClaimed
 	case !helper.Loaded && !helper.LoadIfUnloaded:
 		return reasonLoadForbidden
-	case !helperWindowHolds(helper.offloadCandidate, meanContext):
+	case !helperWindowHolds(helper.offloadCandidate, largestContext):
 		return reasonContextTooSmall
 	default:
 		return ""
 	}
 }
 
-func helperWindowHolds(helper offloadCandidate, meanContext int) bool {
-	return meanContext <= 0 || helper.ContextCapacity >= meanContext
+func helperWindowHolds(helper offloadCandidate, largestContext int) bool {
+	return largestContext <= 0 || helper.ContextCapacity >= largestContext
 }
 
 func offloadSwitchMS(helper offloadCandidate, costs *schedulingcost.Table) (float64, bool) {
@@ -190,11 +193,11 @@ func probeIdleBar(helper offloadCandidate, probeIdle time.Duration) time.Duratio
 	return probeIdle * unloadedProbeIdleFactor
 }
 
-func soonestProbeFor(helpers []offloadHelperCandidate, claimed map[string]bool, meanContext int, probeIdle time.Duration) time.Duration {
+func soonestProbeFor(helpers []offloadHelperCandidate, claimed map[string]bool, largestContext int, probeIdle time.Duration) time.Duration {
 	var soonest time.Duration
 	for _, helper := range helpers {
 		bar := probeIdleBar(helper.offloadCandidate, probeIdle)
-		if helperIneligibility(helper, claimed, meanContext) != "" || helper.IdleFor >= bar {
+		if helperIneligibility(helper, claimed, largestContext) != "" || helper.IdleFor >= bar {
 			continue
 		}
 		if wait := bar - helper.IdleFor; soonest == 0 || wait < soonest {

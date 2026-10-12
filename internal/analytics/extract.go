@@ -289,24 +289,28 @@ type throughputReport struct {
 	bareRate          []string
 	ollamaCount       []string
 	ollamaNanoseconds []string
+
+	fastestCredibleRate float64
 }
 
 var generationThroughput = throughputReport{
-	reportedRate:      [][]string{{"usage", "tokens_per_second"}, {"tokens_per_second"}},
-	llamaTimingMS:     []string{"timings", "predicted_ms"},
-	llamaTimingRate:   []string{"timings", "predicted_per_second"},
-	bareRate:          []string{"predicted_per_second"},
-	ollamaCount:       []string{"eval_count"},
-	ollamaNanoseconds: []string{"eval_duration"},
+	fastestCredibleRate: fastestCredibleGenerationRate,
+	reportedRate:        [][]string{{"usage", "tokens_per_second"}, {"tokens_per_second"}},
+	llamaTimingMS:       []string{"timings", "predicted_ms"},
+	llamaTimingRate:     []string{"timings", "predicted_per_second"},
+	bareRate:            []string{"predicted_per_second"},
+	ollamaCount:         []string{"eval_count"},
+	ollamaNanoseconds:   []string{"eval_duration"},
 }
 
 var promptThroughput = throughputReport{
-	reportedRate:      [][]string{{"usage", "prompt_tokens_per_second"}},
-	llamaTimingMS:     []string{"timings", "prompt_ms"},
-	llamaTimingRate:   []string{"timings", "prompt_per_second"},
-	bareRate:          []string{"prompt_per_second"},
-	ollamaCount:       []string{"prompt_eval_count"},
-	ollamaNanoseconds: []string{"prompt_eval_duration"},
+	fastestCredibleRate: fastestCrediblePromptRate,
+	reportedRate:        [][]string{{"usage", "prompt_tokens_per_second"}},
+	llamaTimingMS:       []string{"timings", "prompt_ms"},
+	llamaTimingRate:     []string{"timings", "prompt_per_second"},
+	bareRate:            []string{"prompt_per_second"},
+	ollamaCount:         []string{"prompt_eval_count"},
+	ollamaNanoseconds:   []string{"prompt_eval_duration"},
 }
 
 func reportedTokensPerSecond(root map[string]any) float64 {
@@ -318,6 +322,13 @@ func reportedPromptTokensPerSecond(root map[string]any) float64 {
 }
 
 func (report throughputReport) tokensPerSecond(root map[string]any) float64 {
+	if rate := report.backendRate(root); rate <= report.fastestCredibleRate {
+		return rate
+	}
+	return 0
+}
+
+func (report throughputReport) backendRate(root map[string]any) float64 {
 	if reported := firstNumber(root, report.reportedRate...); reported > 0 {
 		return reported
 	}
@@ -338,7 +349,11 @@ func (report throughputReport) tokensPerSecond(root map[string]any) float64 {
 	return 0
 }
 
-const shortestCredibleEvalDuration = time.Millisecond
+const (
+	shortestCredibleEvalDuration  = time.Millisecond
+	fastestCredibleGenerationRate = 20000.0
+	fastestCrediblePromptRate     = 1000000.0
+)
 
 func DeriveTotals(event *Event) {
 	deriveTokenTotals(event)

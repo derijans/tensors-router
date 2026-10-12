@@ -275,13 +275,23 @@ func (queue *offloadQueue) HeldSnapshot() []heldRequest {
 	return held
 }
 
+// Pending counts only the requests that may still be lent. A pinned request
+// waits for this node's runtime and can never leave it, so it is backlog only.
 type offloadModelStats struct {
-	ModelID        string              `json:"model_id"`
-	PendingCount   int64               `json:"pending_count"`
-	PendingWork    schedulingcost.Work `json:"pending_work"`
-	PendingContext int64               `json:"pending_context,omitempty"`
-	BacklogCount   int64               `json:"backlog_count"`
-	BacklogWork    schedulingcost.Work `json:"backlog_work"`
+	ModelID               string              `json:"model_id"`
+	PendingCount          int64               `json:"pending_count"`
+	PendingWork           schedulingcost.Work `json:"pending_work"`
+	PendingLargestContext int64               `json:"pending_largest_context,omitempty"`
+	BacklogCount          int64               `json:"backlog_count"`
+	BacklogWork           schedulingcost.Work `json:"backlog_work"`
+}
+
+func (stats *offloadModelStats) addLendable(entry *offloadEntry) {
+	stats.PendingCount++
+	if sum, ok := stats.PendingWork.Add(entry.work); ok {
+		stats.PendingWork = sum
+	}
+	stats.PendingLargestContext = max(stats.PendingLargestContext, entry.requiredContext)
 }
 
 func (queue *offloadQueue) Stats() []offloadModelStats {
@@ -304,11 +314,9 @@ func (queue *offloadQueue) Stats() []offloadModelStats {
 			continue
 		}
 		stats := statsFor(entry.modelID)
-		stats.PendingCount++
-		if sum, ok := stats.PendingWork.Add(entry.work); ok {
-			stats.PendingWork = sum
+		if !entry.pinned {
+			stats.addLendable(entry)
 		}
-		stats.PendingContext += entry.requiredContext
 		stats.BacklogCount++
 		if sum, ok := stats.BacklogWork.Add(entry.work); ok {
 			stats.BacklogWork = sum

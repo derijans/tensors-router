@@ -26,6 +26,10 @@ export function groupRequestsByModel(requests: readonly NodeRequest[]): ModelReq
   return [...groups.values()].sort((left, right) => right.oldestAgeMS - left.oldestAgeMS);
 }
 
+export function requestsOldestFirst(requests: readonly NodeRequest[]): NodeRequest[] {
+  return [...requests].sort((left, right) => right.age_ms - left.age_ms);
+}
+
 export function runningRequestCount(requests: readonly NodeRequest[], modelID: string): number {
   return requests.filter(request => request.model_id === modelID && runningStates.includes(request.state)).length;
 }

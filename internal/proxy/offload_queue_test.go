@@ -336,7 +336,20 @@ func TestTextQueueStatsCarryBothWorkTermsAndContext(t *testing.T) {
 	if stats[0].PendingWork.Term(0) != 200 || stats[0].PendingWork.Term(1) != 40 {
 		t.Fatalf("pending work = %+v, want (200, 40)", stats[0].PendingWork)
 	}
-	if stats[0].PendingContext != 4096 {
-		t.Fatalf("pending context = %d, want 4096", stats[0].PendingContext)
+	if stats[0].PendingLargestContext != 4096 {
+		t.Fatalf("pending context = %d, want 4096", stats[0].PendingLargestContext)
+	}
+}
+
+func TestPinnedPendingEntryIsNotOfferedForLending(t *testing.T) {
+	queue := newOffloadQueue(1)
+	running := queue.Enqueue(queuedRequest{modelID: "group", work: schedulingcost.TextWork(100, 20), requiredContext: 2048, origin: nativeRequest}, nodeActivity(true), time.Now())
+	mustBeAdmitted(t, running, "running")
+	queue.Enqueue(queuedRequest{modelID: "group", work: schedulingcost.TextWork(100, 20), requiredContext: 9000, origin: nativeRequest, withdrawal: pinnedToThisNode}, nodeActivity(true), time.Now())
+	queue.Enqueue(queuedRequest{modelID: "group", work: schedulingcost.TextWork(100, 20), requiredContext: 3000, origin: nativeRequest}, nodeActivity(true), time.Now())
+
+	stats := queue.Stats()
+	if len(stats) != 1 || stats[0].PendingCount != 1 || stats[0].PendingLargestContext != 3000 || stats[0].BacklogCount != 3 {
+		t.Fatalf("stats = %+v, want one lendable pending request of context 3000 inside a backlog of 3", stats)
 	}
 }
