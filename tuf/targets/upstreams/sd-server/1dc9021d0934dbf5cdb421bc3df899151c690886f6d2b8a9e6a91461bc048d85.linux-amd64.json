@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "410910834",
+      "tag": "master-959-d637cfb",
+      "published_at": "2026-10-12T18:53:02Z",
+      "payloads": [
+        {
+          "name": "sd-master-d637cfb-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-959-d637cfb/sd-master-d637cfb-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 26143940,
+          "sha256": "6e9533808ffe8f4288025741d8f0cdc9305124bff8a51449dc4bc22544c8eaad"
+        }
+      ]
+    }
+  ]
+}
