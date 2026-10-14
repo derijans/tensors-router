@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "411962336",
+      "tag": "master-964-1d0a58a",
+      "published_at": "2026-10-13T18:01:29Z",
+      "payloads": [
+        {
+          "name": "sd-master-1d0a58a-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-964-1d0a58a/sd-master-1d0a58a-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 26163007,
+          "sha256": "2c2e6d4c0ad6a183283bda586e6e42c946eebfd9019278405d31763920ac36fa"
+        }
+      ]
+    }
+  ]
+}
