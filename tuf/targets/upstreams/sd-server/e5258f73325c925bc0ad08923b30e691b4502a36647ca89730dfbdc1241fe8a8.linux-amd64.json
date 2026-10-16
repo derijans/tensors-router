@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "414238483",
+      "tag": "master-968-8cd731e",
+      "published_at": "2026-10-15T20:22:54Z",
+      "payloads": [
+        {
+          "name": "sd-master-8cd731e-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-968-8cd731e/sd-master-8cd731e-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 26182248,
+          "sha256": "27362e7b6d2c2bc1f56a38a65f74c270abb7f7fa2e3bd07be82be0b3c8de7abc"
+        }
+      ]
+    }
+  ]
+}

@@ -4,14 +4,14 @@
   "releases": [
     {
       "id": "411428641",
-      "tag": "v1.123",
+      "tag": "v1.123.1",
       "published_at": "2026-10-13T13:36:42Z",
       "payloads": [
         {
           "name": "koboldcpp-linux-x64-nocuda",
-          "url": "https://github.com/LostRuins/koboldcpp/releases/download/v1.123/koboldcpp-linux-x64-nocuda",
-          "length": 137030248,
-          "sha256": "89bf9b17ea6a43533a170d2db516acf25e0763363ed4f9825a61efb201ac8be7"
+          "url": "https://github.com/LostRuins/koboldcpp/releases/download/v1.123.1/koboldcpp-linux-x64-nocuda",
+          "length": 137022184,
+          "sha256": "6b1aa62b69f825199c3296b7dd36ff6b332b894098f50db8aba0061861c14d2b"
         }
       ]
     }

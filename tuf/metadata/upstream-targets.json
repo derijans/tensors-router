@@ -2,47 +2,47 @@
 	"signatures": [
 		{
 			"keyid": "5a226ee87c683f7fb870630783d02dc82f5d46a047aaf9d54e22282771bdc4a2",
-			"sig": "8e6ca4e26305e7ac9b4d8e2826f8ce9854c597426ad4f70f1a27890afbf97fddfe8d532d0d41e92364bc4c73eb19c36f14ff3ac3df7c13fa867f29065412a306"
+			"sig": "205dd0e64ad99ea59f9bc0876d79626ecb56403521d7d957308bce33dd9502351cd3864f0d1fc091fd2fd096dc048b514ae3d52984bdaa799b6b664e8855860b"
 		}
 	],
 	"signed": {
 		"_type": "targets",
-		"expires": "2026-11-15T08:16:40.397099175Z",
+		"expires": "2026-11-16T08:09:05.456768813Z",
 		"spec_version": "1.0.31",
 		"targets": {
 			"upstreams/koboldcpp/linux-amd64.json": {
 				"hashes": {
-					"sha256": "415a4a89418659c9f8b268a3f601da24d0dad73eae4310eaf850f168833bda1f"
+					"sha256": "fe86aedae987c3c409c2a87dbbe71530e8f5bf4e8b9606a65bf2cbc6b0af53e3"
 				},
-				"length": 527
+				"length": 531
 			},
 			"upstreams/koboldcpp/windows-amd64.json": {
 				"hashes": {
-					"sha256": "79a520debbf93863f81ec11178663ffd7c214dc37a8190e671a7d55cd12287a4"
+					"sha256": "f5bce7ea3f7848ca1ffd58c272e73c3fb9be87ae2ff5a12daab9e5377cd32949"
 				},
-				"length": 501
+				"length": 505
 			},
 			"upstreams/llama-server/linux-amd64.json": {
 				"hashes": {
-					"sha256": "f19ecd51d45455c5aabc783e80c51bb973e64c103b109c1e2241a4a008cb6326"
+					"sha256": "cc49d342acf7e4b85e175f4602c1790c455ae7417d4e5829be63c907f3967593"
 				},
 				"length": 566
 			},
 			"upstreams/llama-server/windows-amd64.json": {
 				"hashes": {
-					"sha256": "35fb15be76334c298514ef346cd26a7c66f60857900e6f591e7926933a1cdf20"
+					"sha256": "3497fc17f7e191a063c95fd32671930deecb185bdb4a1c55bd18f680d105df47"
 				},
 				"length": 562
 			},
 			"upstreams/sd-server/linux-amd64.json": {
 				"hashes": {
-					"sha256": "efb97a276c3676390eba42a23ef2eb7576a43db450b653016f431a69b29c8319"
+					"sha256": "e5258f73325c925bc0ad08923b30e691b4502a36647ca89730dfbdc1241fe8a8"
 				},
 				"length": 616
 			},
 			"upstreams/sd-server/windows-amd64.json": {
 				"hashes": {
-					"sha256": "76b3398548c6eeceb6f4aa0d412d93f080af511e2a5446e8f2caa5e90fcf57f5"
+					"sha256": "53d61748c102e7571f91491f1ecf5be033c4690d29553bf88b189744fc684389"
 				},
 				"length": 588
 			},
@@ -59,6 +59,6 @@
 				"length": 511
 			}
 		},
-		"version": 72
+		"version": 73
 	}
 }
