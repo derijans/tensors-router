@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "415296788",
+      "tag": "master-970-2f016e8",
+      "published_at": "2026-10-16T19:12:23Z",
+      "payloads": [
+        {
+          "name": "sd-master-2f016e8-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-970-2f016e8/sd-master-2f016e8-bin-win-cpu-x64.zip",
+          "length": 17583859,
+          "sha256": "d04797cc9a375f8f1b43a1ab500c50b3bf6528a383d93189822e68ce0e6585b3"
+        }
+      ]
+    }
+  ]
+}

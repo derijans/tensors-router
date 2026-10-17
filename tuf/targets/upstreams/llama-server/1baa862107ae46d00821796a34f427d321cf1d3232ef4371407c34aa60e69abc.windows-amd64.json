@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/ggml-org/llama.cpp",
+  "releases": [
+    {
+      "id": "415537388",
+      "tag": "b11706",
+      "published_at": "2026-10-17T02:29:58Z",
+      "prerelease": true,
+      "payloads": [
+        {
+          "name": "llama-b11706-bin-win-cpu-x64.zip",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11706/llama-b11706-bin-win-cpu-x64.zip",
+          "length": 19611156,
+          "sha256": "f426ae6d20afeb6970f51cc182dedc3b21cf23ec278192da1af262de43be6115"
+        }
+      ]
+    }
+  ]
+}

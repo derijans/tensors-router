@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/ggml-org/llama.cpp",
+  "releases": [
+    {
+      "id": "415537388",
+      "tag": "b11706",
+      "published_at": "2026-10-17T02:29:58Z",
+      "prerelease": true,
+      "payloads": [
+        {
+          "name": "llama-b11706-bin-ubuntu-x64.tar.gz",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11706/llama-b11706-bin-ubuntu-x64.tar.gz",
+          "length": 17914170,
+          "sha256": "ee8ca9d49dc3c139e4981f4bb894487d5cf0177de4c990c9c669b8f45ec32a38"
+        }
+      ]
+    }
+  ]
+}
