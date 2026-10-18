@@ -51,6 +51,11 @@ func (service *Service) handleStreamingRequest(w http.ResponseWriter, r *http.Re
 	if route.release == nil {
 		route.release = func() {}
 	}
+	if !route.remote && backendLacksOllamaAPI(route.backendMode, r.URL.Path) {
+		route.release()
+		openai.WriteError(w, http.StatusRequestEntityTooLarge, "request_too_large", "Ollama requests to a "+route.backendMode+" backend must fit the replay buffer (limits.replay_buffer_mb)")
+		return
+	}
 	request := rewriteTransportRequestSelectors(r, route.localID, route.readiness)
 	profile := service.localChatTemplateProfile(route.configFilename, route.remote)
 	forwardBody, err := transformTransportRequestBody(request, body, route, profile)

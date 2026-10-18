@@ -72,7 +72,7 @@ The load API can supply an unload target. The unload API accepts one target or a
 
 **Load-time effect:** Use profiles with the same model and the same top-level `jinja_kwargs` keys for variants such as thinking enabled and disabled. The router can reuse the loaded runtime and model weights when only those values differ. Switching profiles then avoids the normal unload, backend restart, model load, and readiness wait, which significantly reduces the delay between compatible model variants.
 
-For `/v1/chat/completions`, `jinja_kwargs` may be a JSON object or a string containing a JSON object. The router merges those values into the request's `chat_template_kwargs`.
+For `/v1/chat/completions` and the Ollama `/api/chat` and `/api/generate`, `jinja_kwargs` may be a JSON object or a string containing a JSON object. The router merges those values into the request's `chat_template_kwargs`. An Ollama `think` value only fills `enable_thinking` when the config does not set it.
 
 `router_jinja_kwargs_precedence` accepts:
 
@@ -81,7 +81,7 @@ For `/v1/chat/completions`, `jinja_kwargs` may be a JSON object or a string cont
 
 A null client value is treated as absent. When configured kwargs are active, duplicate or non-object `chat_template_kwargs` fields are rejected.
 
-Compatible profiles can share one loaded runtime. Compatibility requires all non-Jinja configuration values and the sorted top-level Jinja key set to match. A different key set or another runtime setting causes a normal reload.
+Compatible profiles can share one loaded runtime. Compatibility requires all non-Jinja configuration values and the sorted top-level Jinja key set to match. With `models.share_runtime_by_launch_arguments` on (the default), `router_*` keys and the `gendefaults` the router injects (see [Generation defaults](#generation-defaults)) are left out of that comparison. A different key set or another runtime setting causes a normal reload.
 
 For example, these values are compatible when every other `.kcpps` field is identical:
 
@@ -98,6 +98,24 @@ Both profiles contain the same `enable_thinking` key. The router applies the sel
 This behavior requires backend support for request-level `chat_template_kwargs`.
 
 llama.cpp keeps reasoning from earlier assistant turns by default (`preserve_reasoning` on since `b10763`). Set `reasoning_preserve` in the `.kcpps` to change the default for the whole runtime, or put `preserve_reasoning` in a profile's `jinja_kwargs` to change it per request.
+
+## Generation defaults
+
+**Load-time effect:** Variants that differ only in `gendefaults` (for example an instruct and a thinking profile with different temperatures) share one loaded runtime, on both KoboldCpp and llama.cpp.
+
+With `models.inject_request_defaults` on (the default), the router adds a config's `gendefaults` to each generation request instead of leaving them to KoboldCpp. It follows KoboldCpp's rule: a field the client sent is kept, and a field the client left out is filled in. With `gendefaultsoverwrite: true` the configured value always wins. `gendefaults` may be a JSON object or a string holding one; a value KoboldCpp could not parse is ignored, as KoboldCpp ignores it.
+
+| Request | Where the defaults go |
+| --- | --- |
+| `/v1/chat/completions`, `/v1/completions`, `/v1/responses`, `/v1/messages`, `/api/v1/generate`, `/api/extra/generate/stream` | Top level of the body |
+| `/api/chat` (Ollama) | Top level of the body on KoboldCpp, the `options` object elsewhere |
+| `/api/generate` (Ollama) | The `options` object |
+
+KoboldCpp receives the config's own field names. llama.cpp and the Ollama `options` object receive llama.cpp names: `rep_pen` and `repetition_penalty` become `repeat_penalty` (the largest value wins, as in KoboldCpp), `rep_pen_range` becomes `repeat_last_n`, and `typical` becomes `typical_p`. An explicit llama.cpp name in `gendefaults` wins over its KoboldCpp spelling. Fields llama.cpp does not know are passed on and ignored by it. vLLM configs get no injected defaults.
+
+A config that also loads an image model keeps `gendefaults` inside KoboldCpp, because KoboldCpp also reads image settings from it. Embedding, rerank and image requests are never changed.
+
+Requests from other clients that KoboldCpp used to fill from `gendefaults` on a route not listed above no longer get those defaults; set `models.inject_request_defaults: false` to keep KoboldCpp applying them. With `inject_request_defaults` on and `models.share_runtime_by_launch_arguments` off, the router still injects the defaults but every config change reloads the backend.
 
 ## Sharing configurations
 

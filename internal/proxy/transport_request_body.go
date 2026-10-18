@@ -14,7 +14,7 @@ import (
 const wavHeaderLength = 12
 
 func transformTransportRequestBody(r *http.Request, body transportbody.Body, route transportRoute, profile catalog.ChatTemplateProfile) (transportbody.Body, error) {
-	if strings.TrimSpace(route.localID) == "" && chatTemplateProfileForRequest(r.URL.Path, profile) == nil {
+	if strings.TrimSpace(route.localID) == "" && chatTemplateProfileForRequest(r.URL.Path, profile) == nil && generationDefaultsForRequest(r.URL.Path, profile) == nil {
 		return body, nil
 	}
 	if transportRequestIsJSON(r) {

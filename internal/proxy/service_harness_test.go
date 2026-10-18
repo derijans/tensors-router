@@ -209,6 +209,11 @@ func newTestServiceWithRawBackend(t *testing.T, backendHandler http.Handler, mod
 
 func newTestServiceWithConfigContents(t *testing.T, backendHandler http.Handler, configs map[string]string) (*Service, *fakeBackend) {
 	t.Helper()
+	return newTestServiceWithRequestProfiles(t, backendHandler, configs, catalog.RequestProfilePolicy{})
+}
+
+func newTestServiceWithRequestProfiles(t *testing.T, backendHandler http.Handler, configs map[string]string, requestProfiles catalog.RequestProfilePolicy) (*Service, *fakeBackend) {
+	t.Helper()
 
 	dir := t.TempDir()
 	for modelID, content := range configs {
@@ -239,7 +244,7 @@ func newTestServiceWithConfigContents(t *testing.T, backendHandler http.Handler,
 	backend := &fakeBackend{url: backendURL, healthy: true}
 	service := NewService(ServiceConfig{
 		Backend: backend,
-		Catalog: catalog.New(dir),
+		Catalog: catalog.NewWithRequestProfiles(dir, requestProfiles),
 		Logger:  log.New(io.Discard, "", 0),
 	})
 	return service, backend

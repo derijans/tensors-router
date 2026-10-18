@@ -60,6 +60,11 @@ func (processor *jsonProcessor) consumeObjectKey(value byte, index int) error {
 		if err := processor.countRootField(container); err != nil {
 			return err
 		}
+	} else if container.generationDefaultsTarget {
+		container.fieldCount++
+	}
+	if err := processor.noteGenerationDefaultKey(container); err != nil {
+		return err
 	}
 	container.state = objectColonState
 	return nil
@@ -126,6 +131,12 @@ func (processor *jsonProcessor) consumeValue(value byte, parentIndex int) error 
 	}
 	if processor.shouldMergeChatTemplateKwargs(*parent, path) {
 		return processor.writeMergedChatTemplateKwargs(value)
+	}
+	if processor.overwritesGenerationDefault(*parent) {
+		return processor.writeOverwrittenGenerationDefault(value, parent.key)
+	}
+	if processor.holdsGenerationOptions(*parent) {
+		return processor.consumeGenerationOptions(value)
 	}
 	switch value {
 	case '"':
@@ -220,6 +231,10 @@ func (processor *jsonProcessor) closeContainer(value byte) error {
 		if err := processor.writeRootInsertions(&container); err != nil {
 			return err
 		}
+	} else if container.generationDefaultsTarget {
+		if err := processor.writeMissingGenerationDefaults(&container); err != nil {
+			return err
+		}
 	}
 	if err := processor.writer.WriteByte(value); err != nil {
 		return err
@@ -239,28 +254,19 @@ func (processor *jsonProcessor) writeRootInsertions(container *jsonContainer) er
 			}
 		}
 	}
-	if processor.rewrite.ChatTemplateKwargs == nil || container.chatTemplateKwargsSeen {
-		return nil
-	}
-	return processor.writeConfiguredChatTemplateKwargs(container)
-}
-
-func (processor *jsonProcessor) writeConfiguredChatTemplateKwargs(container *jsonContainer) error {
-	if container.fieldCount > 0 {
-		if err := processor.writer.WriteByte(','); err != nil {
+	if processor.rewrite.ChatTemplateKwargs != nil && !container.chatTemplateKwargsSeen {
+		if err := processor.writeConfiguredChatTemplateKwargs(container); err != nil {
 			return err
 		}
 	}
-	encodedKey, err := json.Marshal(chatTemplateKwargsField)
-	if err != nil {
-		return err
+	if container.generationDefaultsTarget {
+		if err := processor.writeMissingGenerationDefaults(container); err != nil {
+			return err
+		}
 	}
-	if _, err := processor.writer.Write(encodedKey); err != nil {
-		return err
-	}
-	if err := processor.writer.WriteByte(':'); err != nil {
-		return err
-	}
-	_, err = processor.writer.Write(processor.rewrite.ChatTemplateKwargs.Configured)
-	return err
+	return processor.writeGenerationOptionsWhenAbsent(container)
+}
+
+func (processor *jsonProcessor) writeConfiguredChatTemplateKwargs(container *jsonContainer) error {
+	return processor.writeRawField(container, chatTemplateKwargsField, processor.rewrite.ChatTemplateKwargs.Configured)
 }

@@ -13,6 +13,8 @@ import (
 
 var primaryOnlyEmbeddingKeys = []string{"embeddingsmodel", "embeddingsmaxctx", "embeddingsgpu", "run_embed_separate"}
 
+var generationDefaultsKeys = []string{catalog.GenerationDefaultsKey, catalog.GenerationDefaultsOverwriteKey}
+
 func (manager *Manager) runtimeConfig(filename string) (string, string, catalog.RuntimeConfig, error) {
 	if filename == "" || filename != filepath.Base(filename) {
 		return "", "", catalog.RuntimeConfig{}, fmt.Errorf("config filename %q is invalid", filename)
@@ -29,13 +31,14 @@ func (manager *Manager) runtimeConfig(filename string) (string, string, catalog.
 	if err != nil {
 		return "", "", catalog.RuntimeConfig{}, err
 	}
-	if !metadata.RunEmbedSeparate {
-		if manager.role == embeddingsRole {
-			return "", "", catalog.RuntimeConfig{}, fmt.Errorf("config %q does not enable run_embed_separate", filename)
-		}
+	if !metadata.RunEmbedSeparate && manager.role == embeddingsRole {
+		return "", "", catalog.RuntimeConfig{}, fmt.Errorf("config %q does not enable run_embed_separate", filename)
+	}
+	stripGenerationDefaults := manager.leavesGenerationDefaultsToRouter(content)
+	if !metadata.RunEmbedSeparate && !stripGenerationDefaults {
 		return filename, "", metadata, nil
 	}
-	generatedContent, err := manager.roleRuntimeContent(content, metadata)
+	generatedContent, err := manager.roleRuntimeContent(content, metadata, stripGenerationDefaults)
 	if err != nil {
 		return "", "", catalog.RuntimeConfig{}, err
 	}
@@ -54,7 +57,11 @@ func (manager *Manager) runtimeConfig(filename string) (string, string, catalog.
 	return filepath.Join(routerRuntimeDirectory, runtimeName), runtimePath, metadata, nil
 }
 
-func (manager *Manager) roleRuntimeContent(content []byte, metadata catalog.RuntimeConfig) ([]byte, error) {
+func (manager *Manager) leavesGenerationDefaultsToRouter(content []byte) bool {
+	return manager.role != embeddingsRole && manager.config.RequestProfiles.RouterOwnsGenerationDefaults(content)
+}
+
+func (manager *Manager) roleRuntimeContent(content []byte, metadata catalog.RuntimeConfig, stripGenerationDefaults bool) ([]byte, error) {
 	var values map[string]json.RawMessage
 	if err := json.Unmarshal(content, &values); err != nil {
 		return nil, err
@@ -68,12 +75,21 @@ func (manager *Manager) roleRuntimeContent(content []byte, metadata catalog.Runt
 		}
 		manager.state.Unlock()
 		values = embeddingRuntimeValues(values, metadata.EmbeddingsGPU)
-	} else {
-		for _, key := range primaryOnlyEmbeddingKeys {
-			delete(values, key)
-		}
+		return json.Marshal(values)
+	}
+	if metadata.RunEmbedSeparate {
+		deleteKeys(values, primaryOnlyEmbeddingKeys)
+	}
+	if stripGenerationDefaults {
+		deleteKeys(values, generationDefaultsKeys)
 	}
 	return json.Marshal(values)
+}
+
+func deleteKeys(values map[string]json.RawMessage, keys []string) {
+	for _, key := range keys {
+		delete(values, key)
+	}
 }
 
 func (manager *Manager) runtimeConfigName(filename string, generatedContent []byte) string {

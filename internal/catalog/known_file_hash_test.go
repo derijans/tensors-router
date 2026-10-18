@@ -7,7 +7,7 @@ import (
 )
 
 func TestHashFileUsesAKnownHashInsteadOfReadingTheWeights(t *testing.T) {
-	catalog, err := NewWithStore(t.TempDir(), t.TempDir())
+	catalog, err := NewWithStore(t.TempDir(), t.TempDir(), RequestProfilePolicy{})
 	if err != nil {
 		t.Fatal(err)
 	}

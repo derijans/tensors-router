@@ -41,12 +41,14 @@ type AuthConfig struct {
 }
 
 type ModelsConfig struct {
-	ConfigDir                string
-	StartupModel             string
-	FileRoots                []string
-	SharedDir                string
-	HashWorkers              int
-	ConcurrentAssetTransfers int
+	ConfigDir                     string
+	StartupModel                  string
+	FileRoots                     []string
+	SharedDir                     string
+	HashWorkers                   int
+	ConcurrentAssetTransfers      int
+	InjectRequestDefaults         bool
+	ShareRuntimeByLaunchArguments bool
 }
 
 type BackendConfig struct {

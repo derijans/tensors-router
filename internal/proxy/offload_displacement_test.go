@@ -141,13 +141,13 @@ func TestUnloadedHelperIdleOnlyPastTheProbeThresholdIsNotProbed(t *testing.T) {
 func TestDisplacedConfigsNameEverythingTheNodeHoldsExceptTheHelpersOwnConfig(t *testing.T) {
 	status := NodeRuntimeStatus{ActiveTextConfig: "qwen.kcpps", ActiveImageConfig: "krea.kcpps"}
 
-	if got := displacedConfigsOf("krea.kcpps", status); len(got) != 1 || got[0] != "qwen.kcpps" {
+	if got := displacedConfigsOf("krea.kcpps", status, false); len(got) != 1 || got[0] != "qwen.kcpps" {
 		t.Fatalf("displaced = %v, want only the text config", got)
 	}
-	if got := displacedConfigsOf("gemma.kcpps", status); len(got) != 2 {
+	if got := displacedConfigsOf("gemma.kcpps", status, false); len(got) != 2 {
 		t.Fatalf("displaced = %v, want both configs", got)
 	}
-	if got := displacedConfigsOf("qwen.kcpps", NodeRuntimeStatus{ActiveTextConfig: "qwen.kcpps"}); len(got) != 0 {
+	if got := displacedConfigsOf("qwen.kcpps", NodeRuntimeStatus{ActiveTextConfig: "qwen.kcpps"}, false); len(got) != 0 {
 		t.Fatalf("displaced = %v, want nothing when the helper's model is already loaded", got)
 	}
 }

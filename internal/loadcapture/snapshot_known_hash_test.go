@@ -14,7 +14,7 @@ import (
 )
 
 func TestBuildSnapshotReusesCatalogHashUntilFileSizeOrModTimeChanges(t *testing.T) {
-	hashes, err := catalog.NewWithStore(t.TempDir(), t.TempDir())
+	hashes, err := catalog.NewWithStore(t.TempDir(), t.TempDir(), catalog.RequestProfilePolicy{})
 	if err != nil {
 		t.Fatal(err)
 	}

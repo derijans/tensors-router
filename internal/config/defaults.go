@@ -28,10 +28,12 @@ func Defaults() Config {
 			BearerKeys:    []string{},
 		},
 		Models: ModelsConfig{
-			ConfigDir:                "./kcpps",
-			FileRoots:                []string{},
-			HashWorkers:              1,
-			ConcurrentAssetTransfers: 2,
+			ConfigDir:                     "./kcpps",
+			FileRoots:                     []string{},
+			HashWorkers:                   1,
+			ConcurrentAssetTransfers:      2,
+			InjectRequestDefaults:         true,
+			ShareRuntimeByLaunchArguments: true,
 		},
 		Backend: BackendConfig{
 			Mode: "kobold",

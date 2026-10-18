@@ -41,6 +41,7 @@ type JSONRewrite struct {
 	Insertions         map[string]string
 	EscapeHTML         bool
 	ChatTemplateKwargs *ChatTemplateKwargsRewrite
+	GenerationDefaults *GenerationDefaultsRewrite
 }
 
 type ChatTemplateKwargsRewrite struct {
@@ -103,13 +104,15 @@ func NewJSONTransformReadCloser(source io.ReadCloser, rewrite JSONRewrite) io.Re
 }
 
 type jsonContainer struct {
-	kind                   byte
-	state                  int
-	key                    string
-	root                   bool
-	override               bool
-	fieldCount             int
-	chatTemplateKwargsSeen bool
+	kind                     byte
+	state                    int
+	key                      string
+	root                     bool
+	override                 bool
+	fieldCount               int
+	chatTemplateKwargsSeen   bool
+	generationDefaultsTarget bool
+	seenGenerationDefaults   map[string]bool
 }
 
 type jsonProcessor struct {
@@ -120,6 +123,9 @@ type jsonProcessor struct {
 	stack    []jsonContainer
 	started  bool
 	complete bool
+
+	generationDefaults    *generationDefaults
+	generationOptionsSeen bool
 }
 
 func processJSON(source io.Reader, destination io.Writer, rewrite JSONRewrite) (JSONFields, error) {
@@ -137,15 +143,20 @@ func runJSONProcessor(reader *bufio.Reader, writer *bufio.Writer, rewrite JSONRe
 			ConfigWins: rewrite.ChatTemplateKwargs.ConfigWins,
 		}
 	}
+	defaults, err := newGenerationDefaults(rewrite.GenerationDefaults)
+	if err != nil {
+		return JSONFields{}, err
+	}
 	processor := &jsonProcessor{
-		reader:  reader,
-		writer:  writer,
-		rewrite: rewrite,
+		reader:             reader,
+		writer:             writer,
+		rewrite:            rewrite,
+		generationDefaults: defaults,
 	}
 	if rewrite.Replacements == nil {
 		processor.rewrite.Replacements = map[string]StringReplacement{}
 	}
-	err := processor.run()
+	err = processor.run()
 	flushErr := processor.writer.Flush()
 	if err != nil {
 		return processor.fields, err
@@ -182,7 +193,11 @@ func (processor *jsonProcessor) run() error {
 			if err := processor.writer.WriteByte(value); err != nil {
 				return err
 			}
-			processor.stack = append(processor.stack, jsonContainer{kind: '{', state: objectFirstKeyState, root: true})
+			root := jsonContainer{kind: '{', state: objectFirstKeyState, root: true}
+			if processor.generationDefaults.targetsRoot() {
+				root = newGenerationDefaultsTarget(root)
+			}
+			processor.stack = append(processor.stack, root)
 			continue
 		}
 		if err := processor.consume(value); err != nil {
@@ -199,30 +214,11 @@ func (processor *jsonProcessor) flushLeadingWhitespaceBeforeWaiting() error {
 }
 
 func (processor *jsonProcessor) writeRootStringField(container *jsonContainer, key string, value string) error {
-	if container.fieldCount > 0 {
-		if err := processor.writer.WriteByte(','); err != nil {
-			return err
-		}
-	}
-	encodedKey, err := json.Marshal(key)
-	if err != nil {
-		return err
-	}
 	encodedValue, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
-	if _, err := processor.writer.Write(encodedKey); err != nil {
-		return err
-	}
-	if err := processor.writer.WriteByte(':'); err != nil {
-		return err
-	}
-	if _, err := processor.writer.Write(encodedValue); err != nil {
-		return err
-	}
-	container.fieldCount++
-	return nil
+	return processor.writeRawField(container, key, encodedValue)
 }
 
 func (processor *jsonProcessor) shouldMergeChatTemplateKwargs(parent jsonContainer, path string) bool {

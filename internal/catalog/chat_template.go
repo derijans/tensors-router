@@ -18,14 +18,16 @@ const (
 )
 
 type ChatTemplateProfile struct {
-	kwargs                  json.RawMessage
-	configured              bool
-	precedence              string
-	valid                   bool
-	physicalLoadFingerprint string
+	kwargs                             json.RawMessage
+	configured                         bool
+	precedence                         string
+	valid                              bool
+	physicalLoadFingerprint            string
+	generationDefaults                 GenerationDefaults
+	fingerprintExcludesRequestSettings bool
 }
 
-func ChatTemplateProfileForConfig(content []byte) ChatTemplateProfile {
+func ChatTemplateProfileForConfig(content []byte, policy RequestProfilePolicy) ChatTemplateProfile {
 	values, err := decodeConfigObject(content)
 	if err != nil {
 		return ChatTemplateProfile{}
@@ -39,17 +41,27 @@ func ChatTemplateProfileForConfig(content []byte) ChatTemplateProfile {
 	if err != nil {
 		return ChatTemplateProfile{}
 	}
-	fingerprint, err := physicalLoadFingerprint(content, kwargs)
+	injectsGenerationDefaults := policy.injectsGenerationDefaults(values)
+	fingerprintValues := values
+	if policy.ShareRuntimeByLaunchArguments {
+		fingerprintValues = launchFingerprintValues(values, injectsGenerationDefaults)
+	}
+	fingerprint, err := physicalLoadFingerprint(fingerprintValues, kwargs)
 	if err != nil {
 		return ChatTemplateProfile{}
 	}
-	return ChatTemplateProfile{
-		kwargs:                  cloneRawMessage(kwargs),
-		configured:              configured,
-		precedence:              precedence,
-		valid:                   true,
-		physicalLoadFingerprint: fingerprint,
+	profile := ChatTemplateProfile{
+		kwargs:                             cloneRawMessage(kwargs),
+		configured:                         configured,
+		precedence:                         precedence,
+		valid:                              true,
+		physicalLoadFingerprint:            fingerprint,
+		fingerprintExcludesRequestSettings: policy.ShareRuntimeByLaunchArguments,
 	}
+	if injectsGenerationDefaults {
+		profile.generationDefaults = generationDefaultsForConfig(values, policy.backendFamily(values))
+	}
+	return profile
 }
 
 func NormalizeJinjaKwargs(value json.RawMessage) (json.RawMessage, bool, error) {
@@ -127,16 +139,26 @@ func (profile ChatTemplateProfile) SharesPhysicalRuntimeWith(other ChatTemplateP
 	return profile.valid && other.valid && profile.physicalLoadFingerprint != "" && profile.physicalLoadFingerprint == other.physicalLoadFingerprint
 }
 
+func (profile ChatTemplateProfile) ServableBySiblingRuntime() bool {
+	everyRequestCarriesItsJinjaKwargs := profile.HasConfiguredKwargs()
+	return profile.valid && profile.physicalLoadFingerprint != "" && (everyRequestCarriesItsJinjaKwargs || profile.fingerprintExcludesRequestSettings)
+}
+
+func (profile ChatTemplateProfile) GenerationDefaults() GenerationDefaults {
+	return profile.generationDefaults.clone()
+}
+
 func (profile ChatTemplateProfile) clone() ChatTemplateProfile {
 	cloned := profile
 	cloned.kwargs = cloneRawMessage(profile.kwargs)
+	cloned.generationDefaults = profile.generationDefaults.clone()
 	return cloned
 }
 
-func physicalLoadFingerprint(content []byte, normalizedKwargs json.RawMessage) (string, error) {
-	values, err := decodeConfigObject(content)
-	if err != nil {
-		return "", err
+func physicalLoadFingerprint(configValues map[string]json.RawMessage, normalizedKwargs json.RawMessage) (string, error) {
+	values := make(map[string]json.RawMessage, len(configValues))
+	for key, value := range configValues {
+		values[key] = value
 	}
 	keys := []string{}
 	if len(normalizedKwargs) > 0 {

@@ -36,6 +36,8 @@ The parsers reject unknown sections and fields. Relative paths are resolved from
 | `models.hash_workers` | Integer, at least `1` | `1` | Maximum concurrent workers used to hash model files. |
 | `models.concurrent_asset_transfers` | Integer, at least `1` | `2` | Maximum concurrent model asset transfers. |
 | `models.file_roots` | List of nonempty path strings | `./models` in the example | Roots exposed to inventory, hashing, and portable asset resolution. |
+| `models.inject_request_defaults` | Boolean | `true` | The router adds a config's `gendefaults` to generation requests that leave those fields out, and KoboldCpp no longer applies them itself. See [Model Configs and Routing](Model-Configs-and-Routing.md#generation-defaults). |
+| `models.share_runtime_by_launch_arguments` | Boolean | `true` | Configs that differ only in what the router applies per request, or in `router_*` keys, share one loaded backend. When `false`, any difference in the file reloads the backend. |
 
 ### Backend selection
 

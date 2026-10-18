@@ -8,17 +8,18 @@ import (
 )
 
 const (
-	reasonHelperNotAccepting = "helper_not_accepting"
-	reasonHelperClaimed      = "helper_claimed"
-	reasonLoadForbidden      = "load_forbidden"
-	reasonContextTooSmall    = "context_too_small"
-	reasonSwitchUnpriced     = "switch_unpriced"
-	reasonRestoreUnpriced    = "restore_unpriced"
-	reasonHelperRecentlyBusy = "helper_recently_busy"
-	reasonServiceUnpriced    = "service_unpriced"
-	reasonOwnerUnpriced      = "owner_unpriced"
-	reasonCostRejected       = "cost_rejected"
-	reasonOutranked          = "outranked"
+	reasonHelperNotAccepting   = "helper_not_accepting"
+	reasonHelperClaimed        = "helper_claimed"
+	reasonLoadForbidden        = "load_forbidden"
+	reasonContextTooSmall      = "context_too_small"
+	reasonSwitchUnpriced       = "switch_unpriced"
+	reasonFamilySwitchUnpriced = "family_switch_unpriced"
+	reasonRestoreUnpriced      = "restore_unpriced"
+	reasonHelperRecentlyBusy   = "helper_recently_busy"
+	reasonServiceUnpriced      = "service_unpriced"
+	reasonOwnerUnpriced        = "owner_unpriced"
+	reasonCostRejected         = "cost_rejected"
+	reasonOutranked            = "outranked"
 
 	reasonLeaseExpired          = "lease_expired"
 	reasonHelperCannotSeeImages = "helper_cannot_see_images"
@@ -173,7 +174,7 @@ func longestIdleHelper(evaluations []helperEvaluation, probeIdle time.Duration) 
 		return best
 	}
 	for index, evaluation := range evaluations {
-		if !evaluation.mayServe() || evaluation.helper.IdleFor < probeIdleBar(evaluation.helper.offloadCandidate, probeIdle) {
+		if !evaluation.mayServe() || !mayBeProbed(evaluation.helper.offloadCandidate) || evaluation.helper.IdleFor < probeIdleBar(evaluation.helper.offloadCandidate, probeIdle) {
 			continue
 		}
 		if best < 0 || evaluation.helper.IdleFor > evaluations[best].helper.IdleFor ||
@@ -186,6 +187,10 @@ func longestIdleHelper(evaluations []helperEvaluation, probeIdle time.Duration) 
 
 const unloadedProbeIdleFactor = 12
 
+func mayBeProbed(helper offloadCandidate) bool {
+	return !helper.SwitchesBackendFamily
+}
+
 func probeIdleBar(helper offloadCandidate, probeIdle time.Duration) time.Duration {
 	if helper.Loaded {
 		return probeIdle
@@ -197,7 +202,7 @@ func soonestProbeFor(helpers []offloadHelperCandidate, claimed map[string]bool, 
 	var soonest time.Duration
 	for _, helper := range helpers {
 		bar := probeIdleBar(helper.offloadCandidate, probeIdle)
-		if helperIneligibility(helper, claimed, largestContext) != "" || helper.IdleFor >= bar {
+		if helperIneligibility(helper, claimed, largestContext) != "" || !mayBeProbed(helper.offloadCandidate) || helper.IdleFor >= bar {
 			continue
 		}
 		if wait := bar - helper.IdleFor; soonest == 0 || wait < soonest {
@@ -228,6 +233,8 @@ func costRuleRejection(evaluation helperEvaluation, demand ownerDemand) string {
 	switch {
 	case !evaluation.mayServe():
 		return evaluation.ineligible
+	case evaluation.helper.SwitchesBackendFamily && !(demand.priced && evaluation.priced()):
+		return reasonFamilySwitchUnpriced
 	case !demand.priced:
 		return reasonOwnerUnpriced
 	case !evaluation.priced():

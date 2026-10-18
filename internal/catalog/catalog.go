@@ -17,6 +17,7 @@ type Catalog struct {
 	resolvedModelHashes map[string]struct{}
 	snapshot            atomic.Pointer[catalogSnapshot]
 	readDir             func(string) ([]os.DirEntry, error)
+	requestProfiles     RequestProfilePolicy
 }
 
 type catalogSnapshot struct {
@@ -57,19 +58,23 @@ type Model struct {
 }
 
 func New(dir string) *Catalog {
-	catalog := &Catalog{dir: dir, resolvedModelHashes: map[string]struct{}{}, readDir: os.ReadDir}
+	return NewWithRequestProfiles(dir, RequestProfilePolicy{})
+}
+
+func NewWithRequestProfiles(dir string, requestProfiles RequestProfilePolicy) *Catalog {
+	catalog := &Catalog{dir: dir, resolvedModelHashes: map[string]struct{}{}, readDir: os.ReadDir, requestProfiles: requestProfiles}
 	if err := catalog.Refresh(); err != nil {
 		catalog.snapshot.Store(newCatalogSnapshot(nil, err))
 	}
 	return catalog
 }
 
-func NewWithStore(dir string, storeDir string) (*Catalog, error) {
+func NewWithStore(dir string, storeDir string, requestProfiles RequestProfilePolicy) (*Catalog, error) {
 	hashStore, err := NewHashStore(storeDir)
 	if err != nil {
 		return nil, err
 	}
-	catalog := &Catalog{dir: dir, hashStore: hashStore, resolvedModelHashes: map[string]struct{}{}, readDir: os.ReadDir}
+	catalog := &Catalog{dir: dir, hashStore: hashStore, resolvedModelHashes: map[string]struct{}{}, readDir: os.ReadDir, requestProfiles: requestProfiles}
 	if err := catalog.refresh(false); err != nil {
 		return nil, err
 	}

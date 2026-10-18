@@ -45,6 +45,8 @@ Ollama compatibility uses the official methods:
 - `GET /api/ps`
 - `GET /api/version`
 
+KoboldCpp answers `/api/generate`, `/api/chat` and `/api/embed` itself. For llama.cpp and vLLM, which have no Ollama API, the router translates them to `/v1/chat/completions` (or `/v1/completions` for `raw` generation) and `/v1/embeddings`, and turns the answer back into Ollama JSON or NDJSON. Ollama streams unless the request sets `"stream": false`. Translated fields: `messages` with `images` and `tool_calls`, `options` samplers (`num_predict` becomes `max_tokens`), `format` (`"json"` or a JSON schema), and `think`. Load-time options such as `num_ctx` and `keep_alive` are ignored; the `.kcpps` config decides them. A translated request must fit `limits.replay_buffer_mb`; a larger one is refused with `413`.
+
 Method mismatches return `405` with `Allow`. Ollama failures use `{"error":"message"}`. Generate and chat streams are NDJSON; each successful record exposes the router-visible model ID, while error-only records pass through unchanged. `/api/tags` is synthesized from deduplicated router-visible text models, and `/api/ps` contains only loaded models on healthy nodes. Backend-local model IDs are not exposed by either response.
 
 The model-aware compatibility paths use the request model. Non-image KoboldCpp paths outside these groups are not proxied.

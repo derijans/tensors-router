@@ -413,7 +413,7 @@ func activeConfigMatchesProfile(state *activeConfigState, filename string, profi
 	if state.filename == filename {
 		return true
 	}
-	return state.physicalShareable && profile.HasConfiguredKwargs() && state.physicalFingerprint != "" && state.physicalFingerprint == profile.PhysicalLoadFingerprint()
+	return state.physicalShareable && profile.ServableBySiblingRuntime() && state.physicalFingerprint == profile.PhysicalLoadFingerprint()
 }
 
 func activeConfigMatchesAcquireOptions(state *activeConfigState, filename string, profile catalog.ChatTemplateProfile, options modelConfigAcquireOptions) bool {
@@ -451,15 +451,15 @@ func pendingConfigMatchesProfileLocked(state *activeConfigState, filename string
 	// Profile variants of one physical model share a runtime, so a pending load of a
 	// sibling variant also satisfies this caller.
 	fingerprint := profile.PhysicalLoadFingerprint()
-	return profile.HasConfiguredKwargs() && fingerprint != "" &&
-		state.pendingProfile.HasConfiguredKwargs() && state.pendingProfile.PhysicalLoadFingerprint() == fingerprint
+	return profile.ServableBySiblingRuntime() &&
+		state.pendingProfile.ServableBySiblingRuntime() && state.pendingProfile.PhysicalLoadFingerprint() == fingerprint
 }
 
 func applyPhysicalLoadProfileLocked(state *activeConfigState, filename string, profile catalog.ChatTemplateProfile, readiness backendReadiness) {
 	state.physicalFilename = filename
 	state.physicalReadiness = readiness
 	state.physicalFingerprint = profile.PhysicalLoadFingerprint()
-	state.physicalShareable = profile.Valid() && profile.HasConfiguredKwargs() && state.physicalFingerprint != ""
+	state.physicalShareable = profile.ServableBySiblingRuntime()
 }
 
 func clearPhysicalLoadProfileLocked(state *activeConfigState) {

@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -424,5 +426,29 @@ func TestStopGivesUpWhenItsContextEndsDuringAStart(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("stop waited for the in-flight start despite its expired context")
+	}
+}
+
+func TestStartWaitsForTheStoppedBackendToReleaseItsPort(t *testing.T) {
+	held, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, port, err := net.SplitHostPort(held.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	time.AfterFunc(300*time.Millisecond, func() { _ = held.Close() })
+	manager, err := NewManager(ProcessConfig{BackendURL: "http://127.0.0.1:" + port, BinaryPath: filepathThatShouldNotExist(t), ConfigDir: t.TempDir(), DataDir: t.TempDir(), Multiuser: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = manager.Start(context.Background())
+	if err == nil {
+		t.Fatal("expected the start to fail on the missing binary")
+	}
+	if strings.Contains(err.Error(), "already in use") {
+		t.Fatalf("expected the start to wait for the late listener to close, got: %v", err)
 	}
 }

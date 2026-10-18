@@ -193,17 +193,59 @@ func TestDynamicPortManagersDoNotCollide(t *testing.T) {
 	second.endpoint.Release(portalloc.Default())
 }
 
-func TestPinnedPortInUseFailsFast(t *testing.T) {
+func TestPinnedPortHeldPastTheReleaseWaitFailsByName(t *testing.T) {
+	held, port := holdTCPPort(t)
+	defer held.Close()
+	manager := newFakeLlamaManagerOnPort(t, port)
+	manager.portReleaseWait = 300 * time.Millisecond
+
+	started := time.Now()
+	err := manager.ReloadConfig(context.Background(), "model.kcpps")
+	elapsed := time.Since(started)
+	if err == nil {
+		t.Fatal("expected ReloadConfig to fail against an already-held port")
+	}
+	if !strings.Contains(err.Error(), "already in use") {
+		t.Fatalf("expected a named port-in-use error, got: %v", err)
+	}
+	if elapsed < manager.portReleaseWait || elapsed > 5*time.Second {
+		t.Fatalf("expected failure after the %s release wait, took %s", manager.portReleaseWait, elapsed)
+	}
+}
+
+func TestRespawnWaitsForTheStoppedBackendToReleaseItsPort(t *testing.T) {
+	held, port := holdTCPPort(t)
+	manager := newFakeLlamaManagerOnPort(t, port)
+	go func() {
+		time.Sleep(400 * time.Millisecond)
+		_ = held.Close()
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := manager.ReloadConfig(ctx, "model.kcpps"); err != nil {
+		t.Fatalf("expected the start to wait for the late listener to close: %v", err)
+	}
+	if err := manager.Unload(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func holdTCPPort(t *testing.T) (net.Listener, string) {
+	t.Helper()
 	held, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer held.Close()
 	_, port, err := net.SplitHostPort(held.Addr().String())
 	if err != nil {
 		t.Fatal(err)
 	}
+	return held, port
+}
 
+func newFakeLlamaManagerOnPort(t *testing.T, port string) *Manager {
+	t.Helper()
 	binaryPath := buildFakeNativeServer(t)
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "model.kcpps"), []byte(`{"model":"C:/models/model.gguf"}`), 0o644); err != nil {
@@ -213,19 +255,7 @@ func TestPinnedPortInUseFailsFast(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	started := time.Now()
-	err = manager.ReloadConfig(context.Background(), "model.kcpps")
-	elapsed := time.Since(started)
-	if err == nil {
-		t.Fatal("expected ReloadConfig to fail against an already-held port")
-	}
-	if !strings.Contains(err.Error(), "already in use") {
-		t.Fatalf("expected a named port-in-use error, got: %v", err)
-	}
-	if elapsed > 5*time.Second {
-		t.Fatalf("expected fast failure, took %s", elapsed)
-	}
+	return manager
 }
 
 func TestLlamaEmbeddingLaunchArgumentsEnableEmbeddings(t *testing.T) {

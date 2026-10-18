@@ -6,6 +6,7 @@ import (
 	"slices"
 	"time"
 
+	"tensors-router/internal/backendmode"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/routinggroups"
 	"tensors-router/internal/schedulingcost"
@@ -173,7 +174,8 @@ func offloadCandidateFor(lane string, endpoint routinggroups.Endpoint, models ma
 		BacklogCount:   stats.BacklogCount,
 		BacklogWork:    stats.BacklogWork,
 	}
-	candidate.DisplacedConfigs = displacedConfigsOf(model.Filename, status)
+	candidate.SwitchesBackendFamily = switchesBackendFamily(model, status)
+	candidate.DisplacedConfigs = displacedConfigsOf(model.Filename, status, candidate.SwitchesBackendFamily)
 	if lane == cluster.RouteLaneText {
 		candidate.Loaded = status.ActiveTextConfig == model.Filename
 		candidate.AcceptingBorrowed = status.AcceptingBorrowedText
@@ -186,9 +188,18 @@ func offloadCandidateFor(lane string, endpoint routinggroups.Endpoint, models ma
 	return candidate, true
 }
 
-func displacedConfigsOf(config string, status NodeRuntimeStatus) []string {
+func switchesBackendFamily(model cluster.Model, status NodeRuntimeStatus) bool {
+	modelFamily, nodeFamily := backendmode.Normalize(model.BackendMode), backendmode.Normalize(status.BackendMode)
+	return modelFamily != "" && nodeFamily != "" && modelFamily != nodeFamily
+}
+
+func displacedConfigsOf(config string, status NodeRuntimeStatus, switchesFamily bool) []string {
+	held := []string{status.ActiveTextConfig, status.ActiveImageConfig}
+	if switchesFamily {
+		held = append(held, status.ActiveSTTConfigFilename)
+	}
 	var displaced []string
-	for _, active := range []string{status.ActiveTextConfig, status.ActiveImageConfig} {
+	for _, active := range held {
 		if active != "" && active != config && !slices.Contains(displaced, active) {
 			displaced = append(displaced, active)
 		}

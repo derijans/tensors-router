@@ -58,6 +58,7 @@ type Manager struct {
 	capture         *backenddiagnostic.Capture
 	captureHub      *loadcapture.Hub
 	currentFilename string
+	portReleaseWait time.Duration
 }
 
 func NewLlamaManager(config ProcessConfig) (*Manager, error) {
@@ -102,8 +103,9 @@ func newManager(config ProcessConfig, readinessPath string, logName string, buil
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		capture:    backenddiagnostic.NewCapture(),
-		captureHub: loadcapture.NewHub(),
+		capture:         backenddiagnostic.NewCapture(),
+		captureHub:      loadcapture.NewHub(),
+		portReleaseWait: stoppedBackendPortReleaseWait,
 	}, nil
 }
 
@@ -219,10 +221,18 @@ func (manager *Manager) Healthy(ctx context.Context) bool {
 	return manager.healthy(ctx)
 }
 
-const maxPortAttempts = 3
+const (
+	maxPortAttempts               = 3
+	stoppedBackendPortReleaseWait = 10 * time.Second
+	modelLoadTimeout              = 15 * time.Minute
+)
 
 func (manager *Manager) startLocked(ctx context.Context, filename string) error {
 	if err := os.MkdirAll(manager.config.DataDir, 0o755); err != nil {
+		return err
+	}
+	previousHost, previousPort := manager.endpoint.HostPort()
+	if err := portalloc.WaitForRelease(ctx, previousHost, previousPort, manager.portReleaseWait); err != nil {
 		return err
 	}
 
@@ -299,7 +309,7 @@ func (manager *Manager) spawnLocked(ctx context.Context, filename string, args [
 		_ = closeLogFile(logFile)
 	}()
 
-	if err := manager.waitHealthy(ctx, 90*time.Second, exitDone); err != nil {
+	if err := manager.waitHealthy(ctx, modelLoadTimeout, exitDone); err != nil {
 		_ = processcontrol.Kill(cmd)
 		manager.cmd = nil
 		manager.logFile = nil

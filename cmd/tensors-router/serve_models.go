@@ -7,6 +7,7 @@ import (
 	routerbenchmark "tensors-router/internal/benchmark"
 	"tensors-router/internal/catalog"
 	routercluster "tensors-router/internal/cluster"
+	"tensors-router/internal/config"
 	"tensors-router/internal/mcp"
 	"tensors-router/internal/modelassets"
 	"tensors-router/internal/transportbody"
@@ -36,7 +37,7 @@ func (runtime *serveRuntime) discoverModels() ([]catalog.Model, error) {
 	logger := runtime.startupLogger
 	started := time.Now()
 	logger.Printf("model config discovery started directory=%q", configDir)
-	modelCatalog, err := catalog.NewWithStore(configDir, runtime.cfg.Cluster.StoreDir)
+	modelCatalog, err := catalog.NewWithStore(configDir, runtime.cfg.Cluster.StoreDir, requestProfilePolicy(runtime.cfg))
 	if err != nil {
 		logger.Printf("model config discovery failed directory=%q elapsed=%s error=%v", configDir, time.Since(started), err)
 		return nil, err
@@ -98,4 +99,12 @@ func withModelBenchmarks(models []routercluster.Model, store *routerbenchmark.St
 		}
 	}
 	return models
+}
+
+func requestProfilePolicy(cfg config.Config) catalog.RequestProfilePolicy {
+	return catalog.RequestProfilePolicy{
+		InjectGenerationDefaults:      cfg.Models.InjectRequestDefaults,
+		ShareRuntimeByLaunchArguments: cfg.Models.ShareRuntimeByLaunchArguments,
+		DefaultBackendMode:            cfg.Backend.Mode,
+	}
 }

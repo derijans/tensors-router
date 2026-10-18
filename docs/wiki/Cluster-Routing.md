@@ -111,6 +111,8 @@ only ever loaded still has a switch cost.
 
 A helper whose model is not loaded has to push out whatever it holds. The price of a lease then includes loading that displaced model again, so a helper is not displaced when getting its own model back costs more than the owner saves. If the displaced model has no measured load time, the helper is skipped (`restore_unpriced`). A helper that served its own request more recently than the switch and the way back would take is skipped too (`helper_recently_busy`), because its own traffic is likely to return before the lent work pays for the detour.
 
+A helper whose model runs on a different backend family than the one the node is running (for example a KoboldCpp model on a node serving llama.cpp) stops that whole family to take the work, so its transcription model counts as displaced as well. Such a helper is lent to only when the cost rule pays and is never probed; while either side is unpriced it is skipped with `family_switch_unpriced`.
+
 ### Probes
 
 A helper that the cost rule does not choose still gets a one-request probe once
@@ -159,7 +161,7 @@ database, stamped with the router version that wrote it, and pruned after
   service time, whether the service time came from the helper's own fit or the
   owner's (`helper` or `owner_fallback`), the helper's idle time, the outcome
   (`granted`, `probe`, `skipped`) and the reason for a skip or a probe
-  (`owner_unpriced`, `switch_unpriced`, `service_unpriced`, `cost_rejected`,
+  (`owner_unpriced`, `switch_unpriced`, `family_switch_unpriced`, `service_unpriced`, `cost_rejected`,
   `outranked`, `helper_not_accepting`, `helper_claimed`, `load_forbidden`,
   `context_too_small`), and the slots granted.
 - `dispatch` rows on the owner: `lease_updated`, `lease_cleared`,

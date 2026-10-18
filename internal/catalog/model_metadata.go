@@ -23,7 +23,7 @@ func (catalog *Catalog) withMetadata(model Model, includeModelHash bool) Model {
 	}
 	model.Options = options
 	applyAssetState(&model, content)
-	model.ChatTemplate = ChatTemplateProfileForConfig(content)
+	model.ChatTemplate = ChatTemplateProfileForConfig(content, catalog.requestProfiles)
 	var metadata configMetadata
 	if err := json.Unmarshal(content, &metadata); err != nil {
 		model.Capabilities = capabilitiesFromMetadata(configMetadata{}, model.HasLLM, false, false, false, false, false)

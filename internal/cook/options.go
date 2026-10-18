@@ -91,7 +91,7 @@ var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option("mcp_servers", "MCP Servers", LaneRuntime, ValueJSON, "", false, "kobold", "llama_sdcpp"),
 	option("downloaddir", "Download Directory", LaneRuntime, ValueString, "", false, "kobold"),
 	option("parallelrequests", "Parallel Requests", LaneRuntime, ValueNumber, "", false, "kobold"),
-	option("gendefaults", "Generation Defaults", LaneRuntime, ValueJSON, "", false, "kobold"),
+	option("gendefaults", "Generation Defaults (added to each request by the router)", LaneRuntime, ValueJSON, "", false, "kobold"),
 	option("gendefaultsoverwrite", "Overwrite Generation Defaults", LaneRuntime, ValueBool, "", false, "kobold"),
 	option("defaultgenamt", "Default Generation Amount", LaneRuntime, ValueNumber, "", false, "kobold"),
 	option("genlimit", "Generation Limit", LaneRuntime, ValueNumber, "", false, "kobold"),

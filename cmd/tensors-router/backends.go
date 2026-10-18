@@ -89,18 +89,19 @@ func llamaSeparateBackend(cfg config.Config, videoFFmpegDir string) func(string,
 func koboldProcessConfig(cfg config.Config, reconciler ...*mcp.Reconciler) kobold.ProcessConfig {
 	mcpReconciler := firstMCPReconciler(reconciler)
 	return kobold.ProcessConfig{
-		BackendURL:   cfg.Kobold.BackendURL,
-		BinaryPath:   cfg.Kobold.BinaryPath,
-		ConfigDir:    cfg.Models.ConfigDir,
-		DataDir:      cfg.Kobold.DataDir,
-		ExtraArgs:    cfg.Kobold.ExtraArgs,
-		Multiuser:    cfg.Kobold.Multiuser,
-		Quiet:        cfg.Kobold.Quiet,
-		SkipLauncher: cfg.Kobold.SkipLauncher,
-		NoModel:      cfg.Kobold.NoModel,
-		HideWindow:   cfg.Kobold.HideWindow,
-		Logging:      cfg.Logging.BackendLogsToDisk,
-		MCP:          mcpReconciler,
+		BackendURL:      cfg.Kobold.BackendURL,
+		BinaryPath:      cfg.Kobold.BinaryPath,
+		ConfigDir:       cfg.Models.ConfigDir,
+		DataDir:         cfg.Kobold.DataDir,
+		ExtraArgs:       cfg.Kobold.ExtraArgs,
+		Multiuser:       cfg.Kobold.Multiuser,
+		Quiet:           cfg.Kobold.Quiet,
+		SkipLauncher:    cfg.Kobold.SkipLauncher,
+		NoModel:         cfg.Kobold.NoModel,
+		HideWindow:      cfg.Kobold.HideWindow,
+		Logging:         cfg.Logging.BackendLogsToDisk,
+		MCP:             mcpReconciler,
+		RequestProfiles: requestProfilePolicy(cfg),
 	}
 }
 

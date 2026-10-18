@@ -486,17 +486,24 @@ func (service *Service) probeBackendEndpoint(runtime *backendRuntime, ctx contex
 }
 
 func (service *Service) forward(runtime *backendRuntime, ctx context.Context, original *http.Request, body []byte) (*http.Response, error) {
+	if backendLacksOllamaAPI(runtime.mode, original.URL.Path) {
+		return service.forwardOllamaAsOpenAI(runtime, ctx, original, body)
+	}
+	return service.forwardToPath(runtime, ctx, original, original.URL.Path, body)
+}
+
+func (service *Service) forwardToPath(runtime *backendRuntime, ctx context.Context, original *http.Request, path string, body []byte) (*http.Response, error) {
 	target := runtime.backend.URL()
 	responseFormat := ""
-	if runtime.mode == BackendModeLlamaSDCPP && strings.HasSuffix(runtime.name, "-transcription") && isVoicePath(original.URL.Path) {
+	if runtime.mode == BackendModeLlamaSDCPP && strings.HasSuffix(runtime.name, "-transcription") && isVoicePath(path) {
 		responseFormat = original.Header.Get("X-Tensors-Whisper-Response-Format")
 		target.Path = joinPath(target.Path, "/inference")
 	} else {
-		target.Path = joinPath(target.Path, original.URL.Path)
+		target.Path = joinPath(target.Path, path)
 	}
 	target.RawQuery = original.URL.RawQuery
 
-	body, genkey := markKoboldGeneration(original.URL.Path, runtime.mode, body)
+	body, genkey := markKoboldGeneration(path, runtime.mode, body)
 	request, err := http.NewRequestWithContext(ctx, original.Method, target.String(), bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -508,7 +515,7 @@ func (service *Service) forward(runtime *backendRuntime, ctx context.Context, or
 
 	client := service.backendHTTPClient(runtime.backend)
 	abandonGuard := guardAbandonedKoboldGeneration(ctx, client, runtime.backend.URL(), genkey)
-	if report, ok := koboldStreamUsageReporterFor(original.URL.Path, runtime.mode, body); ok {
+	if report, ok := koboldStreamUsageReporterFor(path, runtime.mode, body); ok {
 		return abandonGuard.disarmOnceDelivered(forwardReportingKoboldStreamUsage(ctx, koboldPerfReader{client: client, backendURL: runtime.backend.URL()}, report, func() (*http.Response, error) {
 			return client.Do(request)
 		}))

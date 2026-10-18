@@ -424,10 +424,10 @@ func TestChatTemplateProfileKeepsVirtualVariantsDistinctAndPhysicallyCompatible(
 	differentKeys := []byte(`{"model_param":"C:/models/model.gguf","jinja_kwargs":{"enable_thinking":false,"reasoning_format":"deepseek"}}`)
 	differentRuntime := []byte(`{"model_param":"C:/models/model.gguf","contextsize":8192,"jinja_kwargs":{"enable_thinking":false,"mode":"chat"}}`)
 
-	thinkProfile := ChatTemplateProfileForConfig(think)
-	noThinkProfile := ChatTemplateProfileForConfig(noThink)
-	differentKeysProfile := ChatTemplateProfileForConfig(differentKeys)
-	differentRuntimeProfile := ChatTemplateProfileForConfig(differentRuntime)
+	thinkProfile := ChatTemplateProfileForConfig(think, RequestProfilePolicy{})
+	noThinkProfile := ChatTemplateProfileForConfig(noThink, RequestProfilePolicy{})
+	differentKeysProfile := ChatTemplateProfileForConfig(differentKeys, RequestProfilePolicy{})
+	differentRuntimeProfile := ChatTemplateProfileForConfig(differentRuntime, RequestProfilePolicy{})
 
 	if !thinkProfile.Valid() || !noThinkProfile.Valid() {
 		t.Fatalf("expected valid profiles think=%#v noThink=%#v", thinkProfile, noThinkProfile)
@@ -474,7 +474,7 @@ func TestHashStoreCachesFileHashesAndDropsMissingFiles(t *testing.T) {
 	content := configHashJSON(t, map[string]any{"model_param": modelPath})
 	writeCatalogFile(t, dir, "model.kcpps", string(content))
 
-	models, err := NewWithStore(dir, storeDir)
+	models, err := NewWithStore(dir, storeDir, RequestProfilePolicy{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -635,7 +635,7 @@ func TestCatalogWithStoreDefersReferencedModelHashUntilRequested(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	modelCatalog, err := NewWithStore(configDir, storeDir)
+	modelCatalog, err := NewWithStore(configDir, storeDir, RequestProfilePolicy{})
 	if err != nil {
 		t.Fatal(err)
 	}

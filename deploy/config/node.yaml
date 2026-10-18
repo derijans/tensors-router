@@ -18,6 +18,8 @@ models:
   config_dir: "/kcpps"
   startup_model: ""
   file_roots: ["/models"]
+  inject_request_defaults: true
+  share_runtime_by_launch_arguments: true
 
 backend:
   mode: "kobold"

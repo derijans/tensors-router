@@ -20,6 +20,7 @@ import (
 
 	"tensors-router/internal/backenddiagnostic"
 	"tensors-router/internal/backendendpoint"
+	"tensors-router/internal/catalog"
 	"tensors-router/internal/ctxmutex"
 	"tensors-router/internal/healthwait"
 	"tensors-router/internal/loadcapture"
@@ -29,42 +30,44 @@ import (
 )
 
 type ProcessConfig struct {
-	BackendURL   string
-	BinaryPath   string
-	ConfigDir    string
-	DataDir      string
-	ExtraArgs    []string
-	Multiuser    int
-	Quiet        bool
-	SkipLauncher bool
-	NoModel      bool
-	HideWindow   bool
-	Logging      bool
-	MCP          *mcp.Reconciler
+	BackendURL      string
+	BinaryPath      string
+	ConfigDir       string
+	DataDir         string
+	ExtraArgs       []string
+	Multiuser       int
+	Quiet           bool
+	SkipLauncher    bool
+	NoModel         bool
+	HideWindow      bool
+	Logging         bool
+	MCP             *mcp.Reconciler
+	RequestProfiles catalog.RequestProfilePolicy
 }
 
 type Manager struct {
-	config        ProcessConfig
-	endpoint      *backendendpoint.Endpoint
-	adminPassword string
-	probeClient   *http.Client
-	reloadClient  *http.Client
-	lifecycle     ctxmutex.Mutex
-	state         sync.Mutex
-	exitMu        sync.RWMutex
-	cmd           *exec.Cmd
-	logFile       *os.File
-	waitDone      chan error
-	exitDone      <-chan error
-	exitErr       error
-	exitObserved  bool
-	reloadsActive atomic.Int32
-	capture       *backenddiagnostic.Capture
-	captureHub    *loadcapture.Hub
-	forceNoModel  bool
-	role          string
-	roleArgs      []string
-	generated     map[string]struct{}
+	config          ProcessConfig
+	endpoint        *backendendpoint.Endpoint
+	adminPassword   string
+	probeClient     *http.Client
+	reloadClient    *http.Client
+	lifecycle       ctxmutex.Mutex
+	state           sync.Mutex
+	exitMu          sync.RWMutex
+	cmd             *exec.Cmd
+	logFile         *os.File
+	waitDone        chan error
+	exitDone        <-chan error
+	exitErr         error
+	exitObserved    bool
+	reloadsActive   atomic.Int32
+	capture         *backenddiagnostic.Capture
+	captureHub      *loadcapture.Hub
+	forceNoModel    bool
+	role            string
+	roleArgs        []string
+	generated       map[string]struct{}
+	portReleaseWait time.Duration
 }
 
 const embeddingsRole = "embeddings"
@@ -108,11 +111,12 @@ func newManager(config ProcessConfig, role string) (*Manager, error) {
 		probeClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		reloadClient: &http.Client{},
-		capture:      backenddiagnostic.NewCapture(adminPassword),
-		captureHub:   loadcapture.NewHub(),
-		role:         role,
-		generated:    make(map[string]struct{}),
+		reloadClient:    &http.Client{},
+		capture:         backenddiagnostic.NewCapture(adminPassword),
+		captureHub:      loadcapture.NewHub(),
+		role:            role,
+		generated:       make(map[string]struct{}),
+		portReleaseWait: stoppedBackendPortReleaseWait,
 	}, nil
 }
 
@@ -203,7 +207,10 @@ func (manager *Manager) Start(ctx context.Context) error {
 	return manager.startLocked(ctx)
 }
 
-const maxPortAttempts = 3
+const (
+	maxPortAttempts               = 3
+	stoppedBackendPortReleaseWait = 10 * time.Second
+)
 
 func (manager *Manager) startLocked(ctx context.Context) error {
 	if manager.cmd != nil && manager.cmd.Process != nil {
@@ -221,6 +228,10 @@ func (manager *Manager) startLocked(ctx context.Context) error {
 	}
 
 	if err := os.MkdirAll(manager.config.DataDir, 0o755); err != nil {
+		return err
+	}
+	previousHost, previousPort := manager.endpoint.HostPort()
+	if err := portalloc.WaitForRelease(ctx, previousHost, previousPort, manager.portReleaseWait); err != nil {
 		return err
 	}
 
