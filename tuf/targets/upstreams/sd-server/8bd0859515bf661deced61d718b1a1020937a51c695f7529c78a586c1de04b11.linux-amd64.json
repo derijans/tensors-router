@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "415680790",
+      "tag": "master-973-f0aac52",
+      "published_at": "2026-10-17T08:37:54Z",
+      "payloads": [
+        {
+          "name": "sd-master-f0aac52-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-973-f0aac52/sd-master-f0aac52-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 26288236,
+          "sha256": "9666a2fe3c05fcb0dc0752e63dfb225871353cb1495e02d0ae2ed172a6e80888"
+        }
+      ]
+    }
+  ]
+}
