@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "416381561",
+      "tag": "master-975-95b3090",
+      "published_at": "2026-10-18T10:25:35Z",
+      "payloads": [
+        {
+          "name": "sd-master-95b3090-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-975-95b3090/sd-master-95b3090-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 26289165,
+          "sha256": "23757b2d46edd68ec59ad252e6e3d6c1854ab01d6be5d47a06e0bc751c2eee2a"
+        }
+      ]
+    }
+  ]
+}

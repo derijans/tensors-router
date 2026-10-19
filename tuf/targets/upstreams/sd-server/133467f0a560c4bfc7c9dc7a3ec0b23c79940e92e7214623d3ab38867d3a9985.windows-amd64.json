@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "416381561",
+      "tag": "master-975-95b3090",
+      "published_at": "2026-10-18T10:25:35Z",
+      "payloads": [
+        {
+          "name": "sd-master-95b3090-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-975-95b3090/sd-master-95b3090-bin-win-cpu-x64.zip",
+          "length": 17706677,
+          "sha256": "945ed74a22a5c6abbae480201312e439f16ad029166dd94e58cef9a2ecb2dba8"
+        }
+      ]
+    }
+  ]
+}
