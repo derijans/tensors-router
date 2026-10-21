@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "418758651",
+      "tag": "master-982-0518b34",
+      "published_at": "2026-10-20T19:00:21Z",
+      "payloads": [
+        {
+          "name": "sd-master-0518b34-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-982-0518b34/sd-master-0518b34-bin-win-cpu-x64.zip",
+          "length": 17799358,
+          "sha256": "4d8ec59037f70d0b61954bcca1a0008dfe238fabd9e21f8d354b16be9e7c3d4b"
+        }
+      ]
+    }
+  ]
+}
