@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "419940028",
+      "tag": "master-987-a77d362",
+      "published_at": "2026-10-21T19:01:14Z",
+      "payloads": [
+        {
+          "name": "sd-master-a77d362-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-987-a77d362/sd-master-a77d362-bin-win-cpu-x64.zip",
+          "length": 17854337,
+          "sha256": "06d896f6098365ecd2979c2f9ed2790beadfc07fdcd5ccd85e0f5b4f84414a4d"
+        }
+      ]
+    }
+  ]
+}
