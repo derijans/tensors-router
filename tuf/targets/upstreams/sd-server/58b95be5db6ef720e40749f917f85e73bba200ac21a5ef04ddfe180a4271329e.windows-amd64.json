@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "421139761",
+      "tag": "master-995-fd21ecf",
+      "published_at": "2026-10-22T19:55:21Z",
+      "payloads": [
+        {
+          "name": "sd-master-fd21ecf-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-995-fd21ecf/sd-master-fd21ecf-bin-win-cpu-x64.zip",
+          "length": 17852504,
+          "sha256": "10014237c478efa4816d495f736eb97ddccb5fb4001cb9ac3acbae68313735d1"
+        }
+      ]
+    }
+  ]
+}

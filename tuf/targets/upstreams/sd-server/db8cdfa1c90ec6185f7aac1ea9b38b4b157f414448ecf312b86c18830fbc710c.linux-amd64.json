@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "421139761",
+      "tag": "master-995-fd21ecf",
+      "published_at": "2026-10-22T19:55:21Z",
+      "payloads": [
+        {
+          "name": "sd-master-fd21ecf-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-995-fd21ecf/sd-master-fd21ecf-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 26564478,
+          "sha256": "762b83cf6e519c30e788a8447de8fd10dbec3968f8e113da96b3e4112fb48927"
+        }
+      ]
+    }
+  ]
+}
