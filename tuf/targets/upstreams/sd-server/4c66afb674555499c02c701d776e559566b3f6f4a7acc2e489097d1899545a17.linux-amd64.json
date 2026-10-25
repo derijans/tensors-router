@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "423047511",
+      "tag": "master-1006-0886f11",
+      "published_at": "2026-10-24T23:46:39Z",
+      "payloads": [
+        {
+          "name": "sd-master-0886f11-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1006-0886f11/sd-master-0886f11-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 27289385,
+          "sha256": "3d33be5e3e9b5244cf904c537b8dc51c9582920b11d16539c8b35c12ab0f20a8"
+        }
+      ]
+    }
+  ]
+}
