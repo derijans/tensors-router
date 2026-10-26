@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "423599314",
+      "tag": "master-1015-e41fbcf",
+      "published_at": "2026-10-25T19:00:22Z",
+      "payloads": [
+        {
+          "name": "sd-master-e41fbcf-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1015-e41fbcf/sd-master-e41fbcf-bin-win-cpu-x64.zip",
+          "length": 18080790,
+          "sha256": "bfc02f16df7744296ecc7720503a2b633575490dd7d8b448aee035c1fc836bec"
+        }
+      ]
+    }
+  ]
+}
