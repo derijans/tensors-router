@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "424618702",
+      "tag": "master-1017-be48649",
+      "published_at": "2026-10-26T18:33:51Z",
+      "payloads": [
+        {
+          "name": "sd-master-be48649-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1017-be48649/sd-master-be48649-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 27322693,
+          "sha256": "1016ea927e00b0176ca23aa9f5dc5de68290ea7e115eb3fe6c2399acca41701f"
+        }
+      ]
+    }
+  ]
+}
