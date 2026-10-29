@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "426904103",
+      "tag": "master-1024-77b72a2",
+      "published_at": "2026-10-28T16:17:25Z",
+      "payloads": [
+        {
+          "name": "sd-master-77b72a2-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1024-77b72a2/sd-master-77b72a2-bin-win-cpu-x64.zip",
+          "length": 18083813,
+          "sha256": "f56a021629bfbff2a4725af97147ae84090eb075489a5ce7883daaaf87d4169d"
+        }
+      ]
+    }
+  ]
+}
