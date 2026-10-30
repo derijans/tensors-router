@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "428358950",
+      "tag": "master-1028-37bc88b",
+      "published_at": "2026-10-29T20:25:53Z",
+      "payloads": [
+        {
+          "name": "sd-master-37bc88b-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1028-37bc88b/sd-master-37bc88b-bin-win-cpu-x64.zip",
+          "length": 18083263,
+          "sha256": "13ed02c2f6bf297a756789b601a0598dcfc6ff7aadffdc5db1f462ad0e390ab0"
+        }
+      ]
+    }
+  ]
+}

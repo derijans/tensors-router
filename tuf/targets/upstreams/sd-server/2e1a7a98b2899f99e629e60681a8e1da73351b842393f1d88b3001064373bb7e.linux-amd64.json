@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "428358950",
+      "tag": "master-1028-37bc88b",
+      "published_at": "2026-10-29T20:25:53Z",
+      "payloads": [
+        {
+          "name": "sd-master-37bc88b-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1028-37bc88b/sd-master-37bc88b-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 27327954,
+          "sha256": "5a7fefd58b4827a8966c08e10390343af52dbfe0f56ef23e171b457affd4b648"
+        }
+      ]
+    }
+  ]
+}
