@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/ggml-org/llama.cpp",
+  "releases": [
+    {
+      "id": "429803018",
+      "tag": "b12020",
+      "published_at": "2026-10-31T08:07:49Z",
+      "prerelease": true,
+      "payloads": [
+        {
+          "name": "llama-b12020-bin-ubuntu-x64.tar.gz",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12020/llama-b12020-bin-ubuntu-x64.tar.gz",
+          "length": 22880149,
+          "sha256": "1b69032f9ab60dc6aa909689fda941fa1b9162f6ab46b863582d5649d96ac6be"
+        }
+      ]
+    }
+  ]
+}
