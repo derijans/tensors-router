@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "430131988",
+      "tag": "master-1031-c6dfa9d",
+      "published_at": "2026-10-31T19:12:10Z",
+      "payloads": [
+        {
+          "name": "sd-master-c6dfa9d-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1031-c6dfa9d/sd-master-c6dfa9d-bin-win-cpu-x64.zip",
+          "length": 18094519,
+          "sha256": "82f2fa57e325895d2d1d649a9ed48e35cda7a415a255f9fc3c9d682381960f08"
+        }
+      ]
+    }
+  ]
+}
