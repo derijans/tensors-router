@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "430862384",
+      "tag": "master-1039-290148d",
+      "published_at": "2026-11-01T21:15:36Z",
+      "payloads": [
+        {
+          "name": "sd-master-290148d-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1039-290148d/sd-master-290148d-bin-Linux-Ubuntu-24.04-x86_64.zip",
+          "length": 27322061,
+          "sha256": "d007c95023f6eab3169991ad9bda8c19bc801536fc21a6eb9b73e168e4c8989d"
+        }
+      ]
+    }
+  ]
+}

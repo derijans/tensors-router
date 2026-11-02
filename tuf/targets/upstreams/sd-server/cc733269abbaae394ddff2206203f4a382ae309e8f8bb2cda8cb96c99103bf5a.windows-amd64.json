@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "430862384",
+      "tag": "master-1039-290148d",
+      "published_at": "2026-11-01T21:15:36Z",
+      "payloads": [
+        {
+          "name": "sd-master-290148d-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1039-290148d/sd-master-290148d-bin-win-cpu-x64.zip",
+          "length": 18067882,
+          "sha256": "db87261c0ff56ff5f24d83b2c5926f3792192e08fdc9e32ed36af628e35d519e"
+        }
+      ]
+    }
+  ]
+}
