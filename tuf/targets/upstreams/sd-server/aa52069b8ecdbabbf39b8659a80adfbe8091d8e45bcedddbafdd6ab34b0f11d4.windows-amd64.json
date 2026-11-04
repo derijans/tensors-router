@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "433100276",
+      "tag": "master-1047-984eb06",
+      "published_at": "2026-11-03T18:59:32Z",
+      "payloads": [
+        {
+          "name": "sd-master-984eb06-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1047-984eb06/sd-master-984eb06-bin-win-cpu-x64.zip",
+          "length": 18069874,
+          "sha256": "53d538e6187d31c2c22107ca89cb694494ca5e583f7e1d769cfb6b74926728b8"
+        }
+      ]
+    }
+  ]
+}
