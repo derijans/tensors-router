@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "436825032",
+      "tag": "master-1053-5a1ba5d",
+      "published_at": "2026-11-06T18:03:12Z",
+      "payloads": [
+        {
+          "name": "sd-master-5a1ba5d-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1053-5a1ba5d/sd-master-5a1ba5d-bin-win-cpu-x64.zip",
+          "length": 18106019,
+          "sha256": "583246569b26ec1cf63dbe006b1824565708efb4d4c7cf302221ac6b69c4f2bf"
+        }
+      ]
+    }
+  ]
+}
