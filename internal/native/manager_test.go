@@ -41,9 +41,15 @@ func TestLlamaLaunchArgumentsFromKcpps(t *testing.T) {
 		"kv_unified":true,
 		"cache_idle_slots":false,
 		"swa_full":true,
+		"moe_cache_mib":2048,
+		"moe_cache_cpu_share":0.25,
+		"shard":["C:/models/text-ple.gguf","D:/models/text-extra.gguf"],
+		"media_allow_private_urls":true,
 		"spec_type":"draft-simple",
 		"spec_draft_type_k":"q8_0",
 		"spec_draft_type_v":"q4_0",
+		"spec_draft_n_ubatch":128,
+		"spec_draft_sampling":"probabilistic",
 		"draft_dflash":true,
 		"draftmodel":"C:/models/draft.gguf",
 		"draftamount":8,
@@ -94,6 +100,8 @@ func TestLlamaLaunchArgumentsFromKcpps(t *testing.T) {
 		"--port", "6002",
 		"--model", "C:/models/text.gguf",
 		"--alias", "combo",
+		"--shard", "C:/models/text-ple.gguf",
+		"--shard", "D:/models/text-extra.gguf",
 		"--ctx-size", "8192",
 		"--threads", "12",
 		"--threads-batch", "6",
@@ -113,9 +121,13 @@ func TestLlamaLaunchArgumentsFromKcpps(t *testing.T) {
 		"--kv-unified-per-slot", "4096",
 		"--no-cache-idle-slots",
 		"--swa-full",
+		"--moe-cache-mib", "2048",
+		"--moe-cache-cpu-share", "0.25",
 		"--spec-type", "draft-simple,draft-dflash",
 		"--spec-draft-type-k", "q8_0",
 		"--spec-draft-type-v", "q4_0",
+		"--spec-draft-n-ubatch", "128",
+		"--spec-draft-sampling", "probabilistic",
 		"--model-draft", "C:/models/draft.gguf",
 		"--spec-draft-n-max", "8",
 		"--spec-draft-ngl", "99",
@@ -137,6 +149,7 @@ func TestLlamaLaunchArgumentsFromKcpps(t *testing.T) {
 		"--reasoning-effort", "xhigh",
 		"--tools-runtime", "docker:python:3.12",
 		"--agent",
+		"--media-allow-private-urls",
 		"--models-dir", "C:/models/router",
 		"--models-preset", "C:/models/presets.ini",
 		"--models-max", "2",
@@ -569,20 +582,32 @@ func TestWhisperCPPMapsCompleteServerOptions(t *testing.T) {
 	}
 	for _, unsupported := range []string{"--output-json", "--output-json-full", "--output-srt", "--suppress-regex", "--language-probability", "--no-context"} {
 		if containsArgument(args, unsupported) {
-			t.Fatalf("argument %q is absent from the whisper-server v1.9.4 option list, got %#v", unsupported, args)
+			t.Fatalf("argument %q is absent from the whisper-server v1.9.5 option list, got %#v", unsupported, args)
 		}
 	}
 }
 
-func TestLlamaRejectsRemovedTTSFlagCombinations(t *testing.T) {
-	if _, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{TTSModel: "tts.gguf", TTSWAVTokenizer: "vocoder.gguf"}, "llama"); err == nil {
-		t.Fatal("expected standalone ttsmodel+wavtokenizer rejection: llama.cpp removed --model-vocoder")
+func TestLlamaLoadsTextToSpeechModelWithItsCodecMMProj(t *testing.T) {
+	args, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{NoModel: true, TTSModel: "tts.gguf", TTSWAVTokenizer: "codec-mmproj.gguf"}, "llama")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if _, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{ModelParam: "text.gguf", TalkerModel: "talker.gguf", Code2WAVModel: "code2wav.gguf"}, "llama"); err == nil {
-		t.Fatal("expected talkermodel+code2wavmodel rejection: llama.cpp removed --model-talker and --model-vocoder")
+	if !containsSequence(args, "--model", "tts.gguf") || !containsSequence(args, "--mmproj", "codec-mmproj.gguf") || containsArgument(args, "--video-ffmpeg-dir") {
+		t.Fatalf("llama-server text-to-speech must load ttsmodel with its codec mmproj, got %#v", args)
 	}
-	if _, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{ModelParam: "text.gguf", TTSModel: "tts.gguf"}, "llama"); err == nil {
-		t.Fatal("expected text plus standalone TTS rejection")
+}
+
+func TestLlamaRejectsTextToSpeechCombinationsItCannotLoad(t *testing.T) {
+	for name, metadata := range map[string]catalog.RuntimeConfig{
+		"removed talker and vocoder flags": {ModelParam: "text.gguf", TalkerModel: "talker.gguf", Code2WAVModel: "code2wav.gguf"},
+		"text model plus ttsmodel":         {ModelParam: "text.gguf", TTSModel: "tts.gguf", TTSWAVTokenizer: "codec.gguf"},
+		"ttsmodel without its codec":       {TTSModel: "tts.gguf"},
+		"codec without ttsmodel":           {ModelParam: "text.gguf", TTSWAVTokenizer: "codec.gguf"},
+		"codec next to a vision mmproj":    {TTSModel: "tts.gguf", TTSWAVTokenizer: "codec.gguf", MMProj: "vision.gguf"},
+	} {
+		if _, err := RuntimeArgumentsForTest(metadata, "llama"); err == nil {
+			t.Fatalf("%s: expected rejection before llama-server starts", name)
+		}
 	}
 	args, err := RuntimeArgumentsForTest(catalog.RuntimeConfig{ModelParam: "text.gguf"}, "llama")
 	if err != nil {
@@ -644,7 +669,7 @@ func TestSDCPPAutoFitTakesOnOffValueAndDefersToUpstreamWhenUnset(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !containsAdjacentArguments(args, "--auto-fit", "off") {
-		t.Fatalf("sd-server master-908 parses --auto-fit as on|off; expected --auto-fit off in %#v", args)
+		t.Fatalf("sd-server master-1106 parses --auto-fit as on|off; expected --auto-fit off in %#v", args)
 	}
 	args, err = RuntimeArgumentsForTest(catalog.RuntimeConfig{SDModel: "C:/models/image.safetensors"}, "sdcpp")
 	if err != nil {
@@ -666,7 +691,7 @@ func TestSDCPPIgnoresLegacyStreamingOptionsRemovedUpstream(t *testing.T) {
 	}
 	for _, removed := range []string{"--stream-layers", "--streaming", "--autofit"} {
 		if containsArgument(args, removed) {
-			t.Fatalf("%q is absent from the sd-server master-908 option list and would abort launch, got %#v", removed, args)
+			t.Fatalf("%q is absent from the sd-server master-1106 option list and would abort launch, got %#v", removed, args)
 		}
 	}
 	if !containsAdjacentArguments(args, "--auto-fit", "on") {
@@ -686,6 +711,15 @@ func containsString(values []string, target string) bool {
 func containsArgument(args []string, expected string) bool {
 	for _, arg := range args {
 		if arg == expected {
+			return true
+		}
+	}
+	return false
+}
+
+func containsSequence(args []string, flag string, value string) bool {
+	for index := 0; index+1 < len(args); index++ {
+		if args[index] == flag && args[index+1] == value {
 			return true
 		}
 	}
@@ -752,6 +786,9 @@ func TestSDCPPLaunchArgumentsFromKcpps(t *testing.T) {
 		"sddiffusionflashattention":true,
 		"sddiffusionconvdirect":true,
 		"sdvaeconvdirect":true,
+		"sdbatchedcfg":false,
+		"sdmaxpendingjobs":16,
+		"sdcompletedttlseconds":120,
 		"sdoffloadcpu":true,
 		"sdvaecpu":true,
 		"sdtiledvae":768,
@@ -789,6 +826,8 @@ func TestSDCPPLaunchArgumentsFromKcpps(t *testing.T) {
 		"--listen-port", "7861",
 		"--model", "C:/models/dream.safetensors",
 		"--log-level", "warn",
+		"--max-pending-jobs", "16",
+		"--completed-ttl-seconds", "120",
 		"--vae", "C:/models/vae.safetensors",
 		"--audio-vae", "C:/models/audio-vae.safetensors",
 		"--audio-encoder", "C:/models/wav2vec2.gguf",
@@ -825,11 +864,10 @@ func TestSDCPPLaunchArgumentsFromKcpps(t *testing.T) {
 		"--disable-segmented-compute",
 		"--offload-to-cpu",
 		"--vae-on-cpu",
-		"--fa",
-		"--diffusion-fa",
+		"--flash-attn", "on",
 		"--sage-attn",
-		"--diffusion-conv-direct",
-		"--vae-conv-direct",
+		"--conv-direct", "auto,diffusion=on,controlnet=on,vae=on",
+		"--batched-cfg", "off",
 		"--linear-scale", "1",
 		"--attn-scale", "0.5",
 		"--type", "q8_0",
@@ -853,6 +891,34 @@ func TestSDCPPLaunchArgumentsFromKcpps(t *testing.T) {
 	}
 	if !reflect.DeepEqual(args, expected) {
 		t.Fatalf("unexpected args %#v", args)
+	}
+}
+
+func TestSDCPPComputeModesPreferExplicitModesOverLegacyBooleans(t *testing.T) {
+	for name, testCase := range map[string]struct {
+		config            string
+		flashAttention    string
+		convolutionDirect string
+	}{
+		"unset leaves upstream auto": {`{}`, "", ""},
+		"legacy diffusion only":      {`{"sddiffusionflashattention":true,"sddiffusionconvdirect":true}`, "off,diffusion=on", "auto,diffusion=on,controlnet=on"},
+		"legacy vae only":            {`{"sdvaeconvdirect":true}`, "", "auto,vae=on"},
+		"legacy all modules":         {`{"sdflashattention":true,"sddiffusionflashattention":true}`, "on", ""},
+		"explicit modes win": {
+			`{"sdflashattentionmode":"auto,te=off","sdflashattention":true,"sdconvdirectmode":"off","sdvaeconvdirect":true}`,
+			"auto,te=off", "off",
+		},
+	} {
+		metadata, err := catalog.DecodeRuntimeConfig([]byte(testCase.config))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := sdcppFlashAttentionMode(metadata); got != testCase.flashAttention {
+			t.Fatalf("%s: --flash-attn %q, want %q", name, got, testCase.flashAttention)
+		}
+		if got := sdcppConvDirectMode(metadata); got != testCase.convolutionDirect {
+			t.Fatalf("%s: --conv-direct %q, want %q", name, got, testCase.convolutionDirect)
+		}
 	}
 }
 

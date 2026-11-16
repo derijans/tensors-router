@@ -76,6 +76,7 @@ func companionArguments(configuration ClientConfig) []string {
 	}
 	arguments = appendTrueFlag(arguments, "--oci-run-as-image-user", configuration.OCIRunAsImageUser)
 	arguments = appendTrueFlag(arguments, "--allow-trust-remote-code", configuration.AllowTrustRemoteCode)
+	arguments = appendTrueFlag(arguments, "--allow-trust-request-mm-kwargs", configuration.AllowTrustRequestMMKwargs)
 	arguments = appendTrueFlag(arguments, "--allow-external-tools", configuration.AllowExternalTools)
 	return appendTrueFlag(arguments, "--allow-dynamic-lora", configuration.AllowDynamicLoRA)
 }

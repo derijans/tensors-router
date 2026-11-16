@@ -16,7 +16,6 @@ const (
 	sdcppVideoSubmitPath       = "/sdcpp/v1/vid_gen"
 	sdcppVideoJobPathPrefix    = "/sdcpp/v1/jobs/"
 	sdcppUnsupportedMediaCode  = "unsupported_media"
-	sdcppNoAudioInputMessage   = "sd-server has no HTTP audio input, so workflows with audio references (such as Wan2.2 S2V) need backend_mode kobold"
 	comfyVideoPollInterval     = 1 * time.Second
 	sdcppVideoOutputFormatMJPG = "avi"
 )
@@ -80,9 +79,6 @@ func (service *Service) pollSDCPPVideoJob(ctx context.Context, model catalog.Mod
 }
 
 func buildSDCPPVideoRequest(params comfyvideo.Params, media comfyVideoMedia) ([]byte, error) {
-	if len(media.referenceAudios) > 0 {
-		return nil, &comfyVideoRequestError{code: sdcppUnsupportedMediaCode, message: sdcppNoAudioInputMessage}
-	}
 	body := map[string]any{
 		"prompt":          params.Prompt,
 		"negative_prompt": params.NegativePrompt,
@@ -97,6 +93,9 @@ func buildSDCPPVideoRequest(params comfyvideo.Params, media comfyVideoMedia) ([]
 	setBase64Field(body, "end_image", media.endFrame)
 	if len(media.referenceImages) > 0 {
 		body["ref_images"] = base64Images(media.referenceImages)
+	}
+	if len(media.referenceAudios) > 0 {
+		body["ref_audios"] = audioDataURLs(media.referenceAudios)
 	}
 	if len(params.LoRAs) > 0 {
 		body["lora"] = comfyVideoLoRARequests(params.LoRAs)

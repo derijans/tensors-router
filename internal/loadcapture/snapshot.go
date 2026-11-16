@@ -24,7 +24,7 @@ type Snapshot struct {
 }
 
 var modelFields = map[string]struct{}{
-	"model": {}, "model_param": {}, "lora": {}, "mmproj": {}, "draftmodel": {},
+	"model": {}, "model_param": {}, "lora": {}, "mmproj": {}, "draftmodel": {}, "shard": {},
 	"sdmodel": {}, "sddiffusionmodel": {}, "sdhighnoisediffusionmodel": {}, "sdunconddiffusionmodel": {},
 	"sdllm": {}, "sdllmvision": {}, "sdtokenizer": {}, "sdaudioencoder": {}, "sdclipvision": {}, "sdipadapter": {}, "sdmotionmodule": {},
 	"sdcontrolnet": {}, "sdpulidweights": {}, "sdpulididembedding": {}, "sdupscaler": {}, "sdvae": {},

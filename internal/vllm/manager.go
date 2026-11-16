@@ -27,19 +27,20 @@ type SmokeTester interface {
 }
 
 type ManagerOptions struct {
-	DataDir              string
-	DefaultProfile       string
-	ManifestSource       ManifestSource
-	Detector             Detector
-	Downloader           ArtifactDownloader
-	Installer            EnvironmentInstaller
-	SmokeTester          SmokeTester
-	RuntimeLauncher      RuntimeLauncher
-	AllowTrustRemoteCode bool
-	AllowExternalTools   bool
-	AllowDynamicLoRA     bool
-	OCIRunAsImageUser    bool
-	DisableRecovery      bool
+	DataDir                   string
+	DefaultProfile            string
+	ManifestSource            ManifestSource
+	Detector                  Detector
+	Downloader                ArtifactDownloader
+	Installer                 EnvironmentInstaller
+	SmokeTester               SmokeTester
+	RuntimeLauncher           RuntimeLauncher
+	AllowTrustRemoteCode      bool
+	AllowTrustRequestMMKwargs bool
+	AllowExternalTools        bool
+	AllowDynamicLoRA          bool
+	OCIRunAsImageUser         bool
+	DisableRecovery           bool
 }
 
 type Manager struct {

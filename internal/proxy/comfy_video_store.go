@@ -288,10 +288,12 @@ type cappedWriter struct {
 	remaining int64
 	written   int64
 	overflow  error
+	exceeded  bool
 }
 
 func (writer *cappedWriter) Write(payload []byte) (int, error) {
 	if int64(len(payload)) > writer.remaining {
+		writer.exceeded = true
 		return 0, writer.overflow
 	}
 	written, err := writer.target.Write(payload)

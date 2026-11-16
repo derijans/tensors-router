@@ -78,6 +78,23 @@ func TestRuntimeConfigWithoutSamplerDefaultsLoadsTheOriginalFile(t *testing.T) {
 	}
 }
 
+func TestRuntimeConfigRejectsKoboldAgentConfigs(t *testing.T) {
+	for name, config := range map[string]string{
+		"agent":     `{"model_param":"/models/text.gguf","agent":true}`,
+		"agentload": `{"model_param":"/models/text.gguf","agentload":"session.json"}`,
+	} {
+		manager := managerForRuntimeConfig(t, config, false)
+
+		if _, _, _, err := manager.runtimeConfig("variant.kcpps"); err == nil {
+			t.Fatalf("%s: expected the agent config to be rejected before KoboldCpp opens an agent terminal", name)
+		}
+	}
+	manager := managerForRuntimeConfig(t, `{"model_param":"/models/text.gguf","agent":false,"agentload":""}`, false)
+	if _, _, _, err := manager.runtimeConfig("variant.kcpps"); err != nil {
+		t.Fatalf("disabled agent fields must load: %v", err)
+	}
+}
+
 func TestRuntimeConfigKeepsSamplerDefaultsForImageConfigs(t *testing.T) {
 	manager := managerForRuntimeConfig(t, `{"model_param":"/models/text.gguf","sdmodel":"/models/image.safetensors","gendefaults":{"steps":20}}`, true)
 

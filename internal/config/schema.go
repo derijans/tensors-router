@@ -100,6 +100,7 @@ func vllmFields(vllm *VLLMConfig) flatyaml.Fields {
 		"eep_enabled":                flatyaml.Bool(&vllm.EEPEnabled),
 		"trust_remote_code":          flatyaml.Bool(&vllm.TrustRemoteCode),
 		"external_tools":             flatyaml.Bool(&vllm.ExternalTools),
+		"trust_request_mm_kwargs":    flatyaml.Bool(&vllm.TrustRequestMMKwargs),
 		"oci_run_as_image_user":      flatyaml.Bool(&vllm.OCIRunAsImageUser),
 		"allow_unverified_install":   flatyaml.Bool(&vllm.AllowUnverifiedInstall),
 		"unverified_vllm_version":    flatyaml.String(&vllm.UnverifiedVLLMVersion),

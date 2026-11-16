@@ -136,18 +136,19 @@ type DownloaderConfig struct {
 }
 
 type VLLMConfig struct {
-	BinaryLocation     string
-	DataDir            string
-	Profile            string
-	ManifestPath       string
-	ManifestSHA256     string
-	ManifestSize       int64
-	TUFRepositoryURL   string
-	TUFRootPath        string
-	DynamicLoRAEnabled bool
-	EEPEnabled         bool
-	TrustRemoteCode    bool
-	ExternalTools      bool
+	BinaryLocation       string
+	DataDir              string
+	Profile              string
+	ManifestPath         string
+	ManifestSHA256       string
+	ManifestSize         int64
+	TUFRepositoryURL     string
+	TUFRootPath          string
+	DynamicLoRAEnabled   bool
+	EEPEnabled           bool
+	TrustRemoteCode      bool
+	ExternalTools        bool
+	TrustRequestMMKwargs bool
 	// AllowUnverifiedInstall opts into installing vLLM straight from PyPI with no
 	// manifest and no digest pinning, when no TUF-published or operator-pinned
 	// manifest is available. Off by default: this is a real reduction in

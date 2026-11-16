@@ -133,7 +133,7 @@ The router never forwards the workflow itself, so it resolves the media a video 
 Per backend:
 
 - `backend_mode: kobold`: reference images and then audio (as `data:audio/<type>;base64,...` items) go in `extra_images`, frames in `video_start_frame` / `video_end_frame`. KoboldCpp keeps at most four reference images, so a workflow with more is refused with code `too_many_reference_images`.
-- `backend_mode: llama_sdcpp`: frames go in `init_image` / `end_image` and reference images in `ref_images` on `/sdcpp/v1/vid_gen`. sd-server has no HTTP audio input, so a workflow with reference audio is refused with `400` and code `unsupported_media`. Wan2.2 sound-to-video needs driving audio (and the `sdaudioencoder` audio encoder on stable-diffusion.cpp), so it has no ComfyUI path on `llama_sdcpp` yet; audio-driven workflows work only on `backend_mode: kobold` with a model that takes audio references.
+- `backend_mode: llama_sdcpp`: frames go in `init_image` / `end_image`, reference images in `ref_images` and reference audio in `ref_audios` (as `data:audio/wav;base64,...` items) on `/sdcpp/v1/vid_gen`. This drives Wan2.2 sound-to-video and needs stable-diffusion.cpp `master-1014` or newer. sd-server reads reference audio only as WAV: the router sends WAV uploads unchanged and converts other formats with ffmpeg, keeping their sample rate and channels. The image config must load `sdaudioencoder` or `sdaudiovae`; without either, a workflow with reference audio is refused with `400` and code `unsupported_media`. A converted file larger than the per-prompt media cap is refused with `media_too_large`.
 
 A workflow naming media the router never stored, or loading an audio upload as an image (or the reverse), is refused at submission.
 

@@ -84,8 +84,6 @@ func (service *Service) resolveLocalAudioTarget(w http.ResponseWriter, r *http.R
 
 func (service *Service) rejectUnsupportedAudioBackend(w http.ResponseWriter, r *http.Request, target localModelTarget) bool {
 	switch {
-	case target.backendMode == BackendModeLlamaSDCPP && isTextToSpeechPath(r.URL.Path):
-		openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", llamaTextToSpeechUnsupportedMessage)
 	case target.backendMode == BackendModeLlamaSDCPP && (!target.hasModel || !modelSupportsLlamaAudioPath(target.model, r.URL.Path)):
 		openai.WriteError(w, http.StatusNotImplemented, "unsupported_backend", "audio route is not supported by the selected split backend config")
 	case target.backendMode == BackendModeVLLM && !vllmInferenceAllowed(r.Method, r.URL.Path):

@@ -39,7 +39,7 @@ func TestBuildServeArgumentsOwnsSecurityBoundary(t *testing.T) {
 			t.Fatalf("missing %q in %q", expected, joined)
 		}
 	}
-	for _, forbidden := range [][]string{{"--host", "0.0.0.0"}, {"--api-key=secret"}, {"--middleware", "bad.module"}, {"--ray-address", "host"}, {"--trust-remote-code"}} {
+	for _, forbidden := range [][]string{{"--host", "0.0.0.0"}, {"--api-key=secret"}, {"--middleware", "bad.module"}, {"--ray-address", "host"}, {"--trust-remote-code"}, {"--trust-request-mm-kwargs"}, {"--trust_request_mm_kwargs=true"}} {
 		configuration.ServeArgs = forbidden
 		if _, err := BuildServeArguments(configuration, "/private/vllm.sock"); err == nil {
 			t.Fatalf("expected forbidden argument rejection for %#v", forbidden)
@@ -147,15 +147,19 @@ func TestRuntimeHealthProbeRequiresSuccessfulHTTPHealth(t *testing.T) {
 
 func TestBuildServeArgumentsUsesTypedRemoteCodeAndToolServerGates(t *testing.T) {
 	configuration := VLLMModelConfig{
-		Snapshot:            SnapshotIdentity{Path: "/models/snapshot", TreeDigest: strings.Repeat("a", 64)},
-		TrustRemoteCode:     true,
-		ExternalToolServers: []string{"tools.internal:8443", "[2001:db8::1]:9443"},
+		Snapshot:             SnapshotIdentity{Path: "/models/snapshot", TreeDigest: strings.Repeat("a", 64)},
+		TrustRemoteCode:      true,
+		TrustRequestMMKwargs: true,
+		ExternalToolServers:  []string{"tools.internal:8443", "[2001:db8::1]:9443"},
 	}
 	arguments, err := BuildServeArguments(configuration, "/private/vllm.sock")
 	if err != nil {
 		t.Fatal(err)
 	}
 	joined := strings.Join(arguments, " ")
+	if strings.Count(joined, "--trust-request-mm-kwargs") != 1 {
+		t.Fatalf("typed request multimodal kwargs gate was not applied exactly once: %s", joined)
+	}
 	if !strings.Contains(joined, "--trust-remote-code") || !strings.Contains(joined, "--tool-server tools.internal:8443,[2001:db8::1]:9443") {
 		t.Fatalf("typed security gates were not applied: %s", joined)
 	}
@@ -233,6 +237,30 @@ func TestOCIRuntimeUsesPrivateMountsOfflineEnvironmentAndDeviceIsolation(t *test
 	}
 }
 
+func TestBuildServeArgumentsCapsActiveSequencesWithinTheSequenceLimit(t *testing.T) {
+	configuration := VLLMModelConfig{
+		Snapshot: SnapshotIdentity{Path: "/models/snapshot", TreeDigest: strings.Repeat("a", 64)},
+		Settings: CommonSettings{MaxNumberSequences: 8, MaxNumActiveSeqs: 4},
+	}
+	arguments, err := BuildServeArguments(configuration, "/private/vllm.sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if joined := strings.Join(arguments, " "); !strings.Contains(joined, "--max-num-seqs 8") || !strings.Contains(joined, "--max-num-active-seqs 4") {
+		t.Fatalf("sequence limits were not emitted: %s", joined)
+	}
+	for _, invalid := range []CommonSettings{{MaxNumberSequences: 4, MaxNumActiveSeqs: 8}, {MaxNumActiveSeqs: -1}} {
+		configuration.Settings = invalid
+		if _, err := BuildServeArguments(configuration, "/private/vllm.sock"); err == nil {
+			t.Fatalf("invalid sequence limits %#v were accepted", invalid)
+		}
+	}
+	configuration.Settings = CommonSettings{MaxNumActiveSeqs: 4}
+	if _, err := BuildServeArguments(configuration, "/private/vllm.sock"); err != nil {
+		t.Fatalf("active sequence cap without an explicit sequence limit was rejected: %v", err)
+	}
+}
+
 func TestModelSecurityPolicyRequiresAdministratorOptIn(t *testing.T) {
 	manager := &Manager{}
 	if err := manager.validateModelSecurityPolicy(VLLMModelConfig{TrustRemoteCode: true}); err == nil {
@@ -241,9 +269,13 @@ func TestModelSecurityPolicyRequiresAdministratorOptIn(t *testing.T) {
 	if err := manager.validateModelSecurityPolicy(VLLMModelConfig{ExternalToolServers: []string{"tool-server"}}); err == nil {
 		t.Fatal("external tool server was accepted without administrator opt-in")
 	}
+	if err := manager.validateModelSecurityPolicy(VLLMModelConfig{TrustRequestMMKwargs: true}); err == nil {
+		t.Fatal("trust_request_mm_kwargs was accepted without administrator opt-in")
+	}
 	manager.options.AllowTrustRemoteCode = true
 	manager.options.AllowExternalTools = true
-	if err := manager.validateModelSecurityPolicy(VLLMModelConfig{TrustRemoteCode: true, ExternalToolServers: []string{"tool-server"}}); err != nil {
+	manager.options.AllowTrustRequestMMKwargs = true
+	if err := manager.validateModelSecurityPolicy(VLLMModelConfig{TrustRemoteCode: true, TrustRequestMMKwargs: true, ExternalToolServers: []string{"tool-server"}}); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -68,6 +68,23 @@ func TestValidateSeparateEmbeddingRuntimeRequiresModel(t *testing.T) {
 	}
 }
 
+func TestValidateKoboldAgentRejectsAgentFieldsOnlyForKobold(t *testing.T) {
+	group := cookGroup{nodeID: "node-a", components: []cook.Component{{Kind: cook.KindText}}}
+	for field, value := range map[string]string{"agent": "true", "agentload": `"session.json"`} {
+		options := cook.Options{field: json.RawMessage(value)}
+		issues := validateKoboldAgent(group, cookNodeFacts{backendMode: "kobold"}, options)
+		if len(issues) != 1 || issues[0].Code != "kobold_agent_unsupported" || issues[0].Field != field {
+			t.Fatalf("%s: unexpected validation issues %#v", field, issues)
+		}
+		if issues := validateKoboldAgent(group, cookNodeFacts{backendMode: "llama_sdcpp"}, options); len(issues) != 0 {
+			t.Fatalf("%s: llama.cpp agent mode was rejected %#v", field, issues)
+		}
+	}
+	if issues := validateKoboldAgent(group, cookNodeFacts{backendMode: "kobold"}, cook.Options{"agent": json.RawMessage("false")}); len(issues) != 0 {
+		t.Fatalf("disabled agent was rejected %#v", issues)
+	}
+}
+
 func TestValidateUnknownGPUCountSkipsWhenBackendUnknown(t *testing.T) {
 	group := cookGroup{
 		components: []cook.Component{{

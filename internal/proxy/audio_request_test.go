@@ -167,7 +167,38 @@ func TestSplitModeRejectsAudioRoutes(t *testing.T) {
 	}
 }
 
-func TestSplitModeRejectsTextToSpeechRegardlessOfVoiceAssets(t *testing.T) {
+func TestSplitModeServesTextToSpeechOnTheLlamaRuntime(t *testing.T) {
+	var spoken atomic.Bool
+	service, textBackend, _ := newSplitTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/models":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"object":"list","data":[{"id":"backend"}]}`))
+		case r.Method == http.MethodPost && r.URL.Path == pathOpenAISpeech:
+			spoken.Store(true)
+			w.Header().Set("Content-Type", "audio/wav")
+			_, _ = w.Write([]byte("RIFF"))
+		default:
+			t.Errorf("unexpected text path %s", r.URL.Path)
+		}
+	}), readyImageHandler(t), map[string]string{
+		"voice": `{"nomodel":true,"ttsmodel":"C:\\models\\qwen3-tts.gguf","ttswavtokenizer":"C:\\models\\qwen3-tts-codec.gguf"}`,
+	})
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, pathOpenAISpeech, strings.NewReader(`{"model":"voice","input":"hello","voice":"alloy"}`))
+	request.Header.Set("Content-Type", "application/json")
+	service.ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusOK || recorder.Body.String() != "RIFF" || !spoken.Load() {
+		t.Fatalf("speech status=%d body=%q spoken=%t", recorder.Code, recorder.Body.String(), spoken.Load())
+	}
+	if textBackend.reloads.Load() == 0 {
+		t.Fatal("the text-to-speech config was not loaded into the llama runtime")
+	}
+}
+
+func TestSplitModeRejectsTextToSpeechItCannotServe(t *testing.T) {
 	tests := []struct {
 		name   string
 		path   string
@@ -192,6 +223,12 @@ func TestSplitModeRejectsTextToSpeechRegardlessOfVoiceAssets(t *testing.T) {
 			config: `{"ttsmodel":"C:\\models\\tts.gguf","ttswavtokenizer":"C:\\models\\vocoder.gguf"}`,
 			body:   `{"model":"voice","input":"hello"}`,
 		},
+		{
+			name:   "speech without the codec mmproj",
+			path:   pathOpenAISpeech,
+			config: `{"ttsmodel":"C:\\models\\tts.gguf"}`,
+			body:   `{"model":"voice","input":"hello","voice":"alloy"}`,
+		},
 	}
 
 	for _, testCase := range tests {
@@ -212,8 +249,8 @@ func TestSplitModeRejectsTextToSpeechRegardlessOfVoiceAssets(t *testing.T) {
 			if recorder.Code != http.StatusNotImplemented {
 				t.Fatalf("unexpected status %d body %s", recorder.Code, recorder.Body.String())
 			}
-			if !strings.Contains(recorder.Body.String(), "text-to-speech is not supported by the split backend") {
-				t.Fatalf("rejection did not explain the removal: %s", recorder.Body.String())
+			if !strings.Contains(recorder.Body.String(), "audio route is not supported by the selected split backend config") {
+				t.Fatalf("rejection did not name the unsupported split config: %s", recorder.Body.String())
 			}
 			if textBackend.reloads.Load() != 0 || imageBackend.reloads.Load() != 0 {
 				t.Fatalf("split-mode speech must not reload backends text=%d image=%d", textBackend.reloads.Load(), imageBackend.reloads.Load())

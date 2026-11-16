@@ -89,6 +89,12 @@ func appendJoinedStringListArg(args *[]string, flag string, value any, separator
 	*args = append(*args, flag, strings.Join(values, separator))
 }
 
+func appendRepeatedStringArg(args *[]string, flag string, value any) {
+	for _, item := range nativeStringValues(value) {
+		*args = append(*args, flag, item)
+	}
+}
+
 func nativeStringValues(value any) []string {
 	switch typed := value.(type) {
 	case string:

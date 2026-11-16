@@ -3,6 +3,7 @@ package ffmpeg
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"errors"
 	"os/exec"
 	"testing"
@@ -72,6 +73,30 @@ func TestConvertToWAVProducesARIFFWaveHeader(t *testing.T) {
 	out := wav.Bytes()
 	if len(out) < 12 || string(out[0:4]) != "RIFF" || string(out[8:12]) != "WAVE" {
 		t.Fatalf("output is not a valid WAV file: %#v", out[:min(12, len(out))])
+	}
+}
+
+func TestConvertToFullRateWAVKeepsSampleRateAndChannels(t *testing.T) {
+	tool, err := Locate("")
+	if err != nil {
+		t.Skip("ffmpeg not installed on this machine")
+	}
+	var tone bytes.Buffer
+	cmd := exec.Command("ffmpeg", "-f", "lavfi", "-i", "sine=frequency=440:duration=1:sample_rate=44100", "-ac", "2", "-c:a", "libmp3lame", "-f", "mp3", "pipe:1")
+	cmd.Stdout = &tone
+	if err := cmd.Run(); err != nil {
+		t.Fatalf("failed to synthesize stereo test tone: %v", err)
+	}
+	var wav bytes.Buffer
+	if err := tool.ConvertToFullRateWAV(context.Background(), bytes.NewReader(tone.Bytes()), &wav); err != nil {
+		t.Fatalf("ConvertToFullRateWAV failed: %v", err)
+	}
+	out := wav.Bytes()
+	if len(out) < 28 || string(out[0:4]) != "RIFF" || string(out[8:12]) != "WAVE" || string(out[12:16]) != "fmt " {
+		t.Fatalf("output is not a canonical WAV file: %#v", out[:min(28, len(out))])
+	}
+	if channels, sampleRate := binary.LittleEndian.Uint16(out[22:24]), binary.LittleEndian.Uint32(out[24:28]); channels != 2 || sampleRate != 44100 {
+		t.Fatalf("WAV has %d channels at %d Hz, want the source's 2 channels at 44100 Hz", channels, sampleRate)
 	}
 }
 

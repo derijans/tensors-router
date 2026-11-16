@@ -66,6 +66,14 @@ func audioDataURL(audio comfyUploadedMedia) string {
 	return "data:" + audio.contentType + ";base64," + base64.StdEncoding.EncodeToString(audio.content)
 }
 
+func audioDataURLs(audios []comfyUploadedMedia) []string {
+	encoded := make([]string, 0, len(audios))
+	for _, audio := range audios {
+		encoded = append(encoded, audioDataURL(audio))
+	}
+	return encoded
+}
+
 func (store *comfyVideoJobStore) resolveWorkflowMedia(params comfyvideo.Params) (comfyVideoMedia, error) {
 	budget := store.promptMediaBudget()
 	loader := &comfyVideoMediaLoader{store: store, budget: budget, remaining: budget}

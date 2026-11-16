@@ -10,7 +10,7 @@ import (
 )
 
 var modelFields = map[string]struct{}{
-	"model": {}, "model_param": {}, "mmproj": {}, "draftmodel": {}, "lora": {},
+	"model": {}, "model_param": {}, "mmproj": {}, "draftmodel": {}, "lora": {}, "shard": {},
 	"sdmodel": {}, "sddiffusionmodel": {}, "sdhighnoisediffusionmodel": {}, "sdunconddiffusionmodel": {},
 	"sdupscaler": {}, "sdvae": {}, "sdaudiovae": {}, "sdt5xxl": {}, "sdclip1": {}, "sdclip2": {}, "sdclipl": {}, "sdclipg": {}, "sdclipvision": {},
 	"sdphotomaker": {}, "sdlora": {}, "sdllm": {}, "sdllmvision": {}, "sdtokenizer": {}, "sdaudioencoder": {}, "sdembeddingsconnectors": {}, "sdcontrolnet": {}, "sdpulidweights": {}, "sdpulididembedding": {}, "sdipadapter": {}, "sdmotionmodule": {},

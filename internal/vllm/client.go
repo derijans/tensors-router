@@ -20,22 +20,23 @@ const (
 )
 
 type ClientConfig struct {
-	DataDir                 string
-	DefaultProfile          string
-	ManifestPath            string
-	ManifestSize            int64
-	ManifestSHA256          string
-	TUFRepositoryURL        string
-	TUFRootPath             string
-	AllowTrustRemoteCode    bool
-	AllowExternalTools      bool
-	AllowDynamicLoRA        bool
-	AllowUnverifiedInstall  bool
-	UnverifiedVLLMVersion   string
-	UnverifiedPythonVersion string
-	UnverifiedIndexURL      string
-	UnverifiedExtraIndexURL string
-	OCIRunAsImageUser       bool
+	DataDir                   string
+	DefaultProfile            string
+	ManifestPath              string
+	ManifestSize              int64
+	ManifestSHA256            string
+	TUFRepositoryURL          string
+	TUFRootPath               string
+	AllowTrustRemoteCode      bool
+	AllowTrustRequestMMKwargs bool
+	AllowExternalTools        bool
+	AllowDynamicLoRA          bool
+	AllowUnverifiedInstall    bool
+	UnverifiedVLLMVersion     string
+	UnverifiedPythonVersion   string
+	UnverifiedIndexURL        string
+	UnverifiedExtraIndexURL   string
+	OCIRunAsImageUser         bool
 }
 
 type Client struct {

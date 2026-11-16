@@ -55,12 +55,19 @@ type RuntimeConfig struct {
 	SpecDraftTypeK            string                 `json:"spec_draft_type_k"`
 	SpecDraftTypeV            string                 `json:"spec_draft_type_v"`
 	SpecDraftPMin             float64                `json:"spec_draft_p_min"`
+	SpecDraftNUBatch          int                    `json:"spec_draft_n_ubatch"`
+	SpecDraftSampling         string                 `json:"spec_draft_sampling"`
+	MoECacheMiB               int                    `json:"moe_cache_mib"`
+	MoECacheCPUShare          float64                `json:"moe_cache_cpu_share"`
+	Shard                     any                    `json:"shard"`
+	MediaAllowPrivateURLs     bool                   `json:"media_allow_private_urls"`
 	APIKeyFile                string                 `json:"api_key_file"`
 	LogPromptsDir             string                 `json:"log_prompts_dir"`
 	MMProjDevice              string                 `json:"mmproj_device"`
 	ReasoningEffort           string                 `json:"reasoning_effort"`
 	ToolsRuntime              string                 `json:"tools_runtime"`
 	Agent                     bool                   `json:"agent"`
+	AgentLoad                 string                 `json:"agentload"`
 	ModelsDir                 string                 `json:"models_dir"`
 	ModelsPreset              string                 `json:"models_preset"`
 	ModelsMax                 int                    `json:"models_max"`
@@ -97,6 +104,11 @@ type RuntimeConfig struct {
 	SDMaxVRAM                 any                    `json:"sdmaxvram"`
 	SDAutoFit                 *bool                  `json:"sdautofit"`
 	SDConditioningCacheSize   *int                   `json:"sdconditioningcachesize"`
+	SDMaxPendingJobs          *int                   `json:"sdmaxpendingjobs"`
+	SDCompletedTTLSeconds     *int                   `json:"sdcompletedttlseconds"`
+	SDBatchedCFG              *bool                  `json:"sdbatchedcfg"`
+	SDFlashAttentionMode      string                 `json:"sdflashattentionmode"`
+	SDConvDirectMode          string                 `json:"sdconvdirectmode"`
 	SDDisablePrefetch         bool                   `json:"sddisableprefetch"`
 	SDDisableSegmentedCompute bool                   `json:"sddisablesegmentedcompute"`
 	SDSageAttention           bool                   `json:"sdsageattention"`
@@ -201,6 +213,7 @@ type ImageCapabilities struct {
 	Upscaler       string   `json:"upscaler,omitempty"`
 	VAE            string   `json:"vae,omitempty"`
 	AudioVAE       string   `json:"audio_vae,omitempty"`
+	AudioEncoder   string   `json:"audio_encoder,omitempty"`
 	VAEAuto        bool     `json:"vae_auto,omitempty"`
 	T5XXL          string   `json:"t5xxl,omitempty"`
 	Clip1          string   `json:"clip1,omitempty"`
@@ -337,6 +350,14 @@ func (metadata RuntimeConfig) MMProjPath() string {
 	return firstStringValue(metadata.MMProj)
 }
 
+func (metadata RuntimeConfig) StandaloneTextToSpeech() bool {
+	return metadata.ExplicitTextModelPath() == "" && strings.TrimSpace(metadata.TTSModel) != ""
+}
+
+func LlamaServesTextToSpeech(voice *VoiceCapabilities) bool {
+	return voice != nil && strings.TrimSpace(voice.TTSModel) != "" && strings.TrimSpace(voice.WAVTokenizer) != ""
+}
+
 func (metadata RuntimeConfig) TensorSplitValue() string {
 	values := runtimeStringValues(metadata.TensorSplit)
 	if len(values) == 0 {
@@ -364,6 +385,7 @@ func capabilitiesFromMetadata(metadata configMetadata, hasLLM bool, hasImage boo
 			Upscaler:       strings.TrimSpace(metadata.SDUpscaler),
 			VAE:            strings.TrimSpace(metadata.SDVAE),
 			AudioVAE:       strings.TrimSpace(metadata.SDAudioVAE),
+			AudioEncoder:   strings.TrimSpace(metadata.SDAudioEncoder),
 			VAEAuto:        metadata.SDVAEAuto,
 			T5XXL:          strings.TrimSpace(metadata.SDT5XXL),
 			Clip1:          strings.TrimSpace(metadata.SDClip1),

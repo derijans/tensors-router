@@ -124,10 +124,12 @@ Set `backend_mode` and a `vllm` section in the `.kcpps` file:
       "pipeline_parallel_size": 1,
       "data_parallel_size": 1,
       "max_number_sequences": 64,
+      "max_num_active_seqs": 32,
       "enable_chunked_prefill": true
     },
     "serve_args": [],
     "trust_remote_code": false,
+    "trust_request_mm_kwargs": false,
     "external_tool_servers": []
   }
 }
@@ -141,7 +143,9 @@ Typed settings cover common controls. Ordered `serve_args` retain upstream featu
 
 `--enable-scale-out` is accepted. vLLM 0.30 registers the render endpoints, `/derender`, and `/inference/v1/generate` only when it is set. The router proxies the render endpoints listed in the API boundary below; `/derender` and `/inference/v1/generate` stay unreachable because the router does not allowlist them.
 
-Remote code and external tool servers default to disabled. Both the router configuration and model configuration must explicitly enable their respective use. Tool servers use explicit `host:port` entries; URLs, credentials, paths, queries, and comma injection are rejected.
+`max_num_active_seqs` (vLLM 0.31 and newer) caps how many sequences run at once, separately from `max_number_sequences`, and must not exceed it.
+
+Remote code, per-request multimodal processor arguments (`trust_request_mm_kwargs`, vLLM 0.31 and newer) and external tool servers default to disabled. Both the router configuration and model configuration must explicitly enable their respective use; `--trust-remote-code` and `--trust-request-mm-kwargs` are also rejected in `serve_args`, so the typed fields are the only way to set them. Tool servers use explicit `host:port` entries; URLs, credentials, paths, queries, and comma injection are rejected.
 
 ## API boundary
 

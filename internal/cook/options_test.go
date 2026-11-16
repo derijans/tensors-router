@@ -191,6 +191,14 @@ func TestOptionCatalogIncludesReleaseCatchUpKeys(t *testing.T) {
 		{key: "lora_apply_mode", backend: "llama_sdcpp", nativeFlag: "--lora-apply-mode"},
 		{key: "cache_mode", backend: "llama_sdcpp", nativeFlag: "--cache-mode"},
 		{key: "cache_option", backend: "llama_sdcpp", nativeFlag: "--cache-option"},
+		{key: "queuelimit", backend: "kobold"},
+		{key: "autoswapthreshold", backend: "kobold"},
+		{key: "paralleltotalcontext", backend: "kobold"},
+		{key: "moe_cache_mib", backend: "kobold", nativeFlag: "--moe-cache-mib"},
+		{key: "moe_cache_mib", backend: "llama_sdcpp", nativeFlag: "--moe-cache-mib"},
+		{key: "sdllm", backend: "kobold", nativeFlag: "--llm"},
+		{key: "ubatchsize", backend: "kobold", nativeFlag: "--ubatch-size"},
+		{key: "lazy_mode", backend: "kobold", nativeFlag: "--lazy-mode"},
 	}
 
 	for _, testCase := range tests {
@@ -252,6 +260,25 @@ func TestOptionCatalogIncludesCurrentCompatibilityOptions(t *testing.T) {
 		{key: "usedirectio", valueType: ValueBool},
 		{key: "ffncpu", valueType: ValueNumber},
 		{key: "swapadding", valueType: ValueNumber},
+		{key: "sdflashattention", valueType: ValueBool, nativeFlag: "--flash-attn"},
+		{key: "sdflashattentionmode", valueType: ValueString, nativeFlag: "--flash-attn"},
+		{key: "sddiffusionflashattention", valueType: ValueBool, nativeFlag: "--flash-attn", legacy: true},
+		{key: "sdconvdirectmode", valueType: ValueString, nativeFlag: "--conv-direct"},
+		{key: "sddiffusionconvdirect", valueType: ValueBool, nativeFlag: "--conv-direct", legacy: true},
+		{key: "sdvaeconvdirect", valueType: ValueBool, nativeFlag: "--conv-direct", legacy: true},
+		{key: "sdbatchedcfg", valueType: ValueBool, nativeFlag: "--batched-cfg"},
+		{key: "sdmaxpendingjobs", valueType: ValueNumber, nativeFlag: "--max-pending-jobs"},
+		{key: "sdcompletedttlseconds", valueType: ValueNumber, nativeFlag: "--completed-ttl-seconds"},
+		{key: "moe_cache_mib", valueType: ValueNumber, nativeFlag: "--moe-cache-mib"},
+		{key: "moe_cache_cpu_share", valueType: ValueNumber, nativeFlag: "--moe-cache-cpu-share"},
+		{key: "spec_draft_n_ubatch", valueType: ValueNumber, nativeFlag: "--spec-draft-n-ubatch"},
+		{key: "spec_draft_sampling", valueType: ValueString, nativeFlag: "--spec-draft-sampling"},
+		{key: "shard", valueType: ValueJSON, nativeFlag: "--shard"},
+		{key: "media_allow_private_urls", valueType: ValueBool, nativeFlag: "--media-allow-private-urls"},
+		{key: "multiuser", valueType: ValueNumber, legacy: true},
+		{key: "queuelimit", valueType: ValueNumber},
+		{key: "autoswapthreshold", valueType: ValueNumber},
+		{key: "paralleltotalcontext", valueType: ValueNumber},
 	}
 	for _, testCase := range tests {
 		t.Run(testCase.key, func(t *testing.T) {
@@ -271,14 +298,15 @@ func TestOptionCatalogIncludesCurrentCompatibilityOptions(t *testing.T) {
 	requireOptionChoices(t, "sampling_method", "dpm++2m_sde_bt")
 	requireOptionChoices(t, "scheduler", "logit_normal", "beta", "llada_image")
 	for key, expected := range map[string][]string{
-		"load_mode":        {"auto", "none", "mmap", "mlock", "mmap+mlock", "dio"},
-		"lazy_mode":        {"on", "auto", "off"},
-		"reasoning_effort": {"default", "xhigh", "max"},
-		"type":             {"q2_0", "f8_e4m3", "f8_e5m2"},
-		"prediction":       {"sefi_flow", "sensenova_u1_flow"},
-		"spec_type":        {"draft-dflash", "draft-dspark"},
-		"sdloglevel":       {"debug", "verbose", "info", "warn", "error"},
-		"device":           {"none", "CPU", "CUDA0", "Vulkan0", "CUDA0,CUDA1"},
+		"load_mode":           {"auto", "none", "mmap", "mlock", "mmap+mlock", "dio"},
+		"lazy_mode":           {"on", "auto", "off"},
+		"reasoning_effort":    {"default", "xhigh", "max"},
+		"type":                {"q2_0", "f8_e4m3", "f8_e5m2"},
+		"prediction":          {"sefi_flow", "sensenova_u1_flow"},
+		"spec_type":           {"draft-dflash", "draft-dspark", "draft-dflash2", "draft-lilicorr"},
+		"spec_draft_sampling": {"greedy", "probabilistic"},
+		"sdloglevel":          {"debug", "verbose", "info", "warn", "error"},
+		"device":              {"none", "CPU", "CUDA0", "Vulkan0", "CUDA0,CUDA1"},
 	} {
 		requireOptionChoices(t, key, expected...)
 	}

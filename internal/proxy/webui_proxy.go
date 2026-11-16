@@ -30,8 +30,7 @@ func (webUI *webUIProxy) handleSiteWebUIProxy(w http.ResponseWriter, r *http.Req
 		openai.WriteError(w, http.StatusNotFound, "not_found", "webui not found")
 		return
 	}
-	if definition.kind == "whispercpp" && webUIPathIs(strippedPath, "/load", "/load/") {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "direct whisper-server model loading is disabled")
+	if rejectDirectModelManagement(w, definition, strippedPath) {
 		return
 	}
 	if !webUI.session.isEnabled(definition.kind) {
@@ -68,8 +67,7 @@ func (webUI *webUIProxy) handleNodeWebUIProxy(w http.ResponseWriter, r *http.Req
 		openai.WriteError(w, http.StatusNotFound, "not_found", "webui not found")
 		return
 	}
-	if definition.kind == "whispercpp" && webUIPathIs(strippedPath, "/load", "/load/") {
-		openai.WriteError(w, http.StatusNotFound, "not_found", "direct whisper-server model loading is disabled")
+	if rejectDirectModelManagement(w, definition, strippedPath) {
 		return
 	}
 	route, release, ok := webUI.acquireLocalWebUIProxyRoute(r.Context(), definition)
@@ -94,6 +92,18 @@ func (webUI *webUIProxy) handleNodeWebUIProxy(w http.ResponseWriter, r *http.Req
 	if err := writeWebUIProxyResponse(webUI.deps, w, response); err != nil {
 		return
 	}
+}
+
+func rejectDirectModelManagement(w http.ResponseWriter, definition webUIDefinition, strippedPath string) bool {
+	switch {
+	case definition.kind == "whispercpp" && webUIPathIs(strippedPath, "/load", "/load/"):
+		openai.WriteError(w, http.StatusNotFound, "not_found", "direct whisper-server model loading is disabled")
+	case definition.kind == "sdcpp" && isSDServerModelManagementPath(strippedPath):
+		openai.WriteError(w, http.StatusNotFound, "not_found", "direct sd-server model management is disabled")
+	default:
+		return false
+	}
+	return true
 }
 
 func (webUI *webUIProxy) acquireWebUIProxyRoute(ctx context.Context, definition webUIDefinition) (cluster.Route, func(), bool) {

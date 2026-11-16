@@ -136,7 +136,7 @@ func (manager *Manager) LaunchArguments() []string {
 		"--admin",
 		"--adminpassword", manager.adminPassword,
 		"--admindir", manager.config.ConfigDir,
-		"--multiuser", strconv.Itoa(manager.config.Multiuser),
+		"--queuelimit", strconv.Itoa(manager.config.Multiuser),
 	}
 	if manager.config.NoModel || manager.forceNoModel || manager.role == embeddingsRole {
 		args = append(args, "--nomodel")

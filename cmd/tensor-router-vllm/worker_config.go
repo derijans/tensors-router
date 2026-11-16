@@ -23,11 +23,12 @@ func parseWorkerConfig(arguments []string) (vllm.ClientConfig, error) {
 		"--unverified-extra-index-url": &configuration.UnverifiedExtraIndexURL,
 	}
 	boolOptions := map[string]*bool{
-		"--allow-trust-remote-code":  &configuration.AllowTrustRemoteCode,
-		"--allow-external-tools":     &configuration.AllowExternalTools,
-		"--allow-dynamic-lora":       &configuration.AllowDynamicLoRA,
-		"--oci-run-as-image-user":    &configuration.OCIRunAsImageUser,
-		"--allow-unverified-install": &configuration.AllowUnverifiedInstall,
+		"--allow-trust-remote-code":       &configuration.AllowTrustRemoteCode,
+		"--allow-trust-request-mm-kwargs": &configuration.AllowTrustRequestMMKwargs,
+		"--allow-external-tools":          &configuration.AllowExternalTools,
+		"--allow-dynamic-lora":            &configuration.AllowDynamicLoRA,
+		"--oci-run-as-image-user":         &configuration.OCIRunAsImageUser,
+		"--allow-unverified-install":      &configuration.AllowUnverifiedInstall,
 	}
 	for index := 0; index < len(arguments); index += 2 {
 		name := arguments[index]

@@ -14,6 +14,7 @@ const (
 	pathKoboldVersion       = "/api/extra/version"
 	pathAudioTranscriptions = "/v1/audio/transcriptions"
 	pathAudioTranslations   = "/v1/audio/translations"
+	pathOpenAISpeech        = "/v1/audio/speech"
 	pathOllamaGenerate      = "/api/generate"
 	pathOllamaChat          = "/api/chat"
 	pathEmbeddings          = "/v1/embeddings"

@@ -133,6 +133,7 @@ vllm:
   dynamic_lora_enabled: false
   eep_enabled: false
   trust_remote_code: false
+  trust_request_mm_kwargs: false
   external_tools: false
 
 logging:

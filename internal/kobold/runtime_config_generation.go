@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"tensors-router/internal/catalog"
 )
@@ -29,6 +30,9 @@ func (manager *Manager) runtimeConfig(filename string) (string, string, catalog.
 	}
 	metadata, err := catalog.LoadRuntimeConfig(sourcePath)
 	if err != nil {
+		return "", "", catalog.RuntimeConfig{}, err
+	}
+	if err := rejectKoboldAgent(filename, metadata); err != nil {
 		return "", "", catalog.RuntimeConfig{}, err
 	}
 	if !metadata.RunEmbedSeparate && manager.role == embeddingsRole {
@@ -55,6 +59,13 @@ func (manager *Manager) runtimeConfig(filename string) (string, string, catalog.
 	manager.generated[runtimePath] = struct{}{}
 	manager.state.Unlock()
 	return filepath.Join(routerRuntimeDirectory, runtimeName), runtimePath, metadata, nil
+}
+
+func rejectKoboldAgent(filename string, metadata catalog.RuntimeConfig) error {
+	if !metadata.Agent && strings.TrimSpace(metadata.AgentLoad) == "" {
+		return nil
+	}
+	return fmt.Errorf("config %q sets agent or agentload; KoboldCpp opens an agent terminal and raises the context to 32768 for it, which the router does not support", filename)
 }
 
 func (manager *Manager) leavesGenerationDefaultsToRouter(content []byte) bool {

@@ -55,17 +55,7 @@ func (service *Service) registryHasModelForOpenAIPath(modelID string, path strin
 }
 
 func clusterModelSupportsLlamaAudioPath(model cluster.Model, path string) bool {
-	if model.Capabilities.Voice == nil {
-		return false
-	}
-	switch path {
-	case "/v1/audio/speech":
-		return strings.TrimSpace(model.Capabilities.Voice.TalkerModel) != ""
-	case pathAudioTranscriptions:
-		return strings.TrimSpace(model.Capabilities.Voice.WhisperModel) != ""
-	default:
-		return false
-	}
+	return voiceSupportsLlamaAudioPath(model.Capabilities.Voice, path)
 }
 
 func (service *Service) forwardRemote(ctx context.Context, original *http.Request, body []byte, route cluster.Route) (*http.Response, error) {

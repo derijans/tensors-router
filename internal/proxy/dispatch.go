@@ -63,7 +63,7 @@ func (service *Service) serveRouterPaths(w http.ResponseWriter, r *http.Request)
 		service.routes.serve(w, r)
 	case strings.HasPrefix(path, siteWebUIProxyPrefix):
 		service.webUI.handleSiteWebUIProxy(w, r)
-	case strings.HasPrefix(path, "/api/admin/"):
+	case strings.HasPrefix(path, "/api/admin/") || isSDServerModelManagementPath(path):
 		openai.WriteEndpointNotFound(w)
 	default:
 		return false

@@ -82,7 +82,7 @@ func (service *Service) handleComfyPrompt(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	requestBody, err := service.comfyVideoBackendBody(graph, modelBackendMode)
+	requestBody, err := service.comfyVideoBackendBody(r.Context(), graph, model, modelBackendMode)
 	if err != nil {
 		writeComfyVideoRequestError(w, err)
 		return
@@ -103,7 +103,7 @@ func (service *Service) handleComfyPrompt(w http.ResponseWriter, r *http.Request
 	})
 }
 
-func (service *Service) comfyVideoBackendBody(graph comfyvideo.Graph, backendMode string) ([]byte, error) {
+func (service *Service) comfyVideoBackendBody(ctx context.Context, graph comfyvideo.Graph, model catalog.Model, backendMode string) ([]byte, error) {
 	params, err := comfyvideo.ParseWorkflow(graph)
 	if err != nil {
 		return nil, err
@@ -114,6 +114,9 @@ func (service *Service) comfyVideoBackendBody(graph comfyvideo.Graph, backendMod
 	}
 	if backendMode == BackendModeKobold {
 		return buildKoboldVideoRequest(params, media)
+	}
+	if media.referenceAudios, err = service.sdcppReferenceAudios(ctx, model, media.referenceAudios); err != nil {
+		return nil, err
 	}
 	return buildSDCPPVideoRequest(params, media)
 }

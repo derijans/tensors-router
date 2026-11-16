@@ -50,7 +50,8 @@ func isImageGenerationPath(path string) bool {
 		"/v1/images/generations",
 		"/v1/images/edits",
 		"/sdcpp/v1/img_gen",
-		"/sdcpp/v1/vid_gen":
+		"/sdcpp/v1/vid_gen",
+		sdcppUpscalePath:
 		return true
 	default:
 		return false

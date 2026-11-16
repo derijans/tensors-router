@@ -70,17 +70,18 @@ func run(arguments []string, input io.Reader, output io.Writer) error {
 		manifestSource = unverifiedSource
 	}
 	manager, err := vllm.NewManager(vllm.ManagerOptions{
-		DataDir:              configuration.DataDir,
-		DefaultProfile:       configuration.DefaultProfile,
-		ManifestSource:       manifestSource,
-		Detector:             vllm.SystemDetector{},
-		Downloader:           vllm.HTTPArtifactDownloader{},
-		Installer:            vllm.UVEnvironmentInstaller{IndexURL: configuration.UnverifiedIndexURL, ExtraIndexURL: configuration.UnverifiedExtraIndexURL},
-		SmokeTester:          vllm.CommandSmokeTester{},
-		AllowTrustRemoteCode: configuration.AllowTrustRemoteCode,
-		AllowExternalTools:   configuration.AllowExternalTools,
-		AllowDynamicLoRA:     configuration.AllowDynamicLoRA,
-		OCIRunAsImageUser:    configuration.OCIRunAsImageUser,
+		DataDir:                   configuration.DataDir,
+		DefaultProfile:            configuration.DefaultProfile,
+		ManifestSource:            manifestSource,
+		Detector:                  vllm.SystemDetector{},
+		Downloader:                vllm.HTTPArtifactDownloader{},
+		Installer:                 vllm.UVEnvironmentInstaller{IndexURL: configuration.UnverifiedIndexURL, ExtraIndexURL: configuration.UnverifiedExtraIndexURL},
+		SmokeTester:               vllm.CommandSmokeTester{},
+		AllowTrustRemoteCode:      configuration.AllowTrustRemoteCode,
+		AllowTrustRequestMMKwargs: configuration.AllowTrustRequestMMKwargs,
+		AllowExternalTools:        configuration.AllowExternalTools,
+		AllowDynamicLoRA:          configuration.AllowDynamicLoRA,
+		OCIRunAsImageUser:         configuration.OCIRunAsImageUser,
 	})
 	if err != nil {
 		return err

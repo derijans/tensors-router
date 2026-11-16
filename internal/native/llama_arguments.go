@@ -19,6 +19,7 @@ func llamaArguments(metadata catalog.RuntimeConfig, target launchTarget) ([]stri
 		"--model", modelPath,
 		"--alias", target.modelID,
 	}
+	appendRepeatedStringArg(&args, "--shard", metadata.Shard)
 	appendStringArg(&args, "--mcp-servers-config", target.mcpServersPath)
 	appendLlamaComputeArguments(&args, metadata)
 	appendLlamaSlotArguments(&args, metadata)
@@ -40,19 +41,36 @@ func llamaArguments(metadata catalog.RuntimeConfig, target launchTarget) ([]stri
 }
 
 func llamaTextModelPath(metadata catalog.RuntimeConfig) (string, error) {
-	if metadata.ExplicitTextModelPath() != "" && strings.TrimSpace(metadata.TTSModel) != "" {
-		return "", fmt.Errorf("llama config cannot combine a text model with standalone ttsmodel")
-	}
-	vocoder := firstNonEmpty(metadata.Code2WAVModel, metadata.TTSWAVTokenizer)
-	standaloneTTS := metadata.ExplicitTextModelPath() == "" && strings.TrimSpace(metadata.TTSModel) != ""
-	if vocoder != "" || strings.TrimSpace(metadata.TalkerModel) != "" || standaloneTTS {
-		return "", fmt.Errorf("llama.cpp removed --model-vocoder and --model-talker and llama-server has no text-to-speech endpoint; talkermodel/ttsmodel/ttswavtokenizer/code2wavmodel are not supported by the llama_sdcpp backend, use kobold or vllm for text-to-speech")
+	if err := validateLlamaTextToSpeech(metadata); err != nil {
+		return "", err
 	}
 	modelPath := metadata.TextModelPath()
 	if modelPath == "" {
 		return "", fmt.Errorf("llama config has no text, embedding, or multimodal model path")
 	}
 	return modelPath, nil
+}
+
+func validateLlamaTextToSpeech(metadata catalog.RuntimeConfig) error {
+	codec := strings.TrimSpace(metadata.TTSWAVTokenizer)
+	switch {
+	case strings.TrimSpace(metadata.TalkerModel) != "" || strings.TrimSpace(metadata.Code2WAVModel) != "":
+		return fmt.Errorf("llama.cpp removed --model-talker and --model-vocoder; load a llama-server text-to-speech model with ttsmodel and its codec mmproj as ttswavtokenizer instead of talkermodel/code2wavmodel")
+	case metadata.ExplicitTextModelPath() != "" && strings.TrimSpace(metadata.TTSModel) != "":
+		return fmt.Errorf("llama config cannot combine a text model with ttsmodel: llama-server loads one model per runtime")
+	case metadata.StandaloneTextToSpeech() && codec == "":
+		return fmt.Errorf("llama-server text-to-speech needs the codec mmproj of ttsmodel in ttswavtokenizer")
+	case codec != "" && !metadata.StandaloneTextToSpeech():
+		return fmt.Errorf("ttswavtokenizer is the codec mmproj of a llama-server ttsmodel and needs ttsmodel without a text model")
+	case codec != "" && metadata.MMProjPath() != "":
+		return fmt.Errorf("llama config cannot set both mmproj and ttswavtokenizer: llama-server loads one mmproj")
+	default:
+		return nil
+	}
+}
+
+func llamaMultimodalProjectorPath(metadata catalog.RuntimeConfig) string {
+	return firstNonEmpty(metadata.MMProjPath(), metadata.TTSWAVTokenizer)
 }
 
 func appendLlamaComputeArguments(args *[]string, metadata catalog.RuntimeConfig) {
@@ -88,6 +106,8 @@ func appendLlamaSlotArguments(args *[]string, metadata catalog.RuntimeConfig) {
 	appendIntArg(args, "--kv-unified-per-slot", positive(metadata.KVUnifiedPerSlot))
 	appendOptionalBoolArg(args, "--cache-idle-slots", "--no-cache-idle-slots", metadata.CacheIdleSlots)
 	appendFlag(args, "--swa-full", metadata.SWAFull)
+	appendIntArg(args, "--moe-cache-mib", positive(metadata.MoECacheMiB))
+	appendFloatArg(args, "--moe-cache-cpu-share", metadata.MoECacheCPUShare)
 }
 
 func appendLlamaSpeculativeArguments(args *[]string, metadata catalog.RuntimeConfig) {
@@ -95,6 +115,8 @@ func appendLlamaSpeculativeArguments(args *[]string, metadata catalog.RuntimeCon
 	appendStringArg(args, "--spec-draft-type-k", metadata.SpecDraftTypeK)
 	appendStringArg(args, "--spec-draft-type-v", metadata.SpecDraftTypeV)
 	appendFloatArg(args, "--spec-draft-p-min", metadata.SpecDraftPMin)
+	appendIntArg(args, "--spec-draft-n-ubatch", positive(metadata.SpecDraftNUBatch))
+	appendStringArg(args, "--spec-draft-sampling", metadata.SpecDraftSampling)
 	appendStringArg(args, "--model-draft", metadata.DraftModel)
 	appendIntArg(args, "--spec-draft-n-max", metadata.DraftAmount)
 	appendIntArg(args, "--spec-draft-ngl", int(metadata.DraftGPULayers))
@@ -138,7 +160,7 @@ func appendLlamaLoadArguments(args *[]string, metadata catalog.RuntimeConfig) er
 
 func appendLlamaMultimodalArguments(args *[]string, metadata catalog.RuntimeConfig, videoFFmpegDir string) {
 	mmproj := metadata.MMProjPath()
-	appendStringArg(args, "--mmproj", mmproj)
+	appendStringArg(args, "--mmproj", llamaMultimodalProjectorPath(metadata))
 	appendFlag(args, "--no-mmproj-offload", metadata.MMProjCPU)
 	appendOptionalBoolArg(args, "--mmproj-auto", "--no-mmproj-auto", metadata.MMProjAuto)
 	appendIntArg(args, "--image-min-tokens", positive(metadata.VisionMinTokens))
@@ -157,6 +179,7 @@ func appendLlamaServerArguments(args *[]string, metadata catalog.RuntimeConfig) 
 	appendStringArg(args, "--reasoning-effort", metadata.ReasoningEffort)
 	appendStringArg(args, "--tools-runtime", metadata.ToolsRuntime)
 	appendFlag(args, "--agent", metadata.Agent)
+	appendFlag(args, "--media-allow-private-urls", metadata.MediaAllowPrivateURLs)
 	appendStringArg(args, "--models-dir", metadata.ModelsDir)
 	appendStringArg(args, "--models-preset", metadata.ModelsPreset)
 	appendIntArg(args, "--models-max", metadata.ModelsMax)

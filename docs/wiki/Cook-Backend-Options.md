@@ -36,13 +36,15 @@ Runtime fields cover:
 - configuration inheritance and side files
 - managed host and port values
 - launcher and administration behavior
-- request concurrency and limits
+- request concurrency and limits, including KoboldCpp `queuelimit` (`multiuser` is legacy: KoboldCpp `v1.123.1` ignores it) and `autoswapthreshold`
 - logging and debugging
 - RPC and device selection
 - llama.cpp model presets and autoload settings
 - sandboxed tool execution (`tools_runtime`, llama.cpp only)
 
 The router owns managed backend host and port arguments. Cooked values cannot bypass the loopback validation applied when a backend manager is created.
+
+`agent` and `agentload` are llama.cpp-only. KoboldCpp `v1.122.1` and newer open an agent terminal and raise the context to 32768 for them, so the cook rejects them for `kobold` and the router refuses to load a hand-written KoboldCpp config that sets them.
 
 ## Text options
 
@@ -52,9 +54,10 @@ Text fields cover:
 - CPU threads, batch sizes, and context size
 - GPU layers, main device, and tensor splitting
 - model loading mode (`load_mode`: auto, none, mmap, mlock, mmap+mlock, dio), lazy tensor reads, and automatic fitting
-- dense FFN and MoE expert CPU placement (`n_cpu_ffn`, KoboldCpp `ffncpu` and `moecpu`)
-- KV cache types, unified cache behavior, and per-slot context limits
-- speculative decoding (`spec_type`, including DFlash and DSpark drafts) and prompt caching
+- dense FFN and MoE expert CPU placement (`n_cpu_ffn`, KoboldCpp `ffncpu` and `moecpu`), and a GPU cache for CPU-resident MoE experts (`moe_cache_mib` on both backends, `moe_cache_cpu_share` on llama.cpp)
+- extra GGUF shards of the model (`shard`, llama.cpp), hashed and transferred like other model files
+- KV cache types, unified cache behavior, per-slot context limits, and KoboldCpp `paralleltotalcontext`
+- speculative decoding (`spec_type`, including DFlash, DFlash2, DSpark and LiliCorr drafts, plus `spec_draft_n_ubatch` and `spec_draft_sampling`) and prompt caching
 - LoRA files and multipliers
 - Jinja templates, thinking behavior, and kwargs
 - parallel request and continuous batching settings
@@ -74,6 +77,7 @@ The generated file is never a portable field. Literal environment values and hea
 These fields cover:
 
 - multimodal projector paths, projector placement, and projector device selection
+- `media_allow_private_urls` (llama.cpp), which lets media URLs point at local or private addresses; it stays off by default because it opens server-side requests to the private network
 - vision resolution and token limits
 - video input frame rate and timestamp interval; the router supplies its own ffmpeg directory to llama-server
 - embedding model paths and context size
@@ -92,6 +96,8 @@ Image fields cover:
 - image threads, device placement, offload, VRAM limits, automatic fitting, prefetch, and segmented compute
 - quantization, tensor types, and tensor rules
 - attention (including SageAttention), linear and attention scale overrides, convolution, tiling, and circular padding
+- stable-diffusion.cpp compute modes: `sdflashattentionmode` (`--flash-attn`) and `sdconvdirectmode` (`--conv-direct`) take `on`, `off`, `auto` or per-module assignments such as `auto,vae=off`, and win over the legacy booleans `sdflashattention`, `sddiffusionflashattention`, `sddiffusionconvdirect` and `sdvaeconvdirect`, which still map to the matching mode; `sdbatchedcfg` sets `--batched-cfg`
+- sd-server job queue limits (`sdmaxpendingjobs`, `sdcompletedttlseconds`)
 - conditioning cache size, image input preprocessing, model arguments, extra sampler and tiling arguments, and log level
 - sampling methods, schedulers, RNG, prediction types, and cache modes
 - stable-diffusion.cpp backend, parameter backend, and RPC settings
@@ -100,7 +106,7 @@ The catalog marks legacy options separately so existing configurations remain ed
 
 ## Voice and music options
 
-Voice fields cover transcription models, speech models, tokenizers, directories, thread counts, GPU placement, talker models, and waveform decoders.
+Voice fields cover transcription models, speech models, tokenizers, directories, thread counts, GPU placement, talker models, and waveform decoders. On `llama_sdcpp`, `ttsmodel` with `ttswavtokenizer` (the speech model's codec mmproj) loads llama-server text-to-speech; `talkermodel` and `code2wavmodel` are KoboldCpp-only.
 
 Shared Whisper fields include `whispermodel`, `threads`, `maingpu`, `flashattention`, and compatible CPU controls. Native server options use `whispercpp_*`, including processors, timing and segment limits, decoding thresholds, language and prompt, translation and diarization, output controls, OpenVINO and DTW, suppression, language probabilities, and the complete VAD group. `whispercpp_vad_model` is a portable asset field.
 

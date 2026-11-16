@@ -227,8 +227,6 @@ const (
 	BackendModeVLLM              = backendmode.VLLM
 )
 
-const llamaTextToSpeechUnsupportedMessage = "text-to-speech is not supported by the split backend: llama.cpp removed --model-vocoder and --model-talker, and llama-server has no /v1/audio/speech endpoint; use backend_mode kobold or vllm for text-to-speech"
-
 type replayReadCloser struct {
 	io.Reader
 	closer io.Closer

@@ -1,7 +1,7 @@
-// Package ffmpeg locates an ffmpeg binary and uses it for the two conversions
-// the router cannot do natively: remuxing backend video output into MP4 for
-// ComfyUI-compatible clients, and converting non-WAV audio into the WAV the
-// whisper.cpp transcription path requires.
+// Package ffmpeg locates an ffmpeg binary and uses it for the conversions the
+// router cannot do natively: remuxing backend video output into MP4 for
+// ComfyUI-compatible clients, and converting non-WAV audio into the WAV that
+// the whisper.cpp transcription path and sd-server reference audio require.
 package ffmpeg
 
 import (
@@ -87,6 +87,19 @@ func (tool Tool) ConvertToWAV(ctx context.Context, src io.Reader, dst io.Writer)
 		"-i", "pipe:0",
 		"-ar", "16000",
 		"-ac", "1",
+		"-c:a", "pcm_s16le",
+		"-f", "wav",
+		"pipe:1",
+	})
+}
+
+func (tool Tool) ConvertToFullRateWAV(ctx context.Context, src io.Reader, dst io.Writer) error {
+	if !tool.Available() {
+		return ErrNotAvailable
+	}
+	return tool.run(ctx, src, dst, []string{
+		"-i", "pipe:0",
+		"-vn",
 		"-c:a", "pcm_s16le",
 		"-f", "wav",
 		"pipe:1",

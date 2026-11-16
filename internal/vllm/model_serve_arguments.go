@@ -46,10 +46,13 @@ func validateModelIdentity(configuration VLLMModelConfig) error {
 }
 
 func validateModelSettings(settings CommonSettings) error {
-	for _, value := range []int{settings.MaxModelLength, settings.TensorParallelSize, settings.PipelineParallelSize, settings.DataParallelSize, settings.MaxNumberSequences} {
+	for _, value := range []int{settings.MaxModelLength, settings.TensorParallelSize, settings.PipelineParallelSize, settings.DataParallelSize, settings.MaxNumberSequences, settings.MaxNumActiveSeqs} {
 		if value < 0 {
 			return fmt.Errorf("vLLM numeric settings cannot be negative")
 		}
+	}
+	if settings.MaxNumActiveSeqs > 0 && settings.MaxNumberSequences > 0 && settings.MaxNumActiveSeqs > settings.MaxNumberSequences {
+		return fmt.Errorf("vLLM max_num_active_seqs cannot exceed max_number_sequences")
 	}
 	if settings.GPUUtilization < 0 || settings.GPUUtilization > 1 {
 		return fmt.Errorf("vLLM gpu_memory_utilization must be between 0 and 1")
@@ -79,6 +82,9 @@ func modelServeArguments(configuration VLLMModelConfig, dynamicLoRAEnabled bool)
 	var arguments []string
 	if configuration.TrustRemoteCode {
 		arguments = append(arguments, "--trust-remote-code")
+	}
+	if configuration.TrustRequestMMKwargs {
+		arguments = append(arguments, "--trust-request-mm-kwargs")
 	}
 	if len(configuration.ExternalToolServers) > 0 {
 		arguments = append(arguments, "--tool-server", strings.Join(configuration.ExternalToolServers, ","))
@@ -116,6 +122,7 @@ func settingsServeArguments(settings CommonSettings) []string {
 	arguments = appendPositiveFlag(arguments, "--pipeline-parallel-size", settings.PipelineParallelSize)
 	arguments = appendPositiveFlag(arguments, "--data-parallel-size", settings.DataParallelSize)
 	arguments = appendPositiveFlag(arguments, "--max-num-seqs", settings.MaxNumberSequences)
+	arguments = appendPositiveFlag(arguments, "--max-num-active-seqs", settings.MaxNumActiveSeqs)
 	if settings.EnableChunkedPrefill != nil {
 		arguments = append(arguments, "--enable-chunked-prefill="+fmt.Sprint(*settings.EnableChunkedPrefill))
 	}

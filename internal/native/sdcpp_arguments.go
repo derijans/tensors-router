@@ -3,6 +3,7 @@ package native
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	"tensors-router/internal/catalog"
 )
@@ -18,6 +19,8 @@ func sdcppArguments(metadata catalog.RuntimeConfig, target launchTarget) ([]stri
 		"--model", modelPath,
 	}
 	appendStringArg(&args, "--log-level", metadata.SDLogLevel)
+	appendOptionalIntArg(&args, "--max-pending-jobs", metadata.SDMaxPendingJobs)
+	appendOptionalIntArg(&args, "--completed-ttl-seconds", metadata.SDCompletedTTLSeconds)
 	appendSDCPPComponentArguments(&args, metadata)
 	appendSDCPPPlacementArguments(&args, metadata)
 	appendSDCPPComputeArguments(&args, metadata)
@@ -71,16 +74,45 @@ func appendSDCPPPlacementArguments(args *[]string, metadata catalog.RuntimeConfi
 }
 
 func appendSDCPPComputeArguments(args *[]string, metadata catalog.RuntimeConfig) {
-	appendFlag(args, "--fa", metadata.SDFlashAttention)
-	appendFlag(args, "--diffusion-fa", metadata.SDDiffusionFlashAttention)
+	appendStringArg(args, "--flash-attn", sdcppFlashAttentionMode(metadata))
 	appendFlag(args, "--sage-attn", metadata.SDSageAttention)
-	appendFlag(args, "--diffusion-conv-direct", metadata.SDDiffusionConvDirect)
-	appendFlag(args, "--vae-conv-direct", metadata.SDVAEConvDirect)
+	appendStringArg(args, "--conv-direct", sdcppConvDirectMode(metadata))
+	appendOnOffArg(args, "--batched-cfg", metadata.SDBatchedCFG)
 	appendFloatArg(args, "--linear-scale", metadata.SDLinearScale)
 	appendFloatArg(args, "--attn-scale", metadata.SDAttnScale)
 	appendStringArg(args, "--type", metadata.SDType)
 	appendStringArg(args, "--prediction", metadata.SDPrediction)
 	appendStringArg(args, "--lora-apply-mode", metadata.SDLoRAApplyMode)
+}
+
+func sdcppFlashAttentionMode(metadata catalog.RuntimeConfig) string {
+	switch {
+	case strings.TrimSpace(metadata.SDFlashAttentionMode) != "":
+		return metadata.SDFlashAttentionMode
+	case metadata.SDFlashAttention:
+		return "on"
+	case metadata.SDDiffusionFlashAttention:
+		return "off,diffusion=on"
+	default:
+		return ""
+	}
+}
+
+func sdcppConvDirectMode(metadata catalog.RuntimeConfig) string {
+	if strings.TrimSpace(metadata.SDConvDirectMode) != "" {
+		return metadata.SDConvDirectMode
+	}
+	modules := make([]string, 0, 3)
+	if metadata.SDDiffusionConvDirect {
+		modules = append(modules, "diffusion=on", "controlnet=on")
+	}
+	if metadata.SDVAEConvDirect {
+		modules = append(modules, "vae=on")
+	}
+	if len(modules) == 0 {
+		return ""
+	}
+	return "auto," + strings.Join(modules, ",")
 }
 
 func appendSDCPPGenerationDefaults(args *[]string, metadata catalog.RuntimeConfig) {

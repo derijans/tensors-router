@@ -2,7 +2,7 @@
 
 The llama_sdcpp backend manages whisper-server as a third lazy native process for speech-to-text. It is independent from llama-server and sd-server, starts only for a transcription configuration, probes /health, writes whisper-server.log when backend disk logging is enabled, and stops during voice/all unloads, backend switches, and shutdown.
 
-The compatibility baseline is [whisper.cpp v1.9.4](https://github.com/ggml-org/whisper.cpp/releases/tag/v1.9.4). Windows archives for v1.9.4 are published under the matching nightly tag `b5130`. Configure a direct archive or executable with updates.whispercpp_binary_url and its SHA-256 field, or use the default GitHub repository with an optional exact asset glob. Archives are normalized and installed with runtime libraries beside whisper-server.
+The compatibility baseline is [whisper.cpp v1.9.5](https://github.com/ggml-org/whisper.cpp/releases/tag/v1.9.5). Windows archives for v1.9.5 are published under the matching nightly tag `b5454`. whisper-server is unchanged from v1.9.4, so the router's argument mapping is the same. Configure a direct archive or executable with updates.whispercpp_binary_url and its SHA-256 field, or use the default GitHub repository with an optional exact asset glob. Archives are normalized and installed with runtime libraries beside whisper-server.
 
 ## Router configuration
 

@@ -51,6 +51,7 @@ var pathValueKeys = map[string]struct{}{
 	"savedatafile":    {},
 	"mmproj":          {},
 	"draftmodel":      {},
+	"shard":           {},
 	"sdmodel":         {},
 	"sdupscaler":      {},
 	"sdvae":           {},

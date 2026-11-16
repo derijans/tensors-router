@@ -52,7 +52,7 @@ func TestBuildSDCPPVideoRequestSendsFramesReferencesAndLoRAs(t *testing.T) {
 	}
 }
 
-func TestComfyVideoSDCPPRejectsAudioReferencesAsUnsupportedMedia(t *testing.T) {
+func TestComfyVideoSDCPPRejectsAudioReferencesWithoutAnAudioComponent(t *testing.T) {
 	tool := requireFFmpegTool(t)
 	service, _, _ := newSplitTestServiceWithConfigContents(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Errorf("text backend should not receive a comfy request, got %s", r.URL.Path)
@@ -69,13 +69,7 @@ func TestComfyVideoSDCPPRejectsAudioReferencesAsUnsupportedMedia(t *testing.T) {
 	service.ffmpeg = tool
 	warmUpActiveImageModel(t, service, "image-wan-s2v")
 
-	for _, upload := range []struct{ filename, contentType string }{{"speaker.png", "image/png"}, {"speech.wav", "audio/wav"}} {
-		recorder := httptest.NewRecorder()
-		service.ServeHTTP(recorder, uploadMediaRequest(t, upload.filename, upload.contentType, []byte("media")))
-		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"name":"`+upload.filename+`"`) {
-			t.Fatalf("upload %s on sd-server should be kept by the router: status=%d body=%s", upload.filename, recorder.Code, recorder.Body.String())
-		}
-	}
+	uploadSoundToVideoMedia(t, service, wavSpeech())
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/prompt", strings.NewReader(sdcppSoundToVideoPromptBody))
@@ -89,7 +83,21 @@ func TestComfyVideoSDCPPRejectsAudioReferencesAsUnsupportedMedia(t *testing.T) {
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 		t.Fatal(err)
 	}
-	if response.Error.Code != sdcppUnsupportedMediaCode || !strings.Contains(response.Error.Message, "no HTTP audio input") {
-		t.Fatalf("error = %+v, want an explicit unsupported_media rejection", response.Error)
+	if response.Error.Code != sdcppUnsupportedMediaCode || !strings.Contains(response.Error.Message, "sdaudioencoder or sdaudiovae") {
+		t.Fatalf("error = %+v, want an explicit unsupported_media rejection naming the audio components", response.Error)
+	}
+}
+
+func uploadSoundToVideoMedia(t *testing.T, service *Service, speech soundToVideoSpeech) {
+	t.Helper()
+	for _, upload := range []struct {
+		filename, contentType string
+		content               []byte
+	}{{"speaker.png", "image/png", []byte("media")}, {speech.filename, speech.contentType, speech.content}} {
+		recorder := httptest.NewRecorder()
+		service.ServeHTTP(recorder, uploadMediaRequest(t, upload.filename, upload.contentType, upload.content))
+		if recorder.Code != http.StatusOK || !strings.Contains(recorder.Body.String(), `"name":"`+upload.filename+`"`) {
+			t.Fatalf("upload %s on sd-server should be kept by the router: status=%d body=%s", upload.filename, recorder.Code, recorder.Body.String())
+		}
 	}
 }

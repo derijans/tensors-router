@@ -155,15 +155,16 @@ type Progress struct {
 }
 
 type VLLMModelConfig struct {
-	Snapshot            SnapshotIdentity `json:"snapshot"`
-	Runner              string           `json:"runner,omitempty"`
-	Task                string           `json:"task,omitempty"`
-	ServedNames         []string         `json:"served_names,omitempty"`
-	StaticAdapters      []StaticAdapter  `json:"static_adapters,omitempty"`
-	Settings            CommonSettings   `json:"settings,omitempty"`
-	ServeArgs           []string         `json:"serve_args,omitempty"`
-	TrustRemoteCode     bool             `json:"trust_remote_code,omitempty"`
-	ExternalToolServers []string         `json:"external_tool_servers,omitempty"`
+	Snapshot             SnapshotIdentity `json:"snapshot"`
+	Runner               string           `json:"runner,omitempty"`
+	Task                 string           `json:"task,omitempty"`
+	ServedNames          []string         `json:"served_names,omitempty"`
+	StaticAdapters       []StaticAdapter  `json:"static_adapters,omitempty"`
+	Settings             CommonSettings   `json:"settings,omitempty"`
+	ServeArgs            []string         `json:"serve_args,omitempty"`
+	TrustRemoteCode      bool             `json:"trust_remote_code,omitempty"`
+	TrustRequestMMKwargs bool             `json:"trust_request_mm_kwargs,omitempty"`
+	ExternalToolServers  []string         `json:"external_tool_servers,omitempty"`
 }
 
 type SnapshotIdentity struct {
@@ -187,5 +188,6 @@ type CommonSettings struct {
 	PipelineParallelSize int     `json:"pipeline_parallel_size,omitempty"`
 	DataParallelSize     int     `json:"data_parallel_size,omitempty"`
 	MaxNumberSequences   int     `json:"max_number_sequences,omitempty"`
+	MaxNumActiveSeqs     int     `json:"max_num_active_seqs,omitempty"`
 	EnableChunkedPrefill *bool   `json:"enable_chunked_prefill,omitempty"`
 }

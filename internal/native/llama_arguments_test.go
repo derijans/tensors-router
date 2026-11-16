@@ -37,7 +37,7 @@ func TestLlamaLoadModeReplacesRemovedMemoryMappingFlags(t *testing.T) {
 			}
 			for _, removed := range llamaLoadFlagsRemovedUpstream {
 				if containsArgument(args, removed) {
-					t.Fatalf("llama-server b11157 removed %s, got %#v", removed, args)
+					t.Fatalf("llama-server b12441 removed %s, got %#v", removed, args)
 				}
 			}
 		})
@@ -62,7 +62,7 @@ func TestLlamaFlashAttentionTakesOnOffValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !containsAdjacentArguments(args, "--flash-attn", "off") || containsArgument(args, "--no-flash-attn") {
-		t.Fatalf("llama-server b11157 declares -fa/--flash-attn [on|off|auto] and has no --no-flash-attn, got %#v", args)
+		t.Fatalf("llama-server b12441 declares -fa/--flash-attn [on|off|auto] and has no --no-flash-attn, got %#v", args)
 	}
 }
 
@@ -115,7 +115,7 @@ func TestLlamaSpeculativeDraftTypesJoinSpecTypeList(t *testing.T) {
 			}
 			for _, invalid := range []string{"--draft-dflash", "--draft-dspark", "--draft-max", "--draft-n-gpu-layers"} {
 				if containsArgument(args, invalid) {
-					t.Fatalf("%s is not a llama-server b11157 option, got %#v", invalid, args)
+					t.Fatalf("%s is not a llama-server b12441 option, got %#v", invalid, args)
 				}
 			}
 		})
@@ -128,7 +128,7 @@ func TestLlamaDraftCountAndLayersUseSpecDraftFlags(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !containsAdjacentArguments(args, "--spec-draft-n-max", "6") || !containsAdjacentArguments(args, "--spec-draft-ngl", "20") {
-		t.Fatalf("llama-server b11157 removed --draft-max and never had --draft-n-gpu-layers, got %#v", args)
+		t.Fatalf("llama-server b12441 removed --draft-max and never had --draft-n-gpu-layers, got %#v", args)
 	}
 }
 

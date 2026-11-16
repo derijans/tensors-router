@@ -28,6 +28,13 @@ func isImagePath(path string) bool {
 	}
 }
 
+const sdcppUpscalePath = "/sdcpp/v1/upscale"
+
+func isSDServerModelManagementPath(path string) bool {
+	path = strings.TrimRight(path, "/")
+	return strings.HasPrefix(path, "/sdcpp/v1/models/") || path == "/sdcpp/v1/model-files" || path == "/sdcpp/v1/recipes"
+}
+
 func isCorePath(path string) bool {
 	return path == "/v1/chat/completions" || path == "/v1/completions"
 }
@@ -38,7 +45,7 @@ func isEmbeddingsPath(path string) bool {
 
 func isVoicePath(path string) bool {
 	switch path {
-	case "/v1/audio/speech", pathAudioTranscriptions, pathAudioTranslations, "/v1/realtime", "/v1/audio/voices", "/audio/voices", "/api/extra/tts", pathKoboldTranscribe:
+	case pathOpenAISpeech, pathAudioTranscriptions, pathAudioTranslations, "/v1/realtime", "/v1/audio/voices", "/audio/voices", "/api/extra/tts", pathKoboldTranscribe:
 		return true
 	default:
 		return false
@@ -47,10 +54,6 @@ func isVoicePath(path string) bool {
 
 func isSTTPath(path string) bool {
 	return path == pathAudioTranscriptions || path == pathAudioTranslations || path == pathKoboldTranscribe
-}
-
-func isTextToSpeechPath(path string) bool {
-	return path == "/v1/audio/speech" || path == "/api/extra/tts"
 }
 
 func isMusicPath(path string) bool {
@@ -153,16 +156,19 @@ func isImageDiscoveryPath(path string) bool {
 	}
 }
 
-// modelSupportsLlamaAudioPath deliberately has no text-to-speech case:
-// llama.cpp removed --model-vocoder and --model-talker, and llama-server has
-// no speech endpoint, so those routes are rejected before they reach here.
 func modelSupportsLlamaAudioPath(model catalog.Model, path string) bool {
-	if model.Capabilities.Voice == nil {
+	return voiceSupportsLlamaAudioPath(model.Capabilities.Voice, path)
+}
+
+func voiceSupportsLlamaAudioPath(voice *catalog.VoiceCapabilities, path string) bool {
+	if voice == nil {
 		return false
 	}
 	switch path {
+	case pathOpenAISpeech:
+		return catalog.LlamaServesTextToSpeech(voice)
 	case pathAudioTranscriptions, pathAudioTranslations, pathKoboldTranscribe:
-		return strings.TrimSpace(model.Capabilities.Voice.WhisperModel) != ""
+		return strings.TrimSpace(voice.WhisperModel) != ""
 	default:
 		return false
 	}

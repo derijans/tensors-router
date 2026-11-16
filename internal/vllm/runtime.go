@@ -226,6 +226,9 @@ func (manager *Manager) validateModelSecurityPolicy(configuration VLLMModelConfi
 	if configuration.TrustRemoteCode && !manager.options.AllowTrustRemoteCode {
 		return fmt.Errorf("trust_remote_code requires explicit administrator configuration")
 	}
+	if configuration.TrustRequestMMKwargs && !manager.options.AllowTrustRequestMMKwargs {
+		return fmt.Errorf("trust_request_mm_kwargs requires explicit administrator configuration")
+	}
 	if len(configuration.ExternalToolServers) > 0 && !manager.options.AllowExternalTools {
 		return fmt.Errorf("external tool servers require explicit administrator configuration")
 	}

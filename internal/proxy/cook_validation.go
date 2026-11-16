@@ -41,6 +41,7 @@ func (service *Service) validateCookGroups(ctx context.Context, groups []cookGro
 		fact.backendMode = groupBackendMode
 		issues = append(issues, validateKoboldMix(group, fact)...)
 		issues = append(issues, validateNativeTTSMix(group, fact, groupOptions)...)
+		issues = append(issues, validateKoboldAgent(group, fact, groupOptions)...)
 		issues = append(issues, validateSeparateEmbeddingRuntime(group, fact, groupOptions)...)
 		issues = append(issues, validateThreadBudget(group, fact, groupOptions)...)
 		issues = append(issues, validateCUDAOptions(group, fact, groupOptions)...)
@@ -73,12 +74,40 @@ func validateNativeTTSMix(group cookGroup, fact cookNodeFacts, options cook.Opti
 		return nil
 	}
 	selected := selectedOptions(group, fact, options)
-	for _, field := range []string{"talkermodel", "ttswavtokenizer", "code2wavmodel", "ttsmodel"} {
+	for _, field := range []string{"talkermodel", "code2wavmodel"} {
 		if rawTruthy(selected[field]) {
 			return []cook.ValidationIssue{{
 				Severity: "error",
 				Code:     "llama_tts_unsupported",
-				Message:  "llama.cpp removed --model-vocoder and --model-talker and llama-server has no text-to-speech endpoint; talkermodel/ttsmodel/ttswavtokenizer/code2wavmodel are not supported by the llama_sdcpp backend, use kobold or vllm for text-to-speech.",
+				Message:  "llama.cpp removed --model-talker and --model-vocoder; load a llama-server text-to-speech model with ttsmodel and its codec mmproj as ttswavtokenizer.",
+				NodeID:   group.nodeID,
+				Field:    field,
+			}}
+		}
+	}
+	if rawTruthy(selected["ttsmodel"]) != rawTruthy(selected["ttswavtokenizer"]) {
+		return []cook.ValidationIssue{{
+			Severity: "error",
+			Code:     "llama_tts_incomplete",
+			Message:  "llama-server text-to-speech needs both ttsmodel and its codec mmproj in ttswavtokenizer.",
+			NodeID:   group.nodeID,
+			Field:    "ttswavtokenizer",
+		}}
+	}
+	return nil
+}
+
+func validateKoboldAgent(group cookGroup, fact cookNodeFacts, options cook.Options) []cook.ValidationIssue {
+	if fact.backendMode != BackendModeKobold {
+		return nil
+	}
+	selected := selectedOptions(group, fact, options)
+	for _, field := range []string{"agent", "agentload"} {
+		if rawTruthy(selected[field]) {
+			return []cook.ValidationIssue{{
+				Severity: "error",
+				Code:     "kobold_agent_unsupported",
+				Message:  "KoboldCpp opens an agent terminal and raises the context to 32768 when agent or agentload is set; the kobold backend does not support them.",
 				NodeID:   group.nodeID,
 				Field:    field,
 			}}
