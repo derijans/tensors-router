@@ -6,7 +6,7 @@ COPY webui ./webui
 COPY internal/webui/assets ./internal/webui/assets
 RUN npm --prefix webui run build
 
-FROM golang:1.26.9-alpine@sha256:cdfd4fe2da6b225d8b40c6b7a105736e548e83ff56d5d8f9394446eeb5eb84e0 AS go-builder-musl
+FROM golang:1.26.11-alpine@sha256:ecb67f987aa1a57794c91d19ade7ae0209f2f0f5496aaef9e6ae85ddf92d02ab AS go-builder-musl
 WORKDIR /source
 RUN apk add --no-cache ca-certificates git
 COPY go.mod go.sum ./
@@ -27,7 +27,7 @@ RUN for binary in tensors-router tensor-router-webui tensor-router-downloader; d
 
 FROM ghcr.io/astral-sh/uv@sha256:606e70c71c852d03f611b1e56a195d08648507018a7057fab82c4974c4eae105 AS uv-bootstrap
 
-FROM golang:1.26.9-bookworm@sha256:d9c68c2c51161e12fd77e4c6320687c9cd86e1af1e3ad6e6cd63ff970641453c AS go-builder-glibc
+FROM golang:1.26.11-bookworm@sha256:dc40a13b61304647ed7e5d581d246b86413dfc29d63c6d018310feb93cd98fc0 AS go-builder-glibc
 WORKDIR /source
 COPY go.mod go.sum ./
 RUN go mod download
