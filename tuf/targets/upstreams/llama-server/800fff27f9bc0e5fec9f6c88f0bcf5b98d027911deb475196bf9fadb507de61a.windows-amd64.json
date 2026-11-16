@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/ggml-org/llama.cpp",
+  "releases": [
+    {
+      "id": "447468978",
+      "tag": "b12444",
+      "published_at": "2026-11-16T19:06:03Z",
+      "prerelease": true,
+      "payloads": [
+        {
+          "name": "llama-b12444-bin-win-cpu-x64.zip",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12444/llama-b12444-bin-win-cpu-x64.zip",
+          "length": 25219626,
+          "sha256": "d17f82517cf6b5ee501953cc41ca1cdea0c2fb2a0aedd62b5c61e7b4fa6437bd"
+        }
+      ]
+    }
+  ]
+}
