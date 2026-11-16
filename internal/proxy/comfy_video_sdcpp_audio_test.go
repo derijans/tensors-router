@@ -102,6 +102,7 @@ func runSoundToVideoThroughSDCPP(t *testing.T, speech soundToVideoSpeech) []stri
 
 func synthMP3Tone(t *testing.T) []byte {
 	t.Helper()
+	requireFFmpegTool(t)
 	output, err := exec.Command("ffmpeg", "-f", "lavfi", "-i", "sine=frequency=440:duration=1", "-c:a", "libmp3lame", "-f", "mp3", "pipe:1").Output()
 	if err != nil {
 		t.Fatalf("failed to synthesize test tone: %v", err)
