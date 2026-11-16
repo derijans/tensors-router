@@ -37,7 +37,8 @@ func main() {
 		}
 		config.RuntimeManifests = manifestPaths
 	}
-	targets, err := tufpublish.Discover(context.Background(), &http.Client{Timeout: 30 * time.Minute}, config)
+	client := &http.Client{Timeout: 30 * time.Minute, Transport: tufpublish.WithGitHubAPIAuthorization(nil, os.Getenv("GITHUB_TOKEN"))}
+	targets, err := tufpublish.Discover(context.Background(), client, config)
 	if err != nil {
 		fail(err)
 	}

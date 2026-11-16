@@ -54,6 +54,7 @@ jobs:
           TUF_UPSTREAM_TARGETS_KEY: ${{ secrets.TUF_UPSTREAM_TARGETS_KEY }}
           TUF_SNAPSHOT_KEY: ${{ secrets.TUF_SNAPSHOT_KEY }}
           TUF_TIMESTAMP_KEY: ${{ secrets.TUF_TIMESTAMP_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
           VLLM_EVIDENCE_RUN_ID: ${{ inputs.vllm_evidence_run_id }}
           SOURCE_COMMIT: ${{ github.sha }}
         shell: bash
