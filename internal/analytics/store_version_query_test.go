@@ -18,7 +18,7 @@ func TestQueryReportsWhichRouterBuildRecordedEachNodesEvents(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = store.Close(context.Background()) })
-	now := time.Date(2026, 9, 26, 20, 0, 0, 0, time.UTC)
+	now := time.Now().UTC().Truncate(time.Second)
 	store.Record(Event{ModelID: "gemma", Section: SectionLLM, StatusCode: 200, Success: true, StartedAt: now, FinishedAt: now.Add(time.Second)})
 	store.Record(Event{NodeID: "slave", RouterVersion: "v0.7.1", ModelID: "krea", Section: SectionImage, StatusCode: 200, Success: true, StartedAt: now, FinishedAt: now.Add(2 * time.Second)})
 	if err := store.Flush(context.Background()); err != nil {
