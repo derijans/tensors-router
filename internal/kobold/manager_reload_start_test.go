@@ -18,6 +18,9 @@ func TestMain(m *testing.M) {
 		time.Sleep(time.Minute)
 		return
 	}
+	if behavior := os.Getenv(fakeKoboldBehaviorEnv); behavior != "" {
+		os.Exit(runFakeKobold(behavior, os.Args[1:]))
+	}
 	os.Exit(m.Run())
 }
 

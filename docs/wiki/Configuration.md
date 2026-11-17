@@ -73,7 +73,7 @@ Finished videos are written to `<scratch_dir>/tensors-router-comfy-video`, not h
 | `kobold.embeddings_backend_url` | Loopback HTTP URL string | `http://127.0.0.1:0` | Deprecated. Embeddings configs now join the [separate-runtime pool](Backends#separate-runtimes) on a router-allocated port; a value set here logs a deprecation warning. |
 | `kobold.binary_path` | Path string | `./bin/kobold/koboldcpp` | KoboldCpp executable. |
 | `kobold.data_dir` | Path string | `./data` | Working and data directory for the process. |
-| `kobold.multiuser` | Integer, at least `1` | `1` | Maximum number of queued requests KoboldCpp accepts, passed as `--queuelimit` (KoboldCpp `v1.123.1` and newer ignore the older `--multiuser`). A `queuelimit` inside a loaded `.kcpps` replaces this value for that config, because KoboldCpp applies config fields over its launch arguments when it reloads. |
+| `kobold.multiuser` | Integer, at least `1` | `1` | Maximum number of queued requests KoboldCpp accepts, passed as `--queuelimit` (KoboldCpp `v1.123.1` and newer ignore the older `--multiuser`; older KoboldCpp, which rejects `--queuelimit`, is relaunched with `--multiuser`). A `queuelimit` inside a loaded `.kcpps` replaces this value for that config, because KoboldCpp applies config fields over its launch arguments when it reloads. |
 | `kobold.quiet` | Boolean | `true` | Enables the managed quiet option. |
 | `kobold.skip_launcher` | Boolean | `true` | Skips the native KoboldCpp launcher UI. |
 | `kobold.no_model` | Boolean | `true` | Starts without a model so the router controls model loading. |

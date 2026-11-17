@@ -7,12 +7,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -68,6 +68,8 @@ type Manager struct {
 	roleArgs        []string
 	generated       map[string]struct{}
 	portReleaseWait time.Duration
+
+	queueLimitFlagUnsupported bool
 }
 
 const embeddingsRole = "embeddings"
@@ -136,8 +138,8 @@ func (manager *Manager) LaunchArguments() []string {
 		"--admin",
 		"--adminpassword", manager.adminPassword,
 		"--admindir", manager.config.ConfigDir,
-		"--queuelimit", strconv.Itoa(manager.config.Multiuser),
 	}
+	args = append(args, manager.queueLimitArguments()...)
 	if manager.config.NoModel || manager.forceNoModel || manager.role == embeddingsRole {
 		args = append(args, "--nomodel")
 	}
@@ -247,6 +249,12 @@ func (manager *Manager) startLocked(ctx context.Context) error {
 		if err == nil {
 			return nil
 		}
+		var unsupportedFlag *unsupportedQueueLimitFlagError
+		if errors.As(err, &unsupportedFlag) && manager.switchToLegacyQueueLimitFlag() {
+			log.Printf("koboldcpp at %s rejected %s (added in %s); relaunching with %s", manager.config.BinaryPath, queueLimitFlag, queueLimitFlagMinimumVersion, legacyQueueLimitFlag)
+			manager.endpoint.Release(portalloc.Default())
+			continue
+		}
 		var exitErr *backendExitedError
 		if attempt >= maxPortAttempts || !manager.endpoint.Dynamic() || !errors.As(err, &exitErr) {
 			return err
@@ -257,8 +265,9 @@ func (manager *Manager) startLocked(ctx context.Context) error {
 
 func (manager *Manager) spawnLocked(ctx context.Context) error {
 	var logFile *os.File
+	queueLimitRejection := &queueLimitFlagRejectionDetector{}
 	stdout := io.MultiWriter(manager.capture, manager.captureHub.Stdout())
-	stderr := io.MultiWriter(manager.capture, manager.captureHub.Stderr())
+	stderr := io.MultiWriter(manager.capture, manager.captureHub.Stderr(), queueLimitRejection)
 	if manager.config.Logging {
 		logName := "koboldcpp.log"
 		if manager.role == embeddingsRole {
@@ -312,6 +321,10 @@ func (manager *Manager) spawnLocked(ctx context.Context) error {
 		manager.logFile = nil
 		manager.waitDone = nil
 		manager.exitDone = nil
+		var exitErr *backendExitedError
+		if errors.As(err, &exitErr) && queueLimitRejection.Rejected() {
+			return &unsupportedQueueLimitFlagError{err: err}
+		}
 		return err
 	}
 
