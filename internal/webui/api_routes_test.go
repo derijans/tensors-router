@@ -30,6 +30,7 @@ func TestServerMapsEveryAPIRouteToItsRouterTarget(t *testing.T) {
 	}{
 		{http.MethodGet, "/api/inventory", "GET /router/v1/site/inventory"},
 		{http.MethodGet, "/api/nodes/state", "GET /router/v1/site/nodes/state"},
+		{http.MethodGet, "/api/nodes/memory-fit", "GET /router/v1/site/nodes/memory-fit"},
 		{http.MethodPost, "/api/nodes/unload", "POST /router/v1/site/nodes/unload"},
 		{http.MethodPost, "/api/nodes/backends/init", "POST /router/v1/site/nodes/backends/init"},
 		{http.MethodPost, "/api/nodes/backends/init/cancel", "POST /router/v1/site/nodes/backends/init/cancel"},

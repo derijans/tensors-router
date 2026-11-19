@@ -19,6 +19,7 @@ func (cfg *Config) schema() flatyaml.Schema {
 		"auth": {Fields: flatyaml.Fields{
 			"inference_keys": flatyaml.StringList(&cfg.Auth.InferenceKeys),
 			"admin_keys":     flatyaml.StringList(&cfg.Auth.AdminKeys),
+			"metrics_keys":   flatyaml.StringList(&cfg.Auth.MetricsKeys),
 			"bearer_keys":    flatyaml.StringList(&cfg.Auth.BearerKeys),
 		}},
 		"models": {Fields: flatyaml.Fields{
@@ -53,6 +54,8 @@ func (cfg *Config) schema() flatyaml.Schema {
 		"cluster":     {Fields: clusterFields(&cfg.Cluster), Dynamic: lendingField(cfg.Cluster.LendingFileValues)},
 		"analytics":   {Fields: analyticsFields(&cfg.Analytics)},
 		"diagnostics": {Fields: diagnosticsFields(&cfg.Diagnostics)},
+		"metrics":     {Fields: flatyaml.Fields{"enabled": flatyaml.Bool(&cfg.Metrics.Enabled)}},
+		"memory_fit":  {Fields: memoryFitFields(&cfg.MemoryFit)},
 		"limits":      {Fields: limitsFields(&cfg.Limits)},
 	}
 }

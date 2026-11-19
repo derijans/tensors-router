@@ -27,6 +27,7 @@ func (service *Service) serveHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	workingSet, ok := service.reserveTransportWorkingSet(r)
 	if !ok {
+		service.metrics.transportRejected()
 		writeTransportError(w, transportbody.ErrBufferCapacity)
 		return
 	}

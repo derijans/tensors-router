@@ -1,4 +1,4 @@
-import type { AnalyticsQuery, AnalyticsResponse, LoadCaptureAttempt, LoadCaptureDetailResponse, LoadCaptureListResponse, LoadCaptureOutputChunk, LoadCaptureQuery, LoadErrorRecord, BenchmarkRecord, BenchmarkSection, BenchmarkType, CookComponent, DownloadCapabilitiesResponse, DownloadLibraryResponse, DownloadPlan, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, NodeState, RouterProcessStatus, RoutingLane, RoutingLinksResponse, WebUICatalogResponse } from "./api";
+import type { NodeMemoryFit, AnalyticsQuery, AnalyticsResponse, LoadCaptureAttempt, LoadCaptureDetailResponse, LoadCaptureListResponse, LoadCaptureOutputChunk, LoadCaptureQuery, LoadErrorRecord, BenchmarkRecord, BenchmarkSection, BenchmarkType, CookComponent, DownloadCapabilitiesResponse, DownloadLibraryResponse, DownloadPlan, FileRecord, InventoryResponse, LaneKind, Model, NodeInventory, NodeState, RouterProcessStatus, RoutingLane, RoutingLinksResponse, WebUICatalogResponse } from "./api";
 import type { JsonValue, Options } from "./json";
 import type { ModelColumnChoices } from "../model-columns";
 
@@ -153,6 +153,7 @@ export interface AppState {
     initialized: boolean;
     columnChoices: ModelColumnChoices;
     roomForEveryColumn: boolean;
+    memoryFit: Record<string, NodeMemoryFit>;
   };
   benchmark: {
     modelKey: string;

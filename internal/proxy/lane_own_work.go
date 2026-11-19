@@ -11,6 +11,7 @@ func endRuntimeSwitchLocked(state *activeConfigState) {
 	if !state.switchingForBorrowed {
 		state.ownIdleSince = time.Now()
 	}
+	state.idleSince = time.Now()
 	state.switching = false
 	state.switchingForBorrowed = false
 }

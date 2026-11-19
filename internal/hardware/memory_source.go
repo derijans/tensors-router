@@ -23,9 +23,20 @@ type MemoryReading struct {
 	SampledAt time.Time
 }
 
+type NodeMemorySnapshot struct {
+	Devices   []GPUMemoryDevice
+	RAM       RAMInfo
+	RAMKnown  bool
+	SampledAt time.Time
+}
+
 type MemorySource interface {
 	Memory(context.Context) (MemoryReading, bool)
 	FreshMemory(context.Context) (MemoryReading, bool)
+}
+
+type NodeMemorySnapshotSource interface {
+	NodeMemory(context.Context) (NodeMemorySnapshot, bool)
 }
 
 type CachedMemorySource struct {
@@ -36,6 +47,7 @@ type CachedMemorySource struct {
 	mu              sync.Mutex
 	reading         MemoryReading
 	available       bool
+	snapshot        NodeMemorySnapshot
 	expires         time.Time
 	nextVRAMProbeAt time.Time
 }
@@ -54,10 +66,8 @@ func (source *CachedMemorySource) Memory(ctx context.Context) (MemoryReading, bo
 	}
 	source.mu.Lock()
 	defer source.mu.Unlock()
-	if source.now().Before(source.expires) {
-		return source.reading, source.available
-	}
-	return source.refreshLocked(ctx)
+	source.refreshIfExpiredLocked(ctx)
+	return source.reading, source.available
 }
 
 func (source *CachedMemorySource) FreshMemory(ctx context.Context) (MemoryReading, bool) {
@@ -66,27 +76,64 @@ func (source *CachedMemorySource) FreshMemory(ctx context.Context) (MemoryReadin
 	}
 	source.mu.Lock()
 	defer source.mu.Unlock()
-	return source.refreshLocked(ctx)
-}
-
-func (source *CachedMemorySource) refreshLocked(ctx context.Context) (MemoryReading, bool) {
-	now := source.now()
-	source.reading, source.available = source.read(ctx, now)
-	source.expires = now.Add(source.ttl)
+	source.refreshLocked(ctx)
 	return source.reading, source.available
 }
 
+func (source *CachedMemorySource) NodeMemory(ctx context.Context) (NodeMemorySnapshot, bool) {
+	if source == nil {
+		return NodeMemorySnapshot{}, false
+	}
+	source.mu.Lock()
+	defer source.mu.Unlock()
+	source.refreshIfExpiredLocked(ctx)
+	snapshot := source.snapshot
+	snapshot.Devices = append([]GPUMemoryDevice(nil), snapshot.Devices...)
+	return snapshot, len(snapshot.Devices) > 0 || snapshot.RAMKnown
+}
+
+func (source *CachedMemorySource) refreshIfExpiredLocked(ctx context.Context) {
+	if source.now().Before(source.expires) {
+		return
+	}
+	source.refreshLocked(ctx)
+}
+
+func (source *CachedMemorySource) refreshLocked(ctx context.Context) {
+	now := source.now()
+	source.snapshot.SampledAt = now
+	source.reading, source.available = source.read(ctx, now)
+	source.expires = now.Add(source.ttl)
+}
+
 func (source *CachedMemorySource) read(ctx context.Context, now time.Time) (MemoryReading, bool) {
+	ram, ramKnown := source.readRAM(ctx)
+	source.snapshot.RAM, source.snapshot.RAMKnown = ram, ramKnown
 	if source.vram != nil && !now.Before(source.nextVRAMProbeAt) {
-		if info, ok := source.vram.VRAM(ctx); ok && info.TotalMB > 0 {
+		if info, ok := source.readVRAM(ctx); ok && info.TotalMB > 0 {
 			return MemoryReading{Kind: MemoryKindVRAM, UsedMB: info.UsedMB, TotalMB: info.TotalMB, SampledAt: now}, true
 		}
 		source.nextVRAMProbeAt = now.Add(missingVRAMProbeInterval)
 	}
-	if source.ram != nil {
-		if info, ok := source.ram.RAM(ctx); ok && info.TotalMB > 0 {
-			return MemoryReading{Kind: MemoryKindRAM, UsedMB: info.UsedMB, TotalMB: info.TotalMB, SampledAt: now}, true
-		}
+	if ramKnown {
+		return MemoryReading{Kind: MemoryKindRAM, UsedMB: ram.UsedMB, TotalMB: ram.TotalMB, SampledAt: now}, true
 	}
 	return MemoryReading{}, false
+}
+
+func (source *CachedMemorySource) readVRAM(ctx context.Context) (VRAMInfo, bool) {
+	lister, listsDevices := source.vram.(DeviceMemorySource)
+	if !listsDevices {
+		return source.vram.VRAM(ctx)
+	}
+	source.snapshot.Devices = lister.DeviceMemory(ctx)
+	return AggregateVRAM(source.snapshot.Devices)
+}
+
+func (source *CachedMemorySource) readRAM(ctx context.Context) (RAMInfo, bool) {
+	if source.ram == nil {
+		return RAMInfo{}, false
+	}
+	info, ok := source.ram.RAM(ctx)
+	return info, ok && info.TotalMB > 0
 }

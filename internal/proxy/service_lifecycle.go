@@ -12,6 +12,7 @@ import (
 	"tensors-router/internal/backendmode"
 	"tensors-router/internal/cluster"
 	"tensors-router/internal/hardware"
+	"tensors-router/internal/memoryfit"
 	"tensors-router/internal/proxy/downloads"
 	"tensors-router/internal/transportbody"
 )
@@ -85,7 +86,12 @@ func NewService(config ServiceConfig) *Service {
 		service.hardware = hardware.NewCache()
 	}
 	service.nodeMemory = config.MemorySource
+	service.memoryFit = newMemoryFit(service, config.MemorySampleStore, config.MemoryFitThresholds, logger)
+	if config.MetricsEnabled {
+		service.metrics = newRouterMetrics(service.knownLocalModel)
+	}
 	service.analytics = newServiceAnalytics(config, service.loadAnalyticsSection)
+	service.analytics.metrics = service.metrics
 	service.storeDownload = &storeDownload{
 		snapshotter: config.RouterStore,
 		flush:       func(ctx context.Context) error { return service.analytics.store.Checkpoint(ctx) },
@@ -108,11 +114,12 @@ func NewService(config ServiceConfig) *Service {
 	service.offloadDecisions = config.OffloadDecisionStore
 	service.lending = newLendingSettings(config.LendingFileValues, lendingOverrideStoreOrNil(config.LendingSettingsStore), service.applyLendingSettings)
 	service.scheduler = newScheduler(service, service.analytics, decisionRecorderOrNil(config.OffloadDecisionStore), service.lending.snapshot().Settings, logger)
+	service.idleUnloads = newIdleUnloader(service, logger, service.metrics.idleUnloaded)
 	service.installStoredRoutingLinks(context.Background())
 	service.guardians = newGuardianDirectory(config.GuardianModels)
 	service.installStoredGuardianModels(context.Background())
 	service.reloadLendingSettings(context.Background())
-	service.routes = newRouteTable(service.requireClusterToken, service.controlRoutes(), service.siteRoutes(), service.nodeRoutes(), service.downloads.Routes(), service.benchmarks.routes(), service.assets.routes(), service.webUI.routes())
+	service.routes = newRouteTable(service.requireClusterToken, service.controlRoutes(), service.siteRoutes(), service.nodeRoutes(), service.downloads.Routes(), service.benchmarks.routes(), service.assets.routes(), service.webUI.routes(), service.metricsRoutes(), service.memoryFitRoutes())
 	return service
 }
 
@@ -139,6 +146,9 @@ func (config ServiceConfig) withDefaults() ServiceConfig {
 	}
 	if config.ConcurrentAssetTransfers <= 0 {
 		config.ConcurrentAssetTransfers = 2
+	}
+	if config.MemoryFitThresholds == (memoryfit.Thresholds{}) {
+		config.MemoryFitThresholds = memoryfit.DefaultThresholds()
 	}
 	return config
 }
@@ -295,7 +305,8 @@ func (service *Service) Draining() bool {
 }
 
 func (service *Service) Close(ctx context.Context) error {
-	err := service.scheduler.close(ctx)
+	err := service.idleUnloads.close(ctx)
+	err = errors.Join(err, service.scheduler.close(ctx))
 	err = errors.Join(err, service.assets.close(ctx))
 	service.vllmResponses.close()
 	service.modelStateMu.Lock()
@@ -305,6 +316,7 @@ func (service *Service) Close(ctx context.Context) error {
 	service.pendingModelUnloads = map[string]context.CancelFunc{}
 	service.modelStateMu.Unlock()
 	service.closeSeparateRuntimes(ctx)
+	service.memoryFit.close()
 	err = errors.Join(err, service.analytics.close(ctx))
 	if service.modelStateStore != nil {
 		err = errors.Join(err, service.modelStateStore.Close())

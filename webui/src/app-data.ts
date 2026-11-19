@@ -1,4 +1,5 @@
 import { fetchRoutingLinks, getInventory, getRouterStatus } from "./api";
+import { loadMemoryFit } from "./memory-fit-state";
 import { loadAnalytics } from "./analytics";
 import { loadDownloads } from "./downloads";
 import { loadLending } from "./lending-tab";
@@ -28,7 +29,8 @@ export async function refreshRouterStatus(): Promise<void> {
 
 export async function refreshInventory(includeFiles = state.activeTab === "models"): Promise<void> {
   state.inventory = await getInventory(includeFiles);
-  const [imageLinks, textLinks] = await Promise.all([
+  const [, imageLinks, textLinks] = await Promise.all([
+    loadMemoryFit(state.inventory.nodes),
     fetchRoutingLinks("image").catch(() => null),
     fetchRoutingLinks("text").catch(() => null)
   ]);

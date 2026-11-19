@@ -2,6 +2,7 @@ import { SafeHTML, emptyHTML, html } from "./safe-html";
 import { badge, laneAccent } from "./markup-primitives";
 import { memoryBar } from "./chart-markup";
 import { formatGigabytes, memoryKindLabel, nodeMemorySummary } from "./node-memory-data";
+import { renderDeviceMemory } from "./node-memory-devices-view";
 import { webUIForRuntime } from "./webui-data";
 import { requestsForUnloadedModels, runningRequestCount } from "./node-requests-data";
 import { renderRequestStateBadges } from "./node-requests-view";
@@ -94,6 +95,7 @@ function renderMemory(snapshot: NodeState | null): SafeHTML {
       <b>${formatGigabytes(summary.usedMB)} / ${formatGigabytes(summary.totalMB)}</b>
     </div>
     ${memoryBar(summary.segments, label)}
+    ${renderDeviceMemory(snapshot.memory)}
   `;
 }
 

@@ -1,0 +1,42 @@
+.fit-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 8px;
+  border: 1px solid var(--fit-edge, var(--border));
+  border-radius: var(--radius-pill);
+  background: var(--fit-fill, transparent);
+  color: var(--fit-text, var(--text-muted));
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: help;
+}
+
+.fit-green {
+  --fit-fill: color-mix(in srgb, #2e9d5b 16%, transparent);
+  --fit-edge: color-mix(in srgb, #2e9d5b 45%, transparent);
+  --fit-text: var(--text);
+}
+
+.fit-yellow {
+  --fit-fill: color-mix(in srgb, #d8b400 18%, transparent);
+  --fit-edge: color-mix(in srgb, #d8b400 55%, transparent);
+  --fit-text: var(--text);
+}
+
+.fit-light-amber {
+  --fit-fill: color-mix(in srgb, #f2a33a 18%, transparent);
+  --fit-edge: color-mix(in srgb, #f2a33a 55%, transparent);
+  --fit-text: var(--text);
+}
+
+.fit-deep-amber {
+  --fit-fill: color-mix(in srgb, #d9661f 26%, transparent);
+  --fit-edge: color-mix(in srgb, #d9661f 70%, transparent);
+  --fit-text: var(--text);
+}
+
+.fit-red {
+  --fit-fill: color-mix(in srgb, #d93a3a 24%, transparent);
+  --fit-edge: color-mix(in srgb, #d93a3a 70%, transparent);
+  --fit-text: var(--text);
+}

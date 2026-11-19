@@ -23,6 +23,8 @@ type Config struct {
 	Cluster     ClusterConfig
 	Analytics   AnalyticsConfig
 	Diagnostics DiagnosticsConfig
+	Metrics     MetricsConfig
+	MemoryFit   MemoryFitConfig
 	Limits      LimitsConfig
 	MCP         MCPConfig
 	FFmpeg      FFmpegConfig
@@ -37,7 +39,12 @@ type ServerConfig struct {
 type AuthConfig struct {
 	InferenceKeys []string
 	AdminKeys     []string
+	MetricsKeys   []string
 	BearerKeys    []string
+}
+
+type MetricsConfig struct {
+	Enabled bool
 }
 
 type ModelsConfig struct {

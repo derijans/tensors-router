@@ -25,6 +25,7 @@ func Defaults() Config {
 		Auth: AuthConfig{
 			InferenceKeys: []string{},
 			AdminKeys:     []string{},
+			MetricsKeys:   []string{},
 			BearerKeys:    []string{},
 		},
 		Models: ModelsConfig{
@@ -121,6 +122,7 @@ func Defaults() Config {
 			RawRetention:           30 * 24 * time.Hour,
 			VRAMSampleInterval:     time.Second,
 		},
+		MemoryFit: defaultMemoryFitConfig(),
 		Diagnostics: DiagnosticsConfig{
 			Enabled:     true,
 			Retention:   30 * 24 * time.Hour,

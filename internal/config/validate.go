@@ -22,6 +22,7 @@ func validate(cfg *Config) error {
 		validateClusterRuntime,
 		validateAnalytics,
 		validateDiagnostics,
+		validateMemoryFit,
 		func(cfg *Config) error { return validateLimits(cfg.Limits) },
 		validateMCP,
 		validateClusterMembership,

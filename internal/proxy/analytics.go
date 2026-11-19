@@ -22,6 +22,7 @@ type requestAnalytics struct {
 	vramInterval time.Duration
 	nodeID       string
 	loadSection  func(configFilename string, readiness backendReadiness) string
+	metrics      *routerMetrics
 }
 
 func (analytics *requestAnalytics) newEvent(started time.Time, r *http.Request, body []byte, modelID string, section string, backendMode string) routeranalytics.Event {
@@ -41,11 +42,12 @@ func (analytics *requestAnalytics) newEvent(started time.Time, r *http.Request, 
 }
 
 func (analytics *requestAnalytics) withResponse(response *http.Response, event routeranalytics.Event, finalizers ...routeranalytics.EventFinalizer) *http.Response {
-	if analytics.store == nil {
-		return response
-	}
 	if response == nil {
 		analytics.recordFailure(event, http.StatusBadGateway, finalizers...)
+		return response
+	}
+	response = analytics.metrics.observeResponse(response, event)
+	if analytics.store == nil {
 		return response
 	}
 	event.StatusCode = response.StatusCode
@@ -83,6 +85,7 @@ func (analytics *requestAnalytics) recordForwardFailure(requestContext context.C
 }
 
 func (analytics *requestAnalytics) recordFailure(event routeranalytics.Event, statusCode int, finalizers ...routeranalytics.EventFinalizer) {
+	analytics.metrics.requestFinished(event, statusCode)
 	if analytics.store == nil {
 		return
 	}

@@ -13,6 +13,7 @@ import (
 	"tensors-router/internal/guardianmodels"
 	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/loaderrors"
+	"tensors-router/internal/memorysamples"
 	"tensors-router/internal/modelstate"
 	"tensors-router/internal/offloaddecisions"
 	"tensors-router/internal/offloadsettings"
@@ -31,6 +32,7 @@ type serveStores struct {
 	analytics        *routeranalytics.Store
 	loadCaptures     *loadcapture.Store
 	loadErrors       *loaderrors.Store
+	memorySamples    *memorysamples.Store
 	recipes          *recipes.Store
 }
 
@@ -47,6 +49,7 @@ func (stores *serveStores) open(ctx context.Context, cfg config.Config, logger *
 			guardianmodels.SchemaModule{},
 			offloaddecisions.SchemaModule{},
 			offloadsettings.SchemaModule{},
+			memorysamples.SchemaModule{},
 		},
 		LegacySources: legacySources(cfg),
 		Logger:        logger,
@@ -79,6 +82,9 @@ func (stores *serveStores) open(ctx context.Context, cfg config.Config, logger *
 		return err
 	}
 	if stores.loadErrors, err = newLoadErrorStore(cfg, stores.handle); err != nil {
+		return err
+	}
+	if stores.memorySamples, err = memorysamples.NewStore(stores.handle.DB(), stores.handle.Reader()); err != nil {
 		return err
 	}
 	stores.recipes, err = recipes.NewStore(cfg.Cluster.StoreDir)

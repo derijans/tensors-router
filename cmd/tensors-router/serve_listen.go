@@ -19,6 +19,7 @@ func (runtime *serveRuntime) serve(ctx context.Context, authPolicy *auth.Policy,
 		return err
 	}
 	router.StartSchedulingRefresh(ctx)
+	router.StartIdleUnloads(ctx)
 	syncErrors := routercluster.StartSync(ctx, syncConfig, runtime.registry, runtime.clusterProbeClient, runtime.logger)
 
 	server := &http.Server{

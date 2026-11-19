@@ -13,8 +13,23 @@ import (
 const (
 	inferenceKeysSetting = "auth.inference_keys"
 	adminKeysSetting     = "auth.admin_keys"
+	metricsKeysSetting   = "auth.metrics_keys"
 	clusterTokenSetting  = "cluster.token"
 )
+
+type credentialRole struct {
+	name   string
+	values []string
+}
+
+func credentialRoles(cfg *Config) []credentialRole {
+	return []credentialRole{
+		{name: inferenceKeysSetting, values: cfg.Auth.InferenceKeys},
+		{name: adminKeysSetting, values: cfg.Auth.AdminKeys},
+		{name: metricsKeysSetting, values: cfg.Auth.MetricsKeys},
+		{name: clusterTokenSetting, values: []string{cfg.Cluster.Token}},
+	}
+}
 
 const (
 	SecurityProfileSecure     = "secure"
@@ -96,6 +111,9 @@ func validateSecurity(cfg *Config) error {
 	if err := validateCredentialList(adminKeysSetting, cfg.Auth.AdminKeys); err != nil {
 		return err
 	}
+	if err := validateCredentialList(metricsKeysSetting, cfg.Auth.MetricsKeys); err != nil {
+		return err
+	}
 	if cfg.MCP.Enabled && !hasCredential(cfg.Auth.AdminKeys) {
 		return fmt.Errorf("auth.admin_keys is required when MCP is enabled")
 	}
@@ -122,15 +140,7 @@ func credentialWarnings(cfg *Config) []string {
 	if cfg.Security.Profile == SecurityProfileSecure && !hasCredential(cfg.Auth.InferenceKeys) && !hasCredential(cfg.Auth.AdminKeys) {
 		warnings = append(warnings, "security.profile is secure but no auth keys are configured; the admin API is open to any local process")
 	}
-	named := []struct {
-		name   string
-		values []string
-	}{
-		{name: inferenceKeysSetting, values: cfg.Auth.InferenceKeys},
-		{name: adminKeysSetting, values: cfg.Auth.AdminKeys},
-		{name: clusterTokenSetting, values: []string{cfg.Cluster.Token}},
-	}
-	for _, role := range named {
+	for _, role := range credentialRoles(cfg) {
 		for _, value := range role.values {
 			if warning, short := credential.ShortCredentialWarning(role.name, value); short {
 				warnings = append(warnings, warning)
@@ -142,15 +152,7 @@ func credentialWarnings(cfg *Config) []string {
 
 func validateCredentialRoleSeparation(cfg *Config) error {
 	owners := map[string]string{}
-	roles := []struct {
-		name   string
-		values []string
-	}{
-		{name: inferenceKeysSetting, values: cfg.Auth.InferenceKeys},
-		{name: adminKeysSetting, values: cfg.Auth.AdminKeys},
-		{name: clusterTokenSetting, values: []string{cfg.Cluster.Token}},
-	}
-	for _, role := range roles {
+	for _, role := range credentialRoles(cfg) {
 		for _, rawValue := range role.values {
 			value := strings.TrimSpace(rawValue)
 			if value == "" {

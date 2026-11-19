@@ -13,6 +13,8 @@ server:
 auth:
   inference_keys: []
   admin_keys: []
+  # Keys that may only scrape GET /router/v1/metrics. Admin keys work there too.
+  metrics_keys: []
 
 models:
   config_dir: "./kcpps"
@@ -244,6 +246,17 @@ diagnostics:
   database_path: ""
   retention: "720h"
   max_output_kb: 64
+
+metrics:
+  # Serve Prometheus metrics at GET /router/v1/metrics.
+  enabled: false
+
+memory_fit:
+  # Share of a config's VRAM need that may overflow into system RAM before the
+  # Fit badge turns from "small spill" to "large spill".
+  deep_spill_percent: 10
+  # Below this much free memory left after a load, the Fit badge shows "tight".
+  tight_headroom_mb: 512
 
 limits:
   max_control_body_mb: 8

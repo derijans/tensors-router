@@ -363,17 +363,6 @@ func (service *Service) remoteNodeURL(nodeID string) (string, bool) {
 	return nodeURL, ok && strings.TrimSpace(nodeURL) != ""
 }
 
-func (service *Service) nodeMemoryReading(ctx context.Context) *siteapi.NodeMemory {
-	if service.nodeMemory == nil {
-		return nil
-	}
-	reading, ok := service.nodeMemory.Memory(ctx)
-	if !ok {
-		return nil
-	}
-	return &siteapi.NodeMemory{Kind: reading.Kind, TotalMB: reading.TotalMB, UsedMB: reading.UsedMB, SampledAtMS: reading.SampledAt.UnixMilli()}
-}
-
 func (service *Service) vllmNodeState(backend siteapi.NodeStateBackend) siteapi.NodeStateBackend {
 	if service.vllm == nil {
 		if reason := strings.TrimSpace(service.vllmUnavailableReason); reason != "" {
@@ -526,7 +515,7 @@ func (service *Service) localNodeState(ctx context.Context) siteapi.NodeState {
 		Requests:        snapshot.allRequests(heldRequests),
 		FFmpegAvailable: service.ffmpeg.Available(),
 		FFmpegPath:      service.ffmpeg.Path(),
-		Memory:          service.nodeMemoryReading(ctx),
+		Memory:          service.nodeMemoryView(ctx),
 	}
 }
 

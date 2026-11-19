@@ -110,9 +110,9 @@ func (service *Service) switchRuntimeConfig(ctx context.Context, request configA
 		service.abandonRuntimeSwitch(state)
 		return nil, false, err
 	}
-	loadMeasurement := service.beginModelLoad(ctx)
+	loadMeasurement := service.beginModelLoad(ctx, runtime, request.configFilename)
 	err = service.loadModelConfig(runtime, ctx, request.modelID, request.configFilename, request.readiness)
-	service.finishModelLoad(ctx, loadMeasurement)
+	service.finishModelLoad(ctx, runtime, loadMeasurement, err)
 	service.finishPhysicalLoadCapture(capture, err)
 	if err != nil {
 		service.abandonRuntimeSwitch(state)

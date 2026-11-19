@@ -7,6 +7,7 @@ import (
 
 	"tensors-router/internal/backendmode"
 	"tensors-router/internal/catalog"
+	"tensors-router/internal/idleunload"
 	"tensors-router/internal/unloadpolicy"
 )
 
@@ -60,6 +61,7 @@ const (
 var optionCatalog = enrichOptionCatalog([]OptionDefinition{
 	option(backendmode.Key, "Backend", LaneRuntime, ValueString, "", false, backendmode.Kobold, backendmode.LlamaSDCPP, backendmode.VLLM),
 	option(unloadpolicy.Key, "Unload Policy", LaneRuntime, ValueStringList, "", false, backendmode.Kobold, backendmode.LlamaSDCPP, backendmode.VLLM),
+	option(idleunload.Key, "Idle Unload Seconds", LaneRuntime, ValueNumber, "", false, backendmode.Kobold, backendmode.LlamaSDCPP, backendmode.VLLM),
 	option("vllm", "vLLM Runtime", LaneRuntime, ValueJSON, "", false, backendmode.VLLM),
 	option("baseconfig", "Base Config", LaneRuntime, ValueString, "", false, "kobold"),
 	option("config", "Config", LaneRuntime, ValueString, "", false, "kobold", "llama_sdcpp"),

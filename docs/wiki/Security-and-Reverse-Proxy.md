@@ -12,7 +12,7 @@ Prefer a loopback or private-interface bind, restrictive CIDR rules, and a VPN o
 
 `secure` is the default profile.
 
-Inference keys authorize model APIs. Admin keys authorize management routes, benchmarks, load, unload, and shutdown. The cluster token is accepted only under `/router/v1/node/...`.
+Inference keys authorize model APIs. Admin keys authorize management routes, benchmarks, load, unload, and shutdown. Metrics keys (`auth.metrics_keys`) authorize only `GET /router/v1/metrics`, so a Prometheus scraper does not need an admin key; admin keys are accepted there too. A metrics key opens no other route. The cluster token is accepted only under `/router/v1/node/...`.
 
 A non-loopback secure router bind requires at least one inference key and one admin key. A non-loopback secure WebUI bind requires `server.admin_token`.
 
@@ -36,6 +36,7 @@ Use independent values for:
 
 - router inference keys
 - router admin keys
+- router metrics keys
 - WebUI admin token
 - cluster token
 

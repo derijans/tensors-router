@@ -68,6 +68,42 @@ For a config that runs in the [separate-runtime pool](Backends#separate-runtimes
 
 The load API can supply an unload target. The unload API accepts one target or a list and uses `all` when no body is provided.
 
+### Idle unload
+
+`router_idle_unload_seconds` unloads a config after it has been idle for that many seconds. It is off by default: a missing key, `null`, or `0` keeps the config loaded until something else unloads it. Values are whole seconds from `0` to `604800` (7 days). Any other value disables idle unload for that config, and the router logs the reason once.
+
+- Idle means no request holds the runtime, no request is waiting for it, and no load is in progress. Lent (borrowed) work counts as use.
+- The router checks every 5 seconds, so an unload can happen up to 5 seconds after the delay ends.
+- A runtime with a pending borrow restore is left alone until the restore finishes.
+- It applies per runtime, including [separate-runtime pool](Backends#separate-runtimes) entries. A pool entry keeps its slot and port and reloads on the next request.
+- Like other `router_*` keys, it is not part of the runtime-sharing comparison. Profile variants that differ only in this key share one runtime, and the delay of the config that is currently loaded applies.
+
+### Memory fit
+
+The Models tab has a **Fit** column that estimates, per node, whether each config fits that node's free memory. It is a warning only: a load is never blocked or delayed by it.
+
+The exact footprint is known only after a load, so the router learns from its own loads:
+
+- After a load into an empty runtime, with no other runtime loading or changing at the same time, the router stores the VRAM and RAM the load added. It keeps the newest 20 samples per combination of node, model file, backend, GPU layers, KV cache types, flash attention, tensor split and context size. A load that replaced another config is not used, because its before and after readings mix two models.
+- **Measured**: the same combination was loaded before; the band is the lowest to highest stored sample.
+- **Scaled from another context size**: the same model and placement at a different `contextsize`. With two or more measured sizes the router fits a line; with one it adds the KV cache difference read from the GGUF header. For sliding-window models the low end ignores that difference, because those layers may never allocate it.
+- **Estimated from the same architecture**: no sample of this model, but samples of other models with the same `general.architecture` on this node; the band is wider.
+- **Not learned**: nothing to go on, so no warning is shown.
+
+Free memory counts what is free now plus what the load would release: the model held by the same lane runtime and the runtimes `router_unload_policy` would unload.
+
+| Badge | GPU backends | RAM-only (CPU builds, `gpulayers` 0, Apple unified memory) |
+|---|---|---|
+| won't fit | even the low end of the estimate exceeds free VRAM plus free RAM | the low end exceeds free RAM |
+| large spill | the high end overflows VRAM by more than `memory_fit.deep_spill_percent` (10%) of the need | not used |
+| small spill | the high end overflows VRAM by less than that | not used |
+| tight | less than `memory_fit.tight_headroom_mb` (512 MB) would remain | less than that would remain |
+| fits | more room remains | more room remains |
+
+"Won't fit" is decided from the low end of the estimate, so a config that might fit is never shown as red. Spill only works where the driver can fall back to system memory; elsewhere it ends in an out-of-memory error, and the tooltip says so. On a node with several GPUs the estimate compares against all GPUs together, so a bad `tensor_split` can still run out on one GPU.
+
+`GET /router/v1/site/nodes/memory-fit?node_id=` returns the verdicts for one node. A master asks the node over `/router/v1/node/memory-fit`, and each node judges with its own memory readings.
+
 ## Jinja kwargs profiles
 
 **Load-time effect:** Use profiles with the same model and the same top-level `jinja_kwargs` keys for variants such as thinking enabled and disabled. The router can reuse the loaded runtime and model weights when only those values differ. Switching profiles then avoids the normal unload, backend restart, model load, and readiness wait, which significantly reduces the delay between compatible model variants.

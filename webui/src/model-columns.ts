@@ -7,6 +7,7 @@ export const modelColumns = [
   {key: "options", label: "Options", shownByDefault: false},
   {key: "benchmark", label: "Benchmark", shownByDefault: false},
   {key: "available", label: "Available", shownByDefault: true},
+  {key: "fit", label: "Fit", shownByDefault: true},
   {key: "routing", label: "Routing", shownByDefault: true},
   {key: "separate", label: "Separate", shownByDefault: false},
   {key: "actions", label: "Actions", shownByDefault: true}

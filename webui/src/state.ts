@@ -63,7 +63,8 @@ export const state: AppState = {
     fileHashFilter: "all",
     initialized: false,
     columnChoices: {},
-    roomForEveryColumn: false
+    roomForEveryColumn: false,
+    memoryFit: {}
   },
   benchmark: {
     modelKey: "",

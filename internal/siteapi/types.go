@@ -100,6 +100,9 @@ type NodeMemory struct {
 	TotalMB     int64  `json:"total_mb"`
 	UsedMB      int64  `json:"used_mb"`
 	SampledAtMS int64  `json:"sampled_at_ms"`
+
+	Devices   []NodeMemoryDevice `json:"devices,omitempty"`
+	SystemRAM *NodeSystemRAM     `json:"system_ram,omitempty"`
 }
 
 const (

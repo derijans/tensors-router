@@ -18,6 +18,7 @@ import type {
   BackendInitializationRequest,
   BackendLaunchOptions,
   BackendLaunchOptionsRequest,
+  NodeMemoryFit,
   NodeState,
   NodeUnloadRequest,
   LoadConfigRequest,
@@ -110,6 +111,10 @@ export function getInventory(includeFiles = false): Promise<InventoryResponse> {
 export function getNodeState(nodeID: string, signal?: AbortSignal): Promise<NodeState> {
   const path = `/api/nodes/state?${new URLSearchParams({node_id: nodeID})}`;
   return api<NodeState>(path, signal ? {signal} : undefined);
+}
+
+export function getNodeMemoryFit(nodeID: string): Promise<NodeMemoryFit> {
+  return api<NodeMemoryFit>(`/api/nodes/memory-fit?${new URLSearchParams({node_id: nodeID})}`);
 }
 
 export function unloadNodeRuntime(request: NodeUnloadRequest): Promise<{ok: boolean}> {

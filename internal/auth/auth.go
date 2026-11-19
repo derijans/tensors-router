@@ -21,6 +21,7 @@ type PolicyConfig struct {
 	Profile       string
 	InferenceKeys []string
 	AdminKeys     []string
+	MetricsKeys   []string
 	ClusterToken  string
 }
 
@@ -29,14 +30,18 @@ type routeClass int
 const (
 	routeInference routeClass = iota
 	routeAdmin
+	routeMetrics
 	routeCluster
 )
+
+const MetricsPath = "/router/v1/metrics"
 
 type Policy struct {
 	networks      []*net.IPNet
 	profile       string
 	inferenceKeys []string
 	adminKeys     []string
+	scrapeKeys    []string
 	clusterToken  string
 }
 
@@ -65,11 +70,13 @@ func NewPolicy(config PolicyConfig) (*Policy, error) {
 		}
 		networks = append(networks, network)
 	}
+	adminKeys := normalizedKeys(config.AdminKeys)
 	return &Policy{
 		networks:      networks,
 		profile:       config.Profile,
 		inferenceKeys: normalizedKeys(config.InferenceKeys),
-		adminKeys:     normalizedKeys(config.AdminKeys),
+		adminKeys:     adminKeys,
+		scrapeKeys:    append(normalizedKeys(config.MetricsKeys), adminKeys...),
 		clusterToken:  strings.TrimSpace(config.ClusterToken),
 	}, nil
 }
@@ -110,11 +117,19 @@ func (policy *Policy) authorized(class routeClass, authorization string) bool {
 	if policy.profile != ProfileSecure {
 		return true
 	}
-	keys := policy.inferenceKeys
-	if class == routeAdmin {
-		keys = policy.adminKeys
-	}
+	keys := policy.keysFor(class)
 	return len(keys) == 0 || allowedBearer(authorization, keys)
+}
+
+func (policy *Policy) keysFor(class routeClass) []string {
+	switch class {
+	case routeAdmin:
+		return policy.adminKeys
+	case routeMetrics:
+		return policy.scrapeKeys
+	default:
+		return policy.inferenceKeys
+	}
 }
 
 func writeAccessError(w http.ResponseWriter, path string, status int, message string) {
@@ -161,6 +176,9 @@ func (policy *Policy) allowedRemote(remoteAddr string) bool {
 func classifyRoute(path string) routeClass {
 	if path == "/router/mcp" {
 		return routeAdmin
+	}
+	if path == MetricsPath {
+		return routeMetrics
 	}
 	if strings.HasPrefix(path, "/router/v1/node/") {
 		return routeCluster

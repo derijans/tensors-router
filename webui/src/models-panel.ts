@@ -9,6 +9,8 @@ import type { Model, NodeInventory, RoutingEndpoint, RoutingLane, Tone } from ".
 import { badge, laneAccent, optionElement } from "./markup-primitives";
 import { capabilities, optionSummary } from "./utils";
 import { modelColumns, visibleModelColumns, type ModelColumnKey } from "./model-columns";
+import { memoryFitFor } from "./memory-fit-data";
+import { renderMemoryFitBadge } from "./memory-fit-badge";
 
 export function renderModelsPanel(models: Model[], nodes: NodeInventory[]): void {
   renderSelect(elements.modelBackendFilter, "All backends", modelBackends(models), state.models.backendFilter);
@@ -73,6 +75,8 @@ function modelCell(model: Model, column: ModelColumnKey): SafeHTML | string {
       return optionSummary(model.options);
     case "benchmark":
       return benchmarkCompactLabel(model);
+    case "fit":
+      return renderMemoryFitBadge(memoryFitFor(state.models.memoryFit, model.node_id, model.local_id));
     case "available":
       return modelAssetAvailability(model);
     case "routing":

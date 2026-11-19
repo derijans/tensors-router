@@ -154,6 +154,8 @@ var optionsNotDecodedByRouterReasons = map[string]string{
 	"enableguidance":         "koboldcpp image option",
 	"sdgendefaults":          "koboldcpp image option",
 	"sdconfig":               "koboldcpp image option",
+
+	"router_idle_unload_seconds": "router-only key, read from the raw catalog options by internal/idleunload",
 }
 
 func TestOptionValueTypesMatchRuntimeConfigFields(t *testing.T) {

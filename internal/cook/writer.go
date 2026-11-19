@@ -10,6 +10,7 @@ import (
 
 	"tensors-router/internal/backendmode"
 	"tensors-router/internal/catalog"
+	"tensors-router/internal/idleunload"
 	"tensors-router/internal/vllm"
 )
 
@@ -260,6 +261,9 @@ func NormalizedOptions(options Options) (Options, error) {
 		return nil, err
 	}
 	if _, _, err := UnloadPolicyOption(result); err != nil {
+		return nil, err
+	}
+	if _, err := idleunload.Timeout(result); err != nil {
 		return nil, err
 	}
 	if err := normalizeJinjaOptions(result); err != nil {

@@ -22,7 +22,11 @@ type loadErrorListResponse struct {
 }
 
 func (service *Service) recordLoadError(input loaderrors.RecordInput) {
-	if service == nil || service.loadErrorStore == nil {
+	if service == nil {
+		return
+	}
+	service.metrics.loadErrorRecorded(input.Phase, input.Severity)
+	if service.loadErrorStore == nil {
 		return
 	}
 	if strings.TrimSpace(input.NodeID) == "" {

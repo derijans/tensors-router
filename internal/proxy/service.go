@@ -22,6 +22,8 @@ import (
 	"tensors-router/internal/loadcapture"
 	"tensors-router/internal/loaderrors"
 	"tensors-router/internal/mcp"
+	"tensors-router/internal/memoryfit"
+	"tensors-router/internal/memorysamples"
 	"tensors-router/internal/modelassets"
 	"tensors-router/internal/modelstate"
 	"tensors-router/internal/offloaddecisions"
@@ -126,6 +128,9 @@ type ServiceConfig struct {
 	FFmpeg                    ffmpeg.Tool
 	FFmpegScratchDir          string
 	SeparateRuntimeLimit      int
+	MetricsEnabled            bool
+	MemorySampleStore         *memorysamples.Store
+	MemoryFitThresholds       memoryfit.Thresholds
 }
 
 type Service struct {
@@ -158,6 +163,9 @@ type Service struct {
 	routingGroups             *routinggroups.Store
 	guardians                 *guardianDirectory
 	scheduler                 *scheduler
+	idleUnloads               *idleUnloader
+	metrics                   *routerMetrics
+	memoryFit                 *memoryFit
 	lending                   *lendingSettings
 	offloadDecisions          *offloaddecisions.Store
 	routingLinks              atomic.Pointer[routingLinkIndex]

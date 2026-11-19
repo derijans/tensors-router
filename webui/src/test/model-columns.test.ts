@@ -3,7 +3,7 @@ import { hasRoomForEveryColumn, modelColumns, parsedModelColumnChoices, visibleM
 
 describe("model table columns", () => {
   it("shows the core columns when the table is narrow", () => {
-    expect(visibleModelColumns({}, false)).toEqual(["id", "node", "backend", "capabilities", "available", "routing", "actions"]);
+    expect(visibleModelColumns({}, false)).toEqual(["id", "node", "backend", "capabilities", "available", "fit", "routing", "actions"]);
   });
 
   it("shows every column once the table has room for them", () => {

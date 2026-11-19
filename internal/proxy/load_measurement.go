@@ -2,28 +2,39 @@ package proxy
 
 import (
 	"context"
+	"time"
 
 	routeranalytics "tensors-router/internal/analytics"
 	"tensors-router/internal/hardware"
 )
 
 type modelLoadMeasurement struct {
-	analytics      *routeranalytics.VRAMLoadMeasurement
-	memoryBefore   hardware.MemoryReading
-	memoryAfter    hardware.MemoryReading
-	memoryBeforeOK bool
-	memoryAfterOK  bool
+	started   time.Time
+	analytics *routeranalytics.VRAMLoadMeasurement
+	before    memoryReadings
+	after     memoryReadings
+	fit       *memoryFitLoad
 }
 
-func (service *Service) beginModelLoad(ctx context.Context) *modelLoadMeasurement {
+func (service *Service) beginModelLoad(ctx context.Context, runtime *backendRuntime, configFilename string) *modelLoadMeasurement {
 	measurement := &modelLoadMeasurement{analytics: service.analytics.beginLoad(ctx)}
-	measurement.memoryBefore, measurement.memoryBeforeOK = service.freshNodeMemory(ctx)
+	measurement.before = service.memoryReadings(ctx)
+	measurement.fit = service.memoryFit.beginLoad(configFilename, runtimeHoldsNothing(runtime), measurement.before)
+	measurement.started = time.Now()
 	return measurement
 }
 
-func (service *Service) finishModelLoad(ctx context.Context, measurement *modelLoadMeasurement) {
+func (service *Service) finishModelLoad(ctx context.Context, runtime *backendRuntime, measurement *modelLoadMeasurement, loadErr error) {
+	service.metrics.modelLoadFinished(runtime.mode, time.Since(measurement.started), loadErr)
 	service.analytics.finishLoad(ctx, measurement.analytics)
-	measurement.memoryAfter, measurement.memoryAfterOK = service.freshNodeMemory(ctx)
+	measurement.after = service.memoryReadings(ctx)
+	service.memoryFit.finishLoad(measurement.fit, measurement.after, loadErr)
+}
+
+func runtimeHoldsNothing(runtime *backendRuntime) bool {
+	runtime.state.mu.Lock()
+	defer runtime.state.mu.Unlock()
+	return runtime.state.filename == "" && runtime.state.physicalFilename == ""
 }
 
 func (service *Service) freshNodeMemory(ctx context.Context) (hardware.MemoryReading, bool) {
@@ -34,15 +45,17 @@ func (service *Service) freshNodeMemory(ctx context.Context) (hardware.MemoryRea
 }
 
 func (measurement *modelLoadMeasurement) memoryFootprintMB() int64 {
-	if !measurement.memoryBeforeOK || !measurement.memoryAfterOK || measurement.memoryBefore.Kind != measurement.memoryAfter.Kind {
+	before, after := measurement.before, measurement.after
+	if !before.vramOK || !after.vramOK || before.vram.Kind != after.vram.Kind {
 		return 0
 	}
-	return max(0, measurement.memoryAfter.UsedMB-measurement.memoryBefore.UsedMB)
+	return max(0, after.vram.UsedMB-before.vram.UsedMB)
 }
 
 func applyLoadMeasurementLocked(state *activeConfigState, measurement *modelLoadMeasurement) {
 	clearLoadMeasurementLocked(state)
 	state.memoryLoadedMB = measurement.memoryFootprintMB()
+	state.vramLoadedMB, state.ramLoadedMB = footprintBetween(measurement.before, measurement.after)
 	if measurement.analytics == nil {
 		return
 	}
@@ -60,4 +73,6 @@ func clearLoadMeasurementLocked(state *activeConfigState) {
 	state.vramBaselineMB = 0
 	state.vramTotalMB = 0
 	state.memoryLoadedMB = 0
+	state.vramLoadedMB = 0
+	state.ramLoadedMB = 0
 }

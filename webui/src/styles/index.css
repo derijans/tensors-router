@@ -6,6 +6,8 @@
 @import "./dialogs.css";
 @import "./overview.css";
 @import "./nodes.css";
+@import "./node-memory-devices.css";
+@import "./memory-fit.css";
 @import "./webuis.css";
 @import "./downloads.css";
 @import "./models.css";

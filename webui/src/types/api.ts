@@ -480,6 +480,24 @@ export interface NodeMemory {
   total_mb: number;
   used_mb: number;
   sampled_at_ms: number;
+  devices?: NodeMemoryDevice[];
+  system_ram?: NodeSystemRAM;
+}
+
+export interface NodeMemoryDevice {
+  vendor: string;
+  name: string;
+  source: string;
+  dedicated_used_mb: number;
+  dedicated_total_mb: number;
+  shared_used_mb?: number;
+  usage_known: boolean;
+  unified?: boolean;
+}
+
+export interface NodeSystemRAM {
+  used_mb: number;
+  total_mb: number;
 }
 
 export type BackendLifecycleState = "companion_missing" | "unsupported" | "needs_init" | "initializing" | "ready" | "failed";
@@ -975,4 +993,32 @@ export interface LoadCaptureOutputChunk {
 export interface LoadCaptureOutputResponse {
   chunks: LoadCaptureOutputChunk[];
   next_sequence?: number;
+}
+
+export type MemoryFitLevel = "unknown" | "green" | "yellow" | "light_amber" | "deep_amber" | "red";
+export type MemoryFitTier = "unknown" | "measured" | "context_scaled" | "architecture";
+
+export interface MemoryFitBand {
+  low_mb: number;
+  high_mb: number;
+}
+
+export interface ConfigMemoryFit {
+  model_id: string;
+  config_name: string;
+  level: MemoryFitLevel;
+  tier: MemoryFitTier;
+  vram: MemoryFitBand;
+  ram: MemoryFitBand;
+  gpu_free_mb: number;
+  ram_free_mb: number;
+  spill_mb?: number;
+  ram_only: boolean;
+  multi_gpu?: boolean;
+  unavailable?: string;
+}
+
+export interface NodeMemoryFit {
+  node_id: string;
+  configs: ConfigMemoryFit[];
 }

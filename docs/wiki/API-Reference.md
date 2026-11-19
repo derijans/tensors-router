@@ -201,6 +201,7 @@ Standalone and master routers expose administration routes in these groups:
 - `/router/v1/site/webuis/...`
 - `/router/v1/site/routing-groups` (image models) and `/router/v1/site/text-routing-groups` (LLM models): one-way lending links. `GET ?node_id=&model_id=` lists links and candidates for an anchor, `POST {"anchor":{...},"lends_to":[...],"borrows_from":[...]}` replaces every link of the anchor, `DELETE ?node_id=&model_id=` removes them. See [Cluster-Routing](Cluster-Routing.md#backlog-lending)
 - `/router/v1/site/guardian-models`: multimodal models that answer image requests for text-only models. `GET` lists assignments and candidates, `POST {"scope":"cluster|node|model","node_id":"","model_id":"","guardian":{"node_id":"","model_id":""}}` sets one, `DELETE ?scope=&node_id=&model_id=` clears one. See [Cluster-Routing](Cluster-Routing.md#guardian-models)
+- `GET /router/v1/site/nodes/memory-fit?node_id={node_id}`: memory fit verdicts for every config on that node. See [Memory fit](Model-Configs-and-Routing.md#memory-fit)
 - `/router/v1/site/analytics` and `POST /router/v1/site/analytics/flush`
 - `GET /router/v1/site/store/download?node_id={node_id}`: a consistent copy of that node's router database
 - `/router/v1/site/load-captures`
@@ -233,10 +234,34 @@ The WebUI catalog, session toggle, model load, and proxied browser routes are de
 
 Slave nodes expose cluster-authenticated routes under `/router/v1/node/...` for registration, inference forwarding, model loading, inventory, configuration, assets, downloads, benchmarks, analytics, image backlog offloading, and backend WebUI access. These are internal coordination interfaces used by the master and `tensor-router-webui`, not stable inference APIs for normal clients.
 
+## Metrics
+
+`GET /router/v1/metrics` returns Prometheus text exposition format 0.0.4 for this node. It exists only when `metrics.enabled: true`; otherwise the path answers `404`. Scrape every node separately, since a master does not aggregate its slaves.
+
+Counters and histograms:
+
+- `tensors_router_requests_total{route,model,status}`: finished requests. `route` is the route class used by analytics. `model` is a local catalog ID, `none` when no model was selected, or `other` for any ID outside the catalog, so clients cannot create label values.
+- `tensors_router_request_duration_seconds{route}`: from request start until the response body closed, so a stream counts its full length.
+- `tensors_router_model_load_duration_seconds{backend_mode,result}`: backend config loads, `result` is `ok` or `error`.
+- `tensors_router_model_load_errors_total{phase,severity}`: the same events the Errors tab records.
+- `tensors_router_transport_rejections_total`: requests refused because the transport memory budget was full.
+- `tensors_router_idle_unloads_total{backend_mode}`: unloads caused by `router_idle_unload_seconds`.
+
+Gauges, read at scrape time:
+
+- `tensors_router_runtime_users`, `tensors_router_runtime_queue_waiters`, `tensors_router_runtime_loaded{model}` and `tensors_router_runtime_memory_estimate_bytes`, each labelled with `runtime` and `backend_mode`
+- `tensors_router_offload_queue_pending{lane,model}` and `tensors_router_offload_queue_backlog{lane,model}`
+- `tensors_router_transport_budget_used_bytes` and `tensors_router_transport_budget_limit_bytes`
+- `tensors_router_cluster_peer_healthy{node}`: on a master, one series per slave
+- `tensors_router_node_memory_used_bytes{kind}` and `tensors_router_node_memory_total_bytes{kind}`
+
+Every series is capped at 1000 label combinations per metric; further combinations are counted under `other`.
+
 ## Authentication
 
 - Inference keys authorize model APIs.
 - Admin keys authorize site APIs, benchmarks, explicit load and unload, and shutdown.
+- Metrics keys authorize only `GET /router/v1/metrics`. Admin keys are accepted there as well.
 - The cluster token authorizes only `/router/v1/node/...` routes.
 
 Send credentials as bearer tokens. See [Security and Reverse Proxy](Security-and-Reverse-Proxy) for profiles and network restrictions.

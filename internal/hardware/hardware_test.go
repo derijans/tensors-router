@@ -56,10 +56,10 @@ func TestReadVRAMAggregatesNVIDIA(t *testing.T) {
 			if name != "nvidia-smi" {
 				t.Fatalf("unexpected command %q", name)
 			}
-			if strings.Join(args, " ") != "--query-gpu=memory.used,memory.total --format=csv,noheader,nounits" {
+			if strings.Join(args, " ") != "--query-gpu=index,pci.bus_id,name,memory.used,memory.total --format=csv,noheader,nounits" {
 				t.Fatalf("unexpected args %#v", args)
 			}
-			return []byte("1024, 8192\n2048, 16384\n"), nil
+			return []byte("0, 00000000:01:00.0, RTX A, 1024, 8192\n1, 00000000:02:00.0, RTX B, 2048, 16384\n"), nil
 		},
 	})
 

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"reflect"
 	"sync"
 	"testing"
 	"time"
@@ -54,7 +55,7 @@ func TestNodeStateReportsNodeMemoryAndTheFootprintOfEachLoad(t *testing.T) {
 
 	snapshot := service.localNodeState(ctx)
 	want := siteapi.NodeMemory{Kind: hardware.MemoryKindRAM, TotalMB: 24000, UsedMB: 5096, SampledAtMS: 1700000000000}
-	if snapshot.Memory == nil || *snapshot.Memory != want {
+	if snapshot.Memory == nil || !reflect.DeepEqual(*snapshot.Memory, want) {
 		t.Fatalf("expected node memory %#v, got %#v", want, snapshot.Memory)
 	}
 	row, found := loadedModelRow(snapshot, "a")

@@ -4,6 +4,7 @@ import (
 	"tensors-router/internal/auth"
 	"tensors-router/internal/config"
 	"tensors-router/internal/hardware"
+	"tensors-router/internal/memoryfit"
 	"tensors-router/internal/offloadsettings"
 	"tensors-router/internal/proxy"
 	"tensors-router/internal/transportbody"
@@ -28,6 +29,7 @@ func newAuthPolicy(cfg config.Config) (*auth.Policy, error) {
 		Profile:       cfg.Security.Profile,
 		InferenceKeys: cfg.Auth.InferenceKeys,
 		AdminKeys:     cfg.Auth.AdminKeys,
+		MetricsKeys:   cfg.Auth.MetricsKeys,
 		ClusterToken:  cfg.Cluster.Token,
 	})
 }
@@ -79,6 +81,8 @@ func (runtime *serveRuntime) serviceConfig(fileRoots []string, shutdownRequested
 		RouterStore:               stores.handle,
 		LoadCaptureStore:          stores.loadCaptures,
 		LoadErrorStore:            stores.loadErrors,
+		MemorySampleStore:         stores.memorySamples,
+		MemoryFitThresholds:       memoryFitThresholds(cfg.MemoryFit),
 		LoadCaptureMaxOutputBytes: cfg.Analytics.LoadCaptureMaxOutputMB * 1024 * 1024,
 		VRAMAnalyticsEnabled:      cfg.Analytics.Enabled && cfg.Analytics.VRAMEnabled,
 		VRAMSampleInterval:        cfg.Analytics.VRAMSampleInterval,
@@ -102,5 +106,13 @@ func (runtime *serveRuntime) serviceConfig(fileRoots []string, shutdownRequested
 		},
 		MaxControlBodyBytes:  cfg.Limits.MaxControlBodyMB * transportbody.MiB,
 		SeparateRuntimeLimit: cfg.Limits.SeparateRuntimes,
+		MetricsEnabled:       cfg.Metrics.Enabled,
+	}
+}
+
+func memoryFitThresholds(memoryFit config.MemoryFitConfig) memoryfit.Thresholds {
+	return memoryfit.Thresholds{
+		DeepSpillFraction: float64(memoryFit.DeepSpillPercent) / 100,
+		TightHeadroomMB:   float64(memoryFit.TightHeadroomMB),
 	}
 }

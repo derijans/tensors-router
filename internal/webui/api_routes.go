@@ -36,6 +36,7 @@ var apiRoutes = []apiRoute{
 	handled("/api/router/kill", routerAction("kill"), http.MethodPost),
 	proxied("/api/inventory", "/router/v1/site/inventory", http.MethodGet),
 	proxied("/api/nodes/state", "/router/v1/site/nodes/state", http.MethodGet),
+	proxied("/api/nodes/memory-fit", "/router/v1/site/nodes/memory-fit", http.MethodGet),
 	proxied("/api/nodes/unload", "/router/v1/site/nodes/unload", http.MethodPost),
 	proxied("/api/nodes/backends/init", "/router/v1/site/nodes/backends/init", http.MethodPost),
 	proxied("/api/nodes/backends/init/cancel", "/router/v1/site/nodes/backends/init/cancel", http.MethodPost),

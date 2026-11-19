@@ -39,6 +39,7 @@ type activeConfigState struct {
 	users                int
 	borrowedUsers        int
 	ownIdleSince         time.Time
+	idleSince            time.Time
 	switching            bool
 	switchingForBorrowed bool
 	queue                switchQueue
@@ -46,6 +47,8 @@ type activeConfigState struct {
 	vramTotalMB          int64
 	vramBaselineValid    bool
 	memoryLoadedMB       int64
+	vramLoadedMB         int64
+	ramLoadedMB          int64
 	modelID              string
 	generation           uint64
 	leases               map[uint64]runtimeLease
@@ -233,9 +236,9 @@ func (service *Service) reloadHeldModelConfig(runtime *backendRuntime, ctx conte
 		state.pendingProfile = profile
 		state.mu.Unlock()
 
-		loadMeasurement := service.beginModelLoad(ctx)
+		loadMeasurement := service.beginModelLoad(ctx, runtime, configFilename)
 		err := service.loadModelConfig(runtime, ctx, modelID, configFilename, readiness)
-		service.finishModelLoad(ctx, loadMeasurement)
+		service.finishModelLoad(ctx, runtime, loadMeasurement, err)
 
 		state.mu.Lock()
 		endRuntimeSwitchLocked(state)
@@ -565,6 +568,7 @@ func releaseActiveConfigUserLocked(state *activeConfigState, borrowed bool) {
 		state.ownIdleSince = time.Now()
 	}
 	if state.users == 0 {
+		state.idleSince = time.Now()
 		notifyActiveConfigLocked(state)
 	}
 }
