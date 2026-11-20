@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/ggml-org/llama.cpp",
+  "releases": [
+    {
+      "id": "452601852",
+      "tag": "b12562",
+      "published_at": "2026-11-20T11:19:42Z",
+      "prerelease": true,
+      "payloads": [
+        {
+          "name": "llama-b12562-bin-ubuntu-x64.tar.gz",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12562/llama-b12562-bin-ubuntu-x64.tar.gz",
+          "length": 23056854,
+          "sha256": "5653acd1d296e0b5e65be663448d0065ec68a1d21e11f574f484c8f19cf47553"
+        }
+      ]
+    }
+  ]
+}
