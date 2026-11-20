@@ -49,7 +49,7 @@ Commit any failing input that the fuzzer writes under `internal/transportbody/te
 
 - Format Go with `gofmt`. Keep files small and grouped by responsibility.
 - Prefer names that explain the code over comments.
-- In the WebUI, build markup with the `html` template from `safe-html.ts` and render it with `setHTML`. Do not use inline styles.
+- In the WebUI, build markup with the `html` template from `lib/safe-html.ts` and render it with `setHTML`. Reuse the components in `ui/` and keep the layer rules in [docs/Architecture.md](docs/Architecture.md#source-layout-webuisrc). Do not use inline styles.
 - Documentation must not use em dashes.
 
 ## Commits and pull requests

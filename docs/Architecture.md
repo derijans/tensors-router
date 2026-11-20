@@ -107,4 +107,32 @@ Every unload claims the runtime through one protocol in `lane.go` (`claimIdleRun
 
 ## WebUI (`webui/`)
 
-Vanilla TypeScript and Vite. Markup is built only with the `html` tagged template from `webui/src/safe-html.ts`, which escapes every interpolated value, and reaches the DOM only through `setHTML`. ESLint rejects direct `innerHTML`, `outerHTML`, and `insertAdjacentHTML`, and rejects markup in untagged templates or string literals.
+Vanilla TypeScript and Vite. Markup is built only with the `html` tagged template from `webui/src/lib/safe-html.ts`, which escapes every interpolated value, and reaches the DOM only through `setHTML`. ESLint rejects direct `innerHTML`, `outerHTML`, and `insertAdjacentHTML`, and rejects markup in untagged templates or string literals.
+
+### Source layout (`webui/src/`)
+
+| Folder | Responsibility |
+|---|---|
+| `lib/` | Generic utilities with no app knowledge: safe HTML, JSON, DOM lookup, errors, number, byte and time formatting, text, collections. |
+| `ui/` | Reusable markup components: badges, buttons, form controls, selects, empty states, fact grids, progress, status lines, charts. Data comes in through parameters. |
+| `domain/` | Pure shared app logic: lanes, backend modes, unload policy, option keys and values, model capabilities and files, GPU options, inventory lookups. |
+| `api/` | `client.ts` (requests, error parsing, CSRF token) and one endpoint module per domain. |
+| `state/` | The app state and the selectors that read it. |
+| `types/` | API and UI types, split per domain behind the `types/index.ts` barrel. |
+| `features/<feature>/` | One folder per tab or panel: cook, downloads, guardian, insights, lending, models, nodes, overview, search, shell, webuis. |
+
+Each feature folder separates its modules by role:
+
+- `*-data.ts`: pure computation from parameters.
+- `*-view.ts`: pure markup built from `ui/` components.
+- `<feature>.ts` and `*-render.ts`: the controller. It reads and writes state, calls the API, and renders.
+- `*-elements.ts`: the feature's DOM element lookups.
+- `*-bindings.ts`: event wiring.
+
+ESLint enforces the layers with `no-restricted-imports`:
+
+- `lib/` imports nothing from the app.
+- `domain/` and `ui/` import neither state, the API, nor features, and `ui/` does not import `domain/`.
+- `api/` imports neither state, features, nor `ui/`.
+- `*-data.ts` imports neither state, the API, `ui/`, nor element lookups.
+- `*-view.ts` imports neither state, the API, nor element lookups.
