@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { attentionItems, overviewKpis, recentRequests, type AttentionSources } from "../overview/overview-data";
+import { attentionItems, overviewKpis, recentRequests, type AttentionSources } from "../features/overview/overview-data";
 import type { AnalyticsRecentEvent, AnalyticsResponse, NodeInventory, NodeState } from "../types";
 
 function analytics(overrides: Partial<AnalyticsResponse> = {}): AnalyticsResponse {

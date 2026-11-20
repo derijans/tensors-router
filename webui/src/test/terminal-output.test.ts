@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { safeTerminalText, stripTerminalControls } from "../terminal-output";
+import { safeTerminalText, stripTerminalControls } from "../lib/terminal-output";
 
 describe("stripTerminalControls", () => {
   it("removes CSI colour and cursor sequences", () => {

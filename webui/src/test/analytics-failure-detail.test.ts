@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { failureDetail, queueWaitDetail } from "../analytics-failure-detail";
+import { failureDetail, queueWaitDetail } from "../features/insights/analytics/analytics-failure-detail-data";
 import type { AnalyticsRecentEvent } from "../types";
 
 function event(overrides: Partial<AnalyticsRecentEvent>): AnalyticsRecentEvent {

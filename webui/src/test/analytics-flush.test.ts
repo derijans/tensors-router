@@ -5,13 +5,14 @@ import type { AnalyticsFlushResponse, AnalyticsResponse } from "../types";
 const flushAnalytics = vi.fn();
 const getAnalytics = vi.fn();
 
-vi.mock("../api", () => ({
+vi.mock("../api/insights-api", () => ({
   flushAnalytics: (): Promise<AnalyticsFlushResponse> => flushAnalytics() as Promise<AnalyticsFlushResponse>,
   getAnalytics: (): Promise<AnalyticsResponse> => getAnalytics() as Promise<AnalyticsResponse>
 }));
 
-vi.mock("../elements", () => ({
-  elements: new Proxy({}, {get: () => ({innerHTML: "", value: "", options: [], appendChild: () => undefined})})
+vi.mock("../lib/dom", async importOriginal => ({
+  ...await importOriginal<typeof import("../lib/dom")>(),
+  getRequiredElement: (id: string): unknown => (new Proxy({}, {get: () => ({innerHTML: "", value: "", options: [], appendChild: () => undefined})}) as Record<string, unknown>)[id]
 }));
 
 const page = readFileSync(new URL("../../index.html", import.meta.url), "utf8");
@@ -41,7 +42,7 @@ describe("analytics flush control", () => {
 
   it("reloads analytics after the router persists the buffer", async () => {
     flushAnalytics.mockResolvedValue({flushed_nodes: ["node-a"]});
-    const { flushAnalyticsToDisk } = await import("../analytics");
+    const { flushAnalyticsToDisk } = await import("../features/insights/analytics/analytics");
 
     await flushAnalyticsToDisk();
 
@@ -51,7 +52,7 @@ describe("analytics flush control", () => {
 
   it("surfaces a node that could not persist its buffer", async () => {
     flushAnalytics.mockResolvedValue({flushed_nodes: [], node_errors: [{node_id: "node-b", error: "disk full"}]});
-    const { flushAnalyticsToDisk } = await import("../analytics");
+    const { flushAnalyticsToDisk } = await import("../features/insights/analytics/analytics");
 
     await expect(flushAnalyticsToDisk()).rejects.toThrow("node-b: disk full");
     expect(getAnalytics).not.toHaveBeenCalled();

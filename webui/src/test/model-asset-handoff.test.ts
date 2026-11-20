@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { modelAssetHandoff } from "../model-asset-handoff";
+import { modelAssetHandoff } from "../features/models/model-asset-handoff-data";
 import { testModel } from "./factories";
 
 const hash = "0a2fac16f388b4839f075dedb681357aec3e73a96bd66b413e462b6853550c99";

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { normalizeModelHash, normalizeParameterRange, parseOfficialHFURL, splitSearchFilters } from "../download-finder-data";
-import { hfFilterCatalog, hfFilterCatalogVersion } from "../hf-filter-catalog";
+import { normalizeModelHash, normalizeParameterRange, parseOfficialHFURL, splitSearchFilters } from "../features/downloads/download-finder-data";
+import { hfFilterCatalog, hfFilterCatalogVersion } from "../features/downloads/hf-filter-catalog-data";
 
 describe("download finder data", () => {
   it("separates dedicated Hugging Face filter parameters", () => {

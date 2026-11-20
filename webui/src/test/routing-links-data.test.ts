@@ -9,9 +9,9 @@ import {
   requestHasNoLinks,
   routingButtonLabel,
   updateLinkDraft
-} from "../routing-links-data";
-import { routingDialogMarkup } from "../routing-links-markup";
-import { SafeHTML } from "../safe-html";
+} from "../features/models/routing-links/routing-links-data";
+import { routingDialogMarkup } from "../features/models/routing-links/routing-links-view";
+import { SafeHTML } from "../lib/safe-html";
 import type { RoutingCandidate, RoutingLinksResponse } from "../types";
 
 const unlinked = {selected: false, load_if_unloaded: false, restore_after_borrow: false};

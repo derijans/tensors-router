@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { analyticsModelChoices, analyticsNodeChoices, formatDurationSeconds, formatMegabytes, formatPercent, normalizedAnalyticsQuery } from "../analytics-data";
+import { analyticsModelChoices, analyticsNodeChoices, normalizedAnalyticsQuery } from "../features/insights/analytics/analytics-data";
 import { testInventory, testModel, testNode } from "./factories";
+import { formatPercent } from "../lib/format-number";
+import { formatDurationSeconds } from "../lib/format-time";
+import { formatMegabytes } from "../lib/format-bytes";
 
 describe("analytics data helpers", () => {
   it("builds sorted unique analytics identifiers from history and live inventory", () => {

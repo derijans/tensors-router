@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { benchmarkCompactLabel, benchmarkSections } from "../benchmark-data";
+import { benchmarkCompactLabel, benchmarkSections } from "../features/insights/benchmarks/benchmark-data";
 import { testModel } from "./factories";
 
 describe("benchmark data helpers", () => {

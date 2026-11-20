@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { groupRequestsByModel, requestsForUnloadedModels, requestsOldestFirst, runningRequestCount } from "../node-requests-data";
+import { groupRequestsByModel, requestsForUnloadedModels, requestsOldestFirst, runningRequestCount } from "../features/nodes/node-requests-data";
 import type { NodeRequest } from "../types";
 
 const requests: NodeRequest[] = [

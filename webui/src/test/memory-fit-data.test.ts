@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { memoryFitBadge, memoryFitFor } from "../memory-fit-data";
+import { memoryFitBadge, memoryFitFor } from "../features/models/memory-fit/memory-fit-data";
 import type { ConfigMemoryFit, NodeMemoryFit } from "../types";
 
 function fit(overrides: Partial<ConfigMemoryFit>): ConfigMemoryFit {

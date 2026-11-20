@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { renderLendingSummary } from "../lending-summary-view";
-import { SafeHTML } from "../safe-html";
+import { renderLendingSummary } from "../features/lending/lending-summary-view";
+import { SafeHTML } from "../lib/safe-html";
 
 describe("lending summary view", () => {
   it("flags a node running settings other than the master's and lists live leases", () => {

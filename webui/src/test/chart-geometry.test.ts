@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bandPath, linePath, paddedPeak, segmentOffsets, stackLayers, tickIndexes } from "../chart-geometry";
+import { bandPath, linePath, paddedPeak, segmentOffsets, stackLayers, tickIndexes } from "../ui/charts/chart-geometry";
 
 describe("chart geometry", () => {
   it("stacks each layer on top of the ones before it and ignores negative values", () => {

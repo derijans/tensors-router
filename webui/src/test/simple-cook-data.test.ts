@@ -1,15 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { state } from "../state";
-import {
-  comparisonClass,
-  defaultConfigForNode,
-  fieldChoices,
-  fieldRenderContext,
-  groupedFieldKeys,
-  importedConfigNameStem,
-  parseImportedOptions
-} from "../simple-cook-data";
+import { state } from "../state/app-state";
+import { defaultConfigForNode, groupedFieldKeys } from "../features/cook/simple-cook/simple-cook-data";
 import { optionDefinition, testInventory, testModel, testNode } from "./factories";
+import { fieldRenderContext } from "../features/cook/simple-cook/simple-cook-selection";
+import { importedConfigNameStem, parseImportedOptions } from "../features/cook/simple-cook/simple-cook-import-data";
+import { comparisonClass, fieldChoices } from "../features/cook/simple-cook/simple-cook-field-values-data";
 
 describe("simple cook option data", () => {
   beforeEach(() => {

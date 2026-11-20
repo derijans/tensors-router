@@ -5,7 +5,7 @@ import {
   webUIDialogData,
   webUIForRuntime,
   webUIOpenStatus
-} from "../webui-data";
+} from "../features/webuis/webui-data";
 import type { WebUICompatibleModel, WebUIEntry } from "../types";
 
 describe("WebUI data helpers", () => {

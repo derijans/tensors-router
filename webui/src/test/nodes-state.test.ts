@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { state } from "../state";
+import { state } from "../state/app-state";
 import type { BackendInitializationJob, BackendInitializationJobState, BackendLifecycleState, NodeInventory, NodeRuntimeSlice, NodeState } from "../types";
 
 const apiMocks = vi.hoisted(() => ({
@@ -9,23 +9,19 @@ const apiMocks = vi.hoisted(() => ({
   unloadNodeRuntime: vi.fn()
 }));
 
-vi.mock("../api", () => apiMocks);
-vi.mock("../elements", () => ({elements: {nodeCount: {}, nodesGrid: {}, nodesDetail: {}, nodesScanNotices: {}}}));
+vi.mock("../api/nodes-api", () => apiMocks);
+vi.mock("../lib/dom", async importOriginal => ({
+  ...await importOriginal<typeof import("../lib/dom")>(),
+  getRequiredElement: (id: string): unknown => ({nodeCount: {}, nodesGrid: {}, nodesDetail: {}, nodesScanNotices: {}} as Record<string, unknown>)[id]
+}));
 
-import {
-  cancelSelectedBackendInitialization,
-  collapseNode,
-  initializeSelectedBackend,
-  nodeBackendActionKey,
-  nodeUnloadKey,
-  pollNode,
-  reconcileNodeStateSelection,
-  renderNodesPanel,
-  setNodesTabActive,
-  stopNodeStatePolling,
-  unloadSelectedRuntime
-} from "../nodes-state";
-import { elements } from "../elements";
+import { collapseNode } from "../features/nodes/nodes";
+import { cancelSelectedBackendInitialization, initializeSelectedBackend, unloadSelectedRuntime } from "../features/nodes/nodes-actions";
+import { pollNode, setNodesTabActive, stopNodeStatePolling } from "../features/nodes/nodes-polling";
+import { renderNodesPanel } from "../features/nodes/nodes-render";
+import { reconcileNodeStateSelection } from "../features/nodes/node-slices";
+import { nodesElements } from "../features/nodes/nodes-elements";
+import { nodeBackendActionKey, nodeUnloadKey } from "../features/nodes/node-action-keys-data";
 
 function snapshot(modelID = "model-a", nodeID = "node-a"): NodeState {
   return {
@@ -165,8 +161,8 @@ describe("renderNodesPanel layout", () => {
 
     renderNodesPanel();
 
-    const grid = (elements.nodesGrid as { innerHTML: string }).innerHTML;
-    const detail = (elements.nodesDetail as { innerHTML: string }).innerHTML;
+    const grid = (nodesElements.nodesGrid as { innerHTML: string }).innerHTML;
+    const detail = (nodesElements.nodesDetail as { innerHTML: string }).innerHTML;
 
     const cardOrder = ["node-a", "node-b", "node-c"].map(id => grid.indexOf(`data-node-select="${id}"`));
     expect(cardOrder).toEqual([...cardOrder].sort((left, right) => left - right));
@@ -182,12 +178,12 @@ describe("renderNodesPanel layout", () => {
     state.nodes.expanded = [];
     state.nodes.byNode = {};
     renderNodesPanel();
-    const collapsedGrid = (elements.nodesGrid as { innerHTML: string }).innerHTML;
+    const collapsedGrid = (nodesElements.nodesGrid as { innerHTML: string }).innerHTML;
 
     state.nodes.expanded = ["node-a"];
     state.nodes.byNode = {"node-a": defaultSlice()};
     renderNodesPanel();
-    const expandedGrid = (elements.nodesGrid as { innerHTML: string }).innerHTML;
+    const expandedGrid = (nodesElements.nodesGrid as { innerHTML: string }).innerHTML;
 
     const order = (markup: string): number[] => ["node-a", "node-b", "node-c"].map(id => markup.indexOf(`data-node-select="${id}"`));
     expect(order(expandedGrid)).toEqual([...order(expandedGrid)].sort((left, right) => left - right));

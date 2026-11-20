@@ -378,7 +378,6 @@ table td code {
   overflow: auto;
 }
 
-.detail-empty,
 .empty-state {
   padding: var(--gap-md);
   color: var(--text-faint);

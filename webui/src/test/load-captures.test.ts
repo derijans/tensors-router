@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { stripTerminalControls } from "../terminal-output";
+import { stripTerminalControls } from "../lib/terminal-output";
 
 describe("load capture display", () => {
   it("removes terminal effects and unsafe control bytes while retaining text", () => {
@@ -10,4 +10,4 @@ describe("load capture display", () => {
   it("removes OSC title sequences", () => {
     expect(stripTerminalControls("before\u001b]0;secret title\u0007after")).toBe("beforeafter");
   });
-});
+});

@@ -1,7 +1,5 @@
-export type JsonValue = null | boolean | number | string | JsonValue[] | JsonObject;
+import type { JsonValue } from "../lib/json";
 
-export interface JsonObject {
-  [key: string]: JsonValue;
-}
+export type { JsonObject, JsonValue } from "../lib/json";
 
 export type Options = Record<string, JsonValue>;

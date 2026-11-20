@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { downloadJobActions, formatDuration, remainingSeconds, trackDownloadProgress } from "../download-job-data";
+import { downloadJobActions, remainingSeconds, trackDownloadProgress } from "../features/downloads/download-job-data";
 import type { DownloadJob } from "../types";
+import { formatClockDuration } from "../lib/format-time";
 
 function job(completed: number, state = "running"): DownloadJob {
   return {id: "job", repository: "owner/model", revision: "main", commit: "c", state, total_bytes: 1000, completed_bytes: completed, created_at: "", updated_at: "", files: []};
@@ -38,7 +39,7 @@ describe("download progress tracking", () => {
   it("estimates the remaining time from throughput", () => {
     expect(remainingSeconds(job(400), 100)).toBe(6);
     expect(remainingSeconds(job(400), undefined)).toBeUndefined();
-    expect(formatDuration(65)).toBe("1:05");
-    expect(formatDuration(3725)).toBe("1:02:05");
+    expect(formatClockDuration(65)).toBe("1:05");
+    expect(formatClockDuration(3725)).toBe("1:02:05");
   });
 });

@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { databaseDownloadNodeIDs, databaseDownloadPath, downloadAnalyticsDatabases } from "../analytics-download";
-import { state } from "../state";
+import { databaseDownloadNodeIDs, databaseDownloadPath, downloadAnalyticsDatabases } from "../features/insights/analytics/analytics-download";
+import { state } from "../state/app-state";
 import type { InventoryResponse } from "../types";
 
 const page = readFileSync(new URL("../../index.html", import.meta.url), "utf8");

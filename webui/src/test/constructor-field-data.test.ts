@@ -5,9 +5,9 @@ import {
   rawFileKeysForLane,
   requiresOptionAssignment,
   validAssignmentKey
-} from "../constructor-field-data";
-import { laneKinds, laneMetadata } from "../constants";
+} from "../features/cook/constructor/constructor-field-data";
 import type { PaletteComponentPayload } from "../types";
+import { laneKinds, laneMetadata } from "../domain/lanes";
 
 describe("constructor lane metadata", () => {
   it("defines the five cook lanes in primary board order", () => {

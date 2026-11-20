@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { pendingSettingChanges, renderLendingSettingRows } from "../lending-settings-view";
-import { SafeHTML } from "../safe-html";
+import { pendingSettingChanges, renderLendingSettingRows } from "../features/lending/lending-settings-view";
+import { SafeHTML } from "../lib/safe-html";
 import type { LendingSettingEntry } from "../types";
 
 const entries: LendingSettingEntry[] = [

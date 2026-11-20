@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { renderNodeCard as renderNodeCardMarkup, type NodeCardContext } from "../node-card-view";
-import { SafeHTML } from "../safe-html";
+import { renderNodeCard as renderNodeCardMarkup, type NodeCardContext } from "../features/nodes/node-card-view";
+import { SafeHTML } from "../lib/safe-html";
 import type { NodeInventory, NodeState, WebUIEntry } from "../types";
 
 const node: NodeInventory = {

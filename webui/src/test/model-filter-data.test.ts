@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { changedNodeSelection, defaultNodeSelection, retainedNodeSelection } from "../model-filter-data";
+import { changedNodeSelection, defaultNodeSelection, retainedNodeSelection } from "../features/models/model-filter-data";
 
 describe("model node filters", () => {
   it("defaults to all nodes and retains valid multi-node selections", () => {

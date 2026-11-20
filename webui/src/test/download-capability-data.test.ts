@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { downloadNodeStatus, enabledDownloadNodes, preferredDownloadNodeID } from "../download-capability-data";
+import { downloadNodeStatus, enabledDownloadNodes, preferredDownloadNodeID } from "../features/downloads/download-capability-data";
 import type { DownloadNodeCapability } from "../types";
 
 function node(nodeID: string, enabled: boolean, working: boolean, reason = ""): DownloadNodeCapability {

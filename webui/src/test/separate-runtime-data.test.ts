@@ -7,7 +7,7 @@ import {
   selectedTriggerKeys,
   triggerKind,
   triggersFromSelection
-} from "../separate-runtime-data";
+} from "../features/models/separate-runtime/separate-runtime-data";
 import type { SeparateRuntimeCandidates, SeparateRuntimeSettings } from "../types";
 
 const candidates: SeparateRuntimeCandidates = {

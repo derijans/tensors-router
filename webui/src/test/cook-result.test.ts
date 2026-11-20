@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { cookResultHTML } from "../cook-result";
-import { SafeHTML } from "../safe-html";
+import { cookResultHTML } from "../features/cook/cook-result-view";
+import { SafeHTML } from "../lib/safe-html";
 
 describe("cook result summary", () => {
   it("renders plan facts and keeps raw data behind diagnostic disclosure", () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deviceMemoryRows } from "../node-memory-devices-data";
+import { deviceMemoryRows } from "../features/nodes/node-memory-devices-data";
 import type { NodeMemory } from "../types";
 
 function memory(overrides: Partial<NodeMemory>): NodeMemory {

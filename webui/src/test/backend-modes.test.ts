@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { backendModeLabels, backendModes } from "../constants";
+import { backendModeLabels, backendModes } from "../domain/backend-mode";
 
 describe("backend modes", () => {
   it("offers vLLM in backend selectors", () => {

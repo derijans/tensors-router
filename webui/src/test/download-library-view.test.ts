@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { renderDownloadLibrary } from "../download-library-view";
-import { SafeHTML } from "../safe-html";
+import { renderDownloadLibrary } from "../features/downloads/download-library-view";
+import { SafeHTML } from "../lib/safe-html";
 
 describe("download library", () => {
   it("lists files the start scan found but did not hash", () => {

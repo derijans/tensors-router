@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { fileExtensionOptions, filterInventoryFiles, filterInventoryModels, modelBackends } from "../model-inventory-data";
+import { fileExtensionOptions, filterInventoryFiles, filterInventoryModels, modelBackends } from "../features/models/model-inventory-data";
 import type { FileRecord, Model } from "../types";
 import { testModel } from "./factories";
 

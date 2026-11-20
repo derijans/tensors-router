@@ -1,46 +1,49 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-class FakeControl {
-  disabled = false;
-  dataset: Record<string, string> = {};
-  innerHTML = "";
-  textContent = "";
-  className = "";
-  private readonly attributes = new Set<string>();
 
-  toggleAttribute(name: string, force: boolean): boolean {
-    if (force) {
-      this.attributes.add(name);
-    } else {
-      this.attributes.delete(name);
+const {FakeControl, controls} = vi.hoisted(() => {
+  class FakeControl {
+    disabled = false;
+    dataset: Record<string, string> = {};
+    innerHTML = "";
+    textContent = "";
+    className = "";
+    private readonly attributes = new Set<string>();
+
+    toggleAttribute(name: string, force: boolean): boolean {
+      if (force) {
+        this.attributes.add(name);
+      } else {
+        this.attributes.delete(name);
+      }
+      return force;
     }
-    return force;
+
+    hasAttribute(name: string): boolean {
+      return this.attributes.has(name);
+    }
   }
+  return {FakeControl, controls: new Map<string, unknown>()};
+});
 
-  hasAttribute(name: string): boolean {
-    return this.attributes.has(name);
-  }
-}
-
-const controls = vi.hoisted(() => new Map<string, unknown>());
-
-vi.mock("../elements", () => ({
-  elements: new Proxy({}, {
+vi.mock("../lib/dom", async importOriginal => ({
+  ...await importOriginal<typeof import("../lib/dom")>(),
+  getRequiredElement: (id: string): unknown => (new Proxy({}, {
     get: (_target, key: string) => {
       if (!controls.has(key)) {
         controls.set(key, new FakeControl());
       }
       return controls.get(key);
     }
-  })
+  }) as Record<string, unknown>)[id]
 }));
 
-import { elements } from "../elements";
-import { runOperation } from "../operations";
-import { renderRouterStatus } from "../render-dashboard";
-import { state } from "../state";
+import { shellElements } from "../features/shell/shell-elements";
+import { runOperation } from "../features/shell/operations";
+import { renderRouterStatus } from "../features/shell/render-dashboard";
+import { state } from "../state/app-state";
 
-const routerButtons = () => [elements.launchButton, elements.restartButton, elements.shutdownButton, elements.forceKillButton];
+const routerButtons = () => [shellElements.launchButton, shellElements.restartButton, shellElements.shutdownButton, shellElements.forceKillButton];
 
 describe("operation controls", () => {
   beforeEach(() => {
@@ -63,8 +66,8 @@ describe("operation controls", () => {
 
     await runOperation({key: "router-restart", group: "router", label: "Restarting router", task: () => Promise.resolve(undefined)});
 
-    expect(elements.shutdownButton.disabled).toBe(true);
-    expect(elements.forceKillButton.disabled).toBe(true);
-    expect(elements.restartButton.disabled).toBe(false);
+    expect(shellElements.shutdownButton.disabled).toBe(true);
+    expect(shellElements.forceKillButton.disabled).toBe(true);
+    expect(shellElements.restartButton.disabled).toBe(false);
   });
 });

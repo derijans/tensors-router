@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { formatGigabytes, nodeMemorySummary } from "../node-memory-data";
+import { nodeMemorySummary } from "../features/nodes/node-memory-data";
 import type { NodeState, NodeStateModelRow } from "../types";
+import { formatGigabytes } from "../lib/format-bytes";
 
 function snapshot(usedMB: number, rows: NodeStateModelRow[]): NodeState {
   return {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collapseDecisions } from "../lending-log-collapse";
+import { collapseDecisions } from "../features/lending/lending-log-collapse-data";
 import type { LendingDecision } from "../types";
 
 function probe(recordedAt: string, idle: number): LendingDecision {

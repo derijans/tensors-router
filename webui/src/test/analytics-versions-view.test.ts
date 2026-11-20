@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { renderVersionRows } from "../analytics-versions-view";
-import { SafeHTML } from "../safe-html";
+import { renderVersionRows } from "../features/insights/analytics/analytics-versions-view";
+import { SafeHTML } from "../lib/safe-html";
 
 describe("analytics router versions", () => {
   it("lists each node's builds and flags events recorded before stamping", () => {

@@ -1,21 +1,30 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsResponse } from "../types";
 
-const rendered = new Map<string, {innerHTML: string; value: string; checked: boolean; textContent: string}>();
+const rendered = new Map<string, RenderedElement>();
 
-vi.mock("../elements", () => ({
-  elements: new Proxy({}, {
-    get: (_target, name: string) => {
-      if (!rendered.has(name)) {
-        rendered.set(name, {innerHTML: "", value: "", checked: false, textContent: ""});
-      }
-      return rendered.get(name);
-    }
+vi.mock("../lib/dom", async importOriginal => ({
+  ...await importOriginal<typeof import("../lib/dom")>(),
+  getRequiredElement: (id: string): unknown => new Proxy({}, {
+    get: (_target, property: string) => renderedElement(id)[property as keyof RenderedElement],
+    set: (_target, property: string, value: string | boolean) => Reflect.set(renderedElement(id), property, value)
   })
 }));
 
-const { state } = await import("../state");
-const { renderAnalytics } = await import("../analytics");
+type RenderedElement = {innerHTML: string; value: string; checked: boolean; textContent: string};
+
+function renderedElement(id: string): RenderedElement {
+  const existing = rendered.get(id);
+  if (existing) {
+    return existing;
+  }
+  const created = {innerHTML: "", value: "", checked: false, textContent: ""};
+  rendered.set(id, created);
+  return created;
+}
+
+const { state } = await import("../state/app-state");
+const { renderAnalytics } = await import("../features/insights/analytics/analytics");
 
 function streamedGenerationAnalytics(): AnalyticsResponse {
   return {

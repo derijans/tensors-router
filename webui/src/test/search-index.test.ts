@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildSearchIndex, searchEntries, type SearchSources } from "../search/search-index";
+import { buildSearchIndex, searchEntries, type SearchSources } from "../features/search/search-index-data";
 import type { Model, NodeInventory } from "../types";
 
 function model(publicID: string, nodeID = "atlas"): Model {

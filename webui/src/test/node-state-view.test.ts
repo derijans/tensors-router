@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { renderNodeStateSnapshot as renderNodeStateSnapshotMarkup } from "../node-state-view";
-import { SafeHTML } from "../safe-html";
+import { renderNodeStateSnapshot as renderNodeStateSnapshotMarkup } from "../features/nodes/node-state-view";
+import { SafeHTML } from "../lib/safe-html";
 import type { BackendLifecycleState, NodeState, NodeStateBackend } from "../types";
 
 function snapshot(): NodeState {

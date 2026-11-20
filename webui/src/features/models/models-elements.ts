@@ -1,0 +1,33 @@
+import { getRequiredElement } from "../../lib/dom";
+
+export const modelsElements = {
+  modelInventorySubtabs: getRequiredElement("modelInventorySubtabs", HTMLElement),
+  modelSearchInput: getRequiredElement("modelSearchInput", HTMLInputElement),
+  modelsNodeFilter: getRequiredElement("modelsNodeFilter", HTMLSelectElement),
+  modelEnabledFilter: getRequiredElement("modelEnabledFilter", HTMLSelectElement),
+  modelBackendFilter: getRequiredElement("modelBackendFilter", HTMLSelectElement),
+  modelCapabilityFilter: getRequiredElement("modelCapabilityFilter", HTMLSelectElement),
+  filesNodeFilter: getRequiredElement("filesNodeFilter", HTMLSelectElement),
+  fileSearchInput: getRequiredElement("fileSearchInput", HTMLInputElement),
+  fileRoleFilter: getRequiredElement("fileRoleFilter", HTMLSelectElement),
+  fileExtensionFilter: getRequiredElement("fileExtensionFilter", HTMLSelectElement),
+  fileHashFilter: getRequiredElement("fileHashFilter", HTMLSelectElement),
+  resolveFilteredModelsButton: getRequiredElement("resolveFilteredModelsButton", HTMLButtonElement),
+  modelsActionStatus: getRequiredElement("modelsActionStatus", HTMLElement),
+  modelsScanNotices: getRequiredElement("modelsScanNotices", HTMLElement),
+  filesScanNotices: getRequiredElement("filesScanNotices", HTMLElement),
+  modelsRowCount: getRequiredElement("modelsRowCount", HTMLElement),
+  filesRowCount: getRequiredElement("filesRowCount", HTMLElement),
+  modelsTable: getRequiredElement("modelsTable", HTMLTableSectionElement),
+  modelsTableHead: getRequiredElement("modelsTableHead", HTMLTableSectionElement),
+  modelsTableCard: getRequiredElement("modelsTableCard", HTMLElement),
+  modelColumnsList: getRequiredElement("modelColumnsList", HTMLElement),
+  modelColumnsResetButton: getRequiredElement("modelColumnsResetButton", HTMLButtonElement),
+  filesTable: getRequiredElement("filesTable", HTMLTableSectionElement),
+  routingDialog: getRequiredElement("routingDialog", HTMLDialogElement),
+  routingDialogBody: getRequiredElement("routingDialogBody", HTMLElement),
+  routingDialogStatus: getRequiredElement("routingDialogStatus", HTMLElement),
+  separateRuntimeDialog: getRequiredElement("separateRuntimeDialog", HTMLDialogElement),
+  separateRuntimeDialogBody: getRequiredElement("separateRuntimeDialogBody", HTMLElement),
+  separateRuntimeDialogStatus: getRequiredElement("separateRuntimeDialogStatus", HTMLElement)
+};

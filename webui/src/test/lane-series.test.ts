@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { laneSeries } from "../lane-series";
+import { laneSeries } from "../domain/lane-series";
 import type { AnalyticsTimeline } from "../types";
 
 function bucket(bucketStart: number, requestCount: number, sections?: AnalyticsTimeline["sections"]): AnalyticsTimeline {

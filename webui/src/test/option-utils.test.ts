@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { emptyComparableValue, parseOptionInput } from "../utils";
 import { optionDefinition } from "./factories";
+import { emptyComparableValue, parseOptionInput } from "../domain/option-values";
 
 describe("option parsing", () => {
   it("returns values with exact lossy conversion warnings", () => {

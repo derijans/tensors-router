@@ -6,17 +6,18 @@ const clearLoadErrors = vi.fn();
 const getLoadErrors = vi.fn();
 const confirmDestructive = vi.fn();
 
-vi.mock("../api", () => ({
+vi.mock("../api/insights-api", () => ({
   clearLoadErrors: (): Promise<LoadErrorClearResponse> => clearLoadErrors() as Promise<LoadErrorClearResponse>,
   getLoadErrors: (): Promise<LoadErrorListResponse> => getLoadErrors() as Promise<LoadErrorListResponse>
 }));
 
-vi.mock("../dialogs", () => ({
+vi.mock("../features/shell/dialogs", () => ({
   confirmDestructive: (): Promise<boolean> => confirmDestructive() as Promise<boolean>
 }));
 
-vi.mock("../elements", () => ({
-  elements: new Proxy({}, {get: () => ({innerHTML: "", value: "", options: [0, 1], append: () => undefined, hidden: false})})
+vi.mock("../lib/dom", async importOriginal => ({
+  ...await importOriginal<typeof import("../lib/dom")>(),
+  getRequiredElement: (id: string): unknown => (new Proxy({}, {get: () => ({innerHTML: "", value: "", options: [0, 1], append: () => undefined, hidden: false})}) as Record<string, unknown>)[id]
 }));
 
 const page = readFileSync(new URL("../../index.html", import.meta.url), "utf8");
@@ -35,7 +36,7 @@ describe("clearing load errors", () => {
 
   it("deletes nothing when the operator backs out", async () => {
     confirmDestructive.mockResolvedValue(false);
-    const { clearAllLoadErrors } = await import("../load-errors");
+    const { clearAllLoadErrors } = await import("../features/insights/load-errors/load-errors");
 
     await clearAllLoadErrors();
 
@@ -46,7 +47,7 @@ describe("clearing load errors", () => {
   it("clears every node and reloads the list once confirmed", async () => {
     confirmDestructive.mockResolvedValue(true);
     clearLoadErrors.mockResolvedValue({cleared: 3, cleared_nodes: ["master", "slave-a"]});
-    const { clearAllLoadErrors } = await import("../load-errors");
+    const { clearAllLoadErrors } = await import("../features/insights/load-errors/load-errors");
 
     await clearAllLoadErrors();
 
@@ -57,7 +58,7 @@ describe("clearing load errors", () => {
   it("reports a node that could not be cleared after refreshing the list", async () => {
     confirmDestructive.mockResolvedValue(true);
     clearLoadErrors.mockResolvedValue({cleared: 1, cleared_nodes: ["master"], node_errors: [{node_id: "slave-a", error: "unreachable"}]});
-    const { clearAllLoadErrors } = await import("../load-errors");
+    const { clearAllLoadErrors } = await import("../features/insights/load-errors/load-errors");
 
     await expect(clearAllLoadErrors()).rejects.toThrow("slave-a: unreachable");
     expect(getLoadErrors).toHaveBeenCalledTimes(1);

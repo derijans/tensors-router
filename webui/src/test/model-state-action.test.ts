@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { persistModelEnabled } from "../model-state-action";
+import { persistModelEnabled } from "../features/models/model-state-action";
 
 const request = {node_id: "node-a", local_id: "model-a", enabled: false};
 

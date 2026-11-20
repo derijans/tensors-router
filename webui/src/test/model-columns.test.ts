@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasRoomForEveryColumn, modelColumns, parsedModelColumnChoices, visibleModelColumns } from "../model-columns";
+import { hasRoomForEveryColumn, modelColumns, parsedModelColumnChoices, visibleModelColumns } from "../features/models/model-columns-data";
 
 describe("model table columns", () => {
   it("shows the core columns when the table is narrow", () => {

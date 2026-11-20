@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { endpointValue, guardianRows, guardianTargets, parseEndpointValue } from "../guardian-data";
-import { renderGuardianRows } from "../guardian-view";
-import { SafeHTML } from "../safe-html";
+import { endpointValue, guardianRows, guardianTargets, parseEndpointValue } from "../features/guardian/guardian-data";
+import { renderGuardianRows } from "../features/guardian/guardian-view";
+import { SafeHTML } from "../lib/safe-html";
 import { testInventory, testModel, testNode } from "./factories";
 import type { GuardianAssignment, GuardianCandidate } from "../types";
 

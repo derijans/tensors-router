@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { SafeHTML, emptyHTML, html, listOrFallback, setHTML } from "../safe-html";
+import { SafeHTML, emptyHTML, html, setHTML } from "../lib/safe-html";
+import { listOrFallback } from "../ui/empty-state";
 
 const hostile = `"><img src=x onerror=alert(1)>'\`&`;
 

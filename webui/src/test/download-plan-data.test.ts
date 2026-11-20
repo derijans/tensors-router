@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { planSelectionForMode, selectedDownloadBytes, selectedDownloadFiles, toggleDownloadPath } from "../download-plan-data";
+import { planSelectionForMode, selectedDownloadBytes, selectedDownloadFiles, toggleDownloadPath } from "../features/downloads/download-plan-data";
 import type { DownloadPlan } from "../types";
 
 const plan: DownloadPlan = {
