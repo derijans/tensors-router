@@ -2,47 +2,47 @@
 	"signatures": [
 		{
 			"keyid": "5a226ee87c683f7fb870630783d02dc82f5d46a047aaf9d54e22282771bdc4a2",
-			"sig": "d4990f6b3608636d3e617446074398563611d0d8fe425ce84ef192bfbd738d01b3527b9dec5a64b03dd84dc404a0012ca8f91156452dfdf3bdd802956633e401"
+			"sig": "6a7d6241ec7c372dd0b23dbd0901faf099f7e524e54bd104750e8ce0ca768f502088f8406bbb26c776cb6075cb1e9ab57136ed49ef76e50418dc4172915d2c05"
 		}
 	],
 	"signed": {
 		"_type": "targets",
-		"expires": "2026-12-22T11:20:39.440630424Z",
+		"expires": "2026-12-23T12:34:02.070780785Z",
 		"spec_version": "1.0.31",
 		"targets": {
 			"upstreams/koboldcpp/linux-amd64.json": {
 				"hashes": {
-					"sha256": "c9d80cd3fd8fd87d73f1bfdc51b81f67e2173aedd52df00dc9739e7373e37a22"
+					"sha256": "ac83111325de9fb22e4f11cde554efa6bc0d367eb294b7515f9ed03a1c594534"
 				},
-				"length": 527
+				"length": 531
 			},
 			"upstreams/koboldcpp/windows-amd64.json": {
 				"hashes": {
-					"sha256": "1192f64e0cb6161bbea3eab33ee168e051e3c8e53edd26bc54cf6bd14c9b0ccb"
+					"sha256": "da6fc5bd2a12d684b040e15ceaa60c3daec94f5600919c087ba4d8ee50dd3e83"
 				},
-				"length": 501
+				"length": 505
 			},
 			"upstreams/llama-server/linux-amd64.json": {
 				"hashes": {
-					"sha256": "17d599d2d5d328195e27db52199452aa1931138733ccebf84534c4d7e608c623"
+					"sha256": "9c161c341f70fa703d53a48d6b93c2c47ca34b23393a8f003f7d5ac4e41c7100"
 				},
 				"length": 566
 			},
 			"upstreams/llama-server/windows-amd64.json": {
 				"hashes": {
-					"sha256": "731cbb8976e130019a5bb1517242a3cd9cc6b164a9e07486c8bae01f06cb072c"
+					"sha256": "684f99535c98f4f1634c0f6932e5519456b6d55428933903fa56fa90051ba33c"
 				},
 				"length": 562
 			},
 			"upstreams/sd-server/linux-amd64.json": {
 				"hashes": {
-					"sha256": "df857475d4e1c9763dfed6e90632de3b9c69cdf6a60ed843ea5bd423479ad6bc"
+					"sha256": "a433f1070c7925a2a8ce7ba8e5047a3bbff83c0bbcef475c4913de4c9145c70c"
 				},
 				"length": 618
 			},
 			"upstreams/sd-server/windows-amd64.json": {
 				"hashes": {
-					"sha256": "83e7cab3e2363607527018a5a5ca167a41ebf51ffeed837f77031eb31231ffac"
+					"sha256": "2d60fd6ba7cfba64dc779b68d814838b325abe72432b56b07d8c04f7d218b5dc"
 				},
 				"length": 590
 			},
@@ -59,6 +59,6 @@
 				"length": 511
 			}
 		},
-		"version": 101
+		"version": 102
 	}
 }
