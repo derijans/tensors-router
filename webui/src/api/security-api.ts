@@ -29,6 +29,10 @@ export function getSecurityStatus(): Promise<SecurityStatus> {
   return api<SecurityStatus>(`${securityBase}/status`);
 }
 
+export function switchSecurityProfileToSecure(): Promise<SecurityStatus> {
+  return post<SecurityStatus>("/profile", {});
+}
+
 export function getSecurityTokens(): Promise<SecurityTokensResponse> {
   return api<SecurityTokensResponse>(`${securityBase}/tokens`);
 }

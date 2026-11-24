@@ -4,11 +4,12 @@ import {
   listenerNotice,
   parseHosts,
   pemFilename,
+  profilePrompt,
   shortFingerprint,
   sortedCertificates,
   sortedTokens
 } from "../features/security/security-data";
-import type { SecurityCertificate, SecurityToken } from "../types";
+import type { SecurityCertificate, SecurityStatus, SecurityToken } from "../types";
 
 function token(name: string, role: SecurityToken["role"]): SecurityToken {
   return {id: name, name, role, source: "created", created_at: "2026-01-01T00:00:00Z"};
@@ -19,6 +20,10 @@ function certificate(name: string, kind: SecurityCertificate["kind"], active = f
     id: name, name, kind, active, subject: `CN=${name}`, issuer: `CN=${name}`, dns_names: [], ip_addresses: [],
     fingerprint: "ab".repeat(32), not_before: "2026-01-01T00:00:00Z", not_after: "2028-01-01T00:00:00Z", created_at: "2026-01-01T00:00:00Z"
   };
+}
+
+function status(overrides: Partial<SecurityStatus> = {}): SecurityStatus {
+  return {listener_tls: false, identity_active: false, restart_required: false, profile: "trusted_lan", profile_restart_required: false, ...overrides};
 }
 
 describe("security data", () => {
@@ -45,9 +50,25 @@ describe("security data", () => {
   });
 
   it("tells the operator to restart when the listener lags the active identity", () => {
-    expect(listenerNotice({listener_tls: false, identity_active: true, restart_required: true}).tone).toBe("warning");
-    expect(listenerNotice({listener_tls: true, identity_active: true, restart_required: false}).tone).toBe("success");
-    expect(listenerNotice({listener_tls: false, identity_active: false, restart_required: false}).tone).toBe("info");
+    expect(listenerNotice(status({identity_active: true, restart_required: true})).tone).toBe("warning");
+    expect(listenerNotice(status({listener_tls: true, identity_active: true})).tone).toBe("success");
+    expect(listenerNotice(status()).tone).toBe("info");
+  });
+
+  it("offers the secure profile only once certificates exist on a trusted_lan router", () => {
+    expect(profilePrompt(status(), [])).toBeNull();
+    expect(profilePrompt(status({profile: "secure"}), [certificate("ca", "authority")])).toBeNull();
+    expect(profilePrompt(status(), [certificate("ca", "authority")])?.canSwitch).toBe(true);
+  });
+
+  it("names the blocker instead of offering a switch the router could not start with", () => {
+    const prompt = profilePrompt(status({secure_profile_blocker: "an inference token is required"}), [certificate("ca", "authority")]);
+    expect(prompt?.canSwitch).toBe(false);
+    expect(prompt?.message).toContain("an inference token is required");
+  });
+
+  it("asks for a restart after the switch is written", () => {
+    expect(profilePrompt(status({profile_restart_required: true}), [])).toEqual(expect.objectContaining({canSwitch: false}));
   });
 
   it("splits hosts on commas and whitespace without inventing empty entries", () => {

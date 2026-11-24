@@ -14,7 +14,7 @@ import (
 )
 
 func runServe(args []string) error {
-	configPath, trustBundlePath, cfg, err := loadServeConfig(args)
+	arguments, cfg, err := loadServeConfig(args)
 	if err != nil {
 		return err
 	}
@@ -29,7 +29,7 @@ func runServe(args []string) error {
 		return err
 	}
 
-	runtime := &serveRuntime{cfg: cfg, configPath: configPath, startupLogger: startupLogger, logger: serveLogger}
+	runtime := &serveRuntime{cfg: cfg, configPath: arguments.configPath, profileOverridden: arguments.profileOverridden, startupLogger: startupLogger, logger: serveLogger}
 	defer runtime.closeLogged()
 	if err := runtime.startMCP(); err != nil {
 		return err
@@ -47,7 +47,7 @@ func runServe(args []string) error {
 	if err := runtime.openCredentials(ctx); err != nil {
 		return err
 	}
-	runtime.exportTrustBundle(ctx, trustBundlePath)
+	runtime.exportTrustBundle(ctx, arguments.trustBundlePath)
 	if err := runtime.registerLocalModels(ctx, discoveredModels); err != nil {
 		return err
 	}
@@ -67,22 +67,29 @@ func runServe(args []string) error {
 	return runtime.serve(ctx, authPolicy, syncConfig, shutdownRequested)
 }
 
-func loadServeConfig(args []string) (string, string, config.Config, error) {
+type serveArguments struct {
+	configPath        string
+	trustBundlePath   string
+	profileOverridden bool
+}
+
+func loadServeConfig(args []string) (serveArguments, config.Config, error) {
 	flags := flag.NewFlagSet("serve", flag.ContinueOnError)
 	configPath := flags.String("config", "config.yaml", "config file")
 	securityProfile := flags.String("security-profile", "", "security profile")
 	trustBundlePath := flags.String("tls-trust-bundle", "", "write the certificates that verify this router's HTTPS listener to this file")
 	if err := flags.Parse(args); err != nil {
-		return "", "", config.Config{}, err
+		return serveArguments{}, config.Config{}, err
 	}
 
 	profileOverride := config.ResolveSecurityProfile(*securityProfile, os.Getenv("TENSORS_ROUTER_SECURITY_PROFILE"))
 	loadOptions, err := environmentLoadOptions(profileOverride)
 	if err != nil {
-		return "", "", config.Config{}, err
+		return serveArguments{}, config.Config{}, err
 	}
 	cfg, err := config.LoadWithOptions(*configPath, loadOptions)
-	return *configPath, *trustBundlePath, cfg, err
+	arguments := serveArguments{configPath: *configPath, trustBundlePath: *trustBundlePath, profileOverridden: profileOverride != ""}
+	return arguments, cfg, err
 }
 
 func logStartupConfig(logger *log.Logger, cfg config.Config) {

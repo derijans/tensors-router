@@ -38,6 +38,11 @@ export interface ListenerNotice {
   tone: Tone;
 }
 
+export interface ProfilePrompt {
+  message: string;
+  canSwitch: boolean;
+}
+
 export function isTokenRole(value: string): value is SecurityTokenRole {
   return (tokenRoles as readonly string[]).includes(value);
 }
@@ -117,6 +122,23 @@ export function listenerNotice(status: SecurityStatus | null): ListenerNotice {
     return {message: "HTTPS with mutual TLS for cluster peers is active.", tone: "success"};
   }
   return {message: "Plain HTTP. Activate a router identity so traffic between routers is encrypted.", tone: "info"};
+}
+
+export function profilePrompt(status: SecurityStatus | null, certificates: readonly SecurityCertificate[]): ProfilePrompt | null {
+  if (!status) {
+    return null;
+  }
+  if (status.profile_restart_required) {
+    return {message: "config.yaml now sets security.profile to secure. Restart the router so model and admin APIs require tokens.", canSwitch: false};
+  }
+  if (status.profile !== "trusted_lan" || certificates.length === 0) {
+    return null;
+  }
+  const risk = "Certificates are configured, but security.profile is trusted_lan, so model and admin APIs accept requests without a token.";
+  if (status.secure_profile_blocker) {
+    return {message: `${risk} Before switching to secure: ${status.secure_profile_blocker}.`, canSwitch: false};
+  }
+  return {message: `${risk} Switch to the secure profile?`, canSwitch: true};
 }
 
 export function pemFilename(name: string, suffix: string): string {

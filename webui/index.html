@@ -631,10 +631,14 @@
           <header class="panel-head">
             <div class="panel-title">
               <h2>Security</h2>
-              <p class="muted">Tokens that authorize clients and peers, and certificates that encrypt traffic between routers.</p>
+              <p class="muted">Tokens that authorize clients and peers, and certificates that encrypt traffic between routers. <a href="https://github.com/derijans/tensors-router/wiki/Tokens-and-Certificates#cluster-setup-in-the-webui" target="_blank" rel="noopener noreferrer">How to set up the master and slaves</a></p>
             </div>
           </header>
           <p id="securityListenerNotice" class="security-notice"></p>
+          <div id="securityProfileNotice" class="security-notice security-profile-notice" hidden>
+            <p id="securityProfileMessage"></p>
+            <button id="securitySecureProfileButton" class="primary" type="button" data-operation-group="security">Switch to secure</button>
+          </div>
           <p id="securityStatus" class="action-status"></p>
           <article class="card table-card">
             <header class="card-head">

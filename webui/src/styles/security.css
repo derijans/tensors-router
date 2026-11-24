@@ -10,6 +10,18 @@
   display: none;
 }
 
+.security-profile-notice {
+  --tone: var(--amber);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--gap-md);
+}
+
+.security-profile-notice[hidden] {
+  display: none;
+}
+
 .security-table .security-actions {
   width: 1%;
   white-space: nowrap;

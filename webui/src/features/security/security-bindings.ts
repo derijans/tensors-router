@@ -1,6 +1,6 @@
 import { elementTarget } from "../../lib/dom";
 import { runTask } from "../shell/tasks";
-import { activateCertificate, deleteCertificate, deleteToken, downloadCertificate } from "./security";
+import { activateCertificate, deleteCertificate, deleteToken, downloadCertificate, switchToSecureProfile } from "./security";
 import {
   closeSecurityDialog,
   copyDisplayedSecret,
@@ -22,6 +22,9 @@ export function bindSecurity(): void {
   securityElements.generateIdentityButton.addEventListener("click", openGenerateIdentityForm);
   securityElements.importCertificateButton.addEventListener("click", openImportCertificateForm);
   securityElements.createAuthorityButton.addEventListener("click", openAuthorityForm);
+  securityElements.secureProfileButton.addEventListener("click", () => {
+    runTask(switchToSecureProfile, "security-profile", securityGroup, "Switching profile…");
+  });
   securityElements.tokenRows.addEventListener("click", handleTokenAction);
   securityElements.certificateRows.addEventListener("click", handleCertificateAction);
   bindSecurityDialog();

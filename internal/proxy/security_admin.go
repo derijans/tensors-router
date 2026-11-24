@@ -22,12 +22,14 @@ type SecurityConfig struct {
 	Credentials          *credentialstore.Live
 	DefaultIdentityHosts []string
 	ListenerTLS          bool
+	Profile              SecurityProfileControl
 }
 
 type securityAdmin struct {
 	credentials          *credentialstore.Live
 	defaultIdentityHosts []string
 	listenerTLS          bool
+	profile              *securityProfile
 }
 
 func newSecurityAdmin(config SecurityConfig) *securityAdmin {
@@ -35,12 +37,14 @@ func newSecurityAdmin(config SecurityConfig) *securityAdmin {
 		credentials:          config.Credentials,
 		defaultIdentityHosts: append([]string{}, config.DefaultIdentityHosts...),
 		listenerTLS:          config.ListenerTLS,
+		profile:              newSecurityProfile(config.Profile),
 	}
 }
 
 func (admin *securityAdmin) routes() []routing.Route {
 	return []routing.Route{
 		routing.Exact(http.MethodGet, securityStatusPath, admin.guarded(admin.handleStatus)),
+		routing.Exact(http.MethodPost, securityProfilePath, admin.guarded(admin.handleSwitchToSecureProfile)),
 		routing.Exact(routing.AnyMethod, securityTokensPath, admin.guarded(admin.handleTokens)),
 		routing.Prefix(routing.AnyMethod, securityTokensPath+"/", admin.guarded(admin.handleToken)),
 		routing.Exact(routing.AnyMethod, securityCertificatesPath, admin.guarded(admin.handleCertificates)),
@@ -69,14 +73,16 @@ type securityStatusResponse struct {
 	ListenerTLS     bool `json:"listener_tls"`
 	IdentityActive  bool `json:"identity_active"`
 	RestartRequired bool `json:"restart_required"`
+	securityProfileStatus
 }
 
 func (admin *securityAdmin) handleStatus(w http.ResponseWriter, _ *http.Request) {
 	identityActive := admin.credentials.Current().TLSEnabled()
 	openai.WriteJSON(w, http.StatusOK, securityStatusResponse{
-		ListenerTLS:     admin.listenerTLS,
-		IdentityActive:  identityActive,
-		RestartRequired: identityActive != admin.listenerTLS,
+		ListenerTLS:           admin.listenerTLS,
+		IdentityActive:        identityActive,
+		RestartRequired:       identityActive != admin.listenerTLS,
+		securityProfileStatus: admin.profile.status(),
 	})
 }
 

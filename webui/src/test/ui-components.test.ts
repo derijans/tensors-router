@@ -44,6 +44,12 @@ describe("button components", () => {
     );
   });
 
+  it("renders a single caller-chosen type so a form submit button submits", () => {
+    expect(rendered(primaryButton("Create", {type: "submit"}))).toBe(
+      '<button type="submit" class="primary">Create</button>'
+    );
+  });
+
   it("builds a badge button from tone and extra class", () => {
     expect(rendered(badgeButton("backend needs init", "warning", {disabled: true}, "node-backend-init-action"))).toBe(
       '<button type="button" class="badge tone-warning node-backend-init-action" disabled>backend needs init</button>'

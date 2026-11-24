@@ -91,6 +91,30 @@ tensors-router security cert export --name node1 --out node1.pem
 tensors-router security cert import --kind pinned_peer --name node1 --cert node1.pem
 ```
 
+## Cluster setup in the WebUI
+
+Do these steps in the **Security** tab of each router's WebUI. The example uses the built-in CA on the master. With your own CA, skip steps 2 to 4 and import your CA as **Trusted CA** and each router's own certificate and key as **Router identity** instead.
+
+### Master
+
+1. **Create token**, role **Cluster**, leave **Existing value** empty. Click **Show** on the new token and copy the secret.
+2. **Create CA**, for example `cluster-ca`.
+3. On the `cluster-ca` row click **Issue**. Name the identity `master`, list the master's host names and IP addresses, turn on **Install on this router instead of downloading** and **Activate after installing**.
+4. For each slave click **Issue** on `cluster-ca` again. Name it after the slave, list the host names and IP addresses that appear in the master's `cluster.slave_urls`, and leave both toggles off. Click **Download certificate** and **Download key**. The key is not kept on the master.
+5. Click **Download** on the `cluster-ca` row. This file holds only the CA certificate.
+6. In `config.yaml` change `cluster.public_url` and every `cluster.slave_urls` entry to `https://`. Restart the router.
+
+### Each slave
+
+1. **Create token**, role **Cluster**, paste the master's secret into **Existing value**.
+2. **Import** the `cluster-ca` certificate with kind **Trusted CA** and no private key.
+3. **Import** the slave's certificate and key from step 4 of the master with kind **Router identity**, and turn on **Activate when the certificate is a router identity**.
+4. In `config.yaml` change `cluster.public_url` and `cluster.master_url` to `https://`. Restart the router.
+
+When a router with certificates still runs `security.profile: trusted_lan`, the Security tab warns that model and admin APIs accept requests without a token and offers **Switch to secure**. The router then rewrites `security.profile` in its `config.yaml`, and the change takes effect after a restart. The button stays hidden while the router could not start with the secure profile, for example on a non-loopback bind without inference and admin tokens. After the switch, set `router.token` in `webui.yaml` to an admin token so the WebUI keeps access.
+
+The notice at the top of the Security tab turns green when the router serves HTTPS with mutual TLS. If the WebUI talks to an external router (`router.url` set), point `router.ca_file` at a bundle from `tensors-router security trust-bundle --out` when that router switches to HTTPS.
+
 ## WebUI to router
 
 A managed router (empty `router.url`) writes the certificates that verify its listener to `server.state_dir/router-trust.pem` (`serve --tls-trust-bundle`). The WebUI then connects over `https://127.0.0.1:8080` and trusts only that bundle. For an external router, set `router.url` to its `https://` address and `router.ca_file` to a bundle written by `tensors-router security trust-bundle --out`.

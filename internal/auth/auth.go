@@ -96,7 +96,7 @@ func (policy *Policy) Middleware(next http.Handler) http.Handler {
 		}
 		keys := policy.keys.KeyHashes()
 		authorization := r.Header.Get("Authorization")
-		principal := principalFor(authorization, keys)
+		principal := PrincipalFor(authorization, keys)
 		r = r.WithContext(context.WithValue(r.Context(), principalContextKey{}, principal))
 		class := classifyRoute(r.URL.Path)
 		if class == routeCluster && !ClusterPeerAccepted(r) {
@@ -189,9 +189,9 @@ func classifyRoute(path string) routeClass {
 }
 
 func (policy *Policy) principal(authorization string) Principal {
-	return principalFor(authorization, policy.keys.KeyHashes())
+	return PrincipalFor(authorization, policy.keys.KeyHashes())
 }
 
-func principalFor(authorization string, keys credential.KeyHashes) Principal {
+func PrincipalFor(authorization string, keys credential.KeyHashes) Principal {
 	return Principal{Admin: allowedBearer(authorization, keys.Admin)}
 }

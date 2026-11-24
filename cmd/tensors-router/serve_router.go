@@ -109,6 +109,7 @@ func (runtime *serveRuntime) serviceConfig(fileRoots []string, shutdownRequested
 			Credentials:          runtime.credentials.live,
 			DefaultIdentityHosts: defaultIdentityHosts(cfg),
 			ListenerTLS:          runtime.credentials.listenerTLS,
+			Profile:              runtime.securityProfileControl(),
 		},
 	}
 }

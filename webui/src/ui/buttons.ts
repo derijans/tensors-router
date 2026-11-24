@@ -2,7 +2,7 @@ import { type HTMLValue, SafeHTML, html } from "../lib/safe-html";
 import { type Attributes, attributes } from "./attributes";
 
 export function button(label: HTMLValue, values: Attributes = {}): SafeHTML {
-  return html`<button type="button"${attributes(values)}>${label}</button>`;
+  return html`<button${attributes({type: "button", ...values})}>${label}</button>`;
 }
 
 export function primaryButton(label: HTMLValue, values: Attributes = {}): SafeHTML {

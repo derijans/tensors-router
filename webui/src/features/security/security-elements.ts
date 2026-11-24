@@ -2,6 +2,9 @@ import { getRequiredElement } from "../../lib/dom";
 
 export const securityElements = {
   listenerNotice: getRequiredElement("securityListenerNotice", HTMLElement),
+  profileNotice: getRequiredElement("securityProfileNotice", HTMLElement),
+  profileMessage: getRequiredElement("securityProfileMessage", HTMLElement),
+  secureProfileButton: getRequiredElement("securitySecureProfileButton", HTMLButtonElement),
   status: getRequiredElement("securityStatus", HTMLElement),
   tokenRows: getRequiredElement("securityTokenRows", HTMLTableSectionElement),
   certificateRows: getRequiredElement("securityCertificateRows", HTMLTableSectionElement),

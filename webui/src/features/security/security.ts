@@ -8,12 +8,13 @@ import {
   downloadSecurityCertificatePEM,
   getSecurityCertificates,
   getSecurityStatus,
-  getSecurityTokens
+  getSecurityTokens,
+  switchSecurityProfileToSecure
 } from "../../api/security-api";
 import { state } from "../../state/app-state";
 import { showStatus } from "../../ui/status-line";
 import { confirmDestructive } from "../shell/dialogs";
-import { listenerNotice, pemFilename, sortedCertificates, sortedTokens } from "./security-data";
+import { listenerNotice, pemFilename, profilePrompt, sortedCertificates, sortedTokens } from "./security-data";
 import { securityElements } from "./security-elements";
 import { certificateRowsMarkup, tokenRowsMarkup } from "./security-view";
 
@@ -39,9 +40,25 @@ export function renderSecurity(): void {
   const notice = listenerNotice(state.security.status);
   securityElements.listenerNotice.textContent = notice.message;
   securityElements.listenerNotice.className = `security-notice tone-${notice.tone}`;
+  renderProfilePrompt();
   showStatus(securityElements.status, state.security.error || state.security.action, state.security.error !== "");
   setHTML(securityElements.tokenRows, tokenRowsMarkup(sortedTokens(state.security.tokens)));
   setHTML(securityElements.certificateRows, certificateRowsMarkup(sortedCertificates(state.security.certificates), new Date()));
+}
+
+function renderProfilePrompt(): void {
+  const prompt = profilePrompt(state.security.status, state.security.certificates);
+  securityElements.profileNotice.hidden = prompt === null;
+  securityElements.profileMessage.textContent = prompt?.message ?? "";
+  securityElements.secureProfileButton.hidden = !prompt?.canSwitch;
+}
+
+export async function switchToSecureProfile(): Promise<void> {
+  const consequences = "The router rewrites security.profile in its config.yaml. After a restart, model APIs need an inference token and admin APIs need an admin token, so set router.token in webui.yaml to an admin token.";
+  if (!await confirmDestructive("Switch to secure profile?", consequences, "Switch to secure")) {
+    return;
+  }
+  await runSecurityChange("Updated config.yaml.", switchSecurityProfileToSecure);
 }
 
 export async function runSecurityChange(action: string, change: () => Promise<unknown>): Promise<void> {

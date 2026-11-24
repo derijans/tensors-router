@@ -25,10 +25,15 @@ export interface SecurityCertificate {
   created_at: string;
 }
 
+export type SecurityProfile = "secure" | "trusted_lan";
+
 export interface SecurityStatus {
   listener_tls: boolean;
   identity_active: boolean;
   restart_required: boolean;
+  profile: SecurityProfile;
+  profile_restart_required: boolean;
+  secure_profile_blocker?: string;
 }
 
 export interface SecurityTokensResponse {
