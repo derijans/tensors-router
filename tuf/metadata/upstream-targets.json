@@ -2,12 +2,12 @@
 	"signatures": [
 		{
 			"keyid": "5a226ee87c683f7fb870630783d02dc82f5d46a047aaf9d54e22282771bdc4a2",
-			"sig": "6a7d6241ec7c372dd0b23dbd0901faf099f7e524e54bd104750e8ce0ca768f502088f8406bbb26c776cb6075cb1e9ab57136ed49ef76e50418dc4172915d2c05"
+			"sig": "898411dcfe6146333146a798707a4c91f896718edff14e9d209321c5395ac8b27b6d31e767797b29967683fc0e792cdebe6f1b1fc72094cde1c3d748270c3401"
 		}
 	],
 	"signed": {
 		"_type": "targets",
-		"expires": "2026-12-23T12:34:02.070780785Z",
+		"expires": "2026-12-24T13:40:10.001217514Z",
 		"spec_version": "1.0.31",
 		"targets": {
 			"upstreams/koboldcpp/linux-amd64.json": {
@@ -24,25 +24,25 @@
 			},
 			"upstreams/llama-server/linux-amd64.json": {
 				"hashes": {
-					"sha256": "9c161c341f70fa703d53a48d6b93c2c47ca34b23393a8f003f7d5ac4e41c7100"
+					"sha256": "73fa3f8c4e8cf807b190fa62413e10283b17765f0674750afcb495a3d85a7f86"
 				},
 				"length": 566
 			},
 			"upstreams/llama-server/windows-amd64.json": {
 				"hashes": {
-					"sha256": "684f99535c98f4f1634c0f6932e5519456b6d55428933903fa56fa90051ba33c"
+					"sha256": "318742ea2af3057d90e30bbb83f3687fbea4d084e8e0bb71391e0cc166faba88"
 				},
 				"length": 562
 			},
 			"upstreams/sd-server/linux-amd64.json": {
 				"hashes": {
-					"sha256": "a433f1070c7925a2a8ce7ba8e5047a3bbff83c0bbcef475c4913de4c9145c70c"
+					"sha256": "f891be71775724fb6cb2d56f90e86e26308f365a86060b5e53f517e3aab9712a"
 				},
 				"length": 618
 			},
 			"upstreams/sd-server/windows-amd64.json": {
 				"hashes": {
-					"sha256": "2d60fd6ba7cfba64dc779b68d814838b325abe72432b56b07d8c04f7d218b5dc"
+					"sha256": "fb3e9857919807624dc9902ec1b546587a6c8bef0713c396e7b3dc4d5ebe1fd8"
 				},
 				"length": 590
 			},
@@ -59,6 +59,6 @@
 				"length": 511
 			}
 		},
-		"version": 102
+		"version": 103
 	}
 }

@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "455780228",
+      "tag": "master-1122-3b12781",
+      "published_at": "2026-11-23T17:47:34Z",
+      "payloads": [
+        {
+          "name": "sd-master-3b12781-bin-Linux-Ubuntu-26.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1122-3b12781/sd-master-3b12781-bin-Linux-Ubuntu-26.04-x86_64.zip",
+          "length": 30797167,
+          "sha256": "da09c1fdf5ef2ee901233be54ee81814f5414213ecc50b991681562def2b1ee2"
+        }
+      ]
+    }
+  ]
+}
