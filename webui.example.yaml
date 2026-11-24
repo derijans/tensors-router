@@ -19,6 +19,9 @@ router:
   start_when_missing: true
   shutdown_with_webui: true
   args: []
+  # Bundle that verifies an external https router.url. A managed router
+  # exports its own bundle to server.state_dir/router-trust.pem.
+  ca_file: ""
 
 logging:
   mode: "normal"

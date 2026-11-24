@@ -12,6 +12,7 @@
 - [Downloader](Downloader)
 - [Cluster Routing](Cluster-Routing)
 - [Security and Reverse Proxy](Security-and-Reverse-Proxy)
+- [Tokens and Certificates](Tokens-and-Certificates)
 - [Deployment](Deployment)
 - [Trusted Updates](Trusted-Updates)
 - [Testing and Troubleshooting](Testing-and-Troubleshooting)

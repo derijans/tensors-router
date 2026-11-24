@@ -143,7 +143,7 @@ func (service *Service) openRemoteRealtime(r *http.Request, route cluster.Route,
 		return nil, err
 	}
 	copyRealtimeHeaders(request.Header, r.Header)
-	request.Header.Set("Authorization", "Bearer "+service.clusterToken)
+	request.Header.Set("Authorization", "Bearer "+service.outboundClusterToken())
 	request.Host = target.Host
 	return service.client.Do(request)
 }

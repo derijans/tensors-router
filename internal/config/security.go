@@ -114,22 +114,11 @@ func validateSecurity(cfg *Config) error {
 	if err := validateCredentialList(metricsKeysSetting, cfg.Auth.MetricsKeys); err != nil {
 		return err
 	}
-	if cfg.MCP.Enabled && !hasCredential(cfg.Auth.AdminKeys) {
-		return fmt.Errorf("auth.admin_keys is required when MCP is enabled")
-	}
-	if err := validateCredential(clusterTokenSetting, cfg.Cluster.Token, cfg.Cluster.Role != "standalone"); err != nil {
+	if err := validateCredential(clusterTokenSetting, cfg.Cluster.Token, false); err != nil {
 		return err
 	}
 	if err := validateCredentialRoleSeparation(cfg); err != nil {
 		return err
-	}
-	if cfg.Security.Profile == SecurityProfileSecure && !loopbackBind(cfg.Server.Bind) {
-		if !hasCredential(cfg.Auth.InferenceKeys) {
-			return fmt.Errorf("auth.inference_keys is required for non-loopback secure bind")
-		}
-		if !hasCredential(cfg.Auth.AdminKeys) {
-			return fmt.Errorf("auth.admin_keys is required for non-loopback secure bind")
-		}
 	}
 	cfg.Warnings = append(cfg.Warnings, credentialWarnings(cfg)...)
 	return nil
@@ -137,9 +126,6 @@ func validateSecurity(cfg *Config) error {
 
 func credentialWarnings(cfg *Config) []string {
 	var warnings []string
-	if cfg.Security.Profile == SecurityProfileSecure && !hasCredential(cfg.Auth.InferenceKeys) && !hasCredential(cfg.Auth.AdminKeys) {
-		warnings = append(warnings, "security.profile is secure but no auth keys are configured; the admin API is open to any local process")
-	}
 	for _, role := range credentialRoles(cfg) {
 		for _, value := range role.values {
 			if warning, short := credential.ShortCredentialWarning(role.name, value); short {

@@ -40,7 +40,7 @@ func NewService(config ServiceConfig) *Service {
 		},
 		catalog:                   config.Catalog,
 		registry:                  config.Registry,
-		clusterToken:              config.ClusterToken,
+		clusterCredentials:        serviceClusterCredentials(config),
 		clusterRole:               config.ClusterRole,
 		nodeID:                    config.NodeID,
 		nodeURL:                   strings.TrimSpace(config.NodeURL),
@@ -71,6 +71,7 @@ func NewService(config ServiceConfig) *Service {
 		ffmpeg:                    config.FFmpeg,
 		comfyVideoJobs:            newComfyVideoJobStore(config.FFmpegScratchDir),
 		client: &http.Client{
+			Transport:     config.PeerTransport,
 			Timeout:       0,
 			CheckRedirect: returnRedirectToCaller,
 		},
@@ -97,6 +98,7 @@ func NewService(config ServiceConfig) *Service {
 		flush:       func(ctx context.Context) error { return service.analytics.store.Checkpoint(ctx) },
 		nodeID:      config.NodeID,
 	}
+	service.security = newSecurityAdmin(config.Security)
 	service.webUI = newWebUIProxy(service, service.analytics)
 	service.benchmarks = newBenchmarkRunner(service, config.BenchmarkStore, logger)
 	service.downloads = downloads.New(downloadDeps{service: service}, config.Downloader, config.DownloaderCapability)
@@ -119,7 +121,7 @@ func NewService(config ServiceConfig) *Service {
 	service.guardians = newGuardianDirectory(config.GuardianModels)
 	service.installStoredGuardianModels(context.Background())
 	service.reloadLendingSettings(context.Background())
-	service.routes = newRouteTable(service.requireClusterToken, service.controlRoutes(), service.siteRoutes(), service.nodeRoutes(), service.downloads.Routes(), service.benchmarks.routes(), service.assets.routes(), service.webUI.routes(), service.metricsRoutes(), service.memoryFitRoutes())
+	service.routes = newRouteTable(service.requireClusterToken, service.controlRoutes(), service.siteRoutes(), service.nodeRoutes(), service.downloads.Routes(), service.benchmarks.routes(), service.assets.routes(), service.webUI.routes(), service.metricsRoutes(), service.memoryFitRoutes(), service.security.routes())
 	return service
 }
 
@@ -157,7 +159,14 @@ func serviceClusterClient(config ServiceConfig) *cluster.Client {
 	if config.ClusterClient != nil {
 		return config.ClusterClient
 	}
-	return cluster.NewClient(config.ClusterToken)
+	return cluster.NewPeerClient(cluster.ClientOptions{Credentials: serviceClusterCredentials(config), Transport: config.PeerTransport})
+}
+
+func serviceClusterCredentials(config ServiceConfig) cluster.Credentials {
+	if config.ClusterCredentials != nil {
+		return config.ClusterCredentials
+	}
+	return cluster.StaticCredentials(config.ClusterToken)
 }
 
 func newServiceAnalytics(config ServiceConfig, loadSection func(configFilename string, readiness backendReadiness) string) *requestAnalytics {

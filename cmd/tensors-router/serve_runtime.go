@@ -29,6 +29,7 @@ type serveRuntime struct {
 	catalog       *catalog.Catalog
 	assetIndex    *modelassets.Index
 	stores        serveStores
+	credentials   serveCredentials
 	registry      *routercluster.Registry
 
 	clusterProbeClient *routercluster.Client
@@ -67,7 +68,7 @@ func (runtime *serveRuntime) close() error {
 		closeDownloader(runtime.downloader),
 		closeVLLM(runtime.vllm),
 	)
-	closeErr := errors.Join(runtimeErr, runtime.stores.offloadDecisions.Close(), runtime.stores.handle.Close())
+	closeErr := errors.Join(runtimeErr, runtime.stores.offloadDecisions.Close(), runtime.stores.handle.Close(), runtime.credentials.close())
 	if runtime.assetIndex != nil {
 		runtime.assetIndex.Close()
 	}

@@ -103,7 +103,7 @@ func TestNodeSiteWebUIRequiresClusterToken(t *testing.T) {
 	service := newWebUICatalogTestService(t, map[string]string{
 		"text": `{"model_param":"text.gguf"}`,
 	})
-	service.clusterToken = "secret"
+	service.clusterCredentials = cluster.StaticCredentials("secret")
 
 	unauthorized := httptest.NewRecorder()
 	service.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/router/v1/node/site/webuis", nil))
@@ -348,7 +348,7 @@ func TestLocalKoboldSDWebUIBackendAPIUsesBackendRoot(t *testing.T) {
 func TestRemoteWebUIBackendAPIUsesSlaveRootAndToken(t *testing.T) {
 	slave := newProxyReadyWebUIService(t)
 	loadWebUIForTest(t, slave, "kobold-lcpp", "text", "")
-	slave.clusterToken = "secret"
+	slave.clusterCredentials = cluster.StaticCredentials("secret")
 	slaveServer := httptest.NewServer(slave)
 	defer slaveServer.Close()
 

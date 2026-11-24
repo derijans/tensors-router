@@ -23,7 +23,7 @@ func TestOffloadRelayStreamsEachHelperEventWithoutWaitingForTheEnd(t *testing.T)
 	t.Cleanup(helper.Close)
 
 	master, _ := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	master.clusterToken = "secret"
+	master.clusterCredentials = cluster.StaticCredentials("secret")
 	master.clusterClient = cluster.NewClient("secret")
 	if err := master.clusterClient.AllowBaseURLs(helper.URL); err != nil {
 		t.Fatal(err)

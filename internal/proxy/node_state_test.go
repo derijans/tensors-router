@@ -109,7 +109,7 @@ func TestNodeStateClusterAuthenticationAndRemoteRouting(t *testing.T) {
 	node, nodeBackend := newTestService(t, http.NotFoundHandler())
 	node.nodeID = "worker"
 	node.clusterRole = cluster.RoleSlave
-	node.clusterToken = "secret"
+	node.clusterCredentials = cluster.StaticCredentials("secret")
 	binaryPath := filepath.Join(t.TempDir(), "koboldcpp")
 	if err := os.WriteFile(binaryPath, []byte("binary"), 0o700); err != nil {
 		t.Fatal(err)
@@ -239,7 +239,7 @@ func TestBackendInitializationRoutesForwardToRemoteNode(t *testing.T) {
 	node, _ := newTestService(t, http.NotFoundHandler())
 	node.nodeID = "worker"
 	node.clusterRole = cluster.RoleSlave
-	node.clusterToken = "secret"
+	node.clusterCredentials = cluster.StaticCredentials("secret")
 	runtimeService := &fakeVLLMService{
 		state: vllm.State{LifecycleState: vllm.LifecycleNeedsInit},
 		job:   vllm.InitializationJob{JobID: "job-1", BackendID: vllm.BackendID, State: vllm.JobRunning},

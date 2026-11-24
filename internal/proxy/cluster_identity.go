@@ -23,5 +23,9 @@ func (service *Service) clusterIdentity() clusterIdentity {
 }
 
 func (service *Service) nodeProxyToken() string {
-	return service.clusterToken
+	return service.outboundClusterToken()
+}
+
+func (service *Service) outboundClusterToken() string {
+	return service.clusterCredentials.OutboundClusterToken()
 }

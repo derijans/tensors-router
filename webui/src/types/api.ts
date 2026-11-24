@@ -13,3 +13,4 @@ export type * from "./api/downloads";
 export type * from "./api/load-diagnostics";
 export type * from "./api/memory-fit";
 export type * from "./api/model-assets";
+export type * from "./api/security";

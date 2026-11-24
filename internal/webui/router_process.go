@@ -16,6 +16,8 @@ import (
 )
 
 const (
+	managedRouterTrustBundle  = "router-trust.pem"
+	managedRouterAddress      = "127.0.0.1:8080"
 	managedRouterDrainGrace   = 16 * time.Minute
 	managedRouterKillTimeout  = 5 * time.Second
 	managedRouterStartTimeout = 30 * time.Second
@@ -29,6 +31,7 @@ type RouterProcess struct {
 	cmd      *exec.Cmd
 	waitDone chan error
 	lastErr  string
+	trust    *routerTrust
 	client   *http.Client
 }
 
@@ -36,24 +39,45 @@ func NewRouterProcess(config RouterConfig, executableDir string) *RouterProcess 
 	urlValue := strings.TrimSpace(config.URL)
 	managed := false
 	if urlValue == "" {
-		urlValue = "http://127.0.0.1:8080"
 		managed = true
 		if strings.TrimSpace(config.BinaryPath) == "" {
 			config.BinaryPath = filepath.Join(executableDir, routerExecutableName())
 		}
 	}
+	trust := newRouterTrust(routerTrustPath(config))
 	return &RouterProcess{
 		config:  config,
 		url:     urlValue,
 		managed: managed,
-		client:  &http.Client{Timeout: 2 * time.Second},
+		trust:   trust,
+		client:  &http.Client{Timeout: 2 * time.Second, Transport: trust},
 	}
+}
+
+func routerTrustPath(config RouterConfig) string {
+	if path := strings.TrimSpace(config.CAFile); path != "" {
+		return path
+	}
+	return config.TrustBundleExport
 }
 
 func (process *RouterProcess) URL() string {
 	process.mu.Lock()
 	defer process.mu.Unlock()
-	return process.url
+	if !process.managed {
+		return process.url
+	}
+	if process.trust.bundlePresent() {
+		return "https://" + managedRouterAddress
+	}
+	return "http://" + managedRouterAddress
+}
+
+func (process *RouterProcess) Transport() http.RoundTripper {
+	if process == nil {
+		return http.DefaultTransport
+	}
+	return process.trust
 }
 
 func (process *RouterProcess) Managed() bool {
@@ -65,18 +89,17 @@ func (process *RouterProcess) Managed() bool {
 func (process *RouterProcess) Status(ctx context.Context) siteapi.RouterProcessStatus {
 	process.mu.Lock()
 	managed := process.managed
-	routerURL := process.url
 	token := strings.TrimSpace(process.config.Token)
 	hasProcess := process.cmd != nil && process.cmd.Process != nil
 	status := siteapi.RouterProcessStatus{
 		Managed: managed,
-		URL:     routerURL,
 		Error:   process.lastErr,
 	}
 	if hasProcess {
 		status.PID = process.cmd.Process.Pid
 	}
 	process.mu.Unlock()
+	status.URL = process.URL()
 	status.Running = process.Healthy(ctx)
 	status.CanShutdown = (managed && hasProcess) || (!managed && status.Running && token != "")
 	status.CanForceKill = managed && hasProcess
@@ -168,6 +191,9 @@ func routerLaunchArguments(config RouterConfig) []string {
 	args = append(args, config.Args...)
 	if profile := strings.TrimSpace(config.SecurityProfile); profile != "" {
 		args = append(args, "--security-profile", profile)
+	}
+	if config.TrustBundleExport != "" {
+		args = append(args, "--tls-trust-bundle", config.TrustBundleExport)
 	}
 	return args
 }

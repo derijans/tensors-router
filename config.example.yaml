@@ -10,6 +10,9 @@ server:
     - "172.16.0.0/12"
     - "192.168.0.0/16"
 
+# Tokens live in store_dir/credentials.sqlite and are managed with
+# `tensors-router security token` or the WebUI Security tab. Values below and
+# the TENSORS_ROUTER_*_TOKEN variables are imported once, then ignored.
 auth:
   inference_keys: []
   admin_keys: []
@@ -176,6 +179,7 @@ cluster:
   public_url: ""
   master_url: ""
   slave_urls: []
+  # Imported once into the credential store, then ignored; see auth above.
   token: ""
   store_dir: "./router-store"
   # One SQLite file holds analytics, load captures, load errors and routing

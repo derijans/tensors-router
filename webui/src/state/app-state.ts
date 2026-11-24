@@ -109,6 +109,15 @@ export const state: AppState = {
     error: "",
     action: ""
   },
+  security: {
+    tokens: [],
+    certificates: [],
+    defaultHosts: [],
+    status: null,
+    loading: false,
+    error: "",
+    action: ""
+  },
   downloads: {
     available: false,
     capabilities: null,

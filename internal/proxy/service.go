@@ -84,7 +84,9 @@ type ServiceConfig struct {
 	Catalog                   ModelCatalog
 	Registry                  *cluster.Registry
 	ClusterToken              string
+	ClusterCredentials        cluster.Credentials
 	ClusterClient             *cluster.Client
+	PeerTransport             http.RoundTripper
 	ClusterRole               string
 	NodeID                    string
 	NodeURL                   string
@@ -131,6 +133,7 @@ type ServiceConfig struct {
 	MetricsEnabled            bool
 	MemorySampleStore         *memorysamples.Store
 	MemoryFitThresholds       memoryfit.Thresholds
+	Security                  SecurityConfig
 }
 
 type Service struct {
@@ -142,7 +145,7 @@ type Service struct {
 	webUI                     *webUIProxy
 	catalog                   ModelCatalog
 	registry                  *cluster.Registry
-	clusterToken              string
+	clusterCredentials        cluster.Credentials
 	clusterClient             *cluster.Client
 	clusterRole               string
 	nodeID                    string
@@ -160,6 +163,7 @@ type Service struct {
 	pendingModelUnloads       map[string]context.CancelFunc
 	analytics                 *requestAnalytics
 	storeDownload             *storeDownload
+	security                  *securityAdmin
 	routingGroups             *routinggroups.Store
 	guardians                 *guardianDirectory
 	scheduler                 *scheduler

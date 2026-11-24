@@ -85,6 +85,7 @@ var apiRoutes = []apiRoute{
 	proxied("/api/model-assets/candidates", "/router/v1/site/model-assets/candidates", http.MethodPost),
 	proxied("/api/model-assets/substitute", "/router/v1/site/model-assets/substitute", http.MethodPost),
 	proxiedUnder("/api/model-assets/", "/router/v1/site/model-assets/", http.MethodGet),
+	proxiedUnder("/api/security/", "/router/v1/site/security/", http.MethodGet, http.MethodPost, http.MethodDelete),
 }
 
 func handled(path string, handle apiHandler, methods ...string) apiRoute {

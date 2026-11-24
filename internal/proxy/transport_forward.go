@@ -158,7 +158,7 @@ func (service *Service) doTransportAttempt(ctx context.Context, original *http.R
 	}
 	if clusterRequest {
 		copyClusterRequestHeaders(request.Header, original.Header)
-		request.Header.Set("Authorization", "Bearer "+service.clusterToken)
+		request.Header.Set("Authorization", "Bearer "+service.outboundClusterToken())
 	} else {
 		copyBackendHeaders(request.Header, original.Header)
 	}

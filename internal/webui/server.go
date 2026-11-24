@@ -51,7 +51,7 @@ func NewServer(config Config, router *RouterProcess, sessions *SessionManager) *
 		config:   config,
 		router:   router,
 		sessions: sessions,
-		client:   &http.Client{Timeout: 0},
+		client:   &http.Client{Timeout: 0, Transport: router.Transport()},
 		static:   http.FileServer(http.FS(assets)),
 		assets:   assets,
 		access:   newProxyAccessManager(),

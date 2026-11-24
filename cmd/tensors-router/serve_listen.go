@@ -32,10 +32,10 @@ func (runtime *serveRuntime) serve(ctx context.Context, authPolicy *auth.Policy,
 		router.BeginDrain()
 		return err
 	}
-	runtime.startupLogger.Printf("listener ready address=%s", listener.Addr())
+	runtime.startupLogger.Printf("listener ready address=%s tls=%t", listener.Addr(), runtime.credentials.listenerTLS)
 	listenerErrors := make(chan error, 1)
 	go func() {
-		listenerErrors <- server.Serve(listener)
+		listenerErrors <- runtime.serveListener(server, listener)
 	}()
 	runtime.backendStartup = startInBackground(ctx, runtime.logger, backendStartupSteps(runtime.cfg, runtime.backendFamilies, router), router.RecordLoadFailure)
 
@@ -69,8 +69,8 @@ func shutdownServer(server *http.Server, timeout time.Duration) error {
 	return nil
 }
 
-func routerShutdownFunc(cfg config.Config, shutdownRequested chan<- struct{}) func() {
-	if cfg.Security.Profile == config.SecurityProfileSecure && !bearerAuthConfigured(cfg.Auth.AdminKeys) {
+func routerShutdownFunc(cfg config.Config, adminTokenStored bool, shutdownRequested chan<- struct{}) func() {
+	if cfg.Security.Profile == config.SecurityProfileSecure && !adminTokenStored {
 		return nil
 	}
 	return func() {
@@ -79,4 +79,12 @@ func routerShutdownFunc(cfg config.Config, shutdownRequested chan<- struct{}) fu
 		default:
 		}
 	}
+}
+
+func (runtime *serveRuntime) serveListener(server *http.Server, listener net.Listener) error {
+	if !runtime.credentials.listenerTLS {
+		return server.Serve(listener)
+	}
+	server.TLSConfig = runtime.credentials.tls.ServerConfig()
+	return server.ServeTLS(listener, "", "")
 }

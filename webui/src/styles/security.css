@@ -1,0 +1,44 @@
+.security-notice {
+  padding: 12px 14px;
+  border-left: 3px solid var(--tone, var(--border));
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--tone, var(--border)) 10%, transparent);
+  color: var(--text);
+}
+
+.security-notice:empty {
+  display: none;
+}
+
+.security-table .security-actions {
+  width: 1%;
+  white-space: nowrap;
+}
+
+.security-table .security-actions .button-strip {
+  justify-content: flex-end;
+}
+
+.security-subject {
+  font-size: 12px;
+}
+
+.security-hosts {
+  max-width: 280px;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.security-form {
+  display: grid;
+  gap: var(--gap-md);
+}
+
+.security-form textarea {
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.security-secret {
+  font-family: var(--mono);
+}

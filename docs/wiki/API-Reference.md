@@ -208,6 +208,7 @@ Standalone and master routers expose administration routes in these groups:
 - `GET /router/v1/site/load-errors` and `DELETE /router/v1/site/load-errors`
 - `/router/v1/site/cook/...` and `/router/v1/site/config-file/...`
 - `/router/v1/site/model-files/...` and `/router/v1/site/model-assets/...`
+- `/router/v1/site/security/...`: tokens and certificates of the router that answers (every role, not only masters). `GET status`; `GET|POST tokens` (`{"name","role","value"}`; the secret is returned once); `DELETE tokens/{id}`; `GET tokens/{id}/secret` (cluster tokens only); `GET|POST certificates` (import `{"name","kind","certificate_pem","private_key_pem","activate"}`); `POST certificates/generate` (`{"name","hosts","activate"}`); `POST certificates/{id}/activate`; `GET certificates/{id}/pem`; `DELETE certificates/{id}[?force=true]`; `POST authorities` (`{"name"}`); `POST authorities/{id}/issue` (`{"name","hosts","install_locally","activate"}`). Private keys of stored certificates are never returned. See [Tokens and Certificates](Tokens-and-Certificates)
 
 `GET /router/v1/site/nodes/backends/launch-options?node_id={node_id}&backend_id=vllm` reports the persisted vLLM launch options for a node. `POST` to the same path with `{"node_id":"...","backend_id":"vllm","options":{"hf_hub_offline":true,"transformers_offline":true,"hf_datasets_offline":true}}` stores the selection and unloads running runtimes so the next load applies it. Both forms are answered by the owning node, and a master forwards them to it over the matching `/router/v1/node/backends/launch-options` route.
 
@@ -224,7 +225,7 @@ A request whose client disconnected before the backend answered is recorded with
 
 `POST /router/v1/site/analytics/flush` writes the buffered analytics events out and folds the write-ahead log back into the database file. A master also asks every reachable slave over `/router/v1/node/analytics/flush`. The response lists the nodes that persisted their buffer and reports any node that could not.
 
-`GET /router/v1/site/store/download?node_id={node_id}` streams the router database of one node as `application/vnd.sqlite3`, named `analytics-{node_id}-{UTC time}.sqlite`. The copy is taken after the buffered analytics events are written out, from a single point in time while the router keeps serving, and holds every table of the store: analytics, load captures, load errors, routing groups and lending decisions. A master relays the download from a slave over `/router/v1/node/store/download`; the node is chosen by id from the cluster registry, never by address.
+`GET /router/v1/site/store/download?node_id={node_id}` streams the router database of one node as `application/vnd.sqlite3`, named `analytics-{node_id}-{UTC time}.sqlite`. The copy is taken after the buffered analytics events are written out, from a single point in time while the router keeps serving, and holds every table of the store: analytics, load captures, load errors, routing groups and lending decisions. Tokens and certificates live in a separate file and are never part of it. A master relays the download from a slave over `/router/v1/node/store/download`; the node is chosen by id from the cluster registry, never by address.
 
 `DELETE /router/v1/site/load-errors` removes every recorded load error. A master also clears every reachable slave over `DELETE /router/v1/node/load-errors`. The response gives the number of rows removed, the nodes that were cleared, and any node that could not be.
 
@@ -262,6 +263,6 @@ Every series is capped at 1000 label combinations per metric; further combinatio
 - Inference keys authorize model APIs.
 - Admin keys authorize site APIs, benchmarks, explicit load and unload, and shutdown.
 - Metrics keys authorize only `GET /router/v1/metrics`. Admin keys are accepted there as well.
-- The cluster token authorizes only `/router/v1/node/...` routes.
+- The cluster token authorizes only `/router/v1/node/...` routes. When the router serves HTTPS, those routes also require a verified peer client certificate.
 
-Send credentials as bearer tokens. See [Security and Reverse Proxy](Security-and-Reverse-Proxy) for profiles and network restrictions.
+Send credentials as bearer tokens. Manage them as described in [Tokens and Certificates](Tokens-and-Certificates). See [Security and Reverse Proxy](Security-and-Reverse-Proxy) for profiles and network restrictions.

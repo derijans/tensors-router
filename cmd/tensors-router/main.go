@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"os"
-	"strings"
 
 	"tensors-router/internal/buildinfo"
 	"tensors-router/internal/config"
@@ -32,6 +31,8 @@ func run(args []string) error {
 		return runDownload(args[1:])
 	case "benchmark":
 		return runBenchmark(args[1:])
+	case "security":
+		return runSecurity(args[1:])
 	case "version":
 		fmt.Println(buildinfo.Current())
 		return nil
@@ -52,15 +53,6 @@ func configuredLoggers(mode string) (*log.Logger, *log.Logger) {
 	default:
 		return discard, discard
 	}
-}
-
-func bearerAuthConfigured(keys []string) bool {
-	for _, key := range keys {
-		if strings.TrimSpace(key) != "" {
-			return true
-		}
-	}
-	return false
 }
 
 func runDownload(args []string) error {
@@ -98,6 +90,7 @@ func usage() error {
 	fmt.Println("  tensors-router serve --config config.yaml")
 	fmt.Println("  tensors-router download --config config.yaml")
 	fmt.Println("  tensors-router benchmark --model model-id")
+	fmt.Println("  tensors-router security <token|cert|ca|trust-bundle> ... --config config.yaml")
 	fmt.Println("  tensors-router version")
 	return nil
 }

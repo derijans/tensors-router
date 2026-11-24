@@ -30,6 +30,7 @@ func (cfg *Config) schema() flatyaml.Schema {
 			"start_when_missing":  flatyaml.Bool(&cfg.Router.StartWhenMissing),
 			"shutdown_with_webui": flatyaml.Bool(&cfg.Router.ShutdownWithWebUI),
 			"args":                flatyaml.StringList(&cfg.Router.Args),
+			"ca_file":             flatyaml.String(&cfg.Router.CAFile),
 		}},
 		"logging": {Fields: flatyaml.Fields{
 			"mode":    flatyaml.String(&cfg.Logging.Mode).Marking(&cfg.Logging.modeSet),

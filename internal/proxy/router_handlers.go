@@ -2,7 +2,6 @@ package proxy
 
 import (
 	"context"
-	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"tensors-router/internal/auth"
 	"tensors-router/internal/backenddiagnostic"
 	"tensors-router/internal/buildinfo"
 	"tensors-router/internal/catalog"
@@ -425,13 +425,12 @@ func readModelControlRequest(r *http.Request, requireModel bool) (modelControlRe
 }
 
 func (service *Service) requireClusterToken(w http.ResponseWriter, r *http.Request) bool {
-	if service.clusterToken == "" {
-		openai.WriteError(w, http.StatusUnauthorized, "unauthorized", "cluster token is required")
+	if !auth.ClusterPeerAccepted(r) {
+		openai.WriteError(w, http.StatusUnauthorized, "unauthorized", "verified peer certificate required")
 		return false
 	}
 	header := strings.TrimSpace(r.Header.Get("Authorization"))
-	token := strings.TrimSpace(strings.TrimPrefix(header, "Bearer "))
-	if !strings.HasPrefix(header, "Bearer ") || subtle.ConstantTimeCompare([]byte(token), []byte(service.clusterToken)) != 1 {
+	if !strings.HasPrefix(header, "Bearer ") || !service.clusterCredentials.AcceptsClusterToken(strings.TrimPrefix(header, "Bearer ")) {
 		openai.WriteError(w, http.StatusUnauthorized, "unauthorized", "invalid cluster token")
 		return false
 	}

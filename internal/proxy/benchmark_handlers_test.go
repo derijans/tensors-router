@@ -212,7 +212,7 @@ func TestBenchmarkRunsSerializePerNode(t *testing.T) {
 
 func TestNodeBenchmarksRequireClusterToken(t *testing.T) {
 	service, _ := newTestService(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
-	service.clusterToken = "secret"
+	service.clusterCredentials = cluster.StaticCredentials("secret")
 	service.benchmarks.store = newBenchmarkStoreForTest(t)
 
 	recorder := httptest.NewRecorder()
@@ -370,7 +370,7 @@ func TestNodeBenchmarkRunPersistsLocalRecord(t *testing.T) {
 	}), map[string]string{
 		"a": `{"model_param":"text.gguf"}`,
 	})
-	service.clusterToken = "secret"
+	service.clusterCredentials = cluster.StaticCredentials("secret")
 	service.benchmarks.store = newBenchmarkStoreForTest(t)
 
 	request := httptest.NewRequest(http.MethodPost, "/router/v1/node/benchmarks/run", strings.NewReader(`{"model_id":"a","type":"section","sections":["runtime"],"timeout_seconds":30}`))

@@ -167,7 +167,7 @@ func TestRemoteClusterNodeAppliesLocalChatTemplateProfile(t *testing.T) {
 	node, nodeBackend := newTestServiceWithConfigContents(t, http.NotFoundHandler(), map[string]string{
 		"remote": `{"model_param":"model.gguf","jinja_kwargs":{"enable_thinking":true}}`,
 	})
-	node.clusterToken = "secret"
+	node.clusterCredentials = cluster.StaticCredentials("secret")
 	node.client = chatTemplateTestClient(t, func(request *http.Request) {
 		content, err := io.ReadAll(request.Body)
 		if err != nil {

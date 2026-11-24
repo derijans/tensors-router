@@ -30,7 +30,7 @@ func newLinkedTextService(t *testing.T, gate chan struct{}, linked bool) *Servic
 	}), map[string]string{
 		"llama-70b": `{"model_param":"C:\\models\\llm.gguf"}`,
 	})
-	service.clusterToken = "secret"
+	service.clusterCredentials = cluster.StaticCredentials("secret")
 
 	registry := cluster.NewRegistry(cluster.RoleStandalone, service.nodeID, "http://local")
 	local := testClusterModel("llama-70b", service.nodeID, "weights", "config-a", cluster.SourceLocal)

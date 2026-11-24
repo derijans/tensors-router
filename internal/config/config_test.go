@@ -387,7 +387,11 @@ server:
 `), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Load(path); err == nil {
+	secureConfig, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := secureConfig.CheckStoredCredentials(StoredCredentials{}); err == nil {
 		t.Fatal("expected secure non-loopback credentials error")
 	}
 	cfg, err := LoadWithOptions(path, LoadOptions{SecurityProfile: SecurityProfileTrustedLAN})
@@ -396,6 +400,9 @@ server:
 	}
 	if cfg.Security.Profile != SecurityProfileTrustedLAN {
 		t.Fatalf("unexpected profile %q", cfg.Security.Profile)
+	}
+	if _, err := cfg.CheckStoredCredentials(StoredCredentials{}); err != nil {
+		t.Fatalf("trusted_lan override still demanded tokens: %v", err)
 	}
 }
 

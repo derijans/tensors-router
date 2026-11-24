@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"tensors-router/internal/cluster"
 	"tensors-router/internal/proxy/routing"
 )
 
@@ -215,7 +216,7 @@ func TestUnmatchedRouterEndpointsAreNotFound(t *testing.T) {
 
 func TestClusterOnlyRouteRejectsARequestWithoutTheClusterToken(t *testing.T) {
 	service, _ := newTestServiceWithModels(t, http.NotFoundHandler(), "a")
-	service.clusterToken = "cluster-secret"
+	service.clusterCredentials = cluster.StaticCredentials("cluster-secret")
 
 	recorder := httptest.NewRecorder()
 	service.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/router/v1/node/state", nil))

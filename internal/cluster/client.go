@@ -21,10 +21,10 @@ const maxClusterJSONBytes = int64(8 * 1024 * 1024)
 const DefaultControlTimeout = 30 * time.Second
 
 type Client struct {
-	token   string
-	client  *http.Client
-	mu      sync.RWMutex
-	allowed map[string]string
+	credentials Credentials
+	client      *http.Client
+	mu          sync.RWMutex
+	allowed     map[string]string
 }
 
 type RemoteError struct {
@@ -48,14 +48,30 @@ func NewClient(token string, baseURLs ...string) *Client {
 }
 
 func NewClientWithTimeout(token string, controlTimeout time.Duration, baseURLs ...string) *Client {
+	return NewPeerClient(ClientOptions{Credentials: StaticCredentials(token), ControlTimeout: controlTimeout}, baseURLs...)
+}
+
+type ClientOptions struct {
+	Credentials    Credentials
+	Transport      http.RoundTripper
+	ControlTimeout time.Duration
+}
+
+func NewPeerClient(options ClientOptions, baseURLs ...string) *Client {
+	controlTimeout := options.ControlTimeout
 	if controlTimeout <= 0 {
 		controlTimeout = DefaultControlTimeout
 	}
+	credentials := options.Credentials
+	if credentials == nil {
+		credentials = StaticCredentials("")
+	}
 	client := &Client{
-		token:   token,
-		allowed: map[string]string{},
+		credentials: credentials,
+		allowed:     map[string]string{},
 	}
 	client.client = &http.Client{
+		Transport:     options.Transport,
 		Timeout:       controlTimeout,
 		CheckRedirect: client.checkRedirect,
 	}
@@ -163,9 +179,7 @@ func (client *Client) json(ctx context.Context, httpClient *http.Client, method 
 	if requestBody != nil {
 		request.Header.Set("Content-Type", "application/json")
 	}
-	if client.token != "" {
-		request.Header.Set("Authorization", bearerPrefix+client.token)
-	}
+	client.setAuthorization(request)
 
 	response, err := httpClient.Do(request)
 	if err != nil {
@@ -237,9 +251,7 @@ func (client *Client) stream(ctx context.Context, method string, baseURL string,
 	if rangeHeader != "" {
 		request.Header.Set("Range", rangeHeader)
 	}
-	if client.token != "" {
-		request.Header.Set("Authorization", bearerPrefix+client.token)
-	}
+	client.setAuthorization(request)
 	streamClient := *client.client
 	streamClient.Timeout = 0
 	response, err := streamClient.Do(request)
@@ -285,9 +297,7 @@ func (client *Client) checkRedirect(request *http.Request, previous []*http.Requ
 		return err
 	}
 	request.Header.Del("Authorization")
-	if client.token != "" {
-		request.Header.Set("Authorization", bearerPrefix+client.token)
-	}
+	client.setAuthorization(request)
 	return nil
 }
 

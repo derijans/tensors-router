@@ -8,7 +8,7 @@ import (
 
 const routerDatabaseFilename = "analytics.sqlite"
 
-var databasesKeptSeparate = []string{"model-assets.sqlite", "model-state.sqlite"}
+var databasesKeptSeparate = []string{"model-assets.sqlite", "model-state.sqlite", "credentials.sqlite"}
 
 func resolveDatabasePath(cfg *Config) {
 	if strings.TrimSpace(cfg.Cluster.DatabasePath) != "" {

@@ -9,8 +9,13 @@ import (
 
 func (runtime *serveRuntime) connectCluster() {
 	cfg := runtime.cfg
-	runtime.clusterProbeClient = routercluster.NewClientWithTimeout(cfg.Cluster.Token, cfg.Cluster.ControlTimeout, clusterProbeTargets(cfg)...)
-	runtime.clusterClient = routercluster.NewClientWithTimeout(cfg.Cluster.Token, cfg.Cluster.ControlTimeout, clusterRoutingTargets(cfg)...)
+	options := routercluster.ClientOptions{
+		Credentials:    runtime.credentials.live,
+		Transport:      runtime.credentials.peers,
+		ControlTimeout: cfg.Cluster.ControlTimeout,
+	}
+	runtime.clusterProbeClient = routercluster.NewPeerClient(options, clusterProbeTargets(cfg)...)
+	runtime.clusterClient = routercluster.NewPeerClient(options, clusterRoutingTargets(cfg)...)
 }
 
 func (runtime *serveRuntime) clusterSyncConfig() routercluster.SyncConfig {

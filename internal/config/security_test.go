@@ -38,29 +38,56 @@ func TestLoadWarnsAboutShortCredentialsWithoutRejectingThem(t *testing.T) {
 	}
 }
 
-func TestLoadWarnsWhenSecureProfileHasNoKeys(t *testing.T) {
+func TestStoredCredentialsWarnWhenSecureProfileHasNoTokens(t *testing.T) {
 	cfg, err := loadConfigText(t, "server:\n  bind: \"127.0.0.1:8080\"\n")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !anyContains(cfg.Warnings, "no auth keys are configured") {
-		t.Fatalf("missing open admin API warning: %#v", cfg.Warnings)
+	warnings, err := cfg.CheckStoredCredentials(StoredCredentials{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !anyContains(warnings, "no inference or admin tokens exist") {
+		t.Fatalf("missing open admin API warning: %#v", warnings)
 	}
 
 	cfg, err = loadConfigText(t, "security:\n  profile: \"trusted_lan\"\n")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if anyContains(cfg.Warnings, "no auth keys are configured") {
-		t.Fatalf("trusted_lan was warned about missing keys it does not use: %#v", cfg.Warnings)
+	warnings, err = cfg.CheckStoredCredentials(StoredCredentials{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 {
+		t.Fatalf("trusted_lan was warned about missing tokens it does not use: %#v", warnings)
 	}
 }
 
-func TestLoadRequiresAdminKeysForMCPInEveryProfile(t *testing.T) {
+func TestStoredCredentialsRequireAdminTokenForMCPInEveryProfile(t *testing.T) {
 	for _, profile := range []string{SecurityProfileSecure, SecurityProfileTrustedLAN} {
-		_, err := loadConfigText(t, "security:\n  profile: \""+profile+"\"\nmcp:\n  enabled: true\n")
-		if err == nil || !strings.Contains(err.Error(), "auth.admin_keys is required when MCP is enabled") {
-			t.Fatalf("profile %s enabled MCP without admin keys: %v", profile, err)
+		cfg, err := loadConfigText(t, "security:\n  profile: \""+profile+"\"\nmcp:\n  enabled: true\n")
+		if err != nil {
+			t.Fatal(err)
 		}
+		if _, err := cfg.CheckStoredCredentials(StoredCredentials{Inference: true}); err == nil || !strings.Contains(err.Error(), "admin token is required") {
+			t.Fatalf("profile %s enabled MCP without an admin token: %v", profile, err)
+		}
+		if _, err := cfg.CheckStoredCredentials(StoredCredentials{Admin: true}); err != nil {
+			t.Fatalf("profile %s rejected MCP with an admin token: %v", profile, err)
+		}
+	}
+}
+
+func TestStoredCredentialsRequireClusterTokenOutsideStandalone(t *testing.T) {
+	cfg, err := loadConfigText(t, "cluster:\n  role: \"master\"\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cfg.CheckStoredCredentials(StoredCredentials{}); err == nil || !strings.Contains(err.Error(), "cluster token is required") {
+		t.Fatalf("master started without a cluster token: %v", err)
+	}
+	if _, err := cfg.CheckStoredCredentials(StoredCredentials{Cluster: true}); err != nil {
+		t.Fatalf("master rejected a stored cluster token: %v", err)
 	}
 }

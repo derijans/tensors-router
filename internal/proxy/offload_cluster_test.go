@@ -114,7 +114,7 @@ func joinCluster(t *testing.T, service *Service, nodeID string, role string, nod
 	service.clusterRole = role
 	service.nodeURL = nodeURL
 	service.masterURL = masterURL
-	service.clusterToken = "secret"
+	service.clusterCredentials = cluster.StaticCredentials("secret")
 	service.clusterClient = cluster.NewClient("secret")
 	if err := service.clusterClient.AllowBaseURLs(append([]string{nodeURL}, peers...)...); err != nil {
 		t.Fatal(err)

@@ -23,14 +23,11 @@ func (runtime *serveRuntime) createBackendFamilies() error {
 	return nil
 }
 
-func newAuthPolicy(cfg config.Config) (*auth.Policy, error) {
+func (runtime *serveRuntime) newAuthPolicy() (*auth.Policy, error) {
 	return auth.NewPolicy(auth.PolicyConfig{
-		AllowedCIDRs:  cfg.Server.AllowedCIDRs,
-		Profile:       cfg.Security.Profile,
-		InferenceKeys: cfg.Auth.InferenceKeys,
-		AdminKeys:     cfg.Auth.AdminKeys,
-		MetricsKeys:   cfg.Auth.MetricsKeys,
-		ClusterToken:  cfg.Cluster.Token,
+		AllowedCIDRs: runtime.cfg.Server.AllowedCIDRs,
+		Profile:      runtime.cfg.Security.Profile,
+		Keys:         runtime.credentials.live,
 	})
 }
 
@@ -38,7 +35,7 @@ func (runtime *serveRuntime) startRouter(shutdownRequested chan<- struct{}) {
 	fileRoots := modelFileRoots(runtime.cfg.Models.FileRoots, runtime.downloaderCapability)
 	runtime.startupLogger.Printf("model file roots=%q", fileRoots)
 	runtime.router = proxy.NewService(runtime.serviceConfig(fileRoots, shutdownRequested))
-	runtime.router.RecordConfigWarnings(append(append([]string{}, runtime.cfg.Warnings...), runtime.stores.handle.Warnings()...))
+	runtime.router.RecordConfigWarnings(append(append(append([]string{}, runtime.cfg.Warnings...), runtime.stores.handle.Warnings()...), runtime.credentials.warnings...))
 }
 
 func (runtime *serveRuntime) serviceConfig(fileRoots []string, shutdownRequested chan<- struct{}) proxy.ServiceConfig {
@@ -49,8 +46,9 @@ func (runtime *serveRuntime) serviceConfig(fileRoots []string, shutdownRequested
 		BackendFamilies:          runtime.backendFamilies,
 		Catalog:                  runtime.catalog,
 		Registry:                 runtime.registry,
-		ClusterToken:             cfg.Cluster.Token,
+		ClusterCredentials:       runtime.credentials.live,
 		ClusterClient:            runtime.clusterClient,
+		PeerTransport:            runtime.credentials.peers,
 		ClusterRole:              cfg.Cluster.Role,
 		NodeID:                   cfg.Cluster.NodeID,
 		NodeURL:                  cfg.Cluster.PublicURL,
@@ -96,7 +94,7 @@ func (runtime *serveRuntime) serviceConfig(fileRoots []string, shutdownRequested
 		FFmpeg:                    runtime.ffmpeg,
 		FFmpegScratchDir:          cfg.FFmpeg.ScratchDir,
 		Logger:                    runtime.logger,
-		Shutdown:                  routerShutdownFunc(cfg, shutdownRequested),
+		Shutdown:                  routerShutdownFunc(cfg, storedCredentialCoverage(runtime.credentials.live.Current()).Admin, shutdownRequested),
 		TransportLimits: transportbody.Limits{
 			ReplayBufferBytes: cfg.Limits.ReplayBufferMB * transportbody.MiB,
 			MemoryBudgetBytes: cfg.Limits.MemoryBudgetMB * transportbody.MiB,
@@ -107,6 +105,11 @@ func (runtime *serveRuntime) serviceConfig(fileRoots []string, shutdownRequested
 		MaxControlBodyBytes:  cfg.Limits.MaxControlBodyMB * transportbody.MiB,
 		SeparateRuntimeLimit: cfg.Limits.SeparateRuntimes,
 		MetricsEnabled:       cfg.Metrics.Enabled,
+		Security: proxy.SecurityConfig{
+			Credentials:          runtime.credentials.live,
+			DefaultIdentityHosts: defaultIdentityHosts(cfg),
+			ListenerTLS:          runtime.credentials.listenerTLS,
+		},
 	}
 }
 

@@ -31,7 +31,7 @@ func newLinkedImageService(t *testing.T, gate chan struct{}, linked bool) *Servi
 	}), map[string]string{
 		"combo": `{"nomodel":true,"sdmodel":"dream.safetensors"}`,
 	})
-	service.clusterToken = "secret"
+	service.clusterCredentials = cluster.StaticCredentials("secret")
 
 	registry := cluster.NewRegistry(cluster.RoleStandalone, service.nodeID, "http://local")
 	local := testClusterModel("combo", service.nodeID, "weights", "config-a", cluster.SourceLocal)

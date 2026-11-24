@@ -164,7 +164,7 @@ func (service *Service) forwardRemoteMCP(w http.ResponseWriter, r *http.Request,
 	if protocolVersion := strings.TrimSpace(r.Header.Get("Mcp-Protocol-Version")); protocolVersion != "" {
 		request.Header.Set("Mcp-Protocol-Version", protocolVersion)
 	}
-	request.Header.Set("Authorization", "Bearer "+service.clusterToken)
+	request.Header.Set("Authorization", "Bearer "+service.outboundClusterToken())
 	request.Host = target.Host
 	client := *service.client
 	client.CheckRedirect = func(*http.Request, []*http.Request) error {

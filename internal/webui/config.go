@@ -47,6 +47,8 @@ type RouterConfig struct {
 	StartWhenMissing  bool
 	ShutdownWithWebUI bool
 	SecurityProfile   string
+	CAFile            string
+	TrustBundleExport string
 }
 
 type ConfigOverrides struct {
@@ -101,6 +103,9 @@ func LoadConfigWithOverrides(path string, executableDir string, overrides Config
 		cfg.Router.ConfigPath = filepath.Join(executableDir, "config.yaml")
 	}
 	cfg.Router.SecurityProfile = cfg.Security.Profile
+	if strings.TrimSpace(cfg.Router.URL) == "" && strings.TrimSpace(cfg.Router.CAFile) == "" {
+		cfg.Router.TrustBundleExport = filepath.Join(cfg.Server.StateDir, managedRouterTrustBundle)
+	}
 	finalizeWebUICompatibility(&cfg)
 	return validateWebUIConfig(cfg)
 }

@@ -10,11 +10,13 @@ import { loadOverview } from "../overview/overview";
 import { renderInventory, renderRouterStatus } from "./render-dashboard";
 import { state } from "../../state/app-state";
 import { loadWebUIs } from "../webuis/webuis";
+import { loadSecurity } from "../security/security";
 
 export async function refreshAll(): Promise<void> {
   await refreshRouterStatus();
   await refreshInventory(state.activeTab === "models");
   await loadWebUIs();
+  await loadSecurity();
   await loadAnalytics();
   await loadDownloads();
   await loadLoadCaptures();

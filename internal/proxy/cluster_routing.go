@@ -75,7 +75,7 @@ func (service *Service) forwardRemote(ctx context.Context, original *http.Reques
 		return nil, err
 	}
 	copyClusterRequestHeaders(request.Header, original.Header)
-	request.Header.Set("Authorization", "Bearer "+service.clusterToken)
+	request.Header.Set("Authorization", "Bearer "+service.outboundClusterToken())
 	request.Host = target.Host
 	response, err := service.client.Do(request)
 	if err != nil {

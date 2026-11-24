@@ -2,12 +2,12 @@ package auth
 
 import (
 	"context"
-	"crypto/subtle"
 	"fmt"
 	"net"
 	"net/http"
 	"strings"
 
+	"tensors-router/internal/credential"
 	"tensors-router/internal/ollama"
 )
 
@@ -19,6 +19,7 @@ const (
 type PolicyConfig struct {
 	AllowedCIDRs  []string
 	Profile       string
+	Keys          KeySource
 	InferenceKeys []string
 	AdminKeys     []string
 	MetricsKeys   []string
@@ -37,12 +38,9 @@ const (
 const MetricsPath = "/router/v1/metrics"
 
 type Policy struct {
-	networks      []*net.IPNet
-	profile       string
-	inferenceKeys []string
-	adminKeys     []string
-	scrapeKeys    []string
-	clusterToken  string
+	networks []*net.IPNet
+	profile  string
+	keys     KeySource
 }
 
 type Guard struct {
@@ -70,15 +68,11 @@ func NewPolicy(config PolicyConfig) (*Policy, error) {
 		}
 		networks = append(networks, network)
 	}
-	adminKeys := normalizedKeys(config.AdminKeys)
-	return &Policy{
-		networks:      networks,
-		profile:       config.Profile,
-		inferenceKeys: normalizedKeys(config.InferenceKeys),
-		adminKeys:     adminKeys,
-		scrapeKeys:    append(normalizedKeys(config.MetricsKeys), adminKeys...),
-		clusterToken:  strings.TrimSpace(config.ClusterToken),
-	}, nil
+	keys := config.Keys
+	if keys == nil {
+		keys = staticKeySource(config)
+	}
+	return &Policy{networks: networks, profile: config.Profile, keys: keys}, nil
 }
 
 func NewGuard(allowedCIDRs []string, bearerKeys []string) (*Guard, error) {
@@ -100,9 +94,16 @@ func (policy *Policy) Middleware(next http.Handler) http.Handler {
 			writeAccessError(w, r.URL.Path, http.StatusForbidden, "forbidden")
 			return
 		}
-		principal := policy.principal(r.Header.Get("Authorization"))
+		keys := policy.keys.KeyHashes()
+		authorization := r.Header.Get("Authorization")
+		principal := principalFor(authorization, keys)
 		r = r.WithContext(context.WithValue(r.Context(), principalContextKey{}, principal))
-		if !policy.authorized(classifyRoute(r.URL.Path), r.Header.Get("Authorization")) {
+		class := classifyRoute(r.URL.Path)
+		if class == routeCluster && !ClusterPeerAccepted(r) {
+			writeAccessError(w, r.URL.Path, http.StatusUnauthorized, "verified peer certificate required")
+			return
+		}
+		if !policy.authorized(class, authorization, keys) {
 			writeAccessError(w, r.URL.Path, http.StatusUnauthorized, "unauthorized")
 			return
 		}
@@ -110,25 +111,29 @@ func (policy *Policy) Middleware(next http.Handler) http.Handler {
 	})
 }
 
-func (policy *Policy) authorized(class routeClass, authorization string) bool {
+func ClusterPeerAccepted(r *http.Request) bool {
+	return r.TLS == nil || len(r.TLS.VerifiedChains) > 0
+}
+
+func (policy *Policy) authorized(class routeClass, authorization string, keys credential.KeyHashes) bool {
 	if class == routeCluster {
-		return policy.clusterToken != "" && allowedBearer(authorization, []string{policy.clusterToken})
+		return allowedBearer(authorization, keys.Cluster)
 	}
 	if policy.profile != ProfileSecure {
 		return true
 	}
-	keys := policy.keysFor(class)
-	return len(keys) == 0 || allowedBearer(authorization, keys)
+	allowed := keysFor(class, keys)
+	return len(allowed) == 0 || allowedBearer(authorization, allowed)
 }
 
-func (policy *Policy) keysFor(class routeClass) []string {
+func keysFor(class routeClass, keys credential.KeyHashes) []credential.TokenHash {
 	switch class {
 	case routeAdmin:
-		return policy.adminKeys
+		return keys.Admin
 	case routeMetrics:
-		return policy.scrapeKeys
+		return append(append([]credential.TokenHash{}, keys.Metrics...), keys.Admin...)
 	default:
-		return policy.inferenceKeys
+		return keys.Inference
 	}
 }
 
@@ -143,13 +148,6 @@ func writeAccessError(w http.ResponseWriter, path string, status int, message st
 func PrincipalFromContext(ctx context.Context) Principal {
 	principal, _ := ctx.Value(principalContextKey{}).(Principal)
 	return principal
-}
-
-func (policy *Policy) principal(header string) Principal {
-	if allowedBearer(header, policy.adminKeys) {
-		return Principal{Admin: true}
-	}
-	return Principal{}
 }
 
 func (guard *Guard) Middleware(next http.Handler) http.Handler {
@@ -190,25 +188,10 @@ func classifyRoute(path string) routeClass {
 	return routeInference
 }
 
-func allowedBearer(header string, keys []string) bool {
-	const prefix = "Bearer "
-	if !strings.HasPrefix(header, prefix) {
-		return false
-	}
-	token := strings.TrimSpace(strings.TrimPrefix(header, prefix))
-	matched := 0
-	for _, key := range keys {
-		matched |= subtle.ConstantTimeCompare([]byte(token), []byte(key))
-	}
-	return matched == 1
+func (policy *Policy) principal(authorization string) Principal {
+	return principalFor(authorization, policy.keys.KeyHashes())
 }
 
-func normalizedKeys(values []string) []string {
-	keys := make([]string, 0, len(values))
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			keys = append(keys, value)
-		}
-	}
-	return keys
+func principalFor(authorization string, keys credential.KeyHashes) Principal {
+	return Principal{Admin: allowedBearer(authorization, keys.Admin)}
 }

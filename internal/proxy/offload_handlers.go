@@ -138,7 +138,7 @@ func (service *Service) forwardBorrowedRequest(ctx context.Context, nodeURL stri
 		return nil, err
 	}
 	copyClusterRequestHeaders(request.Header, original.Header)
-	request.Header.Set("Authorization", "Bearer "+service.clusterToken)
+	request.Header.Set("Authorization", "Bearer "+service.outboundClusterToken())
 	setBorrowedRequestHeaders(request.Header, lease)
 	request.Host = target.Host
 	return service.client.Do(request)
@@ -188,7 +188,7 @@ func (service *Service) sendOffloadedRequest(ctx context.Context, lane string, o
 		return nil, err
 	}
 	copyClusterRequestHeaders(request.Header, r.Header)
-	request.Header.Set("Authorization", "Bearer "+service.clusterToken)
+	request.Header.Set("Authorization", "Bearer "+service.outboundClusterToken())
 	request.Header.Set(offloadOwnerModelHeader, ownerModelID)
 	request.Header.Set(offloadOwnerHeader, service.nodeID)
 	request.Header.Set(offloadPathHeader, r.URL.Path)

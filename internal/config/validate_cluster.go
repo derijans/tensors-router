@@ -37,9 +37,6 @@ func validateClusterRuntime(cfg *Config) error {
 }
 
 func validateClusterMembership(cfg *Config) error {
-	if cfg.Cluster.Role != "standalone" && strings.TrimSpace(cfg.Cluster.Token) == "" {
-		return fmt.Errorf("cluster.token is required when cluster.role is not standalone")
-	}
 	if cfg.Cluster.Role == "slave" {
 		if strings.TrimSpace(cfg.Cluster.MasterURL) == "" {
 			return fmt.Errorf("cluster.master_url is required when cluster.role is slave")
