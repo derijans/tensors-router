@@ -39,16 +39,19 @@ type ServerConfig struct {
 }
 
 type RouterConfig struct {
-	URL               string
-	Token             string
-	BinaryPath        string
-	ConfigPath        string
-	Args              []string
-	StartWhenMissing  bool
-	ShutdownWithWebUI bool
-	SecurityProfile   string
-	CAFile            string
-	TrustBundleExport string
+	URL                  string
+	Token                string
+	BinaryPath           string
+	ConfigPath           string
+	Args                 []string
+	StartWhenMissing     bool
+	ShutdownWithWebUI    bool
+	SecurityProfile      string
+	CAFile               string
+	TrustBundleExport    string
+	APICertificateExport string
+	MigratedCertFile     string
+	MigratedKeyFile      string
 }
 
 type ConfigOverrides struct {
@@ -105,6 +108,11 @@ func LoadConfigWithOverrides(path string, executableDir string, overrides Config
 	cfg.Router.SecurityProfile = cfg.Security.Profile
 	if strings.TrimSpace(cfg.Router.URL) == "" && strings.TrimSpace(cfg.Router.CAFile) == "" {
 		cfg.Router.TrustBundleExport = filepath.Join(cfg.Server.StateDir, managedRouterTrustBundle)
+	}
+	if strings.TrimSpace(cfg.Router.URL) == "" {
+		cfg.Router.APICertificateExport = filepath.Join(cfg.Server.StateDir, managedRouterAPICertificate)
+		cfg.Router.MigratedCertFile = cfg.Server.CertFile
+		cfg.Router.MigratedKeyFile = cfg.Server.KeyFile
 	}
 	finalizeWebUICompatibility(&cfg)
 	return validateWebUIConfig(cfg)

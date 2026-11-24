@@ -15,6 +15,8 @@ func (cfg *Config) schema() flatyaml.Schema {
 		"server": {Fields: flatyaml.Fields{
 			"bind":          flatyaml.String(&cfg.Server.Bind),
 			"allowed_cidrs": flatyaml.StringList(&cfg.Server.AllowedCIDRs),
+			"tls_cert_file": flatyaml.String(&cfg.Server.TLSCertFile),
+			"tls_key_file":  flatyaml.String(&cfg.Server.TLSKeyFile),
 		}},
 		"auth": {Fields: flatyaml.Fields{
 			"inference_keys": flatyaml.StringList(&cfg.Auth.InferenceKeys),
@@ -159,6 +161,7 @@ func clusterFields(cluster *ClusterConfig) flatyaml.Fields {
 	return flatyaml.Fields{
 		"role":             flatyaml.String(&cluster.Role),
 		"node_id":          flatyaml.String(&cluster.NodeID),
+		"bind":             flatyaml.String(&cluster.Bind),
 		"public_url":       flatyaml.String(&cluster.PublicURL),
 		"master_url":       flatyaml.String(&cluster.MasterURL),
 		"token":            flatyaml.String(&cluster.Token),

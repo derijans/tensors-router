@@ -15,6 +15,8 @@ type SnapshotSource interface {
 type material struct {
 	revision int64
 	server   *tls.Config
+	api      *tls.Config
+	cluster  *tls.Config
 	client   *tls.Config
 }
 
@@ -42,21 +44,23 @@ func (runtime *Runtime) current() *material {
 }
 
 func buildMaterial(snapshot *credentialstore.Snapshot) *material {
+	anchors := anchorPool(snapshot.TrustAnchors)
 	built := &material{
 		revision: snapshot.Revision,
-		server: &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			ClientAuth: tls.VerifyClientCertIfGiven,
-			ClientCAs:  anchorPool(snapshot.TrustAnchors),
-		},
-		client: &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			RootCAs:    peerRoots(snapshot.TrustAnchors),
-		},
+		server:   &tls.Config{MinVersion: tls.VersionTLS12, ClientAuth: tls.VerifyClientCertIfGiven, ClientCAs: anchors},
+		api:      &tls.Config{MinVersion: tls.VersionTLS12},
+		cluster:  &tls.Config{MinVersion: tls.VersionTLS12, ClientAuth: tls.RequireAndVerifyClientCert, ClientCAs: anchors},
+		client:   &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: peerRoots(snapshot.TrustAnchors)},
 	}
 	if snapshot.Identity != nil {
-		built.server.Certificates = []tls.Certificate{*snapshot.Identity}
-		built.client.Certificates = []tls.Certificate{*snapshot.Identity}
+		identity := []tls.Certificate{*snapshot.Identity}
+		built.server.Certificates = identity
+		built.api.Certificates = identity
+		built.cluster.Certificates = identity
+		built.client.Certificates = identity
+	}
+	if snapshot.APICertificate != nil {
+		built.api.Certificates = []tls.Certificate{*snapshot.APICertificate}
 	}
 	return built
 }

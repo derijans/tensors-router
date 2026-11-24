@@ -10,6 +10,15 @@
   display: none;
 }
 
+.security-notices {
+  display: grid;
+  gap: var(--gap-sm);
+}
+
+.security-notices:empty {
+  display: none;
+}
+
 .security-profile-notice {
   --tone: var(--amber);
   display: flex;
@@ -53,4 +62,12 @@
 
 .security-secret {
   font-family: var(--mono);
+}
+
+.security-node-select {
+  min-width: 220px;
+}
+
+.security-node-select option[data-attention] {
+  color: var(--amber);
 }

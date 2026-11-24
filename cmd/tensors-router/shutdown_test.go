@@ -35,7 +35,7 @@ func TestShutdownServerDrainsActiveRequest(t *testing.T) {
 	}()
 	<-started
 	shutdownResult := make(chan error, 1)
-	go func() { shutdownResult <- shutdownServer(server, time.Second) }()
+	go func() { shutdownResult <- shutdownServers([]*http.Server{server}, time.Second) }()
 	select {
 	case err := <-shutdownResult:
 		t.Fatalf("shutdown returned before active request drained: %v", err)
@@ -73,7 +73,7 @@ func TestShutdownServerCancelsRequestAfterDeadline(t *testing.T) {
 		}
 	}()
 	<-started
-	err = shutdownServer(server, 25*time.Millisecond)
+	err = shutdownServers([]*http.Server{server}, 25*time.Millisecond)
 	if !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("unexpected shutdown result %v", err)
 	}

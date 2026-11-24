@@ -38,7 +38,7 @@ func newProfileTestRoutes(t *testing.T, spy *profileFileSpy) *routeTable {
 	if err != nil {
 		t.Fatal(err)
 	}
-	admin := newSecurityAdmin(SecurityConfig{Credentials: live, Profile: spy.control()})
+	admin := newSecurityAdmin(SecurityConfig{Credentials: live, Profile: spy.control()}, "local")
 	return newRouteTable(func(http.ResponseWriter, *http.Request) bool { return true }, admin.routes())
 }
 

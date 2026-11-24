@@ -15,10 +15,19 @@ type CertificateImport struct {
 	Kind           Kind
 	CertificatePEM string
 	PrivateKeyPEM  string
+	Source         string
+}
+
+func (request CertificateImport) source() string {
+	if request.Source == "" {
+		return SourceSupplied
+	}
+	return request.Source
 }
 
 type validatedCertificate struct {
 	name           string
+	source         string
 	kind           Kind
 	chain          []*x509.Certificate
 	privateKey     crypto.Signer
@@ -42,7 +51,7 @@ func validateImport(request CertificateImport, now time.Time) (validatedCertific
 	if now.After(chain[0].NotAfter) || now.Before(chain[0].NotBefore) {
 		return validatedCertificate{}, inputError("certificate is outside its validity period (%s to %s)", chain[0].NotBefore.UTC().Format(time.RFC3339), chain[0].NotAfter.UTC().Format(time.RFC3339))
 	}
-	validated := validatedCertificate{name: name, kind: kind, chain: chain}
+	validated := validatedCertificate{name: name, kind: kind, chain: chain, source: request.source()}
 	if err := validated.attachPrivateKey(request.PrivateKeyPEM); err != nil {
 		return validatedCertificate{}, err
 	}
@@ -54,7 +63,7 @@ func validateImport(request CertificateImport, now time.Time) (validatedCertific
 }
 
 func (validated *validatedCertificate) attachPrivateKey(privateKeyPEM string) error {
-	keyRequired := kindHoldsPrivateKey(validated.kind)
+	keyRequired := validated.kind.holdsPrivateKey()
 	if strings.TrimSpace(privateKeyPEM) == "" {
 		if keyRequired {
 			return inputError("%s certificates require their private key", validated.kind)
@@ -90,6 +99,13 @@ func (validated *validatedCertificate) checkKindRules() error {
 		if !allowsMutualTLS(leaf) {
 			return inputError("%s certificates must allow both server and client authentication", validated.kind)
 		}
+	case KindAPICertificate:
+		if leaf.IsCA {
+			return inputError("API certificates must be leaf certificates, not certificate authorities")
+		}
+		if !allowsServerAuthentication(leaf) {
+			return inputError("API certificates must allow server authentication")
+		}
 	case KindAuthority, KindTrustedAuthority:
 		if !leaf.IsCA {
 			return inputError("%s certificates must be certificate authorities", validated.kind)
@@ -102,20 +118,21 @@ func (validated *validatedCertificate) checkKindRules() error {
 }
 
 func (validated *validatedCertificate) storedChain() []*x509.Certificate {
-	if validated.kind == KindIdentity {
+	if validated.kind.Activatable() {
 		return validated.chain
 	}
 	return validated.chain[:1]
 }
 
 func allowsMutualTLS(certificate *x509.Certificate) bool {
-	usages := certificate.ExtKeyUsage
-	if len(usages) == 0 || slices.Contains(usages, x509.ExtKeyUsageAny) {
-		return true
-	}
-	return slices.Contains(usages, x509.ExtKeyUsageServerAuth) && slices.Contains(usages, x509.ExtKeyUsageClientAuth)
+	return allowsUsage(certificate, x509.ExtKeyUsageServerAuth) && allowsUsage(certificate, x509.ExtKeyUsageClientAuth)
 }
 
-func kindHoldsPrivateKey(kind Kind) bool {
-	return kind == KindIdentity || kind == KindAuthority
+func allowsServerAuthentication(certificate *x509.Certificate) bool {
+	return allowsUsage(certificate, x509.ExtKeyUsageServerAuth)
+}
+
+func allowsUsage(certificate *x509.Certificate, usage x509.ExtKeyUsage) bool {
+	usages := certificate.ExtKeyUsage
+	return len(usages) == 0 || slices.Contains(usages, x509.ExtKeyUsageAny) || slices.Contains(usages, usage)
 }

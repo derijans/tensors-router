@@ -71,17 +71,18 @@ type ModelAssetSubstitutionRequest struct {
 }
 
 type NodeInventory struct {
-	NodeID       string                 `json:"node_id"`
-	NodeURL      string                 `json:"node_url,omitempty"`
-	Source       string                 `json:"source"`
-	Role         string                 `json:"role"`
-	BackendMode  string                 `json:"backend_mode"`
-	Available    bool                   `json:"available"`
-	Hardware     hardware.Info          `json:"hardware"`
-	Models       []cluster.Model        `json:"models"`
-	Files        []inventory.FileRecord `json:"files"`
-	BuildVersion string                 `json:"build_version,omitempty"`
-	Error        string                 `json:"error,omitempty"`
+	NodeID         string                 `json:"node_id"`
+	NodeURL        string                 `json:"node_url,omitempty"`
+	Source         string                 `json:"source"`
+	Role           string                 `json:"role"`
+	BackendMode    string                 `json:"backend_mode"`
+	Available      bool                   `json:"available"`
+	Hardware       hardware.Info          `json:"hardware"`
+	Models         []cluster.Model        `json:"models"`
+	Files          []inventory.FileRecord `json:"files"`
+	BuildVersion   string                 `json:"build_version,omitempty"`
+	APICertificate *APICertificateState   `json:"api_certificate,omitempty"`
+	Error          string                 `json:"error,omitempty"`
 }
 
 type NodeState struct {

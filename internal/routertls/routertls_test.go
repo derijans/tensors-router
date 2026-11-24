@@ -75,13 +75,18 @@ func (router *testRouter) publicPEM(t *testing.T, reference string) string {
 
 func (router *testRouter) serve(t *testing.T) {
 	t.Helper()
+	router.serveAs(t, SharedListener)
+}
+
+func (router *testRouter) serveAs(t *testing.T, role ListenerRole) {
+	t.Helper()
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
 	server := &http.Server{
 		ReadHeaderTimeout: 5 * time.Second,
-		TLSConfig:         router.runtime.ServerConfig(),
+		TLSConfig:         router.runtime.ListenerConfig(role),
 		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !auth.ClusterPeerAccepted(r) {
 				w.WriteHeader(http.StatusUnauthorized)
@@ -216,4 +221,57 @@ func servedFingerprint(t *testing.T, router *testRouter) string {
 	_ = response.Body.Close()
 	sum := sha256.Sum256(response.TLS.PeerCertificates[0].Raw)
 	return hex.EncodeToString(sum[:])
+}
+
+func (router *testRouter) importAPICertificate(t *testing.T) credentialstore.Certificate {
+	t.Helper()
+	ctx := context.Background()
+	authority, err := router.store.CreateAuthority(ctx, "public-ca")
+	if err != nil {
+		t.Fatal(err)
+	}
+	issued, err := router.store.IssueIdentity(ctx, authority.ID, "api", []string{"127.0.0.1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	certificate, err := router.store.ImportCertificate(ctx, credentialstore.CertificateImport{
+		Name: "api", Kind: credentialstore.KindAPICertificate, CertificatePEM: issued.CertificatePEM, PrivateKeyPEM: issued.PrivateKeyPEM,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := router.store.Activate(ctx, certificate.ID); err != nil {
+		t.Fatal(err)
+	}
+	router.refresh(t)
+	return certificate
+}
+
+func TestAPIListenerServesTheAPICertificateAndClusterListenerTheIdentity(t *testing.T) {
+	server := newTestRouter(t)
+	identity := server.generateIdentity(t, "server")
+	if server.runtime.APIListenerServesTLS(false) {
+		t.Fatal("API listener without an API certificate must stay plain HTTP when identity fallback is off")
+	}
+	api := server.importAPICertificate(t)
+
+	server.serveAs(t, APIListener)
+	if served := servedFingerprint(t, server); served != api.Fingerprint {
+		t.Fatalf("API listener served %s, want API certificate %s", served, api.Fingerprint)
+	}
+	server.serveAs(t, ClusterListener)
+	if served := servedFingerprint(t, server); served != identity.Fingerprint {
+		t.Fatalf("cluster listener served %s, want identity %s", served, identity.Fingerprint)
+	}
+}
+
+func TestClusterListenerRefusesHandshakeWithoutClientCertificate(t *testing.T) {
+	server, anonymous := newTestRouter(t), newTestRouter(t)
+	server.generateIdentity(t, "server")
+	anonymous.trust(t, credentialstore.KindPinnedPeer, "server", server.publicPEM(t, "server"))
+	server.serveAs(t, ClusterListener)
+
+	if _, err := call(anonymous, server.url); err == nil {
+		t.Fatal("cluster listener completed a handshake with a client that has no certificate")
+	}
 }

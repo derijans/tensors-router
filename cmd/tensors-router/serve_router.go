@@ -65,7 +65,7 @@ func (runtime *serveRuntime) serviceConfig(fileRoots []string, shutdownRequested
 			"llama-server":   cfg.Llama.BinaryPath,
 			"sd-server":      cfg.SDCPP.BinaryPath,
 			"whisper-server": cfg.WhisperCPP.BinaryPath,
-			"vllm":           vllmBinaryPathForState(runtime.configPath, cfg.VLLM.BinaryLocation),
+			"vllm":           vllmBinaryPathForState(runtime.arguments.configPath, cfg.VLLM.BinaryLocation),
 		},
 		RecipeStore:               stores.recipes,
 		BenchmarkStore:            stores.benchmarks,
@@ -108,7 +108,7 @@ func (runtime *serveRuntime) serviceConfig(fileRoots []string, shutdownRequested
 		Security: proxy.SecurityConfig{
 			Credentials:          runtime.credentials.live,
 			DefaultIdentityHosts: defaultIdentityHosts(cfg),
-			ListenerTLS:          runtime.credentials.listenerTLS,
+			Listeners:            runtime.securityListeners(),
 			Profile:              runtime.securityProfileControl(),
 		},
 	}

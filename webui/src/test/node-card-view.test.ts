@@ -53,6 +53,17 @@ describe("node card", () => {
     expect(renderNodeCard(node, context({clusterBuildVersion: "v0.7.2"}))).toContain('class="badge tone-warning">unknown build ≠ v0.7.2</span>');
   });
 
+  it("warns about a missing or soon-expiring API certificate and stays quiet otherwise", () => {
+    const dayMilliseconds = 24 * 60 * 60 * 1000;
+    const inDays = (days: number): string => new Date(Date.now() + days * dayMilliseconds).toISOString();
+
+    expect(renderNodeCard({...node, api_certificate: {present: false}}, context())).toContain('class="badge tone-warning">No API certificate</span>');
+    expect(renderNodeCard({...node, api_certificate: {present: true, not_after: inDays(5.5)}}, context())).toContain('class="badge tone-warning">API certificate expires in 5 d</span>');
+    expect(renderNodeCard({...node, api_certificate: {present: true, not_after: inDays(-1)}}, context())).toContain('class="badge tone-danger">API certificate expired</span>');
+    expect(renderNodeCard({...node, api_certificate: {present: true, not_after: inDays(400)}}, context())).not.toContain("API certificate");
+    expect(renderNodeCard(node, context())).not.toContain("API certificate");
+  });
+
   it("shows a node as down when unavailable", () => {
     const html = renderNodeCard({...node, available: false}, context());
 

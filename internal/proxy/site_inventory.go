@@ -38,16 +38,17 @@ func (service *Service) localNodeInventory(ctx context.Context, includeFiles boo
 		service.logger.Printf("model file inventory scan completed roots=%d files=%d elapsed=%s", len(service.assets.fileRoots), len(files), time.Since(started))
 	}
 	return siteapi.NodeInventory{
-		NodeID:       service.nodeID,
-		NodeURL:      service.nodeURL,
-		Source:       service.localSource(),
-		Role:         service.clusterRole,
-		BackendMode:  service.backendMode,
-		Available:    true,
-		Hardware:     service.hardware.Info(ctx),
-		Models:       models,
-		Files:        files,
-		BuildVersion: buildinfo.Current().Version,
+		NodeID:         service.nodeID,
+		NodeURL:        service.nodeURL,
+		Source:         service.localSource(),
+		Role:           service.clusterRole,
+		BackendMode:    service.backendMode,
+		Available:      true,
+		Hardware:       service.hardware.Info(ctx),
+		Models:         models,
+		Files:          files,
+		BuildVersion:   buildinfo.Current().Version,
+		APICertificate: service.security.reportedAPICertificate(ctx),
 	}, nil
 }
 

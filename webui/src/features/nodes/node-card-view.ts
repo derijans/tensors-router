@@ -12,6 +12,7 @@ import { laneAccent } from "../../domain/lanes";
 import { errorText, mutedText } from "../../ui/text";
 import { iconButton, linkButton } from "../../ui/buttons";
 import { lookupOr } from "../../lib/collections";
+import { apiCertificateWarning } from "../security/security-api-certificate-data";
 
 export type NodeCardPlacement = "overview" | "nodes";
 
@@ -62,7 +63,8 @@ export function renderNodeCard(node: NodeInventory, context: NodeCardContext): S
         badge(node.backend_mode || "unknown", "info"),
         badge(`${node.hardware.gpu_backend || "unknown"} gpu`, "neutral"),
         badge(`${node.hardware.max_threads || "?"} threads`, "neutral"),
-        renderBuildVersion(node, context.clusterBuildVersion)
+        renderBuildVersion(node, context.clusterBuildVersion),
+        renderApiCertificateWarning(node, new Date())
       ])}
       ${node.error ? errorText(node.error) : emptyHTML}
       ${renderMemory(context.snapshot)}
@@ -85,6 +87,11 @@ function renderBuildVersion(node: NodeInventory, buildVersion: string): SafeHTML
   const version = node.build_version || "unknown build";
   const mismatched = buildVersion !== "" && node.build_version !== buildVersion;
   return mismatched ? badge(`${version} ≠ ${buildVersion}`, "warning") : badge(version, "neutral");
+}
+
+function renderApiCertificateWarning(node: NodeInventory, now: Date): SafeHTML {
+  const warning = apiCertificateWarning(node.api_certificate, now);
+  return warning ? badge(warning.label, warning.tone) : emptyHTML;
 }
 
 function renderMemory(snapshot: NodeState | null): SafeHTML {

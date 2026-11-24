@@ -9,8 +9,8 @@ import (
 
 func (runtime *serveRuntime) startCompanions(ctx context.Context) {
 	logger := runtime.startupLogger
-	runtime.downloader, runtime.downloaderCapability = optionalDownloader(runtime.configPath, runtime.cfg.Downloader, logger)
-	runtime.vllm, runtime.vllmUnavailableReason = optionalVLLMCompanion(ctx, runtime.configPath, runtime.cfg.VLLM, logger)
+	runtime.downloader, runtime.downloaderCapability = optionalDownloader(runtime.arguments.configPath, runtime.cfg.Downloader, logger)
+	runtime.vllm, runtime.vllmUnavailableReason = optionalVLLMCompanion(ctx, runtime.arguments.configPath, runtime.cfg.VLLM, logger)
 	if runtime.vllmUnavailableReason != "" {
 		logger.Printf("vLLM companion unavailable reason=%q", runtime.vllmUnavailableReason)
 	}

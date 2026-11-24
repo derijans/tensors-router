@@ -14,11 +14,12 @@ type storedCertificate struct {
 	certificatePEM string
 	privateKeyPEM  string
 	active         bool
+	source         string
 	createdAt      time.Time
 }
 
 func (store *Store) storedCertificates(ctx context.Context) ([]storedCertificate, error) {
-	rows, err := store.handle.Reader().QueryContext(ctx, `SELECT id, name, kind, certificate_pem, COALESCE(private_key_pem, ''), active, created_at
+	rows, err := store.handle.Reader().QueryContext(ctx, `SELECT id, name, kind, certificate_pem, COALESCE(private_key_pem, ''), active, source, created_at
 		FROM credential_certificates ORDER BY kind, name`)
 	if err != nil {
 		return nil, err
@@ -28,7 +29,7 @@ func (store *Store) storedCertificates(ctx context.Context) ([]storedCertificate
 	for rows.Next() {
 		var entry storedCertificate
 		var createdAt int64
-		if err := rows.Scan(&entry.id, &entry.name, &entry.kind, &entry.certificatePEM, &entry.privateKeyPEM, &entry.active, &createdAt); err != nil {
+		if err := rows.Scan(&entry.id, &entry.name, &entry.kind, &entry.certificatePEM, &entry.privateKeyPEM, &entry.active, &entry.source, &createdAt); err != nil {
 			return nil, err
 		}
 		entry.createdAt = time.Unix(createdAt, 0).UTC()
@@ -59,6 +60,7 @@ func describeCertificate(entry storedCertificate) (Certificate, error) {
 		NotBefore:   leaf.NotBefore.UTC(),
 		NotAfter:    leaf.NotAfter.UTC(),
 		Active:      entry.active,
+		Source:      entry.source,
 		CreatedAt:   entry.createdAt,
 	}, nil
 }

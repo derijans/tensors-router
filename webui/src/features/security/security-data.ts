@@ -1,11 +1,23 @@
-import type { SecurityCertificate, SecurityCertificateKind, SecurityStatus, SecurityToken, SecurityTokenRole, Tone } from "../../types";
+import type {
+  SecurityCertificate,
+  SecurityCertificateKind,
+  SecurityListener,
+  SecurityRequestKind,
+  SecurityStatus,
+  SecurityTarget,
+  SecurityToken,
+  SecurityTokenRole,
+  Tone
+} from "../../types";
 
 const dayMilliseconds = 24 * 60 * 60 * 1000;
-const expiryWarningDays = 30;
+export const expiryWarningDays = 30;
 
 export const tokenRoles: readonly SecurityTokenRole[] = ["inference", "admin", "metrics", "cluster"];
 
-export const importableKinds: readonly SecurityCertificateKind[] = ["identity", "authority", "trusted_authority", "pinned_peer"];
+export const importableKinds: readonly SecurityCertificateKind[] = ["api_certificate", "identity", "authority", "trusted_authority", "pinned_peer"];
+
+export const requestKinds: readonly SecurityRequestKind[] = ["identity", "api_certificate"];
 
 const roleLabels: Record<SecurityTokenRole, string> = {
   inference: "Inference",
@@ -18,14 +30,16 @@ const kindLabels: Record<SecurityCertificateKind, string> = {
   identity: "Router identity",
   authority: "Local CA",
   trusted_authority: "Trusted CA",
-  pinned_peer: "Pinned peer"
+  pinned_peer: "Pinned peer",
+  api_certificate: "API certificate"
 };
 
 const kindOrder: Record<SecurityCertificateKind, number> = {
-  identity: 0,
-  authority: 1,
-  trusted_authority: 2,
-  pinned_peer: 3
+  api_certificate: 0,
+  identity: 1,
+  authority: 2,
+  trusted_authority: 3,
+  pinned_peer: 4
 };
 
 export interface ExpiryStatus {
@@ -51,6 +65,10 @@ export function isCertificateKind(value: string): value is SecurityCertificateKi
   return (importableKinds as readonly string[]).includes(value);
 }
 
+export function isRequestKind(value: string): value is SecurityRequestKind {
+  return (requestKinds as readonly string[]).includes(value);
+}
+
 export function roleLabel(role: SecurityTokenRole): string {
   return roleLabels[role];
 }
@@ -73,6 +91,10 @@ export function authorities(certificates: readonly SecurityCertificate[]): Secur
   return certificates.filter(certificate => certificate.kind === "authority");
 }
 
+export function trustableAuthorities(certificates: readonly SecurityCertificate[]): SecurityCertificate[] {
+  return certificates.filter(certificate => certificate.kind === "authority" || certificate.kind === "trusted_authority");
+}
+
 export function certificateHosts(certificate: SecurityCertificate): string[] {
   return [...certificate.dns_names, ...certificate.ip_addresses];
 }
@@ -81,8 +103,12 @@ export function shortFingerprint(fingerprint: string): string {
   return fingerprint.slice(0, 16).replace(/(.{4})(?=.)/g, "$1:");
 }
 
+export function daysUntilExpiry(notAfter: string, now: Date): number {
+  return Math.floor((new Date(notAfter).getTime() - now.getTime()) / dayMilliseconds);
+}
+
 export function expiryStatus(notAfter: string, now: Date): ExpiryStatus {
-  const remainingDays = Math.floor((new Date(notAfter).getTime() - now.getTime()) / dayMilliseconds);
+  const remainingDays = daysUntilExpiry(notAfter, now);
   if (remainingDays < 0) {
     return {label: "Expired", tone: "danger"};
   }
@@ -92,36 +118,65 @@ export function expiryStatus(notAfter: string, now: Date): ExpiryStatus {
   return {label: new Date(notAfter).toLocaleDateString(), tone: "neutral"};
 }
 
-export function canRevealSecret(token: SecurityToken): boolean {
-  return token.role === "cluster";
+export function canRevealSecret(token: SecurityToken, target: SecurityTarget): boolean {
+  return token.role === "cluster" && target.scope === "local";
 }
 
 export function canActivate(certificate: SecurityCertificate): boolean {
-  return certificate.kind === "identity" && !certificate.active;
+  return isActivatableKind(certificate.kind) && !certificate.active;
 }
 
-export function canIssue(certificate: SecurityCertificate): boolean {
-  return certificate.kind === "authority";
+export function isActivatableKind(kind: SecurityCertificateKind): boolean {
+  return kind === "identity" || kind === "api_certificate";
+}
+
+export function canIssue(certificate: SecurityCertificate, target: SecurityTarget): boolean {
+  return certificate.kind === "authority" && target.scope === "local";
 }
 
 export function parseHosts(value: string): string[] {
   return value.split(/[\s,]+/).map(host => host.trim()).filter(host => host !== "");
 }
 
-export function listenerNotice(status: SecurityStatus | null): ListenerNotice {
+export function listenerNotices(status: SecurityStatus | null): ListenerNotice[] {
   if (!status) {
-    return {message: "", tone: "neutral"};
+    return [];
   }
-  if (status.restart_required && status.identity_active) {
-    return {message: "An identity is active but the router still serves plain HTTP. Restart the router to switch to HTTPS.", tone: "warning"};
+  const notices = status.listeners.map(listener => listenerNotice(listener, status));
+  if (status.api_certificate_active && status.listeners.some(listener => listener.name === "shared")) {
+    notices.push({message: "The API certificate is not served while cluster peers share this port. Set cluster.bind in config.yaml to give peers their own port, then restart.", tone: "warning"});
   }
-  if (status.restart_required) {
-    return {message: "No identity is active but the listener still uses HTTPS with the previous certificate. Restart the router to apply.", tone: "warning"};
+  return notices;
+}
+
+function listenerNotice(listener: SecurityListener, status: SecurityStatus): ListenerNotice {
+  const port = `${listenerLabels[listener.name]} ${listener.bind}`;
+  if (listener.restart_required) {
+    return {message: `${port}: restart the router to switch between HTTP and HTTPS.`, tone: "warning"};
   }
-  if (status.listener_tls) {
-    return {message: "HTTPS with mutual TLS for cluster peers is active.", tone: "success"};
+  if (!listener.tls) {
+    return {message: `${port}: plain HTTP. ${plainListenerAdvice[listener.name]}`, tone: "info"};
   }
-  return {message: "Plain HTTP. Activate a router identity so traffic between routers is encrypted.", tone: "info"};
+  return {message: `${port}: HTTPS with ${servedCertificate(listener, status)}.`, tone: "success"};
+}
+
+const listenerLabels: Record<SecurityListener["name"], string> = {
+  api: "API port",
+  cluster: "Cluster port",
+  shared: "Port"
+};
+
+const plainListenerAdvice: Record<SecurityListener["name"], string> = {
+  api: "Import and activate an API certificate so clients connect over HTTPS.",
+  cluster: "Activate a router identity so traffic between routers is encrypted.",
+  shared: "Activate a router identity so traffic between routers is encrypted."
+};
+
+function servedCertificate(listener: SecurityListener, status: SecurityStatus): string {
+  if (listener.name === "api") {
+    return status.api_certificate_active ? "the API certificate" : "the router identity";
+  }
+  return listener.name === "cluster" ? "mutual TLS for cluster peers" : "the router identity and mutual TLS for cluster peers";
 }
 
 export function profilePrompt(status: SecurityStatus | null, certificates: readonly SecurityCertificate[]): ProfilePrompt | null {
@@ -144,4 +199,8 @@ export function profilePrompt(status: SecurityStatus | null, certificates: reado
 export function pemFilename(name: string, suffix: string): string {
   const safeName = name.trim().replace(/[^A-Za-z0-9._-]+/g, "_") || "certificate";
   return `${safeName}${suffix}`;
+}
+
+export function pemBlob(content: string): Blob {
+  return new Blob([content], {type: "application/x-pem-file"});
 }

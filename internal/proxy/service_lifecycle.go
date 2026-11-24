@@ -98,7 +98,8 @@ func NewService(config ServiceConfig) *Service {
 		flush:       func(ctx context.Context) error { return service.analytics.store.Checkpoint(ctx) },
 		nodeID:      config.NodeID,
 	}
-	service.security = newSecurityAdmin(config.Security)
+	service.security = newSecurityAdmin(config.Security, config.NodeID)
+	service.securityNodes = newSecurityNodeRelay(service, config.Security.Credentials)
 	service.webUI = newWebUIProxy(service, service.analytics)
 	service.benchmarks = newBenchmarkRunner(service, config.BenchmarkStore, logger)
 	service.downloads = downloads.New(downloadDeps{service: service}, config.Downloader, config.DownloaderCapability)
@@ -121,7 +122,7 @@ func NewService(config ServiceConfig) *Service {
 	service.guardians = newGuardianDirectory(config.GuardianModels)
 	service.installStoredGuardianModels(context.Background())
 	service.reloadLendingSettings(context.Background())
-	service.routes = newRouteTable(service.requireClusterToken, service.controlRoutes(), service.siteRoutes(), service.nodeRoutes(), service.downloads.Routes(), service.benchmarks.routes(), service.assets.routes(), service.webUI.routes(), service.metricsRoutes(), service.memoryFitRoutes(), service.security.routes())
+	service.routes = newRouteTable(service.requireClusterToken, service.controlRoutes(), service.siteRoutes(), service.nodeRoutes(), service.downloads.Routes(), service.benchmarks.routes(), service.assets.routes(), service.webUI.routes(), service.metricsRoutes(), service.memoryFitRoutes(), service.security.routes(), service.security.nodeRoutes(), service.securityNodes.routes())
 	return service
 }
 

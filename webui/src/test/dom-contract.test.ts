@@ -43,3 +43,18 @@ describe("lending tab DOM contract", () => {
     expect(page).toContain('data-panel="lending"');
   });
 });
+
+describe("security tab DOM contract", () => {
+  it("renders the router picker as a select inside a section that starts hidden", () => {
+    expect(tagNameForID("securityNodeSelect")).toBe("select");
+    expect(page).toMatch(/<div id="securityNodePicker"[^>]*\bhidden\b/);
+  });
+
+  it.each(["securityTokenRows", "securityCertificateRows", "securityPendingKeyRows"])("renders #%s as a table body", id => {
+    expect(tagNameForID(id)).toBe("tbody");
+  });
+
+  it.each(["securityPushClusterTokenButton", "securityIssueFromMasterButton", "securityTrustMasterButton"])("starts the slave-only #%s hidden", id => {
+    expect(page).toMatch(new RegExp(`<button id="${id}"[^>]*\\bhidden\\b`));
+  });
+});

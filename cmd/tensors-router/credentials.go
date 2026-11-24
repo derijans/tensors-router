@@ -13,7 +13,7 @@ import (
 	"tensors-router/internal/credentialstore"
 )
 
-func openCredentialStore(ctx context.Context, cfg config.Config, logger *log.Logger) (*credentialstore.Store, error) {
+func openCredentialStore(ctx context.Context, cfg config.Config, logger *log.Logger, migratedAPICertificates ...credentialstore.APICertificateFiles) (*credentialstore.Store, error) {
 	store, err := credentialstore.Open(ctx, credentialstore.Config{
 		Path:           credentialstore.DefaultPath(cfg.Cluster.StoreDir),
 		BinaryVersion:  buildinfo.Current().Version,
@@ -31,7 +31,21 @@ func openCredentialStore(ctx context.Context, cfg config.Config, logger *log.Log
 	if imported > 0 {
 		logger.Printf("imported %d configured tokens into %s", imported, store.Path())
 	}
+	for _, files := range append([]credentialstore.APICertificateFiles{configuredAPICertificateFiles(cfg)}, migratedAPICertificates...) {
+		imported, err := store.ImportAPICertificateFilesOnce(ctx, files)
+		if err != nil {
+			logger.Printf("configuration warning: %s API certificate not imported, the router retries at next start: %v", files.Source, err)
+			continue
+		}
+		if imported {
+			logger.Printf("imported %s API certificate %s into %s", files.Source, files.CertFile, store.Path())
+		}
+	}
 	return store, nil
+}
+
+func configuredAPICertificateFiles(cfg config.Config) credentialstore.APICertificateFiles {
+	return credentialstore.APICertificateFiles{Source: "router-config", CertFile: cfg.Server.TLSCertFile, KeyFile: cfg.Server.TLSKeyFile}
 }
 
 func protectedTokenRoles(cfg config.Config) []credentialstore.Role {
@@ -56,6 +70,14 @@ func configuredCredentials(cfg config.Config) credentialstore.ConfiguredCredenti
 		MetricsKeys:   cfg.Auth.MetricsKeys,
 		ClusterToken:  cfg.Cluster.Token,
 	}
+}
+
+func ignoredCredentialSettingsWarnings(cfg config.Config) []string {
+	var warnings []string
+	if configuredAPICertificateFiles(cfg).Present() {
+		warnings = append(warnings, fmt.Sprintf("server.tls_cert_file and server.tls_key_file are ignored after the one-time import into %s; manage the API certificate in the WebUI Security tab and remove them from configuration", credentialstore.Filename))
+	}
+	return append(warnings, ignoredTokenSettingsWarning(cfg)...)
 }
 
 func ignoredTokenSettingsWarning(cfg config.Config) []string {
@@ -85,5 +107,18 @@ func defaultIdentityHosts(cfg config.Config) []string {
 	if publicURL, err := url.Parse(cfg.Cluster.PublicURL); err == nil && publicURL.Hostname() != "" {
 		hosts = append(hosts, publicURL.Hostname())
 	}
-	return hosts
+	return uniqueHosts(hosts)
+}
+
+func uniqueHosts(hosts []string) []string {
+	seen := map[string]bool{}
+	unique := make([]string, 0, len(hosts))
+	for _, host := range hosts {
+		key := strings.ToLower(host)
+		if !seen[key] {
+			seen[key] = true
+			unique = append(unique, host)
+		}
+	}
+	return unique
 }

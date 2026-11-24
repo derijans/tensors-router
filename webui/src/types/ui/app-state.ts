@@ -1,4 +1,4 @@
-import type { NodeMemoryFit, AnalyticsQuery, AnalyticsResponse, LoadCaptureAttempt, LoadCaptureDetailResponse, LoadCaptureListResponse, LoadCaptureOutputChunk, LoadCaptureQuery, LoadErrorRecord, BenchmarkRecord, BenchmarkSection, BenchmarkType, DownloadCapabilitiesResponse, DownloadLibraryResponse, DownloadPlan, InventoryResponse, NodeState, RouterProcessStatus, RoutingLane, RoutingLinksResponse, SecurityCertificate, SecurityStatus, SecurityToken, WebUICatalogResponse } from "../api";
+import type { NodeMemoryFit, AnalyticsQuery, AnalyticsResponse, LoadCaptureAttempt, LoadCaptureDetailResponse, LoadCaptureListResponse, LoadCaptureOutputChunk, LoadCaptureQuery, LoadErrorRecord, BenchmarkRecord, BenchmarkSection, BenchmarkType, DownloadCapabilitiesResponse, DownloadLibraryResponse, DownloadPlan, InventoryResponse, NodeState, RouterProcessStatus, RoutingLane, RoutingLinksResponse, SecuritySummary, WebUICatalogResponse } from "../api";
 import type { ModelColumnChoices } from "../../features/models/model-columns-data";
 import type { ConversionWarning, OperationStatus, OverviewPeriod } from "./common";
 import type { ConstructorDraft, CookMode, PaletteName, PalettePayload, SimpleCookDraft } from "./cook";
@@ -93,10 +93,9 @@ export interface AppState {
     action: string;
   };
   security: {
-    tokens: SecurityToken[];
-    certificates: SecurityCertificate[];
-    defaultHosts: string[];
-    status: SecurityStatus | null;
+    nodeID: string;
+    local: SecuritySummary | null;
+    remote: SecuritySummary | null;
     loading: boolean;
     error: string;
     action: string;

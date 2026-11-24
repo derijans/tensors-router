@@ -1,7 +1,6 @@
 package cluster
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -155,55 +154,22 @@ func (client *Client) JSONOperation(ctx context.Context, method string, baseURL 
 }
 
 func (client *Client) json(ctx context.Context, httpClient *http.Client, method string, baseURL string, path string, requestBody any, responseBody any) error {
-	target, err := client.joinedAllowedURL(baseURL, path)
-	if err != nil {
-		return err
-	}
-
-	var body io.Reader
+	var requestJSON []byte
 	if requestBody != nil {
 		content, err := json.Marshal(requestBody)
 		if err != nil {
 			return err
 		}
-		if int64(len(content)) > maxClusterJSONBytes {
-			return fmt.Errorf("cluster request body exceeds %d bytes", maxClusterJSONBytes)
-		}
-		body = bytes.NewReader(content)
+		requestJSON = content
 	}
-
-	request, err := http.NewRequestWithContext(ctx, method, target, body)
+	response, err := client.exchange(ctx, httpClient, method, baseURL, path, requestJSON)
 	if err != nil {
 		return err
-	}
-	if requestBody != nil {
-		request.Header.Set("Content-Type", "application/json")
-	}
-	client.setAuthorization(request)
-
-	response, err := httpClient.Do(request)
-	if err != nil {
-		return err
-	}
-	defer response.Body.Close()
-
-	if response.ContentLength > maxClusterJSONBytes {
-		return fmt.Errorf("cluster response body exceeds %d bytes", maxClusterJSONBytes)
-	}
-	content, err := io.ReadAll(io.LimitReader(response.Body, maxClusterJSONBytes+1))
-	if err != nil {
-		return err
-	}
-	if int64(len(content)) > maxClusterJSONBytes {
-		return fmt.Errorf("cluster response body exceeds %d bytes", maxClusterJSONBytes)
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return decodeRemoteError(response.StatusCode, content)
 	}
 	if responseBody == nil {
 		return nil
 	}
-	return json.Unmarshal(content, responseBody)
+	return json.Unmarshal(response.Body, responseBody)
 }
 
 func decodeRemoteError(statusCode int, body []byte) *RemoteError {

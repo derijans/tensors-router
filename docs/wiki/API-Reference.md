@@ -208,7 +208,8 @@ Standalone and master routers expose administration routes in these groups:
 - `GET /router/v1/site/load-errors` and `DELETE /router/v1/site/load-errors`
 - `/router/v1/site/cook/...` and `/router/v1/site/config-file/...`
 - `/router/v1/site/model-files/...` and `/router/v1/site/model-assets/...`
-- `/router/v1/site/security/...`: tokens and certificates of the router that answers (every role, not only masters). `GET status`; `POST profile` (rewrites `security.profile` in the router's `config.yaml` to `secure`; refused with 409 while the router could not start secure, while the profile comes from `--security-profile` or the environment, or when admin tokens exist and the request carries none; takes effect after a restart); `GET|POST tokens` (`{"name","role","value"}`; the secret is returned once); `DELETE tokens/{id}`; `GET tokens/{id}/secret` (cluster tokens only); `GET|POST certificates` (import `{"name","kind","certificate_pem","private_key_pem","activate"}`); `POST certificates/generate` (`{"name","hosts","activate"}`); `POST certificates/{id}/activate`; `GET certificates/{id}/pem`; `DELETE certificates/{id}[?force=true]`; `POST authorities` (`{"name"}`); `POST authorities/{id}/issue` (`{"name","hosts","install_locally","activate"}`). Private keys of stored certificates are never returned. See [Tokens and Certificates](Tokens-and-Certificates)
+- `/router/v1/site/security/...`: tokens and certificates of the router that answers (every role, not only masters). `GET status` (`identity_active`, `api_certificate_active`, `listeners` as a list of `{"name","bind","tls","restart_required"}` where `name` is `api`, `cluster` or `shared`, `profile`, `profile_restart_required`, and `secure_profile_blocker` when the router could not start with the secure profile); `POST profile` (rewrites `security.profile` in the router's `config.yaml` to `secure`; refused with 409 while the router could not start secure, while the profile comes from `--security-profile` or the environment, or when admin tokens exist and the request carries none; takes effect after a restart); `GET|POST tokens` (`{"name","role","value"}`; the secret is returned once); `DELETE tokens/{id}`; `GET tokens/{id}/secret` (cluster tokens only); `GET|POST certificates` (import `{"name","kind","certificate_pem","private_key_pem","activate"}`; `kind` is `api_certificate`, `identity`, `authority`, `trusted_authority` or `pinned_peer`); `POST certificates/generate` (`{"name","hosts","activate"}`); `POST certificates/{id}/activate` (identities and API certificates); `GET certificates/{id}/pem`; `DELETE certificates/{id}[?force=true]`; `POST authorities` (`{"name"}`); `POST authorities/{id}/issue` (`{"name","hosts","install_locally","activate"}`); `GET summary` (see [Security summary](#security-summary)); `POST csr` (`{"name","kind","hosts"}`, `kind` is `identity` or `api_certificate`; empty `hosts` uses the router's default identity hosts; returns `201` with the pending key); `DELETE csr/{id}`; `POST install` (`{"certificate_pem","activate"}`; installs a certificate signed for one of this router's pending keys and returns `201` with the certificate, source `supplied`). Every certificate carries `source` (`created`, `supplied`, `migrated`, `issued` or `master`). Private keys of stored certificates are never returned. See [Tokens and Certificates](Tokens-and-Certificates)
+- `/router/v1/site/security/nodes/{node_id}/...`: tokens and certificates of a slave, managed from the master. See [Security of slave nodes](#security-of-slave-nodes)
 
 `GET /router/v1/site/nodes/backends/launch-options?node_id={node_id}&backend_id=vllm` reports the persisted vLLM launch options for a node. `POST` to the same path with `{"node_id":"...","backend_id":"vllm","options":{"hf_hub_offline":true,"transformers_offline":true,"hf_datasets_offline":true}}` stores the selection and unloads running runtimes so the next load applies it. Both forms are answered by the owning node, and a master forwards them to it over the matching `/router/v1/node/backends/launch-options` route.
 
@@ -231,9 +232,60 @@ A request whose client disconnected before the backend answered is recorded with
 
 Failed analytics events carry `error_message` (the router's reason, with the backend's answer when there was one, at most 512 bytes) and `upstream_status` (the last HTTP status the backend answered). Every event carries `queue_wait_ms`, the time between the request arriving and the start of backend work. No request or prompt content is stored.
 
+Every node in `GET /router/v1/site/inventory` carries `api_certificate`: `{"present","name","source","not_after","fingerprint"}`, or `{"present":false}` when the node has no active API certificate. The field is omitted when the node's credential store is unavailable. A master includes the value each slave reports.
+
 The WebUI catalog, session toggle, model load, and proxied browser routes are described in [Backend WebUI Interfaces](Backend-WebUI-Interfaces).
 
-Slave nodes expose cluster-authenticated routes under `/router/v1/node/...` for registration, inference forwarding, model loading, inventory, configuration, assets, downloads, benchmarks, analytics, image backlog offloading, and backend WebUI access. These are internal coordination interfaces used by the master and `tensor-router-webui`, not stable inference APIs for normal clients.
+Slave nodes expose cluster-authenticated routes under `/router/v1/node/...` for registration, inference forwarding, model loading, inventory, configuration, assets, downloads, benchmarks, analytics, image backlog offloading, security, and backend WebUI access. These are internal coordination interfaces used by the master and `tensor-router-webui`, not stable inference APIs for normal clients.
+
+### Security summary
+
+`GET /router/v1/site/security/summary` returns the security state of the router that answers:
+
+```json
+{
+  "node_id": "slave-a",
+  "status": {"identity_active": true, "api_certificate_active": true, "listeners": [], "profile": "secure", "profile_restart_required": false},
+  "api_certificate": {"present": true, "name": "api", "source": "master", "not_after": "2027-11-24T10:00:00Z", "fingerprint": "..."},
+  "tokens": [],
+  "certificates": [],
+  "pending_keys": [],
+  "default_hosts": ["slave-a.lan", "192.168.1.20"]
+}
+```
+
+`status` is the `GET status` object. `api_certificate` is `{"present":false}` when no API certificate is active. `tokens` never contain secrets. Each pending key is `{"id","name","kind","dns_names","ip_addresses","request_pem","created_at"}`; its private key stays on the router. `default_hosts` are the host names and IP addresses suggested for new certificates.
+
+Credential errors use the usual error body: `400` for invalid input, including a signed certificate that matches no pending key, `404` for an unknown token, certificate or request, and `409` for a name already in use.
+
+### Security of slave nodes
+
+A slave serves its own security routes to the master under `/router/v1/node/security`. Like every node route, they require the cluster token, and a verified peer client certificate when the router serves HTTPS to its peers. When `cluster.bind` is set they are served only there.
+
+| Method and path | Result |
+| --- | --- |
+| `GET summary` | [Security summary](#security-summary) of the slave. |
+| `POST csr` | `{"name","kind","hosts"}`; `201` with the pending key. |
+| `DELETE csr/{id}` | `204`. |
+| `POST install` | `{"certificate_pem","activate"}`; `201` with the certificate, source `master`. |
+| `POST trust` | `{"name","kind","certificate_pem"}`, `kind` is `trusted_authority` or `pinned_peer`; `201` with the certificate. A body with a private key is refused. |
+| `POST certificates/generate` | `{"name","hosts","activate"}`; `201` with a self-signed identity whose key is made on the slave. |
+| `POST certificates/{id}/activate` | Same answer as the local route. |
+| `DELETE certificates/{id}[?force=true]` | `204`. |
+| `GET certificates/{id}/pem` | The public certificate PEM. |
+| `POST tokens` | `{"name","role","value"}`; `201` with `{"token","secret"}`. |
+| `DELETE tokens/{id}` | `204`. |
+| `POST cluster-token` | `{"name","value"}`; `{"token","created"}`, `201` when stored and `200` when the slave already held that secret. |
+
+No node route accepts or returns a private key.
+
+A master relays the same operations from `/router/v1/site/security/nodes/{node_id}/...`, so the WebUI never talks to a slave directly. These routes exist only on a master and answer `404` `not_found` on standalone routers and slaves. `GET summary`, `POST csr`, `DELETE csr/{id}`, `POST install`, `POST certificates/generate`, `POST certificates/{id}/activate`, `DELETE certificates/{id}[?force=true]`, `GET certificates/{id}/pem`, `POST tokens` and `DELETE tokens/{id}` pass through unchanged. Three routes differ:
+
+- `POST trust` also accepts `{"certificate_id"}` naming a CA or trusted CA stored on the master. The master sends that certificate's public PEM to the slave as a `trusted_authority`.
+- `POST cluster-token` takes an optional `{"name"}`. The master sends its own cluster token to the slave and answers `400` when it has none.
+- `POST issue` (`{"authority_id","kind","name","hosts","activate"}`, `kind` is `identity` or `api_certificate`) creates a certificate request on the slave, signs it with the master's CA, and installs the result on the slave with source `master`. Before signing, the master checks that the request names `name` and, when `hosts` is given, exactly those hosts; a mismatch answers `502`. It returns `201` with the certificate. When the check, signing or installing fails, the master deletes the request on the slave again. The private key never reaches the master.
+
+An unknown `node_id` answers `404`, an unreachable slave `502`. Errors from the slave are passed on with the slave's status and message.
 
 ## Metrics
 

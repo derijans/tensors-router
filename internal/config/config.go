@@ -34,6 +34,8 @@ type Config struct {
 type ServerConfig struct {
 	Bind         string
 	AllowedCIDRs []string
+	TLSCertFile  string
+	TLSKeyFile   string
 }
 
 type AuthConfig struct {
@@ -196,6 +198,7 @@ func (updates UpdatesConfig) WhisperCPPSource() BackendUpdateSource {
 type ClusterConfig struct {
 	Role            string
 	NodeID          string
+	Bind            string
 	PublicURL       string
 	MasterURL       string
 	SlaveURLs       []string

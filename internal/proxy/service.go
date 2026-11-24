@@ -164,6 +164,7 @@ type Service struct {
 	analytics                 *requestAnalytics
 	storeDownload             *storeDownload
 	security                  *securityAdmin
+	securityNodes             *securityNodeRelay
 	routingGroups             *routinggroups.Store
 	guardians                 *guardianDirectory
 	scheduler                 *scheduler

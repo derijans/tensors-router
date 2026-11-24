@@ -15,8 +15,10 @@ The parsers reject unknown sections and fields. Relative paths are resolved from
 | Field | Type or options | Example or default | Description |
 | --- | --- | --- | --- |
 | `security.profile` | String enum: `secure`, `trusted_lan` | `secure` | Selects authentication and network defaults. |
-| `server.bind` | String `host:port` | `127.0.0.1:8080` | Router HTTP listener. |
+| `server.bind` | String `host:port` | `127.0.0.1:8080` | Router listener. It serves API clients, and also cluster peers while `cluster.bind` is empty. See [API certificate and cluster port](Tokens-and-Certificates.md#api-certificate-and-cluster-port). |
 | `server.allowed_cidrs` | List of CIDR strings | Loopback and RFC 1918 ranges | Limits accepted client addresses before authentication. |
+| `server.tls_cert_file` | Path string | Empty | Migration only. Certificate chain imported once into the credential store as the API certificate `migrated-router-config`, then ignored with a startup warning. |
+| `server.tls_key_file` | Path string | Empty | Migration only. Private key for `server.tls_cert_file`, imported once with it. |
 
 ### Authentication
 
@@ -199,6 +201,7 @@ When updates are enabled, each selected backend needs either a direct binary URL
 | --- | --- | --- | --- |
 | `cluster.role` | String enum: `standalone`, `master`, `slave` | `standalone` | Selects the node's routing role. |
 | `cluster.node_id` | Nonempty string | `local` | Stable node identity. It must be unique in a cluster. |
+| `cluster.bind` | Empty or `host:port` string | Empty | Separate listener that serves only `/router/v1/node/...` to cluster peers and requires a verified client certificate. Allowed only for `master` and `slave`, and it must differ from `server.bind`. When set, `server.bind` serves everything else, and the cluster URLs must point at this port. Empty shares `server.bind`. |
 | `cluster.public_url` | Empty or absolute URL string | Empty | Reachable URL advertised by a slave. Required for a slave. A master may leave it empty and still serve asset transfers, because a slave falls back to its own `cluster.master_url`. |
 | `cluster.master_url` | Empty or absolute URL string | Empty | Master URL used by a slave. Required for a slave. |
 | `cluster.slave_urls` | List of absolute URL strings | `[]` | Slave URLs permitted and polled by a master. |
@@ -296,7 +299,7 @@ All size fields are positive integers. Replay and selector scan limits cannot ex
 | `server.backend_ui_bind` | String `host:port` | `127.0.0.1:8444` | Separate listener for proxied backend interfaces. It must differ from `server.bind`. |
 | `server.backend_ui_public_url` | Empty or HTTPS origin string | Empty | Browser-visible backend UI origin for NAT or reverse proxy use. Credentials, path, query, and fragment are rejected. |
 | `server.state_dir` | Path string | `./webui-state` | Stores generated certificates and WebUI state. |
-| `server.cert_file` | Path string | Empty | TLS certificate file. Empty uses a generated certificate. |
+| `server.cert_file` | Path string | Empty | TLS certificate file. Empty uses a generated certificate. A managed router (empty `router.url`) imports it and `server.key_file` once as the API certificate `migrated-webui`. While the router has an active API certificate, the WebUI serves that certificate instead. |
 | `server.key_file` | Path string | Empty | TLS private-key file. It must be configured with `cert_file`. |
 | `server.cert_hosts` | List of host or IP strings | `[]` | Extra names and addresses added to a generated certificate. |
 | `server.admin_token` | String | Empty | WebUI login credential. Required for a secure non-loopback bind and rejected when it is a placeholder. |

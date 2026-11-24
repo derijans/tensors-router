@@ -74,10 +74,10 @@ Streaming uses server-sent events. Disable response buffering and allow timeouts
 
 If the router is mounted under a path prefix, strip that prefix before forwarding.
 
-Terminate public TLS at the reverse proxy. Keep the router on loopback or a private interface and apply authentication at both layers when the deployment requires it.
+Terminate public TLS at the reverse proxy, or let the router serve an API certificate on its API port (see [Tokens and Certificates](Tokens-and-Certificates.md#api-certificate-and-cluster-port)). Keep the router on loopback or a private interface and apply authentication at both layers when the deployment requires it.
 
 ## WebUI certificates
 
-The WebUI serves HTTPS directly. Configure certificate files for a trusted certificate, or allow it to generate a local self-signed certificate.
+The WebUI serves HTTPS directly. When it manages its router, it serves the router's active API certificate; see [Tokens and Certificates](Tokens-and-Certificates.md#webui-listener). Without an active API certificate, or with an external router, configure certificate files for a trusted certificate, or allow it to generate a local self-signed certificate.
 
 Use `server.cert_hosts` for browser-facing names or addresses that cannot be inferred from local interfaces. Use `server.backend_ui_public_url` when the backend UI listener has a different external origin due to NAT or proxying.

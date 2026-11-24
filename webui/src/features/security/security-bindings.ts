@@ -1,38 +1,61 @@
 import { elementTarget } from "../../lib/dom";
 import { runTask } from "../shell/tasks";
-import { activateCertificate, deleteCertificate, deleteToken, downloadCertificate, switchToSecureProfile } from "./security";
+import { selectSecurityNode, switchToSecureProfile } from "./security";
 import {
-  closeSecurityDialog,
-  copyDisplayedSecret,
-  downloadIssuedPart,
+  activateCertificate,
+  deleteCertificate,
+  deleteCertificateRequest,
+  deleteToken,
+  downloadCertificate,
+  downloadCertificateRequest
+} from "./security-actions";
+import {
   openAuthorityForm,
+  openCertificateRequestForm,
   openGenerateIdentityForm,
   openImportCertificateForm,
+  openInstallSignedForm,
   openIssueForm,
+  openMasterIssueForm,
   openTokenForm,
-  revealClusterSecret,
-  submitSecurityForm
+  openTrustMasterForm,
+  revealClusterSecret
 } from "./security-dialog";
+import { bindSecurityDialog, securityGroup } from "./security-dialog-bindings";
 import { securityElements } from "./security-elements";
-
-const securityGroup = "security";
+import { pushClusterTokenToNode } from "./security-node-actions";
 
 export function bindSecurity(): void {
+  securityElements.nodeSelect.addEventListener("change", () => {
+    const nodeID = securityElements.nodeSelect.value;
+    runTask(() => selectSecurityNode(nodeID), "security-node", securityGroup, "Loading security…");
+  });
   securityElements.createTokenButton.addEventListener("click", openTokenForm);
+  securityElements.pushClusterTokenButton.addEventListener("click", () => {
+    runTask(pushClusterTokenToNode, "security-cluster-token", securityGroup, "Sending cluster token…");
+  });
   securityElements.generateIdentityButton.addEventListener("click", openGenerateIdentityForm);
   securityElements.importCertificateButton.addEventListener("click", openImportCertificateForm);
   securityElements.createAuthorityButton.addEventListener("click", openAuthorityForm);
+  securityElements.issueFromMasterButton.addEventListener("click", openMasterIssueForm);
+  securityElements.trustMasterButton.addEventListener("click", openTrustMasterForm);
+  securityElements.createRequestButton.addEventListener("click", openCertificateRequestForm);
+  securityElements.installSignedButton.addEventListener("click", openInstallSignedForm);
   securityElements.secureProfileButton.addEventListener("click", () => {
     runTask(switchToSecureProfile, "security-profile", securityGroup, "Switching profile…");
   });
   securityElements.tokenRows.addEventListener("click", handleTokenAction);
   securityElements.certificateRows.addEventListener("click", handleCertificateAction);
+  securityElements.pendingKeyRows.addEventListener("click", handlePendingKeyAction);
   bindSecurityDialog();
 }
 
+function clickedButtonData(event: Event): DOMStringMap {
+  return elementTarget(event)?.closest<HTMLElement>("button")?.dataset ?? {};
+}
+
 function handleTokenAction(event: Event): void {
-  const target = elementTarget(event)?.closest<HTMLElement>("button");
-  const {securityTokenReveal, securityTokenDelete, securityName = ""} = target?.dataset ?? {};
+  const {securityTokenReveal, securityTokenDelete, securityName = ""} = clickedButtonData(event);
   if (securityTokenReveal) {
     runTask(() => revealClusterSecret(securityTokenReveal), `security-reveal-${securityTokenReveal}`, securityGroup, "Loading cluster token…");
   } else if (securityTokenDelete) {
@@ -41,12 +64,11 @@ function handleTokenAction(event: Event): void {
 }
 
 function handleCertificateAction(event: Event): void {
-  const target = elementTarget(event)?.closest<HTMLElement>("button");
-  const data = target?.dataset ?? {};
+  const data = clickedButtonData(event);
   const name = data.securityName ?? "";
   if (data.securityCertificateActivate) {
     const id = data.securityCertificateActivate;
-    runTask(() => activateCertificate(id, name), `security-certificate-${id}`, securityGroup, "Activating identity…");
+    runTask(() => activateCertificate(id, name), `security-certificate-${id}`, securityGroup, "Activating certificate…");
   } else if (data.securityAuthorityIssue) {
     openIssueForm(data.securityAuthorityIssue, name);
   } else if (data.securityCertificateDownload) {
@@ -58,29 +80,11 @@ function handleCertificateAction(event: Event): void {
   }
 }
 
-function bindSecurityDialog(): void {
-  securityElements.dialog.addEventListener("cancel", event => {
-    event.preventDefault();
-    closeSecurityDialog();
-  });
-  securityElements.dialog.addEventListener("submit", event => {
-    const form = elementTarget(event)?.closest("form");
-    if (form) {
-      event.preventDefault();
-      runTask(() => submitSecurityForm(form), "security-dialog", securityGroup, "Saving…");
-    }
-  });
-  securityElements.dialog.addEventListener("click", event => {
-    const target = elementTarget(event)?.closest<HTMLElement>("button");
-    if (!target) {
-      return;
-    }
-    if (target.dataset.securityDialogClose !== undefined) {
-      closeSecurityDialog();
-    } else if (target.dataset.securityCopySecret !== undefined) {
-      runTask(copyDisplayedSecret, "security-copy", securityGroup, "Copying…");
-    } else if (target.dataset.securityDownload) {
-      downloadIssuedPart(target.dataset.securityDownload);
-    }
-  });
+function handlePendingKeyAction(event: Event): void {
+  const {securityRequestDownload, securityRequestDelete, securityName = ""} = clickedButtonData(event);
+  if (securityRequestDownload) {
+    downloadCertificateRequest(securityRequestDownload);
+  } else if (securityRequestDelete) {
+    runTask(() => deleteCertificateRequest(securityRequestDelete, securityName), `security-request-${securityRequestDelete}`, securityGroup, "Deleting request…");
+  }
 }

@@ -9,6 +9,9 @@ server:
     - "10.0.0.0/8"
     - "172.16.0.0/12"
     - "192.168.0.0/16"
+  # Imported once into the credential store as the API certificate, then ignored.
+  tls_cert_file: ""
+  tls_key_file: ""
 
 # Tokens live in store_dir/credentials.sqlite and are managed with
 # `tensors-router security token` or the WebUI Security tab. Values below and
@@ -176,6 +179,9 @@ downloader:
 cluster:
   role: "standalone"
   node_id: "local"
+  # Separate listener for cluster peers with mutual TLS; point cluster URLs at
+  # this port. Empty shares server.bind.
+  bind: ""
   public_url: ""
   master_url: ""
   slave_urls: []

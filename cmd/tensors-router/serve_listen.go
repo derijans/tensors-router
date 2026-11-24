@@ -22,26 +22,16 @@ func (runtime *serveRuntime) serve(ctx context.Context, authPolicy *auth.Policy,
 	router.StartIdleUnloads(ctx)
 	syncErrors := routercluster.StartSync(ctx, syncConfig, runtime.registry, runtime.clusterProbeClient, runtime.logger)
 
-	server := &http.Server{
-		Addr:              runtime.cfg.Server.Bind,
-		Handler:           authPolicy.Middleware(router),
-		ReadHeaderTimeout: 15 * time.Second,
-	}
-	listener, err := net.Listen("tcp", runtime.cfg.Server.Bind)
+	servers, listenerErrors, err := runtime.startListeners(authPolicy.Middleware(router))
 	if err != nil {
 		router.BeginDrain()
 		return err
 	}
-	runtime.startupLogger.Printf("listener ready address=%s tls=%t", listener.Addr(), runtime.credentials.listenerTLS)
-	listenerErrors := make(chan error, 1)
-	go func() {
-		listenerErrors <- runtime.serveListener(server, listener)
-	}()
 	runtime.backendStartup = startInBackground(ctx, runtime.logger, backendStartupSteps(runtime.cfg, runtime.backendFamilies, router), router.RecordLoadFailure)
 
 	serveErr := awaitServeEnd(ctx, shutdownRequested, listenerErrors, syncErrors)
 	router.BeginDrain()
-	drainErr := shutdownServer(server, runtime.cfg.Limits.DrainTimeout)
+	drainErr := shutdownServers(servers, runtime.cfg.Limits.DrainTimeout)
 	cleanupErr := runtime.close()
 	return errors.Join(serveErr, drainErr, cleanupErr)
 }
@@ -60,13 +50,43 @@ func awaitServeEnd(ctx context.Context, shutdownRequested <-chan struct{}, liste
 	return nil
 }
 
-func shutdownServer(server *http.Server, timeout time.Duration) error {
+func (runtime *serveRuntime) startListeners(handler http.Handler) ([]*http.Server, <-chan error, error) {
+	planned := runtime.credentials.listeners
+	listenerErrors := make(chan error, len(planned))
+	servers := make([]*http.Server, 0, len(planned))
+	for _, plan := range planned {
+		listener, err := net.Listen("tcp", plan.bind)
+		if err != nil {
+			return nil, nil, errors.Join(err, closeServers(servers))
+		}
+		server := &http.Server{Addr: plan.bind, Handler: plan.routes(handler), ReadHeaderTimeout: 15 * time.Second}
+		servers = append(servers, server)
+		runtime.startupLogger.Printf("listener ready name=%s address=%s tls=%t", plan.name, listener.Addr(), plan.tls)
+		go func() {
+			listenerErrors <- runtime.serveListener(server, listener, plan)
+		}()
+	}
+	return servers, listenerErrors, nil
+}
+
+func closeServers(servers []*http.Server) error {
+	var err error
+	for _, server := range servers {
+		err = errors.Join(err, server.Close())
+	}
+	return err
+}
+
+func shutdownServers(servers []*http.Server, timeout time.Duration) error {
 	shutdownContext, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	if err := server.Shutdown(shutdownContext); err != nil {
-		return errors.Join(err, server.Close())
+	var err error
+	for _, server := range servers {
+		if shutdownErr := server.Shutdown(shutdownContext); shutdownErr != nil {
+			err = errors.Join(err, shutdownErr, server.Close())
+		}
 	}
-	return nil
+	return err
 }
 
 func routerShutdownFunc(cfg config.Config, adminTokenStored bool, shutdownRequested chan<- struct{}) func() {
@@ -81,10 +101,10 @@ func routerShutdownFunc(cfg config.Config, adminTokenStored bool, shutdownReques
 	}
 }
 
-func (runtime *serveRuntime) serveListener(server *http.Server, listener net.Listener) error {
-	if !runtime.credentials.listenerTLS {
+func (runtime *serveRuntime) serveListener(server *http.Server, listener net.Listener, plan routerListener) error {
+	if !plan.tls {
 		return server.Serve(listener)
 	}
-	server.TLSConfig = runtime.credentials.tls.ServerConfig()
+	server.TLSConfig = runtime.credentials.tls.ListenerConfig(plan.role)
 	return server.ServeTLS(listener, "", "")
 }

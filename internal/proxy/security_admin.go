@@ -8,49 +8,46 @@ import (
 
 	"tensors-router/internal/credentialstore"
 	"tensors-router/internal/openai"
-	"tensors-router/internal/proxy/routing"
 )
 
 const (
-	securityTokensPath       = "/router/v1/site/security/tokens"
-	securityCertificatesPath = "/router/v1/site/security/certificates"
-	securityAuthoritiesPath  = "/router/v1/site/security/authorities"
-	securityStatusPath       = "/router/v1/site/security/status"
+	securitySitePath         = "/router/v1/site/security"
+	securityNodePath         = "/router/v1/node/security"
+	securityTokensPath       = securitySitePath + "/tokens"
+	securityCertificatesPath = securitySitePath + "/certificates"
+	securityAuthoritiesPath  = securitySitePath + "/authorities"
+	securityStatusPath       = securitySitePath + "/status"
 )
 
 type SecurityConfig struct {
 	Credentials          *credentialstore.Live
 	DefaultIdentityHosts []string
-	ListenerTLS          bool
+	Listeners            []SecurityListener
 	Profile              SecurityProfileControl
 }
 
+type SecurityListener struct {
+	Name     string
+	Bind     string
+	TLS      bool
+	WantsTLS func() bool
+}
+
 type securityAdmin struct {
+	nodeID               string
 	credentials          *credentialstore.Live
 	defaultIdentityHosts []string
-	listenerTLS          bool
+	listeners            []SecurityListener
 	profile              *securityProfile
 }
 
-func newSecurityAdmin(config SecurityConfig) *securityAdmin {
+func newSecurityAdmin(config SecurityConfig, nodeID string) *securityAdmin {
 	return &securityAdmin{
+		nodeID:               nodeID,
 		credentials:          config.Credentials,
 		defaultIdentityHosts: append([]string{}, config.DefaultIdentityHosts...),
-		listenerTLS:          config.ListenerTLS,
+		listeners:            append([]SecurityListener{}, config.Listeners...),
 		profile:              newSecurityProfile(config.Profile),
-	}
-}
-
-func (admin *securityAdmin) routes() []routing.Route {
-	return []routing.Route{
-		routing.Exact(http.MethodGet, securityStatusPath, admin.guarded(admin.handleStatus)),
-		routing.Exact(http.MethodPost, securityProfilePath, admin.guarded(admin.handleSwitchToSecureProfile)),
-		routing.Exact(routing.AnyMethod, securityTokensPath, admin.guarded(admin.handleTokens)),
-		routing.Prefix(routing.AnyMethod, securityTokensPath+"/", admin.guarded(admin.handleToken)),
-		routing.Exact(routing.AnyMethod, securityCertificatesPath, admin.guarded(admin.handleCertificates)),
-		routing.Prefix(routing.AnyMethod, securityCertificatesPath+"/", admin.guarded(admin.handleCertificate)),
-		routing.Exact(http.MethodPost, securityAuthoritiesPath, admin.guarded(admin.handleCreateAuthority)),
-		routing.Prefix(http.MethodPost, securityAuthoritiesPath+"/", admin.guarded(admin.handleIssueIdentity)),
 	}
 }
 
@@ -70,20 +67,40 @@ func (admin *securityAdmin) store() *credentialstore.Store {
 }
 
 type securityStatusResponse struct {
-	ListenerTLS     bool `json:"listener_tls"`
-	IdentityActive  bool `json:"identity_active"`
-	RestartRequired bool `json:"restart_required"`
+	IdentityActive       bool                     `json:"identity_active"`
+	APICertificateActive bool                     `json:"api_certificate_active"`
+	Listeners            []securityListenerStatus `json:"listeners"`
 	securityProfileStatus
 }
 
+type securityListenerStatus struct {
+	Name            string `json:"name"`
+	Bind            string `json:"bind"`
+	TLS             bool   `json:"tls"`
+	RestartRequired bool   `json:"restart_required"`
+}
+
 func (admin *securityAdmin) handleStatus(w http.ResponseWriter, _ *http.Request) {
-	identityActive := admin.credentials.Current().TLSEnabled()
-	openai.WriteJSON(w, http.StatusOK, securityStatusResponse{
-		ListenerTLS:           admin.listenerTLS,
-		IdentityActive:        identityActive,
-		RestartRequired:       identityActive != admin.listenerTLS,
+	openai.WriteJSON(w, http.StatusOK, admin.status())
+}
+
+func (admin *securityAdmin) status() securityStatusResponse {
+	snapshot := admin.credentials.Current()
+	listeners := make([]securityListenerStatus, 0, len(admin.listeners))
+	for _, listener := range admin.listeners {
+		listeners = append(listeners, securityListenerStatus{
+			Name:            listener.Name,
+			Bind:            listener.Bind,
+			TLS:             listener.TLS,
+			RestartRequired: listener.WantsTLS != nil && listener.WantsTLS() != listener.TLS,
+		})
+	}
+	return securityStatusResponse{
+		IdentityActive:        snapshot.TLSEnabled(),
+		APICertificateActive:  snapshot.APICertificate != nil,
+		Listeners:             listeners,
 		securityProfileStatus: admin.profile.status(),
-	})
+	}
 }
 
 func (admin *securityAdmin) refreshAfterWrite(r *http.Request) error {

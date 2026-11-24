@@ -19,11 +19,10 @@ import (
 )
 
 type serveRuntime struct {
-	cfg               config.Config
-	configPath        string
-	profileOverridden bool
-	startupLogger     *log.Logger
-	logger            *log.Logger
+	cfg           config.Config
+	arguments     serveArguments
+	startupLogger *log.Logger
+	logger        *log.Logger
 
 	mcpReconciler *mcp.Reconciler
 	mcpGateway    *mcp.Gateway

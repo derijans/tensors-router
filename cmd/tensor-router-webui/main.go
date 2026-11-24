@@ -86,7 +86,7 @@ func run(args []string) error {
 		runtimeLogger.Printf("generated webui admin token: %s", token.value)
 	}
 
-	certFile, keyFile, err := webui.CertificateFiles(cfg.Server)
+	listenerCertificate, err := webui.NewListenerCertificate(cfg)
 	if err != nil {
 		return err
 	}
@@ -101,6 +101,8 @@ func run(args []string) error {
 	handler := webui.NewServer(cfg, routerProcess, webui.NewSessionManager(token.value))
 	adminServer := webui.WebHTTPServer(cfg.Server.Bind, handler.AdminHandler())
 	backendUIServer := webui.WebHTTPServer(cfg.Server.BackendUIBind, handler.BackendUIHandler())
+	adminServer.TLSConfig = listenerCertificate.TLSConfig()
+	backendUIServer.TLSConfig = listenerCertificate.TLSConfig()
 	adminListener, err := net.Listen("tcp", webui.NormalizeBind(cfg.Server.Bind))
 	if err != nil {
 		return fmt.Errorf("listen on admin address: %w", err)
@@ -113,11 +115,11 @@ func run(args []string) error {
 	errs := make(chan error, 2)
 	startupLogger.Printf("admin listener ready address=https://%s", adminListener.Addr())
 	go func() {
-		errs <- adminServer.ServeTLS(adminListener, certFile, keyFile)
+		errs <- adminServer.ServeTLS(adminListener, "", "")
 	}()
 	startupLogger.Printf("backend UI listener ready address=https://%s", backendUIListener.Addr())
 	go func() {
-		errs <- backendUIServer.ServeTLS(backendUIListener, certFile, keyFile)
+		errs <- backendUIServer.ServeTLS(backendUIListener, "", "")
 	}()
 
 	select {

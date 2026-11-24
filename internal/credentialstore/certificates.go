@@ -37,6 +37,7 @@ func (store *Store) GenerateIdentity(ctx context.Context, name string, hosts []s
 		Kind:           KindIdentity,
 		CertificatePEM: string(keyPair.CertificatePEM),
 		PrivateKeyPEM:  string(keyPair.PrivateKeyPEM),
+		Source:         SourceCreated,
 	})
 }
 
@@ -53,30 +54,43 @@ func identitySubject(name string, hosts []string) (certgen.Subject, error) {
 }
 
 func (store *Store) insertCertificate(ctx context.Context, validated validatedCertificate) (Certificate, error) {
-	id := newID()
-	fingerprint := certgen.Fingerprint(validated.chain[0])
-	createdAt := store.now().UTC()
+	var inserted storedCertificate
 	err := store.write(ctx, func(tx *sql.Tx) error {
-		conflict, err := rowExists(ctx, tx, `SELECT 1 FROM credential_certificates WHERE name = ? OR fingerprint = ?`, validated.name, fingerprint)
-		if err != nil {
-			return err
-		}
-		if conflict {
-			return ErrConflict
-		}
-		var privateKey any
-		if validated.privateKeyPEM != "" {
-			privateKey = validated.privateKeyPEM
-		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO credential_certificates (id, name, kind, certificate_pem, private_key_pem, fingerprint, active, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, 0, ?)`,
-			id, validated.name, string(validated.kind), validated.certificatePEM, privateKey, fingerprint, createdAt.Unix())
+		var err error
+		inserted, err = store.insertValidatedCertificate(ctx, tx, validated)
 		return err
 	})
 	if err != nil {
 		return Certificate{}, err
 	}
-	return describeCertificate(storedCertificate{id: id, name: validated.name, kind: validated.kind, certificatePEM: validated.certificatePEM, createdAt: createdAt})
+	return describeCertificate(inserted)
+}
+
+func (store *Store) insertValidatedCertificate(ctx context.Context, tx *sql.Tx, validated validatedCertificate) (storedCertificate, error) {
+	fingerprint := certgen.Fingerprint(validated.chain[0])
+	conflict, err := rowExists(ctx, tx, `SELECT 1 FROM credential_certificates WHERE name = ? OR fingerprint = ?`, validated.name, fingerprint)
+	if err != nil {
+		return storedCertificate{}, err
+	}
+	if conflict {
+		return storedCertificate{}, ErrConflict
+	}
+	var privateKey any
+	if validated.privateKeyPEM != "" {
+		privateKey = validated.privateKeyPEM
+	}
+	inserted := storedCertificate{
+		id:             newID(),
+		name:           validated.name,
+		kind:           validated.kind,
+		certificatePEM: validated.certificatePEM,
+		source:         validated.source,
+		createdAt:      store.now().UTC(),
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO credential_certificates (id, name, kind, certificate_pem, private_key_pem, fingerprint, active, created_at, source)
+		VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+		inserted.id, inserted.name, string(inserted.kind), inserted.certificatePEM, privateKey, fingerprint, inserted.createdAt.Unix(), inserted.source)
+	return inserted, err
 }
 
 func (store *Store) Certificates(ctx context.Context) ([]Certificate, error) {
@@ -101,20 +115,24 @@ func (store *Store) Activate(ctx context.Context, reference string) error {
 		if err != nil {
 			return err
 		}
-		if kind != KindIdentity {
-			return inputError("only identity certificates can be activated")
-		}
-		if _, err := tx.ExecContext(ctx, `UPDATE credential_certificates SET active = 0 WHERE active = 1`); err != nil {
-			return err
-		}
-		_, err = tx.ExecContext(ctx, `UPDATE credential_certificates SET active = 1 WHERE id = ?`, id)
-		return err
+		return activateCertificate(ctx, tx, id, kind)
 	})
+}
+
+func activateCertificate(ctx context.Context, tx *sql.Tx, id string, kind Kind) error {
+	if !kind.Activatable() {
+		return inputError("only identity and API certificates can be activated")
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE credential_certificates SET active = 0 WHERE active = 1 AND kind = ?`, string(kind)); err != nil {
+		return err
+	}
+	_, err := tx.ExecContext(ctx, `UPDATE credential_certificates SET active = 1 WHERE id = ?`, id)
+	return err
 }
 
 func (store *Store) DeleteCertificate(ctx context.Context, reference string, force bool) error {
 	return store.write(ctx, func(tx *sql.Tx) error {
-		id, _, err := resolveCertificate(ctx, tx, reference)
+		id, kind, err := resolveCertificate(ctx, tx, reference)
 		if err != nil {
 			return err
 		}
@@ -123,7 +141,7 @@ func (store *Store) DeleteCertificate(ctx context.Context, reference string, for
 			return err
 		}
 		if active && !force {
-			return inputError("certificate is the active router identity; activate another identity first or delete with force, which switches the router back to plain HTTP on restart")
+			return activeCertificateDeletionError(kind)
 		}
 		result, err := tx.ExecContext(ctx, `DELETE FROM credential_certificates WHERE id = ?`, id)
 		if err != nil {
@@ -131,6 +149,13 @@ func (store *Store) DeleteCertificate(ctx context.Context, reference string, for
 		}
 		return requireAffected(result)
 	})
+}
+
+func activeCertificateDeletionError(kind Kind) error {
+	if kind == KindAPICertificate {
+		return inputError("certificate is the active API certificate; activate another API certificate first or delete with force, which makes API clients get the router identity, or plain HTTP under trusted_lan, after a restart")
+	}
+	return inputError("certificate is the active router identity; activate another identity first or delete with force, which switches the router back to plain HTTP on restart")
 }
 
 func resolveCertificate(ctx context.Context, tx *sql.Tx, reference string) (string, Kind, error) {

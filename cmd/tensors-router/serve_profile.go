@@ -7,7 +7,7 @@ import (
 	"tensors-router/internal/proxy"
 )
 
-var errProfileSetOutsideConfigFile = errors.New("the security profile is set by --security-profile or TENSORS_ROUTER_SECURITY_PROFILE; change it there")
+var errProfileSetOutsideConfigFile = errors.New("the security profile is set by --security-profile (a managed router gets it from security.profile in webui.yaml) or TENSORS_ROUTER_SECURITY_PROFILE; change it there")
 
 func (runtime *serveRuntime) securityProfileControl() proxy.SecurityProfileControl {
 	return proxy.SecurityProfileControl{
@@ -18,12 +18,12 @@ func (runtime *serveRuntime) securityProfileControl() proxy.SecurityProfileContr
 }
 
 func (runtime *serveRuntime) secureProfileBlocker() error {
-	if runtime.profileOverridden {
+	if runtime.arguments.profileOverridden {
 		return errProfileSetOutsideConfigFile
 	}
 	return runtime.cfg.SecureProfileBlocker(storedCredentialCoverage(runtime.credentials.live.Current()))
 }
 
 func (runtime *serveRuntime) writeSecureProfile() error {
-	return config.WriteSecurityProfile(runtime.configPath, config.SecurityProfileSecure)
+	return config.WriteSecurityProfile(runtime.arguments.configPath, config.SecurityProfileSecure)
 }

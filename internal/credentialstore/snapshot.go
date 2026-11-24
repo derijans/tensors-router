@@ -15,6 +15,8 @@ type Snapshot struct {
 	Keys                 credential.KeyHashes
 	OutboundClusterToken string
 	Identity             *tls.Certificate
+	APICertificate       *tls.Certificate
+	APICertificateLeaf   *x509.Certificate
 	TrustAnchors         []*x509.Certificate
 }
 
@@ -87,18 +89,23 @@ func (store *Store) loadCertificates(ctx context.Context, snapshot *Snapshot) er
 		if err != nil {
 			return err
 		}
-		if entry.kind != KindIdentity {
+		if entry.kind.isTrustAnchor() {
 			snapshot.TrustAnchors = append(snapshot.TrustAnchors, chain[0])
 			continue
 		}
 		if !entry.active {
 			continue
 		}
-		identity, err := tls.X509KeyPair([]byte(entry.certificatePEM), []byte(entry.privateKeyPEM))
+		keyPair, err := tls.X509KeyPair([]byte(entry.certificatePEM), []byte(entry.privateKeyPEM))
 		if err != nil {
 			return err
 		}
-		snapshot.Identity = &identity
+		if entry.kind == KindAPICertificate {
+			snapshot.APICertificate = &keyPair
+			snapshot.APICertificateLeaf = chain[0]
+			continue
+		}
+		snapshot.Identity = &keyPair
 		snapshot.TrustAnchors = append(snapshot.TrustAnchors, chain[0])
 	}
 	return nil
@@ -109,5 +116,9 @@ func (store *Store) TrustBundle(ctx context.Context) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	return certgen.EncodeCertificates(snapshot.TrustAnchors...), nil
+	anchors := snapshot.TrustAnchors
+	if snapshot.APICertificateLeaf != nil {
+		anchors = append(anchors, snapshot.APICertificateLeaf)
+	}
+	return certgen.EncodeCertificates(anchors...), nil
 }

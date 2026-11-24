@@ -6,23 +6,24 @@ import (
 	"os"
 	"path/filepath"
 
+	"tensors-router/internal/atomicfile"
 	"tensors-router/internal/credentialstore"
 	"tensors-router/internal/routertls"
 )
 
 type serveCredentials struct {
-	store       *credentialstore.Store
-	live        *credentialstore.Live
-	tls         *routertls.Runtime
-	peers       *routertls.PeerTransport
-	listenerTLS bool
-	warnings    []string
-	stopWatch   context.CancelFunc
+	store     *credentialstore.Store
+	live      *credentialstore.Live
+	tls       *routertls.Runtime
+	peers     *routertls.PeerTransport
+	listeners []routerListener
+	warnings  []string
+	stopWatch context.CancelFunc
 }
 
 func (runtime *serveRuntime) openCredentials(ctx context.Context) error {
 	cfg := runtime.cfg
-	store, err := openCredentialStore(ctx, cfg, runtime.logger)
+	store, err := openCredentialStore(ctx, cfg, runtime.logger, runtime.arguments.webUICertificate)
 	if err != nil {
 		return err
 	}
@@ -40,15 +41,16 @@ func (runtime *serveRuntime) openCredentials(ctx context.Context) error {
 	watchContext, stopWatch := context.WithCancel(ctx)
 	go live.Watch(watchContext, credentialstore.DefaultWatchInterval)
 	runtime.credentials = serveCredentials{
-		stopWatch:   stopWatch,
-		store:       store,
-		live:        live,
-		tls:         tlsRuntime,
-		peers:       tlsRuntime.PeerTransport(),
-		listenerTLS: tlsRuntime.Enabled(),
-		warnings:    append(ignoredTokenSettingsWarning(cfg), coverageWarnings...),
+		stopWatch: stopWatch,
+		store:     store,
+		live:      live,
+		tls:       tlsRuntime,
+		peers:     tlsRuntime.PeerTransport(),
+		warnings:  append(ignoredCredentialSettingsWarnings(cfg), coverageWarnings...),
 	}
-	runtime.credentials.warnings = append(runtime.credentials.warnings, plainPeerURLWarnings(runtime.credentials.listenerTLS, clusterProbeTargets(cfg))...)
+	runtime.credentials.listeners = runtime.planListeners()
+	runtime.credentials.warnings = append(runtime.credentials.warnings, plainPeerURLWarnings(runtime.peerListenerTLS(), clusterProbeTargets(cfg))...)
+	runtime.credentials.warnings = append(runtime.credentials.warnings, unservedAPICertificateWarnings(cfg, live.Current())...)
 	for _, warning := range runtime.credentials.warnings {
 		runtime.startupLogger.Printf("configuration warning: %s", warning)
 	}
@@ -72,8 +74,9 @@ func (runtime *serveRuntime) exportTrustBundle(ctx context.Context, path string)
 	if path == "" {
 		return
 	}
-	write := func(snapshot *credentialstore.Snapshot) {
-		if err := writeTrustBundle(ctx, runtime.credentials.store, path, snapshot.TLSEnabled()); err != nil {
+	serverBindTLS := runtime.serverBindListenerTLS()
+	write := func(*credentialstore.Snapshot) {
+		if err := writeTrustBundle(ctx, runtime.credentials.store, path, serverBindTLS); err != nil {
 			runtime.logger.Printf("trust bundle export failed: %v", err)
 		}
 	}
@@ -81,8 +84,35 @@ func (runtime *serveRuntime) exportTrustBundle(ctx context.Context, path string)
 	runtime.credentials.live.OnChange(write)
 }
 
-func writeTrustBundle(ctx context.Context, store *credentialstore.Store, path string, tlsEnabled bool) error {
-	if !tlsEnabled {
+func (runtime *serveRuntime) exportAPICertificate(ctx context.Context, path string) {
+	if path == "" {
+		return
+	}
+	write := func(*credentialstore.Snapshot) {
+		if err := writeAPICertificate(ctx, runtime.credentials.store, path); err != nil {
+			runtime.logger.Printf("API certificate export failed: %v", err)
+		}
+	}
+	write(runtime.credentials.live.Current())
+	runtime.credentials.live.OnChange(write)
+}
+
+func writeAPICertificate(ctx context.Context, store *credentialstore.Store, path string) error {
+	content, found, err := store.ActiveAPICertificatePEM(ctx)
+	if err != nil {
+		return err
+	}
+	if !found {
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+		return nil
+	}
+	return atomicfile.Write(path, content, 0o600)
+}
+
+func writeTrustBundle(ctx context.Context, store *credentialstore.Store, path string, serverBindTLS bool) error {
+	if !serverBindTLS {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			return err
 		}

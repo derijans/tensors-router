@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 )
@@ -36,6 +37,27 @@ func validateClusterRuntime(cfg *Config) error {
 	return nil
 }
 
+func validateClusterBind(cfg *Config) error {
+	bind := strings.TrimSpace(cfg.Cluster.Bind)
+	if bind == "" {
+		return nil
+	}
+	if cfg.Cluster.Role == "standalone" {
+		return fmt.Errorf("cluster.bind needs cluster.role master or slave")
+	}
+	if _, _, err := net.SplitHostPort(bind); err != nil {
+		return fmt.Errorf("cluster.bind is invalid: %w", err)
+	}
+	if bind == strings.TrimSpace(cfg.Server.Bind) {
+		return fmt.Errorf("cluster.bind must differ from server.bind")
+	}
+	return nil
+}
+
+func (cfg Config) SeparateClusterListener() bool {
+	return strings.TrimSpace(cfg.Cluster.Bind) != ""
+}
+
 func validateClusterMembership(cfg *Config) error {
 	if cfg.Cluster.Role == "slave" {
 		if strings.TrimSpace(cfg.Cluster.MasterURL) == "" {
@@ -44,6 +66,9 @@ func validateClusterMembership(cfg *Config) error {
 		if strings.TrimSpace(cfg.Cluster.PublicURL) == "" {
 			return fmt.Errorf("cluster.public_url is required when cluster.role is slave")
 		}
+	}
+	if err := validateClusterBind(cfg); err != nil {
+		return err
 	}
 	if cfg.Cluster.PublicURL != "" {
 		if _, err := url.ParseRequestURI(cfg.Cluster.PublicURL); err != nil {

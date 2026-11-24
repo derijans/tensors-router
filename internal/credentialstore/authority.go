@@ -28,6 +28,7 @@ func (store *Store) CreateAuthority(ctx context.Context, name string) (Certifica
 		Kind:           KindAuthority,
 		CertificatePEM: string(keyPair.CertificatePEM),
 		PrivateKeyPEM:  string(keyPair.PrivateKeyPEM),
+		Source:         SourceCreated,
 	})
 }
 
@@ -78,5 +79,5 @@ func (store *Store) authorityKeyPair(ctx context.Context, reference string) (cer
 }
 
 func (issued IssuedIdentity) AsIdentityImport(name string) CertificateImport {
-	return CertificateImport{Name: name, Kind: KindIdentity, CertificatePEM: issued.CertificatePEM, PrivateKeyPEM: issued.PrivateKeyPEM}
+	return CertificateImport{Name: name, Kind: KindIdentity, CertificatePEM: issued.CertificatePEM, PrivateKeyPEM: issued.PrivateKeyPEM, Source: SourceIssued}
 }

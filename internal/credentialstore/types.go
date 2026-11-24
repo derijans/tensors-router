@@ -25,14 +25,17 @@ const (
 	KindAuthority        Kind = "authority"
 	KindTrustedAuthority Kind = "trusted_authority"
 	KindPinnedPeer       Kind = "pinned_peer"
+	KindAPICertificate   Kind = "api_certificate"
 )
 
-var Kinds = []Kind{KindIdentity, KindAuthority, KindTrustedAuthority, KindPinnedPeer}
+var Kinds = []Kind{KindIdentity, KindAuthority, KindTrustedAuthority, KindPinnedPeer, KindAPICertificate}
 
 const (
 	SourceCreated  = "created"
 	SourceSupplied = "supplied"
 	SourceMigrated = "migrated"
+	SourceIssued   = "issued"
+	SourceMaster   = "master"
 )
 
 type Token struct {
@@ -55,6 +58,7 @@ type Certificate struct {
 	NotBefore   time.Time `json:"not_before"`
 	NotAfter    time.Time `json:"not_after"`
 	Active      bool      `json:"active"`
+	Source      string    `json:"source"`
 	CreatedAt   time.Time `json:"created_at"`
 }
 
@@ -90,7 +94,19 @@ func ParseKind(value string) (Kind, error) {
 			return kind, nil
 		}
 	}
-	return "", inputError("kind must be one of identity, authority, trusted_authority, pinned_peer")
+	return "", inputError("kind must be one of identity, authority, trusted_authority, pinned_peer, api_certificate")
+}
+
+func (kind Kind) Activatable() bool {
+	return kind == KindIdentity || kind == KindAPICertificate
+}
+
+func (kind Kind) holdsPrivateKey() bool {
+	return kind == KindIdentity || kind == KindAuthority || kind == KindAPICertificate
+}
+
+func (kind Kind) isTrustAnchor() bool {
+	return kind == KindAuthority || kind == KindTrustedAuthority || kind == KindPinnedPeer
 }
 
 func normalizedName(value string) (string, error) {

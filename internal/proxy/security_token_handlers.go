@@ -80,6 +80,17 @@ func (admin *securityAdmin) handleToken(w http.ResponseWriter, r *http.Request) 
 	}
 }
 
+func (admin *securityAdmin) handleTokenDeletion(tokensPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, action := resourceIDAndAction(r.URL.Path, tokensPath)
+		if action != "" {
+			openai.WriteEndpointNotFound(w)
+			return
+		}
+		admin.deleteToken(w, r, id)
+	}
+}
+
 func (admin *securityAdmin) deleteToken(w http.ResponseWriter, r *http.Request, id string) {
 	if err := admin.store().DeleteToken(r.Context(), id); err != nil {
 		writeCredentialError(w, err)

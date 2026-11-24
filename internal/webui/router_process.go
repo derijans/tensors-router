@@ -16,11 +16,12 @@ import (
 )
 
 const (
-	managedRouterTrustBundle  = "router-trust.pem"
-	managedRouterAddress      = "127.0.0.1:8080"
-	managedRouterDrainGrace   = 16 * time.Minute
-	managedRouterKillTimeout  = 5 * time.Second
-	managedRouterStartTimeout = 30 * time.Second
+	managedRouterTrustBundle    = "router-trust.pem"
+	managedRouterAPICertificate = "api-certificate.pem"
+	managedRouterAddress        = "127.0.0.1:8080"
+	managedRouterDrainGrace     = 16 * time.Minute
+	managedRouterKillTimeout    = 5 * time.Second
+	managedRouterStartTimeout   = 30 * time.Second
 )
 
 type RouterProcess struct {
@@ -44,7 +45,7 @@ func NewRouterProcess(config RouterConfig, executableDir string) *RouterProcess 
 			config.BinaryPath = filepath.Join(executableDir, routerExecutableName())
 		}
 	}
-	trust := newRouterTrust(routerTrustPath(config))
+	trust := routerTrustFor(config)
 	return &RouterProcess{
 		config:  config,
 		url:     urlValue,
@@ -54,11 +55,14 @@ func NewRouterProcess(config RouterConfig, executableDir string) *RouterProcess 
 	}
 }
 
-func routerTrustPath(config RouterConfig) string {
+func routerTrustFor(config RouterConfig) *routerTrust {
 	if path := strings.TrimSpace(config.CAFile); path != "" {
-		return path
+		return newRouterTrust(path)
 	}
-	return config.TrustBundleExport
+	if config.TrustBundleExport != "" {
+		return newManagedRouterTrust(config.TrustBundleExport)
+	}
+	return newRouterTrust("")
 }
 
 func (process *RouterProcess) URL() string {
@@ -194,6 +198,12 @@ func routerLaunchArguments(config RouterConfig) []string {
 	}
 	if config.TrustBundleExport != "" {
 		args = append(args, "--tls-trust-bundle", config.TrustBundleExport)
+	}
+	if config.APICertificateExport != "" {
+		args = append(args, "--api-certificate-export", config.APICertificateExport)
+	}
+	if config.MigratedCertFile != "" && config.MigratedKeyFile != "" {
+		args = append(args, "--import-api-cert", config.MigratedCertFile, "--import-api-key", config.MigratedKeyFile)
 	}
 	return args
 }

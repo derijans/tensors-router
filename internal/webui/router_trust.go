@@ -3,46 +3,38 @@ package webui
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"net/http"
 	"os"
 	"sync"
-	"time"
 
 	"tensors-router/internal/certgen"
 )
 
-type trustFileStamp struct {
-	present bool
-	size    int64
-	modTime time.Time
-}
-
 var systemTrustRoots *x509.CertPool
 
 type routerTrust struct {
-	path      string
-	mu        sync.Mutex
-	stamp     trustFileStamp
-	transport *http.Transport
+	path         string
+	pinnedBySelf bool
+	mu           sync.Mutex
+	stamp        fileStamp
+	transport    *http.Transport
 }
 
 func newRouterTrust(path string) *routerTrust {
 	return &routerTrust{path: path}
 }
 
+func newManagedRouterTrust(path string) *routerTrust {
+	return &routerTrust{path: path, pinnedBySelf: true}
+}
+
 func (trust *routerTrust) bundlePresent() bool {
 	return trust.currentStamp().present
 }
 
-func (trust *routerTrust) currentStamp() trustFileStamp {
-	if trust.path == "" {
-		return trustFileStamp{}
-	}
-	info, err := os.Stat(trust.path)
-	if err != nil {
-		return trustFileStamp{}
-	}
-	return trustFileStamp{present: true, size: info.Size(), modTime: info.ModTime()}
+func (trust *routerTrust) currentStamp() fileStamp {
+	return statFile(trust.path)
 }
 
 func (trust *routerTrust) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -65,7 +57,7 @@ func (trust *routerTrust) transportForBundle() (*http.Transport, error) {
 		return nil, err
 	}
 	next := http.DefaultTransport.(*http.Transport).Clone()
-	next.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
+	next.TLSClientConfig = trust.clientConfig(roots, stamp.present)
 	if trust.transport != nil {
 		trust.transport.CloseIdleConnections()
 	}
@@ -74,7 +66,36 @@ func (trust *routerTrust) transportForBundle() (*http.Transport, error) {
 	return next, nil
 }
 
-func (trust *routerTrust) roots(stamp trustFileStamp) (*x509.CertPool, error) {
+func (trust *routerTrust) clientConfig(roots *x509.CertPool, bundlePresent bool) *tls.Config {
+	if !trust.pinnedBySelf || !bundlePresent {
+		return &tls.Config{MinVersion: tls.VersionTLS12, RootCAs: roots}
+	}
+	return &tls.Config{
+		MinVersion:         tls.VersionTLS12,
+		InsecureSkipVerify: true,
+		VerifyConnection:   verifyChainWithoutHostname(roots),
+	}
+}
+
+func verifyChainWithoutHostname(roots *x509.CertPool) func(tls.ConnectionState) error {
+	return func(state tls.ConnectionState) error {
+		if len(state.PeerCertificates) == 0 {
+			return errors.New("router presented no certificate")
+		}
+		intermediates := x509.NewCertPool()
+		for _, certificate := range state.PeerCertificates[1:] {
+			intermediates.AddCert(certificate)
+		}
+		_, err := state.PeerCertificates[0].Verify(x509.VerifyOptions{
+			Roots:         roots,
+			Intermediates: intermediates,
+			KeyUsages:     []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
+		})
+		return err
+	}
+}
+
+func (trust *routerTrust) roots(stamp fileStamp) (*x509.CertPool, error) {
 	if !stamp.present {
 		return systemTrustRoots, nil
 	}

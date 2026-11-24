@@ -110,10 +110,9 @@ export const state: AppState = {
     action: ""
   },
   security: {
-    tokens: [],
-    certificates: [],
-    defaultHosts: [],
-    status: null,
+    nodeID: "",
+    local: null,
+    remote: null,
     loading: false,
     error: "",
     action: ""

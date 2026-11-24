@@ -93,19 +93,21 @@ func (admin *securityAdmin) finishCertificateWrite(w http.ResponseWriter, r *htt
 	openai.WriteJSON(w, http.StatusCreated, certificate)
 }
 
-func (admin *securityAdmin) handleCertificate(w http.ResponseWriter, r *http.Request) {
-	id, action := resourceIDAndAction(r.URL.Path, securityCertificatesPath)
-	switch {
-	case id == "generate" && action == "" && r.Method == http.MethodPost:
-		admin.generateIdentity(w, r)
-	case action == "pem" && r.Method == http.MethodGet:
-		admin.writePublicCertificate(w, r, id)
-	case action == "activate" && r.Method == http.MethodPost:
-		admin.activateCertificate(w, r, id)
-	case action == "" && r.Method == http.MethodDelete:
-		admin.deleteCertificate(w, r, id)
-	default:
-		openai.WriteEndpointNotFound(w)
+func (admin *securityAdmin) handleCertificate(certificatesPath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id, action := resourceIDAndAction(r.URL.Path, certificatesPath)
+		switch {
+		case id == "generate" && action == "" && r.Method == http.MethodPost:
+			admin.generateIdentity(w, r)
+		case action == "pem" && r.Method == http.MethodGet:
+			admin.writePublicCertificate(w, r, id)
+		case action == "activate" && r.Method == http.MethodPost:
+			admin.activateCertificate(w, r, id)
+		case action == "" && r.Method == http.MethodDelete:
+			admin.deleteCertificate(w, r, id)
+		default:
+			openai.WriteEndpointNotFound(w)
+		}
 	}
 }
 

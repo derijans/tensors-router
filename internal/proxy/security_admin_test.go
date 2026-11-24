@@ -1,11 +1,9 @@
 package proxy
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -14,17 +12,9 @@ import (
 
 func newSecurityTestRoutes(t *testing.T) (*routeTable, *credentialstore.Live) {
 	t.Helper()
-	ctx := context.Background()
-	store, err := credentialstore.Open(ctx, credentialstore.Config{Path: filepath.Join(t.TempDir(), credentialstore.Filename)})
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	live, err := credentialstore.NewLive(ctx, store, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	admin := newSecurityAdmin(SecurityConfig{Credentials: live, DefaultIdentityHosts: []string{"127.0.0.1"}})
+	live := openTestCredentials(t)
+	plainSharedListener := SecurityListener{Name: "shared", Bind: "127.0.0.1:8080", WantsTLS: func() bool { return live.Current().TLSEnabled() }}
+	admin := newSecurityAdmin(SecurityConfig{Credentials: live, DefaultIdentityHosts: []string{"127.0.0.1"}, Listeners: []SecurityListener{plainSharedListener}}, "local")
 	return newRouteTable(func(http.ResponseWriter, *http.Request) bool { return true }, admin.routes()), live
 }
 

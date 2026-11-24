@@ -10,6 +10,8 @@ Use a unique `cluster.node_id` for every node and the same non-placeholder `clus
 
 A slave requires `cluster.master_url` and its own reachable `cluster.public_url`. A master accepts registration only from URLs listed in `cluster.slave_urls`. Masters also poll configured slave URLs during startup and health intervals.
 
+By default each router serves cluster peers on `server.bind`, the same port as API clients. Set `cluster.bind` to give peers a separate listener with mutual TLS, and point `cluster.public_url`, `cluster.master_url` and `cluster.slave_urls` at that port. See [API certificate and cluster port](Tokens-and-Certificates.md#api-certificate-and-cluster-port).
+
 ## Registration and health
 
 Slaves register their snapshots with the master at startup and on the synchronization interval. The master polls configured slaves and marks a node unhealthy when a poll or its authorization fails. Every model on an unhealthy node is unavailable until the next successful poll.

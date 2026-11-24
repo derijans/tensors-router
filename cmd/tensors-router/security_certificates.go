@@ -50,7 +50,7 @@ func bindCertificateGenerate(flags *flag.FlagSet) securityAction {
 }
 
 func bindCertificateImport(flags *flag.FlagSet) securityAction {
-	kind := flags.String("kind", "", "identity, authority, trusted_authority or pinned_peer")
+	kind := flags.String("kind", "", "api_certificate, identity, authority, trusted_authority or pinned_peer")
 	name := flags.String("name", "", "unique certificate name")
 	certificateFile := flags.String("cert", "", "PEM certificate file (identity: leaf first, then intermediates)")
 	keyFile := flags.String("key", "", "PEM private key file (identity and authority only)")
@@ -95,7 +95,7 @@ func bindCertificateActivate(flags *flag.FlagSet) securityAction {
 
 func bindCertificateDelete(flags *flag.FlagSet) securityAction {
 	name := flags.String("name", "", "certificate name or id")
-	force := flags.Bool("force", false, "also delete the active identity")
+	force := flags.Bool("force", false, "also delete the active identity or API certificate")
 	return func(ctx context.Context, store *credentialstore.Store, _ config.Config, output io.Writer) error {
 		if err := requireFlag("name", *name); err != nil {
 			return err

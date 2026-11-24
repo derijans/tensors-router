@@ -633,8 +633,12 @@
               <h2>Security</h2>
               <p class="muted">Tokens that authorize clients and peers, and certificates that encrypt traffic between routers. <a href="https://github.com/derijans/tensors-router/wiki/Tokens-and-Certificates#cluster-setup-in-the-webui" target="_blank" rel="noopener noreferrer">How to set up the master and slaves</a></p>
             </div>
+            <div id="securityNodePicker" class="panel-actions" hidden>
+              <label>Router<select id="securityNodeSelect" class="security-node-select" data-operation-group="security"></select></label>
+            </div>
           </header>
-          <p id="securityListenerNotice" class="security-notice"></p>
+          <div id="securityListenerNotices" class="security-notices"></div>
+          <div id="securityApiCertificateNotice" class="security-notices"></div>
           <div id="securityProfileNotice" class="security-notice security-profile-notice" hidden>
             <p id="securityProfileMessage"></p>
             <button id="securitySecureProfileButton" class="primary" type="button" data-operation-group="security">Switch to secure</button>
@@ -646,7 +650,10 @@
                 <h2>Tokens</h2>
                 <p class="muted">Secrets are stored as hashes and shown once. Cluster tokens stay retrievable because this router sends them to peers.</p>
               </div>
-              <button id="securityCreateTokenButton" class="primary" type="button" data-operation-group="security">Create token</button>
+              <div class="button-strip">
+                <button id="securityCreateTokenButton" class="primary" type="button" data-operation-group="security">Create token</button>
+                <button id="securityPushClusterTokenButton" type="button" data-operation-group="security" hidden>Push cluster token</button>
+              </div>
             </header>
             <div class="table-wrap">
               <table class="security-table">
@@ -659,18 +666,38 @@
             <header class="card-head">
               <div>
                 <h2>Certificates</h2>
-                <p class="muted">The active identity serves HTTPS and authenticates this router to peers. Peers are trusted only through the CAs and pinned certificates listed here.</p>
+                <p class="muted">The active API certificate is what API clients and browsers see. The active identity authenticates this router to peers, which are trusted only through the CAs and pinned certificates listed here.</p>
               </div>
               <div class="button-strip">
                 <button id="securityGenerateIdentityButton" class="primary" type="button" data-operation-group="security">Generate identity</button>
                 <button id="securityImportCertificateButton" type="button" data-operation-group="security">Import</button>
                 <button id="securityCreateAuthorityButton" type="button" data-operation-group="security">Create CA</button>
+                <button id="securityIssueFromMasterButton" type="button" data-operation-group="security" hidden>Issue from master CA</button>
+                <button id="securityTrustMasterButton" type="button" data-operation-group="security" hidden>Trust master CA</button>
               </div>
             </header>
             <div class="table-wrap">
               <table class="security-table">
                 <thead><tr><th>Name</th><th>Kind</th><th>Hosts</th><th>SHA-256</th><th>Expires</th><th></th></tr></thead>
                 <tbody id="securityCertificateRows"></tbody>
+              </table>
+            </div>
+          </article>
+          <article class="card table-card">
+            <header class="card-head">
+              <div>
+                <h2>Certificate requests</h2>
+                <p class="muted">Keys waiting for a signed certificate. The private key stays on the router; download the request, have your CA sign it, then install the signed certificate.</p>
+              </div>
+              <div class="button-strip">
+                <button id="securityCreateRequestButton" class="primary" type="button" data-operation-group="security">Create certificate request</button>
+                <button id="securityInstallSignedButton" type="button" data-operation-group="security">Install signed certificate</button>
+              </div>
+            </header>
+            <div class="table-wrap">
+              <table class="security-table">
+                <thead><tr><th>Name</th><th>Kind</th><th>Hosts</th><th>Created</th><th></th></tr></thead>
+                <tbody id="securityPendingKeyRows"></tbody>
               </table>
             </div>
           </article>

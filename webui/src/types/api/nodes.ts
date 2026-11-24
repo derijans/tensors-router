@@ -1,4 +1,5 @@
 import type { FileRecord, HardwareInfo, Model } from "./models";
+import type { SecurityApiCertificateState } from "./security";
 
 export interface NodeInventory {
   node_id: string;
@@ -11,6 +12,7 @@ export interface NodeInventory {
   models: Model[];
   files: FileRecord[];
   build_version?: string;
+  api_certificate?: SecurityApiCertificateState;
   error?: string;
 }
 
