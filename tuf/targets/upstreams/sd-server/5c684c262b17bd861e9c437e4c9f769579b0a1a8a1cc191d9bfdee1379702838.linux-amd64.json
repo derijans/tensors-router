@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "456956047",
+      "tag": "master-1127-79dc7ca",
+      "published_at": "2026-11-24T15:27:35Z",
+      "payloads": [
+        {
+          "name": "sd-master-79dc7ca-bin-Linux-Ubuntu-26.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1127-79dc7ca/sd-master-79dc7ca-bin-Linux-Ubuntu-26.04-x86_64.zip",
+          "length": 30800118,
+          "sha256": "b1afb65b7c9712cad5b59c1020ea90b6c482fc42c4498db7f9a2fbb2e5e0ab94"
+        }
+      ]
+    }
+  ]
+}
