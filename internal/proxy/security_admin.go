@@ -24,6 +24,7 @@ type SecurityConfig struct {
 	DefaultIdentityHosts []string
 	Listeners            []SecurityListener
 	Profile              SecurityProfileControl
+	Cluster              SecurityClusterSettings
 }
 
 type SecurityListener struct {
@@ -39,6 +40,7 @@ type securityAdmin struct {
 	defaultIdentityHosts []string
 	listeners            []SecurityListener
 	profile              *securityProfile
+	cluster              SecurityClusterSettings
 }
 
 func newSecurityAdmin(config SecurityConfig, nodeID string) *securityAdmin {
@@ -48,6 +50,7 @@ func newSecurityAdmin(config SecurityConfig, nodeID string) *securityAdmin {
 		defaultIdentityHosts: append([]string{}, config.DefaultIdentityHosts...),
 		listeners:            append([]SecurityListener{}, config.Listeners...),
 		profile:              newSecurityProfile(config.Profile),
+		cluster:              config.Cluster.clone(),
 	}
 }
 

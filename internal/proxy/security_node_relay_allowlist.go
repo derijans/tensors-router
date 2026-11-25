@@ -23,6 +23,7 @@ var securityRelayRoutes = []securityRelayRoute{
 	{method: http.MethodGet, pattern: "certificates/*/pem"},
 	{method: http.MethodPost, pattern: "tokens"},
 	{method: http.MethodDelete, pattern: "tokens/*"},
+	{method: http.MethodPost, pattern: "profile"},
 }
 
 func securityRelayAllowed(method string, suffix string) bool {

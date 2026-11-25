@@ -2,6 +2,7 @@ import { emptyHTML, setHTML } from "../../lib/safe-html";
 import { state } from "../../state/app-state";
 import type { SecuritySummary, SecurityTarget } from "../../types";
 import { showStatus } from "../../ui/status-line";
+import { renderWizardEntry } from "../security-wizard/wizard-render";
 import { apiCertificateNotice } from "./security-api-certificate-data";
 import { listenerNotices, profilePrompt, sortedCertificates, sortedTokens } from "./security-data";
 import { securityElements } from "./security-elements";
@@ -19,6 +20,7 @@ export function renderSecurity(): void {
   const summary = displayedSecuritySummary();
   const now = new Date();
   renderNodePicker(now);
+  renderWizardEntry();
   localOnlyControls.forEach(control => { control.hidden = target.scope !== "local"; });
   nodeOnlyControls.forEach(control => { control.hidden = target.scope !== "node"; });
   setHTML(securityElements.listenerNotices, listenerNoticesMarkup(listenerNotices(summary?.status ?? null)));

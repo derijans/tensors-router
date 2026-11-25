@@ -54,6 +54,12 @@ describe("security tab DOM contract", () => {
     expect(tagNameForID(id)).toBe("tbody");
   });
 
+  it("starts the master-only cluster setup button and card hidden, with an ordered step list", () => {
+    expect(page).toMatch(/<button id="securityWizardButton"[^>]*\bhidden\b/);
+    expect(page).toMatch(/<article id="securityWizard"[^>]*\bhidden\b/);
+    expect(tagNameForID("securityWizardSteps")).toBe("ol");
+  });
+
   it.each(["securityPushClusterTokenButton", "securityIssueFromMasterButton", "securityTrustMasterButton"])("starts the slave-only #%s hidden", id => {
     expect(page).toMatch(new RegExp(`<button id="${id}"[^>]*\\bhidden\\b`));
   });

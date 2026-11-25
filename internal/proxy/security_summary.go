@@ -19,6 +19,7 @@ type securitySummary struct {
 	Certificates   []credentialstore.Certificate `json:"certificates"`
 	PendingKeys    []credentialstore.PendingKey  `json:"pending_keys"`
 	DefaultHosts   []string                      `json:"default_hosts"`
+	Cluster        SecurityClusterSettings       `json:"cluster"`
 }
 
 func (admin *securityAdmin) handleSummary(w http.ResponseWriter, r *http.Request) {
@@ -52,6 +53,7 @@ func (admin *securityAdmin) summary(ctx context.Context) (securitySummary, error
 		Certificates:   certificates,
 		PendingKeys:    pendingKeys,
 		DefaultHosts:   append([]string{}, admin.defaultIdentityHosts...),
+		Cluster:        admin.cluster.clone(),
 	}, nil
 }
 

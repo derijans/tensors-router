@@ -11,6 +11,7 @@ func (admin *securityAdmin) routes() []routing.Route {
 	siteOnly := []routing.Route{
 		routing.Exact(http.MethodGet, securityStatusPath, admin.handleStatus),
 		routing.Exact(http.MethodPost, securityProfilePath, admin.handleSwitchToSecureProfile),
+		routing.Exact(http.MethodPost, securityLocalIssuePath, admin.issueFromLocalAuthority),
 		routing.Exact(routing.AnyMethod, securityTokensPath, admin.handleTokens),
 		routing.Prefix(routing.AnyMethod, securityTokensPath+"/", admin.handleToken),
 		routing.Exact(routing.AnyMethod, securityCertificatesPath, admin.handleCertificates),
@@ -27,6 +28,7 @@ func (admin *securityAdmin) nodeRoutes() []routing.Route {
 	nodeOnly := []routing.Route{
 		routing.Exact(http.MethodPost, securityNodePath+"/trust", admin.trustCertificate),
 		routing.Exact(http.MethodPost, securityNodePath+"/cluster-token", admin.ensureClusterToken),
+		routing.Exact(http.MethodPost, securityNodeProfilePath, admin.handleNodeSwitchToSecureProfile),
 		routing.Exact(http.MethodPost, tokensPath, admin.createToken),
 		routing.Prefix(http.MethodDelete, tokensPath+"/", admin.handleTokenDeletion(tokensPath)),
 		routing.Prefix(routing.AnyMethod, certificatesPath+"/", admin.handleCertificate(certificatesPath)),

@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 
 	"tensors-router/internal/auth"
+	"tensors-router/internal/credential"
 	"tensors-router/internal/openai"
 )
 
@@ -59,7 +60,22 @@ func (profile *securityProfile) secureBlocker() error {
 	return profile.control.SecureBlocker()
 }
 
+type secureProfileCallerCheck func(r *http.Request, keys credential.KeyHashes) error
+
+var errSecureProfileLocksOutCaller = errors.New(secureProfileLocksOutCallerMessage)
+
 func (admin *securityAdmin) handleSwitchToSecureProfile(w http.ResponseWriter, r *http.Request) {
+	admin.switchToSecureProfile(w, r, adminCallerKeepsAccess)
+}
+
+func adminCallerKeepsAccess(r *http.Request, keys credential.KeyHashes) error {
+	if len(keys.Admin) > 0 && !auth.PrincipalFor(r.Header.Get("Authorization"), keys).Admin {
+		return errSecureProfileLocksOutCaller
+	}
+	return nil
+}
+
+func (admin *securityAdmin) switchToSecureProfile(w http.ResponseWriter, r *http.Request, callerKeepsAccess secureProfileCallerCheck) {
 	if admin.profile.secureInConfig.Load() {
 		openai.WriteJSON(w, http.StatusOK, admin.profile.status())
 		return
@@ -68,9 +84,8 @@ func (admin *securityAdmin) handleSwitchToSecureProfile(w http.ResponseWriter, r
 		openai.WriteError(w, http.StatusConflict, "conflict", err.Error())
 		return
 	}
-	keys := admin.credentials.KeyHashes()
-	if len(keys.Admin) > 0 && !auth.PrincipalFor(r.Header.Get("Authorization"), keys).Admin {
-		openai.WriteError(w, http.StatusConflict, "conflict", secureProfileLocksOutCallerMessage)
+	if err := callerKeepsAccess(r, admin.credentials.KeyHashes()); err != nil {
+		openai.WriteError(w, http.StatusConflict, "conflict", err.Error())
 		return
 	}
 	if err := admin.profile.control.WriteSecureFile(); err != nil {

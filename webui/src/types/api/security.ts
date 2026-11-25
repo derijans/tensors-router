@@ -123,6 +123,24 @@ export interface SecuritySummary {
   certificates: SecurityCertificate[];
   pending_keys: SecurityPendingKey[];
   default_hosts: string[];
+  cluster: SecurityClusterSettings;
+}
+
+export type SecurityClusterRole = "standalone" | "master" | "slave";
+
+export interface SecurityClusterSettings {
+  role: SecurityClusterRole;
+  server_bind: string;
+  bind: string;
+  public_url: string;
+  master_url: string;
+  slave_urls: string[];
+}
+
+export interface SecurityProfileStatus {
+  profile: SecurityProfile;
+  profile_restart_required: boolean;
+  secure_profile_blocker?: string;
 }
 
 export interface SecurityCertificateRequestCreate {

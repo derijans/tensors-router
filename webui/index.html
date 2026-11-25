@@ -633,10 +633,27 @@
               <h2>Security</h2>
               <p class="muted">Tokens that authorize clients and peers, and certificates that encrypt traffic between routers. <a href="https://github.com/derijans/tensors-router/wiki/Tokens-and-Certificates#cluster-setup-in-the-webui" target="_blank" rel="noopener noreferrer">How to set up the master and slaves</a></p>
             </div>
-            <div id="securityNodePicker" class="panel-actions" hidden>
-              <label>Router<select id="securityNodeSelect" class="security-node-select" data-operation-group="security"></select></label>
+            <div class="panel-actions">
+              <button id="securityWizardButton" type="button" data-operation-group="security" hidden>Cluster setup</button>
+              <div id="securityNodePicker" hidden>
+                <label>Router<select id="securityNodeSelect" class="security-node-select" data-operation-group="security"></select></label>
+              </div>
             </div>
           </header>
+          <article id="securityWizard" class="card security-wizard" hidden>
+            <header class="card-head">
+              <div>
+                <h2>Cluster security setup</h2>
+                <p class="muted">Sets up tokens, certificates and trust for every router from this master. Each step shows its result per router, skips routers that are already done, and is safe to run again.</p>
+              </div>
+              <div class="button-strip">
+                <button id="securityWizardRefresh" type="button" data-operation-group="security">Check again</button>
+                <button id="securityWizardClose" type="button">Close</button>
+              </div>
+            </header>
+            <p id="securityWizardStatus" class="action-status"></p>
+            <ol id="securityWizardSteps" class="security-wizard-steps"></ol>
+          </article>
           <div id="securityListenerNotices" class="security-notices"></div>
           <div id="securityApiCertificateNotice" class="security-notices"></div>
           <div id="securityProfileNotice" class="security-notice security-profile-notice" hidden>

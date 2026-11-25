@@ -110,6 +110,7 @@ func (runtime *serveRuntime) serviceConfig(fileRoots []string, shutdownRequested
 			DefaultIdentityHosts: defaultIdentityHosts(cfg),
 			Listeners:            runtime.securityListeners(),
 			Profile:              runtime.securityProfileControl(),
+			Cluster:              securityClusterSettings(cfg),
 		},
 	}
 }

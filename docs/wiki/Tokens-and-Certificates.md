@@ -161,7 +161,27 @@ A certificate request lets a CA sign a certificate for this router while the pri
 
 A certificate that matches no pending key on the router is refused, so only the exact request you created can be installed. The signed certificate must meet the same rules as an imported certificate of that kind. The name must not be used by another certificate or pending request. Pending requests stay listed until a signed certificate is installed or you delete the request.
 
+## Cluster setup wizard
+
+On a master, the **Security** tab has a **Cluster setup** button in its header. It opens the **Cluster security setup** card. The wizard does the cluster setup for the master and every slave from the master's WebUI. The browser talks only to the master, which relays each action to the slaves (see [Managing slaves from the master](#managing-slaves-from-the-master)).
+
+Each step shows a table with one row per router: **Router**, **State** and **Details**. The table shows the result of the last run. A router that is already done shows **Done**, and the step skips it. You can run every step again safely with **Run step**. **Check again** reloads the security summary of every router.
+
+1. **Cluster token.** The step creates a cluster token on the master when it has none. A slave that the master can reach already holds the master's cluster token, because every node route requires it, so the step shows that slave as done. A slave that the master cannot reach shows the error. Give that slave the master's cluster token by hand once (**Create token**, role **Cluster**, **Existing value**), then click **Check again**.
+2. **Certificate authority.** Pick a local CA or a trusted CA stored on the master, for example a CA you imported from pfSense. Or create a new local CA (the name field defaults to `cluster-ca`). The wizard preselects the CA that issued the master's active identity.
+3. **Router identities.** For every router, the master included, the router creates the key and a certificate request, the chosen local CA signs it, and the router installs and activates the certificate. A router is done when its active identity was issued by the chosen CA.
+4. **API certificates.** A checkbox per router selects the routers that get an API certificate from the chosen CA. A router that already has an active API certificate is unchecked by default and keeps it, for example a certificate imported from the configuration or the WebUI files (source `migrated`). A router is done when its active API certificate was issued by the chosen CA, or when it keeps its own.
+5. **Trust.** The step installs the chosen CA as **Trusted CA** on every slave. The master sends only the CA certificate. A slave is done when it already holds a CA with the same fingerprint.
+6. **Configuration.** Each router has a **Cluster port** field. The default is the current `cluster.bind` port, or else the `server.bind` port plus 10. The step shows the exact `cluster:` block to put in that router's `config.yaml`: `bind`, `public_url` (`https://` on the cluster port), `master_url` on slaves (the master's new `public_url`) and `slave_urls` on the master (the new `public_url` of every slave). It lists each setting that changes with its current and new value. Below the blocks, the table shows the security profile of each router. **Run step** switches every router that still runs `trusted_lan` to the secure profile, after one confirmation. The master switches through its local profile route, and a slave through its node route. The same blockers apply as for **Switch to secure** on a single router (see [Cluster setup in the WebUI](#cluster-setup-in-the-webui)), for example a non-loopback bind without inference and admin tokens. A router with a blocker shows **Blocked** with the reason and is not switched. The WebUI never writes cluster settings to `config.yaml` itself.
+7. **Restart and health.** Restart the slaves first, then the master. The router cannot restart a slave remotely. Restart each slave on its own host: stop it, for example with `POST /router/v1/shutdown` and an admin token, then start it with its configuration. Restart the master last. For a router managed by the WebUI, use **Restart** in the top bar. **Check again** shows the health of each router from its security summary: whether it is reachable, whether each listener (API port, cluster port) serves HTTPS or HTTP or needs a restart, and the profile (secure, or restart required). A router is healthy when it is reachable, every listener serves HTTPS without a pending restart, and the profile is secure.
+
+### With a CA that has no key on the master
+
+A trusted CA, for example one imported from pfSense, has no private key on the master. With such a CA in step 2, **Run step** in steps 3 and 4 creates only the certificate requests. Each router row then offers **Download request** and **Install signed**. Sign each request with your CA, then install the signed certificate with **Install signed**. See [Certificate requests](#certificate-requests).
+
 ## Cluster setup in the WebUI
+
+On a master, the [Cluster setup wizard](#cluster-setup-wizard) does these steps for the whole cluster. The manual steps below stay for reference.
 
 Do these steps in the **Security** tab of each router's WebUI. The example uses the built-in CA on the master. With your own CA, skip steps 2 to 4 and import your CA as **Trusted CA** and each router's own certificate and key as **Router identity** instead. Once a slave holds the cluster token, the master can do the certificate steps for that slave from its own Security tab; see [Managing slaves from the master](#managing-slaves-from-the-master).
 
@@ -199,8 +219,9 @@ From the master you can, on each slave:
 - create and delete certificate requests, and install a certificate signed by another CA, as in [Certificate requests](#certificate-requests)
 - generate a self-signed identity
 - activate, download and delete certificates (downloads contain the certificate only)
+- switch it to the secure profile: the slave rewrites `security.profile` in its `config.yaml`, with the same blockers as on the slave itself. The request must carry a cluster token that the slave accepts, so the master keeps access after the switch. The change takes effect after a restart.
 
-Changes to a slave's `config.yaml`, such as `cluster.bind`, the peer URLs or `security.profile`, and restarts are still done on the slave itself.
+Changes to `cluster.bind` and the peer URLs in a slave's `config.yaml`, and restarts, are still done on the slave itself. `security.profile` can be switched from the master.
 
 Private keys never leave a node. When the master issues a certificate for a slave, the slave creates the key and a certificate request, the master signs the request with its CA, and the slave installs the signed certificate with source `master`. If signing or installing fails, the master removes the request from the slave again. No node route accepts or returns a private key.
 

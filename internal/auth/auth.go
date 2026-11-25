@@ -48,7 +48,8 @@ type Guard struct {
 }
 
 type Principal struct {
-	Admin bool
+	Admin   bool
+	Cluster bool
 }
 
 type principalContextKey struct{}
@@ -197,5 +198,8 @@ func (policy *Policy) principal(authorization string) Principal {
 }
 
 func PrincipalFor(authorization string, keys credential.KeyHashes) Principal {
-	return Principal{Admin: allowedBearer(authorization, keys.Admin)}
+	return Principal{
+		Admin:   allowedBearer(authorization, keys.Admin),
+		Cluster: allowedBearer(authorization, keys.Cluster),
+	}
 }

@@ -28,6 +28,10 @@ Trusted-LAN mode skips WebUI login and CSRF authentication. Router cluster authe
 
 The WebUI and an external router validate their security profiles independently. A managed WebUI passes its effective profile to the child router.
 
+## Security
+
+The Security tab manages the tokens and certificates of each router. On a master, the **Cluster setup** button in the tab header opens the **Cluster security setup** card. This wizard sets up the cluster token, the CA, the router identities, the API certificates, trust, the cluster configuration and the secure profile for every router, step by step. See [Tokens and Certificates](Tokens-and-Certificates#cluster-setup-wizard).
+
 ## Backend WebUI interfaces
 
 The WebUIs tab can expose the native interface supplied by the selected backend. These interfaces can be used for backend tests or as the regular interactive frontend while requests continue through the router.
