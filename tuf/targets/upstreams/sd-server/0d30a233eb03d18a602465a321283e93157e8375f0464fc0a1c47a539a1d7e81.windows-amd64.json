@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "458534087",
+      "tag": "master-1133-52491bd",
+      "published_at": "2026-11-25T19:07:44Z",
+      "payloads": [
+        {
+          "name": "sd-master-52491bd-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1133-52491bd/sd-master-52491bd-bin-win-cpu-x64.zip",
+          "length": 19116688,
+          "sha256": "7d1c819708f7b922bebda2e1454b6224fa524480cb98bb7b0aea111f3c15678b"
+        }
+      ]
+    }
+  ]
+}

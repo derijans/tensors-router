@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/ggml-org/llama.cpp",
+  "releases": [
+    {
+      "id": "459342049",
+      "tag": "b12776",
+      "published_at": "2026-11-26T11:48:37Z",
+      "prerelease": true,
+      "payloads": [
+        {
+          "name": "llama-b12776-bin-ubuntu-x64.tar.gz",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b12776/llama-b12776-bin-ubuntu-x64.tar.gz",
+          "length": 23454955,
+          "sha256": "27e18f608c7cd1e2f86d70f91bde4299e795113c0065322f6339cbe5135e79c2"
+        }
+      ]
+    }
+  ]
+}

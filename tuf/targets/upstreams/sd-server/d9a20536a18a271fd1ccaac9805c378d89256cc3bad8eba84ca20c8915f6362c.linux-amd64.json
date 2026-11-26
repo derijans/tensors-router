@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "458534087",
+      "tag": "master-1133-52491bd",
+      "published_at": "2026-11-25T19:07:44Z",
+      "payloads": [
+        {
+          "name": "sd-master-52491bd-bin-Linux-Ubuntu-26.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1133-52491bd/sd-master-52491bd-bin-Linux-Ubuntu-26.04-x86_64.zip",
+          "length": 30946263,
+          "sha256": "49c9c949217ee18fc3f948773243978c4096b5b5cb60e58923dd9ddabf3fe21f"
+        }
+      ]
+    }
+  ]
+}
