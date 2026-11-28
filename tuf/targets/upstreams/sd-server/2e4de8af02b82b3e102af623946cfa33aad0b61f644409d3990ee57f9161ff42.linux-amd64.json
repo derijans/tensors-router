@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "461498108",
+      "tag": "master-1150-3771ef2",
+      "published_at": "2026-11-28T11:09:01Z",
+      "payloads": [
+        {
+          "name": "sd-master-3771ef2-bin-Linux-Ubuntu-26.04-x86_64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1150-3771ef2/sd-master-3771ef2-bin-Linux-Ubuntu-26.04-x86_64.zip",
+          "length": 30975062,
+          "sha256": "c2bffc14a157b08e140478bc587a96136f52e8e4409f6d2205b826ca06477c8c"
+        }
+      ]
+    }
+  ]
+}

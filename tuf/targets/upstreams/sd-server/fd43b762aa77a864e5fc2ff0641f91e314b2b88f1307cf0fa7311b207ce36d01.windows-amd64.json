@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "repository": "https://github.com/leejet/stable-diffusion.cpp",
+  "releases": [
+    {
+      "id": "461498108",
+      "tag": "master-1150-3771ef2",
+      "published_at": "2026-11-28T11:09:01Z",
+      "payloads": [
+        {
+          "name": "sd-master-3771ef2-bin-win-cpu-x64.zip",
+          "url": "https://github.com/leejet/stable-diffusion.cpp/releases/download/master-1150-3771ef2/sd-master-3771ef2-bin-win-cpu-x64.zip",
+          "length": 19141473,
+          "sha256": "f4bc8ff671ee361bcd30a3e5ad2688ba31a46e4fdc835b2529f371b0b5e21942"
+        }
+      ]
+    }
+  ]
+}
